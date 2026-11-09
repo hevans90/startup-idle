@@ -15,6 +15,8 @@
 import { Sprite, type Texture } from "pixi.js";
 
 import { GROUND_FRAME_H, bandOf, cellToWorld, spriteY } from "../iso";
+import { keyOf, looksOf, type Look } from "../roads/looks";
+import { createRoadPainter, planeOf, type CellPaint, type RoadPainter } from "./road-paint";
 import { RAMP, idx, inBounds, rampDir, rampRise, surfaceHeightAt, VOID, type Grid } from "../grid";
 import { maskAt } from "../roads/mask";
 import { pavedRampFrame } from "../ramp-art";
@@ -31,9 +33,23 @@ export type PavedLayer = {
   scale: number;
   /** Cells drawing a substituted tile — reported, never hidden. */
   inexact: number;
+  /**
+   * ROADS PAINTED IN CODE, or null for the sheet's sprites (`?roads=sprite`,
+   * and wherever there is no canvas to paint on). @see createRoadPainter
+   */
+  painter: RoadPainter | null;
+  /** Every cell's look, as last worked out. @see refreshLooks */
+  looks: (Look | null)[];
+  /** The street's level and its zebras, per cell. @see dressPaved */
+  dress: Uint8Array | undefined;
 };
 
-export function createPavedLayer(grid: Grid, table: RoadTable, scale = 1): PavedLayer {
+/** Whether roads are painted in code here: in a browser, unless the URL asks for the sheet's. */
+export const paintsRoads = () =>
+  typeof document !== "undefined" && !!document.createElement("canvas").getContext?.("2d")
+  && !(typeof location !== "undefined" && /[?&]roads=sprite\b/.test(location.search));
+
+export function createPavedLayer(grid: Grid, table: RoadTable, scale = 1, painter: RoadPainter | null = paintsRoads() ? createRoadPainter() : null): PavedLayer {
   const n = grid.w * grid.h;
   return {
     sprites: new Array(n).fill(null),
@@ -41,7 +57,54 @@ export function createPavedLayer(grid: Grid, table: RoadTable, scale = 1): Paved
     table,
     scale,
     inexact: 0,
+    painter,
+    looks: [],
+    dress: undefined,
   };
+}
+
+/** Work out every cell's look again: before syncing cells after an edit. */
+export function refreshLooks(pl: PavedLayer, grid: Grid): void {
+  if (pl.painter) pl.looks = looksOf(grid, pl.dress);
+}
+
+/**
+ * A street's level or a zebra changed: the cells whose look did are painted
+ * again. `dress` is per cell. @see dressOf
+ */
+export function dressPaved(pl: PavedLayer, bl: BandLayer, grid: Grid, textures: Record<string, Texture>, dress: Uint8Array): void {
+  if (!pl.painter) return;
+  if (pl.dress && pl.dress.length === dress.length && pl.dress.every((v, i) => v === dress[i])) { pl.dress = dress; return; }
+  pl.dress = dress;
+  refreshLooks(pl, grid);
+  for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) syncPaved(pl, bl, grid, textures, x, y);
+}
+
+/** The cells a cell's texture paints, itself and the neighbours it joins, and their key. */
+function paintOf(pl: PavedLayer, grid: Grid, x: number, y: number): { key: string; cells: CellPaint[]; ramp: boolean } | null {
+  const L = pl.looks[idx(grid, x, y)];
+  if (!L) return null;
+  const z = surfaceHeightAt(grid, x, y);
+  const cells: CellPaint[] = [];
+  let key = keyOf(L), ramp = L.ramp !== 0;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const nx = x + dx, ny = y + dy;
+    if (!inBounds(grid, nx, ny)) continue;
+    const N = dx === 0 && dy === 0 ? L : pl.looks[idx(grid, nx, ny)];
+    if (!N) continue;
+    if (dx || dy) {
+      // Only what it joins: across an open side, or a corner level with it.
+      const side = dx < 0 ? 0 : dx > 0 ? 1 : dy < 0 ? 2 : 3;
+      const corner = (dx > 0 ? 1 : 0) + (dy > 0 ? 2 : 0);
+      if (dx && dy ? !(L.diag & (1 << corner)) || L.ramp || N.ramp : !(L.open & (1 << side))) continue;
+    }
+    const plane = planeOf(N.ramp, surfaceHeightAt(grid, nx, ny) - z);
+    if (plane.z0 > 0 || plane.zu || plane.zv) ramp = true;
+    // A neighbour's wear is in its middle, never in the margin: leave it out of the key.
+    if (dx || dy) key += `|${dx},${dy},${plane.z0},${plane.zu},${plane.zv}:${keyOf({ ...N, vr: 0 })}`;
+    cells.push({ look: dx || dy ? { ...N, vr: 0 } : N, dx, dy, ...plane });
+  }
+  return { key, cells, ramp };
 }
 
 /** Reconcile one cell's road sprite: add, re-texture, reposition or remove. */
@@ -64,6 +127,28 @@ export function syncPaved(
       pl.sprites[i] = null;
       if (pl.frames[i] !== null) pl.frames[i] = null;
     }
+    return;
+  }
+
+  if (pl.painter) {
+    if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
+    const paint = paintOf(pl, grid, x, y);
+    if (!paint) return;
+    const tex = pl.painter.textureFor(paint.key, paint.cells, paint.ramp);
+    let s = existing;
+    if (!s) {
+      s = new Sprite(tex);
+      s.roundPixels = true;
+      bl.pavedOf[bandOf(x, y)].addChild(s);
+      pl.sprites[i] = s;
+    } else if (s.texture !== tex) s.texture = tex;
+    s.anchor.set(tex.defaultAnchor?.x ?? 0.5, tex.defaultAnchor?.y ?? 1);
+    pl.frames[i] = paint.key;
+    const { wx, wy } = cellToWorld(x, y, surfaceHeightAt(grid, x, y), pl.scale);
+    s.x = wx;
+    // Its frame's bottom where a ground frame's is; no bleed, its margins meet its neighbours'.
+    s.y = spriteY(wy, GROUND_FRAME_H, pl.scale);
+    s.scale.set(pl.scale);
     return;
   }
 
@@ -117,6 +202,7 @@ export function buildPaved(
   grid: Grid,
   textures: Record<string, Texture>,
 ): void {
+  refreshLooks(pl, grid);
   for (let y = 0; y < grid.h; y++) {
     for (let x = 0; x < grid.w; x++) syncPaved(pl, bl, grid, textures, x, y);
   }
@@ -125,6 +211,8 @@ export function buildPaved(
 
 /** How many paved cells are drawing a substituted tile, and how many none at all. */
 export function recountInexact(pl: PavedLayer, grid: Grid): { inexact: number; missing: number } {
+  // Painted roads have a look for every shape: nothing stands in, nothing is missing.
+  if (pl.painter) { pl.inexact = 0; return { inexact: 0, missing: 0 }; }
   let inexact = 0, missing = 0;
   for (let y = 0; y < grid.h; y++) {
     for (let x = 0; x < grid.w; x++) {

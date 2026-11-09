@@ -54,7 +54,8 @@ import {
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
 import { buildTerrain, createTerrainLayer, type TerrainLayer } from "./render/terrain";
 import { buildCliffs, createCliffLayer, syncCliff, type CliffLayer } from "./render/cliffs";
-import { buildPaved, createPavedLayer, recountInexact, syncPaved, type PavedLayer } from "./render/paved";
+import { buildPaved, createPavedLayer, dressPaved, recountInexact, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
+import { lookDirtyCells } from "./roads/looks";
 import {
   createWaterLayer, destroyWaterLayer, drawWater, type WaterLayer,
 } from "./render/water";
@@ -2222,9 +2223,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // A road's tile depends on its EIGHT neighbours, so the paved dirty set is
     // wider than the edited set — and it is wider for a height edit too, since
     // height decides whether two paved cells are joined at all.
+    // Painted, a road's look reads further — the junction ahead, the zebra
+    // behind — and its texture its neighbours' looks: wider again.
     const pavedDirty = new Set<number>();
+    const dirtyOf = pl.painter ? lookDirtyCells : maskDirtyCells;
+    if (pl.painter && touched.length) refreshLooks(pl, grid);
     for (const c of touched) {
-      for (const n of maskDirtyCells(grid, c.x, c.y)) pavedDirty.add(n.y * grid.w + n.x);
+      for (const n of dirtyOf(grid, c.x, c.y)) pavedDirty.add(n.y * grid.w + n.x);
     }
     for (const k of pavedDirty) {
       syncPaved(pl, bl, grid, tex, k % grid.w, Math.floor(k / grid.w));
@@ -3679,6 +3684,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (streetPropsRef.current && streetNet) {
         const st = useWorldStore.getState();
         streetPropsRef.current.sync(st.grid, liveBeauty(st.grid, streetNet), st.revision, scale);
+        // What the road wears — its pavement by level, its zebras — painted into the road itself.
+        const dress = streetPropsRef.current.dress();
+        if (dress && plRef.current && blRef.current && texRef.current && plRef.current.dress !== dress) {
+          dressPaved(plRef.current, blRef.current, st.grid, texRef.current, dress);
+        }
       }
       if (lightsRef.current && blNow) {
         // Put where the map is now whenever it has changed — whichever of the

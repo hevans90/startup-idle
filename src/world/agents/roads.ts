@@ -161,8 +161,12 @@ export function routeBetween(g: Grid, from: Cell, to: Cell, keepRight = true): C
   return out.reverse();
 }
 
-/** How far right of a lone lane's middle a car keeps, tiles. */
-export const CAR_KEEP_RIGHT = 0.22;
+/**
+ * How far right of a lone lane's middle a car keeps, tiles: the middle of the
+ * painted lane, half of the carriageway's half (0.5 less the pavement and kerb,
+ * `WALK` in render/road-paint.ts) either side of the centre line.
+ */
+export const CAR_KEEP_RIGHT = 0.12;
 /** How far from a cell's middle the kerb a person walks is, tiles. */
 export const KERB = 0.38;
 

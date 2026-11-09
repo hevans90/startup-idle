@@ -54,7 +54,7 @@ describe("routes", () => {
     for (let x = 0; x < 12; x++) pave(g, x, 2);
     const path = routeBetween(g, { x: 1, y: 2 }, { x: 10, y: 2 })!;
     const car = carLine(g, path), walk = walkLine(g, path);
-    expect(car[4].y).toBeCloseTo(2.22, 6);            // right of +x is +y
+    expect(car[4].y).toBeCloseTo(2.12, 6);            // right of +x is +y, in the painted lane
     expect(Math.abs(walk[4].y - 2)).toBeCloseTo(0.38, 6);
     // On the wide road the cell is the lane.
     const a = avenue();
