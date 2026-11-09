@@ -288,7 +288,48 @@ fn cellAt(c: vec2<i32>) -> vec4<f32> {
   return textureLoad(uCells, c, 0) * 255.0;
 }
 
-fn grassAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
+// Blade lattice, in screen-shaped units (a cell's diamond is 2 across), and the frequency they fade in at.
+const BLADE_W = 0.02;
+const BLADE_H = 0.036;
+const BLADE_F = 26.0;
+/*
+ * Blades of grass, standing up the screen. In screen-shaped space — x across,
+ * y down, one unit the same length both ways — a lattice of cells each roots
+ * one blade somewhere inside it: a tapered stroke rising from its root, its
+ * own height, lean and shade, darker at the root than the tip and lit on its
+ * left. Blades rooted lower on the screen stand in front, so the rows are
+ * drawn back to front. Between them, the ground in their shadow.
+ */
+fn blades(p: vec2<f32>, base: vec3<f32>, tuft: f32, fp: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
+  let g = vec2<f32>((p.x - p.y) / BLADE_W, (p.x + p.y) * 0.5 / BLADE_H);
+  let gi = vec2<i32>(floor(g));
+  let aa = max(fp * 0.9 / BLADE_W, 0.04);
+  var col = mix(under, base * 0.8, smoothstep(0.55, 0.95, dens));
+  for (var dy = 0; dy <= 3; dy++) {
+    for (var dx = -1; dx <= 1; dx++) {
+      let c = gi + vec2<i32>(dx, dy);
+      let h1 = hash(c); let h2 = hash(c + vec2<i32>(17, 3)); let h3 = hash(c + vec2<i32>(5, 29));
+      // Thinner toward the grass's edge: fewer blades, and shorter.
+      if (hash(c + vec2<i32>(23, 11)) > dens * 1.15) { continue; }
+      let root = vec2<f32>(f32(c.x) + 0.2 + 0.6 * h1, f32(c.y) + h2);
+      let len = (1.3 + 1.5 * h3) * (0.8 + 0.4 * tuft) * mix(0.55, 1.0, dens);
+      let t = (root.y - g.y) / len;
+      if (t < 0.0 || t > 1.0) { continue; }
+      let lean = (hash(c + vec2<i32>(9, 1)) - 0.5) * 1.8;
+      let off = g.x - (root.x + lean * t * t);
+      let half = 0.34 * (1.0 - t * t);
+      let cover = 1.0 - smoothstep(half - aa, half + aa, abs(off));
+      if (cover <= 0.0) { continue; }
+      let lit = clamp(-off / max(half, 0.05), -1.0, 1.0);
+      var bc = base * mix(0.86, 1.2, t) * (0.92 + 0.16 * h1) * (1.0 + 0.1 * lit);
+      bc = mix(bc, bc * vec3<f32>(1.08, 1.02, 0.8), step(0.8, h2) * 0.6);
+      col = mix(col, bc, cover);
+    }
+  }
+  return col;
+}
+// Grass at density dens (1 a lawn, 0 none) over under, the ground it thins out onto.
+fn grassAt(p: vec2<f32>, fp: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
   var c = vec3<f32>(138.0, 181.0, 73.0) / 255.0;
   // Broad patches: lusher and drier.
   let m = fbm(p * 0.45);
@@ -297,19 +338,16 @@ fn grassAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
   // Clumps: tufts, a ridge of noise rather than a blur of it.
   let t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0);
   c = c * (1.0 + (t - 0.6) * 0.12 * shows(9.0, fp));
-  // Blades: standing up the screen — along the ground's (1, 1), which is
-  // screen-up — fine across, short along, a light tip and a dark root each.
-  let across = (p.x - p.y) * 34.0;
-  let col = floor(across);
-  let up = (p.x + p.y) * 7.0 + hash(vec2<i32>(i32(col), 77)) * 3.0;
-  let blade = fract(up);
-  let lean = hash(vec2<i32>(i32(col), i32(floor(up)))) - 0.5;
-  let s = vnoise(vec2<f32>(across + lean * blade * 2.0, floor(up) * 3.1));
-  c = c * (1.0 + ((s - 0.5) * 0.18 + (0.5 - blade) * 0.12) * shows(34.0, fp));
+  // Far off, thinning grass is a speckled fade onto the soil; close up, sparser blades.
+  let speck = vnoise(p * 18.0 + 7.0);
+  var out = mix(under, c, smoothstep(0.35, 0.7, dens + (speck - 0.5) * 0.7 * shows(18.0, fp)));
+  let bf = shows(BLADE_F, fp);
+  if (bf > 0.0) { out = mix(out, blades(p, c, t, fp, dens, under), bf); }
+  c = out;
   // A daisy now and then.
   let g = p * 14.0; let gi = vec2<i32>(floor(g));
   let r = hash(gi + vec2<i32>(91, 7));
-  if (r > 0.975) {
+  if (r > 0.975 && dens > 0.85) {
     let ctr = vec2<f32>(gi) + vec2<f32>(hash(gi + vec2<i32>(3, 1)), hash(gi + vec2<i32>(5, 9))) * 0.6 + 0.2;
     let d = length(g - ctr);
     let petal = 1.0 - smoothstep(0.11, 0.16, d);
@@ -354,11 +392,6 @@ fn sandAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
   }
   return c;
 }
-fn materialAt(k: i32, p: vec2<f32>, fp: f32) -> vec3<f32> {
-  if (k == 2) { return dirtAt(p, fp); }
-  if (k == 3) { return sandAt(p, fp); }
-  return grassAt(p, fp);
-}
 
 fn topColour(p: vec2<f32>, fp: f32) -> vec3<f32> {
   let cell = vec2<i32>(floor(p));
@@ -385,15 +418,22 @@ fn topColour(p: vec2<f32>, fp: f32) -> vec3<f32> {
     (fbm(p * 2.7 + 31.0) - 0.5) * 0.7,
     (fbm(p * 1.9 + 77.0) - 0.5) * 0.6
   );
-  let top = max(claim.x, max(claim.y, claim.z));
-  let aa = max(fp * 2.4, 0.015);
-  var wt = clamp((claim - top) / aa + 1.0, vec3<f32>(0.0), vec3<f32>(1.0));
-  wt = wt / max(wt.x + wt.y + wt.z, 0.0001);
-  var col = vec3<f32>(0.0);
-  if (wt.x > 0.0) { col = col + grassAt(p, fp) * wt.x; }
-  if (wt.y > 0.0) { col = col + dirtAt(p, fp) * wt.y; }
-  if (wt.z > 0.0) { col = col + sandAt(p, fp) * wt.z; }
-  return col;
+  // Dirt and sand meet edge to edge. Grass does not: it thins out over
+  // them, reaching a little past its border and letting the soil show
+  // through a little inside it.
+  let other = max(claim.y, claim.z);
+  let dens = select(smoothstep(-0.35, 0.15, claim.x - other), 1.0, other < -1.0);
+  var under = vec3<f32>(138.0, 181.0, 73.0) / 255.0 * 0.8;
+  if (dens < 0.999 || claim.x < -1.0) {
+    let aa = max(fp * 2.4, 0.015);
+    var wo = clamp((vec2<f32>(claim.y, claim.z) - other) / aa + 1.0, vec2<f32>(0.0), vec2<f32>(1.0));
+    wo = wo / max(wo.x + wo.y, 0.0001);
+    under = vec3<f32>(0.0);
+    if (wo.x > 0.0) { under = under + dirtAt(p, fp) * wo.x; }
+    if (wo.y > 0.0) { under = under + sandAt(p, fp) * wo.y; }
+  }
+  if (claim.x < -1.0 || dens <= 0.0) { return under; }
+  return grassAt(p, fp, dens, under);
 }
 
 fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
@@ -413,11 +453,14 @@ fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
     earth = mix(earth, earth * 1.25, (1.0 - smoothstep(0.18, 0.26, length(sg - ctr))) * shows(24.0, fp));
   }
   // The root mat under grass, the slump under sand: a lip half a step deep, ragged.
-  let lipDepth = 0.95 + (vnoise(vec2<f32>(along * 9.0, 3.0)) - 0.5) * 0.5;
+  // Strands hang over the edge: a jagged hem, one strand to a column.
+  let strand = hash(vec2<i32>(i32(floor(along * 60.0)), 41));
+  let lipDepth = 0.6 + (vnoise(vec2<f32>(along * 9.0, 3.0)) - 0.5) * 0.4 + (strand - 0.5) * 0.3 * shows(60.0, fp);
   var col = earth;
   if (k == 1 && depth < lipDepth) {
     col = select(vec3<f32>(100.0, 134.0, 52.0), vec3<f32>(124.0, 163.0, 64.0), lit) / 255.0;
-    col = col * (1.0 + (vnoise(vec2<f32>(along * 40.0, depth * 8.0)) - 0.5) * 0.25 * shows(40.0, fp));
+    col = col * mix(1.08, 0.8, depth / lipDepth);
+    col = col * (1.0 + (vnoise(vec2<f32>(along * 70.0, depth * 1.2)) - 0.5) * 0.35 * shows(70.0, fp));
   } else if (k == 3 && depth < lipDepth) {
     col = select(vec3<f32>(160.0, 154.0, 115.0), vec3<f32>(194.0, 188.0, 142.0), lit) / 255.0;
   } else if (k == 1 && depth < lipDepth + 0.25) {
@@ -492,23 +535,51 @@ vec4 cellAt(ivec2 c) {
   return texelFetch(uCells, c, 0) * 255.0;
 }
 
-vec3 grassAt(vec2 p, float fp) {
+const float BLADE_W = 0.02;
+const float BLADE_H = 0.036;
+const float BLADE_F = 26.0;
+vec3 blades(vec2 p, vec3 base, float tuft, float fp, float dens, vec3 under) {
+  vec2 g = vec2((p.x - p.y) / BLADE_W, (p.x + p.y) * 0.5 / BLADE_H);
+  ivec2 gi = ivec2(floor(g));
+  float aa = max(fp * 0.9 / BLADE_W, 0.04);
+  vec3 col = mix(under, base * 0.8, smoothstep(0.55, 0.95, dens));
+  for (int dy = 0; dy <= 3; dy++) {
+    for (int dx = -1; dx <= 1; dx++) {
+      ivec2 c = gi + ivec2(dx, dy);
+      float h1 = hash(c), h2 = hash(c + ivec2(17, 3)), h3 = hash(c + ivec2(5, 29));
+      if (hash(c + ivec2(23, 11)) > dens * 1.15) continue;
+      vec2 root = vec2(float(c.x) + 0.2 + 0.6 * h1, float(c.y) + h2);
+      float len = (1.3 + 1.5 * h3) * (0.8 + 0.4 * tuft) * mix(0.55, 1.0, dens);
+      float t = (root.y - g.y) / len;
+      if (t < 0.0 || t > 1.0) continue;
+      float lean = (hash(c + ivec2(9, 1)) - 0.5) * 1.8;
+      float off = g.x - (root.x + lean * t * t);
+      float half_ = 0.34 * (1.0 - t * t);
+      float cover = 1.0 - smoothstep(half_ - aa, half_ + aa, abs(off));
+      if (cover <= 0.0) continue;
+      float lit = clamp(-off / max(half_, 0.05), -1.0, 1.0);
+      vec3 bc = base * mix(0.86, 1.2, t) * (0.92 + 0.16 * h1) * (1.0 + 0.1 * lit);
+      bc = mix(bc, bc * vec3(1.08, 1.02, 0.8), step(0.8, h2) * 0.6);
+      col = mix(col, bc, cover);
+    }
+  }
+  return col;
+}
+vec3 grassAt(vec2 p, float fp, float dens, vec3 under) {
   vec3 c = vec3(138.0, 181.0, 73.0) / 255.0;
   float m = fbm(p * 0.45);
   c = mix(c, vec3(0.60, 0.70, 0.30), smoothstep(0.55, 0.85, m) * 0.25);
   c *= 0.96 + 0.08 * fbm(p * 0.9 + 5.0);
   float t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0);
   c *= 1.0 + (t - 0.6) * 0.12 * shows(9.0, fp);
-  float across = (p.x - p.y) * 34.0;
-  float col = floor(across);
-  float up = (p.x + p.y) * 7.0 + hash(ivec2(int(col), 77)) * 3.0;
-  float blade = fract(up);
-  float lean = hash(ivec2(int(col), int(floor(up)))) - 0.5;
-  float s = vnoise(vec2(across + lean * blade * 2.0, floor(up) * 3.1));
-  c *= 1.0 + ((s - 0.5) * 0.18 + (0.5 - blade) * 0.12) * shows(34.0, fp);
+  float speck = vnoise(p * 18.0 + 7.0);
+  vec3 out_ = mix(under, c, smoothstep(0.35, 0.7, dens + (speck - 0.5) * 0.7 * shows(18.0, fp)));
+  float bf = shows(BLADE_F, fp);
+  if (bf > 0.0) out_ = mix(out_, blades(p, c, t, fp, dens, under), bf);
+  c = out_;
   vec2 g = p * 14.0; ivec2 gi = ivec2(floor(g));
   float r = hash(gi + ivec2(91, 7));
-  if (r > 0.975) {
+  if (r > 0.975 && dens > 0.85) {
     vec2 ctr = vec2(gi) + vec2(hash(gi + ivec2(3, 1)), hash(gi + ivec2(5, 9))) * 0.6 + 0.2;
     float d = length(g - ctr);
     float petal = 1.0 - smoothstep(0.11, 0.16, d);
@@ -574,15 +645,19 @@ vec3 topColour(vec2 p, float fp) {
     (fbm(p * 2.7 + 31.0) - 0.5) * 0.7,
     (fbm(p * 1.9 + 77.0) - 0.5) * 0.6
   );
-  float top = max(claim.x, max(claim.y, claim.z));
-  float aa = max(fp * 2.4, 0.015);
-  vec3 wt = clamp((claim - top) / aa + 1.0, vec3(0.0), vec3(1.0));
-  wt /= max(wt.x + wt.y + wt.z, 0.0001);
-  vec3 col = vec3(0.0);
-  if (wt.x > 0.0) col += grassAt(p, fp) * wt.x;
-  if (wt.y > 0.0) col += dirtAt(p, fp) * wt.y;
-  if (wt.z > 0.0) col += sandAt(p, fp) * wt.z;
-  return col;
+  float other = max(claim.y, claim.z);
+  float dens = other < -1.0 ? 1.0 : smoothstep(-0.35, 0.15, claim.x - other);
+  vec3 under = vec3(138.0, 181.0, 73.0) / 255.0 * 0.8;
+  if (dens < 0.999 || claim.x < -1.0) {
+    float aa = max(fp * 2.4, 0.015);
+    vec2 wo = clamp((vec2(claim.y, claim.z) - other) / aa + 1.0, vec2(0.0), vec2(1.0));
+    wo /= max(wo.x + wo.y, 0.0001);
+    under = vec3(0.0);
+    if (wo.x > 0.0) under += dirtAt(p, fp) * wo.x;
+    if (wo.y > 0.0) under += sandAt(p, fp) * wo.y;
+  }
+  if (claim.x < -1.0 || dens <= 0.0) return under;
+  return grassAt(p, fp, dens, under);
 }
 
 vec3 wallColour(vec2 p, float kind, float depth, float fp) {
@@ -599,11 +674,13 @@ vec3 wallColour(vec2 p, float kind, float depth, float fp) {
     vec2 ctr = vec2(si) + vec2(hash(si), hash(si + ivec2(1, 1))) * 0.5 + 0.25;
     earth = mix(earth, earth * 1.25, (1.0 - smoothstep(0.18, 0.26, length(sg - ctr))) * shows(24.0, fp));
   }
-  float lipDepth = 0.95 + (vnoise(vec2(along * 9.0, 3.0)) - 0.5) * 0.5;
+  float strand = hash(ivec2(int(floor(along * 60.0)), 41));
+  float lipDepth = 0.6 + (vnoise(vec2(along * 9.0, 3.0)) - 0.5) * 0.4 + (strand - 0.5) * 0.3 * shows(60.0, fp);
   vec3 col = earth;
   if (k == 1 && depth < lipDepth) {
     col = (lit ? vec3(124.0, 163.0, 64.0) : vec3(100.0, 134.0, 52.0)) / 255.0;
-    col *= 1.0 + (vnoise(vec2(along * 40.0, depth * 8.0)) - 0.5) * 0.25 * shows(40.0, fp);
+    col *= mix(1.08, 0.8, depth / lipDepth);
+    col *= 1.0 + (vnoise(vec2(along * 70.0, depth * 1.2)) - 0.5) * 0.35 * shows(70.0, fp);
   } else if (k == 3 && depth < lipDepth) {
     col = (lit ? vec3(194.0, 188.0, 142.0) : vec3(160.0, 154.0, 115.0)) / 255.0;
   } else if (k == 1 && depth < lipDepth + 0.25) {
