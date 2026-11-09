@@ -1,6 +1,7 @@
 /**
  * World v2 — A STREET MADE FINE, SEEN: what each level of a street puts on
- * its pavements (@see liveBeauty):
+ * its pavements (@see liveBeauty), and the pavements themselves relaid —
+ * concrete flags, then brick, then York stone and setts (@see paving):
  *  1. trees, planters and bins;
  *  2. lamp posts, benches, brick along the kerb and crossings at its ends;
  *  3. café tables, bunting between some of its lamps, and murals on its houses.
@@ -18,6 +19,7 @@ import { bandOf } from "../iso";
 import { streetsOf, type Streets } from "../roads/streets";
 import { isPaved } from "../roads/mask";
 import { makePen, mix, tone, type Pen } from "../structures/projects/pen";
+import { hash } from "../structures/projects/model";
 import { tree } from "../structures/projects/looks";
 import type { BandLayer } from "./bands";
 import { faceOf } from "./shopfronts";
@@ -70,7 +72,7 @@ export function streetPropsOf(g: Grid, streets: Streets, b: Beauty): { props: St
         if (isPaved(g, x + dx, y + dy)) continue;
         // Each kerb its own beat, so the two sides of a street do not match.
         const n = k + (side === "S" || side === "E" ? 2 : 0);
-        if (level >= 2) props.push({ kind: "brick", x, y, side, level });
+        props.push({ kind: "brick", x, y, side, level });
         if (end) continue;
         const at = (kind: StreetProp["kind"]) => props.push({ kind, x, y, side, level });
         if (level >= 2 && n % 4 === 0) at("lamp");
@@ -106,7 +108,7 @@ export function streetPropsOf(g: Grid, streets: Streets, b: Beauty): { props: St
   return { props, murals };
 }
 
-const IRON = 0x2b2f33, LAMP_ON = 0xffe2a0, WOOD = 0xa67a4a, BRICK = 0xa85a42, GRANITE = 0xb9b9b2;
+const IRON = 0x2b2f33, LAMP_ON = 0xffe2a0, WOOD = 0xa67a4a;
 const BUNTING = [0xe0533d, 0xf2c230, 0x3d8be0, 0x45b07a, 0xf27aa8, 0xf2efe6];
 const MURAL = [[0xf27aa8, 0x3fc1c9, 0xf2c230], [0x7a4fd0, 0xe58a2b, 0x45b07a], [0x3d8be0, 0xf2efe6, 0xe0533d]];
 const PARASOL = [0xe0533d, 0x2f8f6b, 0x3d6fb5, 0xe58a2b];
@@ -196,6 +198,113 @@ function beacon(p: Pen, u: number, v: number) {
   p.dot(u - 0.015, v, 1.86, 0.02, 0xffe2a0);
 }
 
+// ─── THE PAVEMENT, RELAID ───────────────────────────────────────────────────
+
+/** How deep the pavement is from the tile's edge, and its kerb beyond. */
+const PAVE = 0.165, KERB = 0.03;
+
+/** A piece of paving in a kerb's own terms: `a` along it, `d` in from the tile's edge. */
+type Piece = { a0: number; a1: number; d0: number; d1: number; c: number };
+
+/**
+ * One tile's paving, by its level, in pieces along its kerb from 0 to 1. A
+ * pattern may run past either end: the tile before's last pieces are what
+ * lies in the lap. `at` is the tile's place along the kerb, `row` which kerb.
+ */
+function piecesOf(level: number, at: number, row: number): Piece[] {
+  const out: Piece[] = [];
+  const h = (k: number) => hash(at * 131.7 + row * 17.3 + k * 7.31);
+  if (level <= 1) {
+    // CONCRETE FLAGS, square, two across, each a shade of its own.
+    const n = 11, J = 0.006;
+    for (let i = 0; i < n; i++) for (let r = 0; r < 2; r++) {
+      const k = h(i * 2 + r);
+      out.push({ a0: i / n + J / 2, a1: (i + 1) / n - J / 2, d0: (r * PAVE) / 2 + J / 2, d1: ((r + 1) * PAVE) / 2 - J / 2, c: tone(0xd2cfc6, 0.95 + k * 0.08) });
+    }
+    return out;
+  }
+  if (level === 2) {
+    // CLAY BRICK in courses along the kerb, each course half a brick on from
+    // the last; a soldier course of them on end along the kerb.
+    const n = 14, J = 0.005, course = 0.033, courses = 4;
+    const REDS = [0xa85a42, 0xb4634a, 0x9a5038, 0xbd7055];
+    for (let c = 0; c < courses; c++) {
+      const off = c % 2 ? 0.5 / n : 0;
+      for (let i = -1; i <= n; i++) {
+        const a0 = i / n + off, a1 = (i + 1) / n + off;
+        if (a1 <= 0 || a0 >= 1) continue;
+        const k = hash(Math.round((at + a0) * 1000) * 0.37 + c * 3.1 + row * 5.7);
+        out.push({ a0: a0 + J / 2, a1: a1 - J / 2, d0: c * course + J / 2, d1: (c + 1) * course - J / 2, c: REDS[Math.floor(k * REDS.length)] });
+      }
+    }
+    const s0 = courses * course, m = n * 2;
+    for (let i = 0; i < m; i++) {
+      const k = h(100 + i);
+      out.push({ a0: i / m + J / 2, a1: (i + 1) / m - J / 2, d0: s0 + J / 2, d1: PAVE - J / 2, c: tone(0x8f4a36, 0.92 + k * 0.14) });
+    }
+    return out;
+  }
+  // YORK STONE: big flags in two rows, of lengths of their own, in the buffs
+  // and greys of the stone; a band of granite setts along the kerb.
+  const STONES = [0xd6bf92, 0xc7ad84, 0xdfcca2, 0xbca98e, 0xcdb48a, 0xb9ab95];
+  const J = 0.007, d0 = 0.024, d1 = 0.078, d2 = 0.13;
+  // Along the house side, a band of brick headers.
+  for (let i = 0; i < 28; i++) out.push({ a0: i / 28 + 0.003, a1: (i + 1) / 28 - 0.003, d0: 0.003, d1: d0 - 0.003, c: tone(0xa85a42, 0.9 + h(300 + i) * 0.2) });
+  for (const [r, n, z0, z1] of [[0, 3, d0, d1], [1, 4, d1, d2]] as const) {
+    const cut = [0];
+    for (let i = 1; i < n; i++) cut.push(i / n + (h(r * 10 + i) - 0.5) * (0.5 / n));
+    cut.push(1);
+    for (let i = 0; i < n; i++) {
+      const k = h(r * 10 + i + 50);
+      out.push({ a0: cut[i] + J / 2, a1: cut[i + 1] - J / 2, d0: z0 + J / 2, d1: z1 - J / 2, c: tone(STONES[Math.floor(k * STONES.length)], 0.96 + h(r * 10 + i + 80) * 0.08) });
+    }
+  }
+  const m = 30;
+  for (let i = 0; i < m; i++) for (let r = 0; r < 2; r++) {
+    const k = h(200 + i * 2 + r);
+    const off = r ? 0.5 / m : 0;
+    const a0 = i / m + off, a1 = (i + 1) / m + off;
+    out.push({ a0: a0 + 0.004, a1: Math.min(1 + off, a1) - 0.004, d0: d2 + r * ((PAVE - d2) / 2) + 0.003, d1: d2 + (r + 1) * ((PAVE - d2) / 2) - 0.003, c: tone(0x7a7d80, 0.85 + k * 0.3) });
+  }
+  return out;
+}
+
+/** What lies between the pieces: concrete's joints, brick's mortar, stone's grit. */
+const JOINT = [0, 0xb3b0a7, 0x8a7c6c, 0x857a68];
+/** The kerb, by level: granite, lighter and wider at the finest. */
+const KERB_OF = [0, 0xb9b8b0, 0xb5b4ac, 0xc9c8c0];
+
+/**
+ * A PAVEMENT RELAID, by the street's level: under the props, over the road's
+ * own pavement, a granite kerb along its road edge and its shadow on the road.
+ * It laps back over the tile behind along the kerb: that one is a band
+ * earlier, and this tile's road sprite, a hair wider than its diamond, paints
+ * over the end of its paving — so this one's covers it again, with the tile
+ * behind's own last pieces.
+ */
+function paving(p: Pen, pr: StreetProp) {
+  const level = Math.max(1, Math.min(3, pr.level ?? 1));
+  const along = alongU(pr.side);
+  const at = along ? pr.x : pr.y, row = (along ? pr.y : pr.x) * 4 + "NESW".indexOf(pr.side);
+  const rect = (a0: number, a1: number, d0: number, d1: number, z: number, c: number, al?: number) => {
+    const [u0, v0] = onKerb(pr.side, a0, d0), [u1, v1] = onKerb(pr.side, a1, d1);
+    p.flat(Math.min(u0, u1), Math.min(v0, v1), Math.max(u0, u1), Math.max(v0, v1), z, c, al);
+  };
+  rect(-LAP, 1, 0, PAVE, 0.011, JOINT[level]);
+  for (const [k, shift] of [[at - 1, -1], [at, 0]] as const) {
+    for (const q of piecesOf(level, k, row)) {
+      const a0 = Math.max(shift ? -LAP : 0, q.a0 + shift), a1 = Math.min(shift ? 0 : 1, q.a1 + shift);
+      if (a1 > a0) rect(a0, a1, q.d0, q.d1, 0.012, q.c);
+    }
+  }
+  // THE KERB: its top, a lit edge along it, and its shadow on the road.
+  const kc = KERB_OF[level], kw = level === 3 ? KERB * 1.3 : KERB;
+  rect(-LAP, 1, PAVE, PAVE + kw, 0.013, kc);
+  rect(-LAP, 1, PAVE, PAVE + 0.006, 0.014, mix(kc, 0xffffff, 0.35));
+  for (let i = 0; i < 6; i++) rect(i / 6 - 0.002, i / 6 + 0.002, PAVE, PAVE + kw, 0.014, tone(kc, 0.8));
+  rect(-LAP, 1, PAVE + kw, PAVE + kw + 0.012, 0.013, 0x000000, 0.22);
+}
+
 const DRAW: Record<StreetProp["kind"], (p: Pen, pr: StreetProp) => void> = {
   tree: (p, pr) => {
     const [u, v] = onKerb(pr.side, 0.5, IN + 0.02);
@@ -247,28 +356,7 @@ const DRAW: Record<StreetProp["kind"], (p: Pen, pr: StreetProp) => void> = {
       else p.box(u + back * 0.05 - 0.01, v - hv, u + back * 0.05 + 0.01, v + hv, z, z + 0.06, WOOD);
     }
   },
-  brick: (p, pr) => {
-    // The pavement in brick, laid herringbone, a granite kerb along its road edge.
-    const along = alongU(pr.side);
-    // From a little BEHIND the tile's edge: the tile behind along the kerb is a
-    // band earlier, and this tile's road sprite, a hair wider than its diamond,
-    // paints over the end of that one's brick — so this one's covers it again.
-    const [u0, v0] = onKerb(pr.side, -LAP, 0), [u1, v1] = onKerb(pr.side, 1, 0.17);
-    const lu = Math.min(u0, u1), lv = Math.min(v0, v1), hu = Math.max(u0, u1), hv = Math.max(v0, v1);
-    p.flat(lu, lv, hu, hv, 0.012, BRICK);
-    // The bricks laid from the tile's own edge, the one in the lap the same as the tile behind's last.
-    const ou = along ? lu + LAP : lu, ov = along ? lv : lv + LAP;
-    for (let k = -1; k < 14; k++) {
-      const t = k / 14;
-      for (let j = 0; j < 2; j++) {
-        const c = (k + 14 + j) % 2 ? tone(BRICK, 1.12) : tone(BRICK, 0.9);
-        if (along) p.flat(Math.max(lu, ou + t), lv + 0.01 + j * 0.075, ou + t + 0.06, lv + 0.07 + j * 0.075, 0.013, c);
-        else p.flat(lu + 0.01 + j * 0.075, Math.max(lv, ov + t), lu + 0.07 + j * 0.075, ov + t + 0.06, 0.013, c);
-      }
-    }
-    const [g0, h0] = onKerb(pr.side, -LAP, 0.15), [g1, h1] = onKerb(pr.side, 1, 0.185);
-    p.flat(Math.min(g0, g1), Math.min(h0, h1), Math.max(g0, g1), Math.max(h0, h1), 0.014, GRANITE);
-  },
+  brick: (p, pr) => paving(p, pr),
   crossing: (p, pr) => {
     // Zebra bars across the road, a broken give-way line before them each way,
     // and buff studded paving at the kerbs for the blind.

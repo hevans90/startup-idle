@@ -74,10 +74,12 @@ export function doorsOf(g: Grid, net: Network): Map<number, number> {
 /**
  * A FIXTURE'S STREETS, AT THE LEVELS IT SAYS: each street the level its first
  * tile is given, whatever is met on it — so every level can be looked at
- * side by side. Only ever set by a fixture. @see buildStreets
+ * side by side. Set by a fixture as it builds, cleared by any fixture's
+ * building; held here, not by the grid, so that an edit which hands the map a
+ * new grid keeps it. @see buildStreets, applyFixture
  */
-const pinned = new WeakMap<Grid, (x: number, y: number) => number>();
-export function pinBeauty(g: Grid, levelAt: (x: number, y: number) => number) { pinned.set(g, levelAt); }
+let pinned: ((x: number, y: number) => number) | null = null;
+export function pinBeauty(levelAt: ((x: number, y: number) => number) | null) { pinned = levelAt; }
 
 /** A beauty with its streets set to the levels pinned for its map. Pure. */
 export function pinnedBeauty(g: Grid, streets: Streets, b: Beauty, levelAt: (x: number, y: number) => number): Beauty {
@@ -90,16 +92,15 @@ export function pinnedBeauty(g: Grid, streets: Streets, b: Beauty, levelAt: (x: 
   return { street, tile, home, homes: b.homes };
 }
 
-let memo: { g: Grid | null; rev: number; cover: Coverage | null; value: Beauty | null } = { g: null, rev: -1, cover: null, value: null };
+let memo: { g: Grid | null; rev: number; cover: Coverage | null; pin: ((x: number, y: number) => number) | null; value: Beauty | null } = { g: null, rev: -1, cover: null, pin: null, value: null };
 
 /** Every street's level on this map now, worked out again when the map or what is met has changed. */
 export function liveBeauty(g: Grid, net: Network): Beauty {
   const cover = liveCoverage(g, net);
-  if (memo.g !== g || memo.rev !== g.rev || memo.cover !== cover || !memo.value) {
+  if (memo.g !== g || memo.rev !== g.rev || memo.cover !== cover || memo.pin !== pinned || !memo.value) {
     const streets = streetsOf(g);
     const b = beautyOf(g, streets, doorsOf(g, net), (s) => fullyServed(s, cover));
-    const pin = pinned.get(g);
-    memo = { g, rev: g.rev, cover, value: pin ? pinnedBeauty(g, streets, b, pin) : b };
+    memo = { g, rev: g.rev, cover, pin: pinned, value: pinned ? pinnedBeauty(g, streets, b, pinned) : b };
   }
   return memo.value!;
 }

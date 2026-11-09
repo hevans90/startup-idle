@@ -1041,6 +1041,8 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
+  // Streets at their own levels only on the fixture that pins them. @see buildStreets
+  pinBeauty(null);
   const cx = Math.floor(g.w / 2), cy = Math.floor(g.h / 2);
   switch (id) {
     case "flat": clear(g, material); recomputeHeightRange(g); return;
@@ -1226,7 +1228,7 @@ export function buildStreets(g: Grid, material: number) {
   for (const id of big) { put(id, x, Y3 - (structureDef(id)?.footprint.h ?? 1)); x += (structureDef(id)?.footprint.w ?? 1) + 1; }
   startLadder(g, SERVICE_DEFS.map((d) => d.id));
   // Each street at its row's level; the roads joining them, and the fourth, at the finest.
-  pinBeauty(g, (_x, y) => (y === rows[0] ? 1 : y === rows[1] ? 2 : 3));
+  pinBeauty((_x, y) => (y === rows[0] ? 1 : y === rows[1] ? 2 : 3));
   edited(g);
 }
 
