@@ -20,7 +20,8 @@ import { boreCost, buildCost } from "../../game/build-cost";
 import { useTicking } from "../../hooks/use-ticking";
 import { MAIN_BORE, MAIN_END, idx, inBounds } from "../grid";
 import { structureDef } from "../structures/def";
-import { findMains, hasMain, mainReportAt, planMain, previewMain, previewSewer, routeMain, type MainReport, type MainState } from "../water/mains";
+import { findMains, hasMain, mainReportAt, planMain, previewMain, previewSewer, routeMain, type MainReport } from "../water/mains";
+import { SAYS, sayOf } from "../water/main-says";
 
 const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
 
@@ -71,30 +72,6 @@ export function MainCard() {
   );
 }
 
-/** What each state means, said plainly. @see MainState */
-const SAYS: Record<MainState, { text: string; tone: "good" | "warn" | "bad" }> = {
-  flowing: { text: "Carrying water", tone: "good" },
-  full: { text: "Every tank it feeds is full: it carries more as they drink", tone: "good" },
-  dry: { text: "Dry: the water at its intake has gone", tone: "bad" },
-  "no-head": { text: "The water is too low to reach the building: it needs a pump", tone: "warn" },
-  burst: { text: "Burst at a joint: pouring into the street, nothing reaching its buildings", tone: "bad" },
-  "backed-up": { text: "Backed up: its slop is coming up at a manhole", tone: "bad" },
-  unpaid: { text: "Its pump has stopped: not enough money to run it", tone: "bad" },
-  "no-source": { text: "Draws from nothing: one end must be at water", tone: "bad" },
-  "no-outlet": { text: "Feeds nothing: one end must be at an inlet of a building that drinks", tone: "bad" },
-};
-/** And a sewer's. Nothing moves in one till workplaces fill with slop. @see solveSewer */
-const SEWER_SAYS: Partial<Record<MainState, { text: string; tone: "good" | "warn" | "bad" }>> = {
-  flowing: { text: "Joined up: its workplaces drain into it", tone: "good" },
-  "no-source": { text: "Drains nothing: one end must be at a workplace's slop port, or pass in front of one", tone: "bad" },
-  "no-outlet": { text: "Goes nowhere: one end must pour into water, or feed a processor", tone: "bad" },
-};
-/** And a lateral's: from a workplace into a manhole. @see solveSewer */
-const LATERAL_SAYS: Partial<Record<MainState, { text: string; tone: "good" | "warn" | "bad" }>> = {
-  flowing: { text: "Draining into the sewer", tone: "good" },
-  "no-source": { text: "Drains nothing: start it at a workplace's slop port", tone: "bad" },
-  "no-outlet": { text: "Its sewer has no exit yet", tone: "warn" },
-};
 const TONE = { good: "text-good", warn: "text-warn", bad: "text-bad" };
 
 /**
@@ -153,7 +130,7 @@ export function MainInfo() {
 function SewerInfo({ r, at, onClose }: { r: MainReport; at: { x: number; y: number }; onClose: () => void }) {
   const st = useWorldStore.getState(), g = st.grid;
   const lateral = r.sewer!.node !== undefined;
-  const say = (lateral ? LATERAL_SAYS[r.state] : SEWER_SAYS[r.state]) ?? SEWER_SAYS.flowing!;
+  const say = sayOf(r);
   const net = findMains(g).list[findMains(g).of[idx(g, at.x, at.y)]];
   const narrow = net ? net.cells.filter((i) => !(g.main[i] & MAIN_BORE)).length : 0;
   const nameOf = (id: number) => structureDef(g.structures.get(id)?.def ?? "")?.name ?? "a building";

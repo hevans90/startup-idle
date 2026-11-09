@@ -30,6 +30,8 @@ import { allTanks } from "../projects/cooling";
 import { HEIGHT_UNIT, HH, HW, surfaceHeight } from "../iso";
 import { findMains, joined, mainReportAt, mainReports, type MainState } from "../water/mains";
 import { portsOf, type PortCell } from "../water/ports";
+import { sayOf, type Say } from "../water/main-says";
+import { pointerRead } from "../debug/pointer-at";
 import type { BandLayer } from "./bands";
 import { lookOf } from "../structures/projects/looks";
 import { portSetback } from "../structures/projects/entries";
@@ -91,6 +93,8 @@ const SLOP_IN = 0x7a5230, SLOP_LUMP = 0x3f2a18;
 /** The water in a main, and the warning at one that cannot deliver; the light running along it. */
 const WATER = 0x5fb7ff, WARN = 0xf2a33a, STREAK = 0xeaf6ff;
 const INK = 0x16181c;
+/** A sign opened out: its card's width and padding, screen pixels. */
+const TIP_W = 230, TIP_PAD = 8;
 
 /**
  * A WARNING SIGN over a main that cannot deliver: a rounded triangle `r`
@@ -98,7 +102,8 @@ const INK = 0x16181c;
  * `foot`, and a ring going out from it every second and a half — the sign
  * itself steady, so it reads at a glance.
  */
-function warnSign(g: Graphics, x: number, y: number, r: number, foot: number, colour: number, t: number) {
+function warnSign(g: Graphics, x: number, y: number, r: number, foot: number, colour: number, t: number, open = false) {
+  if (open) r *= 1.15;
   const line = Math.max(1, r * 0.11);
   // The pin, down to the fitting.
   g.moveTo(x, y + r * 0.62).lineTo(x, foot);
@@ -106,9 +111,11 @@ function warnSign(g: Graphics, x: number, y: number, r: number, foot: number, co
   g.circle(x, foot, line * 1.4);
   g.fill({ color: INK, alpha: 0.55 });
   // The ring, going out and fading.
-  const k = (t / 1.5) % 1;
-  g.circle(x, y, r * (1 + 0.9 * k));
-  g.stroke({ color: colour, width: line * 1.2, alpha: 0.6 * (1 - k) });
+  if (!open) {
+    const k = (t / 1.5) % 1;
+    g.circle(x, y, r * (1 + 0.9 * k));
+    g.stroke({ color: colour, width: line * 1.2, alpha: 0.6 * (1 - k) });
+  }
   // The sign: a triangle, corners rounded by round-joined strokes — ink outside, its own colour in.
   const h = r * 0.95, tri = [x, y - h, x + h * 1.08, y + h * 0.62, x - h * 1.08, y + h * 0.62];
   g.poly(tri).stroke({ color: INK, width: line * 4.2, join: "round", alpha: 0.85 });
@@ -287,6 +294,18 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   const words = new Container();
   words.eventMode = "none";
   overlay.addChild(words);
+  // THE SIGN UNDER THE POINTER, opened out: what is wrong, said plainly, over everything. @see signTip
+  const tip = new Container();
+  tip.eventMode = "none";
+  tip.visible = false;
+  const tipBack = new Graphics();
+  const TIP_FONT = { fontFamily: "system-ui, sans-serif", wordWrap: true, wordWrapWidth: TIP_W - 2 * TIP_PAD };
+  const tipTitle = new Text({ text: "", style: { ...TIP_FONT, fontSize: 12, fontWeight: "700", fill: 0xffffff } });
+  const tipText = new Text({ text: "", style: { ...TIP_FONT, fontSize: 11, fill: 0xd6dde6, lineHeight: 15 } });
+  tip.addChild(tipBack, tipTitle, tipText);
+  overlay.addChild(tip);
+  /** The sign last opened, and its box in the layer, so the pointer can move onto it and keep it open. */
+  let opened: { key: string; box: [number, number, number, number] } | null = null;
   const pool: Text[] = [];
   let wordsAt = -Infinity;
   /** The zoom the numbers were last set out for: a new one sets them out again at once. */
@@ -639,7 +658,45 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         }
       }
       const { list } = findMains(g);
-      if (!list.length) return;
+      // Each sign this frame; the one under the pointer opened out after them all.
+      const signs: { key: string; x: number; y: number; r: number; colour: number; say: Say }[] = [];
+      const signTip = () => {
+        const ptr = pointerRead(), unit = 1 / (flow.worldTransform.a || 1);
+        let hit: (typeof signs)[number] | null = null;
+        if (ptr) {
+          const keep = opened && signs.find((q) => q.key === opened!.key);
+          const [x0, y0, x1, y1] = opened?.box ?? [0, 0, 0, 0];
+          if (keep && ptr.wx >= x0 && ptr.wx <= x1 && ptr.wy >= y0 && ptr.wy <= y1) hit = keep;
+          else for (const q of signs) if (Math.hypot(ptr.wx - q.x, ptr.wy - q.y) <= Math.max(q.r * 1.25, 10 * unit)) hit = q;
+        }
+        if (!hit) { tip.visible = false; opened = null; return; }
+        opened = { key: hit.key, box: openSign(hit, unit) };
+      };
+      /** A sign opened out: a dark card from its right, its title in its colour, what is wrong under it. Returns its box. */
+      const openSign = (q: (typeof signs)[number], unit: number): [number, number, number, number] => {
+        tipTitle.text = q.say.title;
+        tipTitle.style.fill = q.colour;
+        tipText.text = q.say.text;
+        const w = TIP_W, h = TIP_PAD * 2 + tipTitle.height + 3 + tipText.height;
+        tipTitle.position.set(TIP_PAD, TIP_PAD);
+        tipText.position.set(TIP_PAD, TIP_PAD + tipTitle.height + 3);
+        tipBack.clear();
+        tipBack.roundRect(0, 0, w, h, 4).fill({ color: INK, alpha: 0.94 }).stroke({ color: q.colour, width: 1, alpha: 0.9 });
+        tipBack.rect(0, 4, 3, h - 8).fill({ color: q.colour });
+        // Beside the sign, its middle at the sign's, on the side toward the
+        // middle of the screen — the panels cover its right; in screen pixels whatever the zoom.
+        const gap = q.r * 1.3, half = Math.max(q.r * 1.25, (h / 2) * unit);
+        const left = flow.toGlobal({ x: q.x, y: q.y }).x > (globalThis.innerWidth ?? 0) * 0.4;
+        const x0 = left ? q.x - gap - w * unit : q.x + gap;
+        tip.scale.set(unit);
+        tip.position.set(x0, q.y - (h / 2) * unit);
+        tip.visible = true;
+        // Over every other mark on the map, whatever was added after it.
+        if (tip.parent && tip.parent.children[tip.parent.children.length - 1] !== tip) tip.parent.addChild(tip);
+        // The box the pointer may cross to it and stay on it: the sign and the card.
+        return [Math.min(x0, q.x - q.r * 1.25), q.y - half, Math.max(x0 + w * unit, q.x + q.r * 1.25), q.y + half];
+      };
+      if (!list.length) { signTip(); return; }
       const hoverAt = hover && inBounds(g, hover.x, hover.y) ? idx(g, hover.x, hover.y) : null;
       for (const net of list) {
         const first = net.cells[0], fx = first % g.w, fy = (first / g.w) | 0;
@@ -739,10 +796,13 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
             const tube = nearestOn(routes.get(i) ?? [], x, y);
             const foot = tube ? P(scale, tube[0], tube[1], tube[2] / ZT) : P(scale, x, y, levelAt(g, x, y));
             const top = net.intakes.length ? c[1] - ow * 2.4 : foot[1] - ow * 1.9;
-            warnSign(flow, foot[0], top, ow * 0.7, foot[1], STATE_COLOUR[state], t + i * 0.37);
+            const key = `${i}:${state}`;
+            warnSign(flow, foot[0], top, ow * 0.7, foot[1], STATE_COLOUR[state], t + i * 0.37, opened?.key === key);
+            if (r) signs.push({ key, x: foot[0], y: top, r: ow * 0.7, colour: STATE_COLOUR[state], say: sayOf(r) });
           }
         }
       }
+      signTip();
       // EACH BAND'S WINDOWS, written again: what is in each, and its glass. Far ones first.
       for (const { write, panes } of windows.values()) {
         live.nv = live.ni = 0;
@@ -754,6 +814,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       clear();
       flow.parent?.removeChild(flow);
       flow.destroy();
+      tip.parent?.removeChild(tip);
+      tip.destroy({ children: true });
       words.parent?.removeChild(words);
       words.destroy({ children: true });
     },
