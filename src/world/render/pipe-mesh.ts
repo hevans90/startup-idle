@@ -237,6 +237,8 @@ export const FLANGE_R = 1.4, FLANGE_T = 0.025, BOLTS = 6;
 export const BEND_R = 0.35;
 /** A tee's weld collar: how much wider than the tube, and where along the stub, in tube radii. */
 const COLLAR_R = 1.14, COLLAR_FROM = 0.85, COLLAR_TO = 1.2;
+/** A drop's collar where it goes into the ground: how much wider than the tube, and how tall, in tube radii. */
+const DROP_COLLAR = COLLAR_R * 1.15, DROP_LIP = 0.6;
 
 /** `colour` darkened to `k` of itself. */
 const darker = (colour: number, k: number) =>
@@ -641,6 +643,23 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
   if (limbs.length === 0) {
     // A LONE FITTING, joined to nothing yet: as if its main came in from the far side.
     if (kind) fitting(m, s, kind, x, y, h, g, 1, 0, look); else ball(m, s, x, y, h, r, c, sides);
+  } else if (limbs.length === 1 && kind === "drop") {
+    // A DROP: one sweep in along the limb, round a quarter circle and straight down into its collar.
+    const l = limbs[0], lip = r * DROP_LIP, R = r * DROP_COLLAR, foot = g + lip;
+    const br = Math.max(r * 1.2, Math.min(BEND_R, (h - foot) * 0.85));
+    const lead = halfPath(x, y, z, l, br, 0, sides);
+    const path: Pt[] = lead.path.reverse();
+    const steps = arcSteps(sides);
+    for (let k = 1; k <= steps; k++) {
+      const t = (k / steps) * (Math.PI / 2), along = br * (1 - Math.sin(t));
+      path.push([x + l.dx * along, y + l.dy * along, h - br + br * Math.cos(t)]);
+    }
+    if (h - br > foot) path.push([x, y, foot]);
+    // The collar's top first, so the pipe stands in front of its far half; its band after, in front of all.
+    const collar = solid(darker(look.colour, 0.7));
+    hring(m, s, x, y, foot, r, R, collar, sides);
+    sw(path, [lead.out.map((k) => -k), [0, 0, -1]]);
+    tube(m, s, x, y, foot, x, y, g, R, collar, sides);
   } else if (limbs.length === 1) {
     // A LOOSE END: its fitting, facing out the way the main ends — the length reaching only to a house's wall — or a dome.
     const l = limbs[0];
@@ -804,13 +823,12 @@ function fitting(m: PipeMesh, s: number, kind: Fitting, x: number, y: number, h:
       flange(m, s, x, y, h, ou, ov, r, FITTING.cap, sides, bolts, true);
       return;
     case "drop": {
-      // The knuckle, a round downpipe from it into the ground, and an iron collar where it goes in:
-      // the collar's top first, so the pipe stands in front of its far half; its band after, in front of all.
-      const c = solid(look.colour), collar = solid(darker(look.colour, 0.7)), R = r * COLLAR_R * 1.15, lip = r * 0.6;
-      hring(m, s, x, y, g + lip, r, R, collar, sides);
-      tube(m, s, x, y, h, x, y, g + lip, r, c, sides);
+      // Alone, joined to nothing: a downpipe into its collar. Joined, it is a sweep. @see pipeCell
+      const c = solid(look.colour), collar = solid(darker(look.colour, 0.7)), R = r * DROP_COLLAR, foot = g + r * DROP_LIP;
+      hring(m, s, x, y, foot, r, R, collar, sides);
+      tube(m, s, x, y, h, x, y, foot, r, c, sides);
       ball(m, s, x, y, h, r, c, sides);
-      tube(m, s, x, y, g + lip, x, y, g, R, collar, sides);
+      tube(m, s, x, y, foot, x, y, g, R, collar, sides);
       return;
     }
     case "outlet":
