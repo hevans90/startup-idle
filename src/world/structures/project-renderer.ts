@@ -242,7 +242,7 @@ function drawCrew(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number
       }
     } else {
       // A BUILDER from the sheet, hammering or walking, at their own height.
-      hand.key = posePerson(hand.parts, P!, "builder", w.working, w.heading, w.phase, ctx.scale, heightOf(id), hand.key);
+      hand.key = posePerson(hand.parts, P!, "builder", w.working ? "work" : "walk", w.heading, w.phase, ctx.scale, heightOf(id), hand.key);
       const x = (m.x - m.y) * HW * ctx.scale, y = (m.x + m.y) * HH * ctx.scale - m.z * HEIGHT_UNIT * ctx.scale;
       for (const sp of hand.parts) sp.position.set(x, y);
       hand.load!.clear();

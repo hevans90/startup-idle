@@ -17,7 +17,7 @@ const BASE = "/isometric_assets/derived";
 export type PersonLook = { tex: Texture[]; anchor: { x: number; y: number }[] };
 export type PeopleSprites = {
   res: number; headings: number; strides: number;
-  figures: Map<string, { walk: PersonLook[]; work?: PersonLook[] }>;
+  figures: Map<string, { walk: PersonLook[]; work?: PersonLook[]; sit: PersonLook[] }>;
 };
 
 export const bakedPeople = () =>
@@ -39,7 +39,7 @@ export async function loadPeopleSprites(): Promise<PeopleSprites> {
     return { tex, anchor };
   };
   const figures: PeopleSprites["figures"] = new Map();
-  for (const [id, f] of Object.entries(sheet.figures)) figures.set(id, { walk: f.walk.map(cut), work: f.work?.map(cut) });
+  for (const [id, f] of Object.entries(sheet.figures)) figures.set(id, { walk: f.walk.map(cut), work: f.work?.map(cut), sit: f.sit.map(cut) });
   return { res: sheet.res, headings: sheet.headings, strides: sheet.strides, figures };
 }
 
@@ -52,21 +52,23 @@ export const peopleLoaded = () => loaded;
 
 /**
  * Turn a person's five sprites to the frame for their heading and their step
- * — or their hammer's swing, at work — at the map's scale and their height.
+ * — or their hammer's swing, at work, or sat down — at the map's scale and
+ * their height.
  * Answers the frame's key, so a caller can skip it when nothing has changed.
  */
 export function posePerson(
-  parts: readonly Sprite[], P: PeopleSprites, figure: string, work: boolean,
+  parts: readonly Sprite[], P: PeopleSprites, figure: string, pose: "walk" | "work" | "sit",
   heading: number, phase: number, scale: number, height: number, was = "",
 ): string {
   const fig = P.figures.get(figure)!;
-  const frames = work && fig.work ? fig.work : fig.walk;
   const h = headingIndex(heading, P.headings);
+  const sat = pose === "sit";
+  const frames = sat ? fig.sit : pose === "work" && fig.work ? fig.work : fig.walk;
   const p = (((phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
-  const f = Math.round(p * P.strides) % P.strides;
-  const key = `figure|${figure}|${frames === fig.work ? "w" : ""}|${h}|${f}|${scale}|${height}`;
+  const f = sat ? 0 : Math.round(p * P.strides) % P.strides;
+  const key = `figure|${figure}|${sat ? "s" : frames === fig.work ? "w" : ""}|${h}|${f}|${scale}|${height}`;
   if (key === was) return key;
-  const look = frames[h * P.strides + f], k = (scale / P.res) * height;
+  const look = frames[sat ? h : h * P.strides + f], k = (scale / P.res) * height;
   look.tex.forEach((t, j) => { const sp = parts[j]; sp.texture = t; sp.anchor.set(look.anchor[j].x, look.anchor[j].y); sp.scale.set(k); });
   return key;
 }

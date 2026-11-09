@@ -23,6 +23,8 @@ export const PERSON_GAP = 3;
 
 /** The soft shadow at a person's feet. @see BakeOpts */
 export const PERSON_SHADOW = { hl: 0, hw: 0, edge: 0.1, soft: 0.16, strength: 0.38, reach: 0.2 };
+/** None sat down: the seat under them throws its own. */
+export const SITTER_SHADOW = { ...PERSON_SHADOW, strength: 0 };
 
 /**
  * A frame: its page and where it starts, then each layer cropped to what it
@@ -34,6 +36,9 @@ export type PersonFrame = number[];
 export type PeopleSheet = {
   res: number; headings: number; strides: number; layers: number;
   pages: string[];
-  /** Each figure's walk, `headings × strides` frames heading by heading; and, if it works, its work. */
-  figures: Record<string, { walk: PersonFrame[]; work?: PersonFrame[] }>;
+  /**
+   * Each figure's walk, `headings × strides` frames heading by heading; if it
+   * works, its work; and sat down, a frame a heading.
+   */
+  figures: Record<string, { walk: PersonFrame[]; work?: PersonFrame[]; sit: PersonFrame[] }>;
 };

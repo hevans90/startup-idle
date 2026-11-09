@@ -12,7 +12,7 @@
  * band, built only when the streets' levels or the map change — never a
  * frame at a time. @see createCultureProps, render-group rebuilds
  */
-import { Graphics } from "pixi.js";
+import { Graphics, type Container } from "pixi.js";
 
 import { housedBy } from "../../game/housing";
 import type { Beauty } from "../agents/beauty";
@@ -24,6 +24,11 @@ import { dressOf } from "../roads/looks";
 import { makePen, mix, tone, type Pen } from "../structures/projects/pen";
 import { tree } from "../structures/projects/looks";
 import type { BandLayer } from "./bands";
+import type { Seat } from "../agents/town";
+import { TILES_PER_M } from "../agents/cars/models";
+import { SEATS_M } from "../props/models";
+import { PROP_TINT } from "../props/props-format";
+import { bakedProps, propSprite, propSprites, propsLoaded, turnOf, type PropSprites } from "../props/props-sheet";
 import { faceOf } from "./shopfronts";
 
 /** A prop on a road tile: which, its tile, and the kerb it stands by. */
@@ -358,20 +363,78 @@ export type StreetProps = {
   sync: (g: Grid, b: Beauty, rev: number, scale: number) => void;
   /** What the road wears, as of the last sync that changed anything: a new array each time. @see roadDressOf */
   dress: () => Uint8Array | null;
+  /** The benches' seats, as last laid out. @see seatsOf */
+  seats: () => Seat[];
   destroy: () => void;
 };
 
+/** Which way a prop at a kerb faces: away from the kerb, into the street. */
+const FACING: Record<StreetProp["side"], number> = { N: Math.PI / 2, S: -Math.PI / 2, W: 0, E: Math.PI };
+
+/** A street tree from the sheet, by kind: a lime, a hornbeam, a cherry in blossom. */
+const STREET_TREE = ["lime", "hornbeam", "cherry"] as const;
+
+/** A colour a touch lighter or darker, by a hash of where it is: no two trees quite alike. */
+const vary = (c: number, x: number, y: number) => tone(c, 0.9 + 0.2 * (((x * 73856093) ^ (y * 19349663)) >>> 0) % 100 / 100);
+
+/** Where a prop stands, in tiles, and the turn it faces: for the sheet. */
+function standOf(pr: StreetProp, a: number, d: number) {
+  const [u, v] = onKerb(pr.side, a, d);
+  return { u: pr.x - 0.5 + u, v: pr.y - 0.5 + v, turn: turnOf(FACING[pr.side]) };
+}
+
+/** What of a street's props comes from the sheet: a container of sprites, or null to draw it as before. */
+function bakedProp(P: PropSprites, pr: StreetProp, z: number, scale: number): Container | null {
+  if (pr.kind === "tree") {
+    const kind = STREET_TREE[(pr.level ?? 1) >= 3 && (pr.x + pr.y) % 3 === 0 ? 2 : (pr.x * 7 + pr.y * 3) % 2];
+    const s = standOf(pr, 0.5, IN + 0.02);
+    return propSprite(P, kind, (pr.x + pr.y * 3) % 4, s.u, s.v, z, scale, vary(PROP_TINT[kind], pr.x, pr.y), 0.85);
+  }
+  if (pr.kind === "bench") { const s = standOf(pr, 0.5, IN); return propSprite(P, "bench", s.turn, s.u, s.v, z, scale); }
+  if (pr.kind === "table") {
+    const s = standOf(pr, 0.5, IN + 0.04);
+    return propSprite(P, "cafe", s.turn, s.u, s.v, z, scale, PARASOL[(pr.x * 3 + pr.y) % PARASOL.length]);
+  }
+  return null;
+}
+
+/** A street tree's pit in the paving: an iron grate. Drawn under the baked tree. */
+function treePit(p: Pen, pr: StreetProp) {
+  const [u, v] = onKerb(pr.side, 0.5, IN + 0.02);
+  p.flat(u - 0.05, v - 0.05, u + 0.05, v + 0.05, 0.008, IRON);
+  for (const k of [-0.025, 0, 0.025]) p.flat(u + k - 0.004, v - 0.045, u + k + 0.004, v + 0.045, 0.009, 0x4a5058);
+}
+
+/** A bench's seats: its two places, where a walker sits and which way they face. @see Town.seats */
+export function seatsOf(props: readonly StreetProp[]): Seat[] {
+  const seats: Seat[] = [];
+  for (const pr of props) {
+    if (pr.kind !== "bench") continue;
+    const [u, v] = onKerb(pr.side, 0.5, IN), bench = `${pr.x},${pr.y},${pr.side}`;
+    SEATS_M.forEach((m, k) => {
+      const along = m * TILES_PER_M;
+      const [du, dv] = alongU(pr.side) ? [along, 0] : [0, along];
+      seats.push({ key: `${bench}:${k}`, bench, x: pr.x - 0.5 + u + du, y: pr.y - 0.5 + v + dv, heading: FACING[pr.side] });
+    });
+  }
+  return seats;
+}
+
 export function createStreetProps(bands: BandLayer): StreetProps {
-  let drawn: Graphics[] = [];
+  let drawn: Container[] = [];
   let key = "";
   let dress: Uint8Array | null = null;
+  let seats: Seat[] = [];
   const clear = () => {
-    for (const gr of drawn) { gr.parent?.removeChild(gr); gr.destroy(); }
+    for (const gr of drawn) { gr.parent?.removeChild(gr); gr.destroy({ children: true }); }
     drawn = [];
   };
   return {
     sync(g, b, rev, scale) {
-      const k = `${rev}|${scale}|${b.street.join("")}`;
+      // The sheet once it is in; drawn as before until then, and drawn again when it comes.
+      const P = bakedProps() ? propsLoaded() : null;
+      if (bakedProps() && !P) void propSprites();
+      const k = `${rev}|${scale}|${b.street.join("")}|${P ? "baked" : ""}`;
       if (k === key) return;
       key = k;
       clear();
@@ -395,10 +458,21 @@ export function createStreetProps(bands: BandLayer): StreetProps {
       const streets = streetsOf(g);
       dress = roadDressOf(g, streets, b);
       const { props, murals } = streetPropsOf(g, streets, b);
+      seats = seatsOf(props);
       for (const pr of props) {
         const tier = pr.side === "N" || pr.side === "W" ? "back" : "front";
         const gr = graphicsAt(pr.x, pr.y, tier);
-        if (gr) DRAW[pr.kind](makePen(gr, pr.x - 0.5, pr.y - 0.5, g.height[idx(g, pr.x, pr.y)], scale, null), pr);
+        if (!gr) continue;
+        const z = g.height[idx(g, pr.x, pr.y)];
+        const pen = makePen(gr, pr.x - 0.5, pr.y - 0.5, z, scale, null);
+        const sp = P && bakedProp(P, pr, z, scale);
+        if (sp) {
+          // FROM THE SHEET, over its tier's drawing, in the same band. @see props-sheet
+          if (pr.kind === "tree") treePit(pen, pr);
+          sp.zIndex = gr.zIndex + 0.01;
+          gr.parent!.addChild(sp);
+          drawn.push(sp);
+        } else DRAW[pr.kind](pen, pr);
       }
       for (const m of murals) {
         const gr = graphicsAt(m.x, m.y, "back");
@@ -406,6 +480,7 @@ export function createStreetProps(bands: BandLayer): StreetProps {
       }
     },
     dress: () => dress,
+    seats: () => seats,
     destroy: clear,
   };
 }

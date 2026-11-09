@@ -41,12 +41,14 @@ const COLOUR: Record<Mat, [number, number, number]> = {
   skin: [1, 1, 1], top: [1, 1, 1], bottom: [1, 1, 1], hair: [1, 1, 1],
   shoe: [0.13, 0.12, 0.11], bag: [0.2, 0.21, 0.23], hivis: [0.86, 0.96, 0.18], hardhat: [0.96, 0.76, 0.14],
   seam: [0.3, 0.3, 0.32], arch: [0.05, 0.05, 0.06], rim: [0.7, 0.72, 0.75], spoke: [0.08, 0.08, 0.09],
+  leaf: [1, 1, 1], canvas: [1, 1, 1], bark: [0.36, 0.27, 0.19], birchBark: [0.86, 0.85, 0.8], wood: [0.62, 0.44, 0.27],
+  iron: [0.15, 0.16, 0.18], stone: [0.74, 0.72, 0.67], water: [0.3, 0.56, 0.7], linen: [0.95, 0.94, 0.9], spray: [0.88, 0.94, 0.98],
 };
 /** How glossy: the highlight's strength and tightness. Paint and glass shine; tyres and plastic don't. */
 const GLOSS: Partial<Record<Mat, [number, number]>> = {
   paint: [0.38, 36], roofBlack: [0.3, 36], roofWhite: [0.3, 36], glass: [0.7, 70], chrome: [0.65, 24], rim: [0.45, 20],
   liveryWhite: [0.32, 36], liveryBlack: [0.38, 36], liveryRed: [0.32, 36], liveryGreen: [0.3, 36], livery: [0.25, 30], liveryAlt: [0.25, 30],
-  lamp: [0.4, 40], tail: [0.4, 40],
+  lamp: [0.4, 40], tail: [0.4, 40], water: [0.6, 50], iron: [0.25, 20],
   hair: [0.12, 14], skin: [0.06, 10], hardhat: [0.4, 30], shoe: [0.15, 20],
 };
 const PAINTED: ReadonlySet<Mat> = new Set(["paint"]);

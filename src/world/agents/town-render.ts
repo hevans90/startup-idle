@@ -325,7 +325,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         front = baseCorners(car, (h / sheet!.headings) * Math.PI * 2);
       } else if (fig && d.baked) {
         // FROM THE PEOPLE SHEET: the frame for their heading and step, or their hammer's swing.
-        d.key = posePerson(d.parts, people!, figId!, atWork(m), m.heading, m.phase, scale, heightOf(m.id), d.key);
+        d.key = posePerson(d.parts, people!, figId!, m.sit ? "sit" : atWork(m) ? "work" : "walk", m.heading, m.phase, scale, heightOf(m.id), d.key);
         d.c.position.set(x, y);
         front = PERSON_BASE;
       } else {
@@ -341,7 +341,8 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       let band = -Infinity;
       for (const p of front) band = Math.max(band, Math.round(m.x + p.u) + Math.round(m.y + p.v));
       band = Math.max(0, Math.min(bands.bands.length - 1, band));
-      const z = m.x + m.y - band;
+      // SAT ON A BENCH: in front of one that faces the camera, behind the back of one that faces away. @see street-props
+      const z = m.x + m.y - band + (m.sit ? 0.06 * Math.sign(Math.cos(m.heading) + Math.sin(m.heading)) : 0);
       if (band !== d.band) {
         d.c.parent?.removeChild(d.c);
         d.c.zIndex = z;

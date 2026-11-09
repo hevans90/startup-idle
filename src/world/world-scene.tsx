@@ -122,7 +122,7 @@ const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
-import { stepTown } from "./agents/town";
+import { seatsByCell, stepTown, type Seat } from "./agents/town";
 import { moveOut, stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution, townChanged, withTier } from "./agents/services";
 import { stepTown as stepTownServices } from "./agents/town-services";
@@ -418,6 +418,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const shopsRef = useRef<Shopfronts | null>(null);
   /** What a fine street puts on its pavements. @see createStreetProps */
   const streetPropsRef = useRef<StreetProps | null>(null);
+  /** The seats last given the town. */
+  const seatsRef = useRef<Seat[] | null>(null);
   /** Seconds to Ship It Fridays' next release party. @see SHIP_EVERY */
   const shipIn = useRef(0);
   const soundClock = useRef(0);
@@ -3690,6 +3692,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (streetPropsRef.current && streetNet) {
         const st = useWorldStore.getState();
         streetPropsRef.current.sync(st.grid, liveBeauty(st.grid, streetNet), st.revision, scale);
+        // THE BENCHES' SEATS, for the town's walkers to sit on. @see Town.seats
+        const seats = streetPropsRef.current.seats();
+        if (seats !== seatsRef.current) { seatsRef.current = seats; getTown().seats = seatsByCell(st.grid, seats); }
         // What the road wears — its pavement by level, its zebras — painted into the road itself.
         const dress = streetPropsRef.current.dress();
         if (dress && plRef.current && blRef.current && texRef.current && plRef.current.dress !== dress) {

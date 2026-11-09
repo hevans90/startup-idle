@@ -21,7 +21,7 @@ describe("figures", () => {
   });
 
   test("every material lands on one of the five layers", () => {
-    for (const f of FIGURES) for (const t of figureTris(f, 0.3, false, 1)) {
+    for (const f of FIGURES) for (const t of figureTris(f, 0.3, "walk", 1)) {
       const k = layerOfMat(t.mat);
       expect(k).toBeGreaterThanOrEqual(0); expect(k).toBeLessThan(PERSON_LAYERS.length);
     }
@@ -29,7 +29,7 @@ describe("figures", () => {
 
   test("a frame bakes the same pixels twice, and a walker stands on their origin", () => {
     const f = FIGURES[0];
-    const bake = () => bakeTris(figureTris(f, 1.1, false, 1), 0.4, PERSON_RES, { layers: PERSON_LAYERS.length, layerOf: layerOfMat, shadow: PERSON_SHADOW });
+    const bake = () => bakeTris(figureTris(f, 1.1, "walk", 1), 0.4, PERSON_RES, { layers: PERSON_LAYERS.length, layerOf: layerOfMat, shadow: PERSON_SHADOW });
     const a = bake(), b = bake();
     expect(a.ox).toBe(b.ox); expect(a.oy).toBe(b.oy);
     a.layers.forEach((l, i) => expect(Buffer.from(l.px).equals(Buffer.from(b.layers[i].px))).toBe(true));

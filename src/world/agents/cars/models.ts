@@ -21,7 +21,8 @@ export type Mat =
   | "roofBlack" | "roofWhite" | "seat" | "interior"
   | "liveryWhite" | "liveryBlack" | "liveryRed" | "liveryGreen" | "load" | "brick" | "gravel" | "aiLoad" | "sign" | "violet"
   | "seam" | "arch" | "rim" | "spoke"
-  | "skin" | "top" | "bottom" | "hair" | "shoe" | "bag" | "hivis" | "hardhat";
+  | "skin" | "top" | "bottom" | "hair" | "shoe" | "bag" | "hivis" | "hardhat"
+  | "leaf" | "canvas" | "bark" | "birchBark" | "wood" | "iron" | "stone" | "water" | "linen" | "spray";
 
 export type Faces = { side?: Mat; top?: Mat; front?: Mat; back?: Mat };
 

@@ -74,7 +74,7 @@ const mul = (a: V3, k: number): V3 => [a[0] * k, a[1] * k, a[2] * k];
 const lerp = (a: V3, b: V3, t: number): V3 => add(a, mul(sub(b, a), t));
 
 /** Smooth triangles of a quad with a normal at each corner, skipping slivers. */
-function quad(q: V3[], ns: V3[], mat: Mat, out: Tri[], paint?: (p: V3) => Mat) {
+export function quad(q: V3[], ns: V3[], mat: Mat, out: Tri[], paint?: (p: V3) => Mat) {
   for (const [a, b, c] of [[0, 1, 2], [0, 2, 3]]) {
     if (Math.hypot(...cross(sub(q[b], q[a]), sub(q[c], q[a]))) < 1e-10) continue;
     const n = norm(add(add(ns[a], ns[b]), ns[c]));
@@ -83,7 +83,7 @@ function quad(q: V3[], ns: V3[], mat: Mat, out: Tri[], paint?: (p: V3) => Mat) {
 }
 
 /** An ellipsoid round `c`, radii along, across and up; `paint` picks its material at each point. */
-function ball(c: V3, r: V3, mat: Mat, out: Tri[], paint?: (p: V3) => Mat, U = 12, V = 8) {
+export function ball(c: V3, r: V3, mat: Mat, out: Tri[], paint?: (p: V3) => Mat, U = 12, V = 8) {
   const at = (i: number, j: number): [V3, V3] => {
     const th = (i / U) * Math.PI * 2, ph = -Math.PI / 2 + (j / V) * Math.PI;
     const d: V3 = [Math.cos(ph) * Math.cos(th), Math.cos(ph) * Math.sin(th), Math.sin(ph)];
@@ -96,7 +96,7 @@ function ball(c: V3, r: V3, mat: Mat, out: Tri[], paint?: (p: V3) => Mat, U = 12
 }
 
 /** A limb from `a` to `b`, `ra` thick at one end and `rb` at the other, a ball at each joint. */
-function limb(a: V3, b: V3, ra: number, rb: number, mat: Mat, out: Tri[], N = 8, joints = true) {
+export function limb(a: V3, b: V3, ra: number, rb: number, mat: Mat, out: Tri[], N = 8, joints = true) {
   const axis = norm(sub(b, a));
   const helper: V3 = Math.abs(axis[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
   const e1 = norm(cross(axis, helper)), e2 = cross(axis, e1);
@@ -117,7 +117,7 @@ function limb(a: V3, b: V3, ra: number, rb: number, mat: Mat, out: Tri[], N = 8,
  * `rl` deep and `rw` wide — rounded, a little squarer than an ellipse — capped
  * at the top. `paint` picks its material at each point.
  */
-function loft(rings: { z: number; l: number; rl: number; rw: number }[], mat: Mat, out: Tri[], paint?: (p: V3) => Mat, N = 14) {
+export function loft(rings: { z: number; l: number; rl: number; rw: number }[], mat: Mat, out: Tri[], paint?: (p: V3) => Mat, N = 14) {
   const pt = (r: (typeof rings)[number], k: number): V3 => {
     const t = (k / N) * Math.PI * 2, c = Math.cos(t), s = Math.sin(t);
     const sq = (x: number) => Math.sign(x) * Math.abs(x) ** 0.8;
@@ -144,12 +144,19 @@ function loft(rings: { z: number; l: number; rl: number; rw: number }[], mat: Ma
 
 // ─── THE POSE ────────────────────────────────────────────────────────────────
 
+export type Pose = "walk" | "work" | "sit";
+
+/** How high a sitter's hips are, metres: on a seat 0.45 m up. @see props SEAT_Z */
+export const SIT_HIP = 0.56;
+
 /**
- * A figure posed: walking at `phase` (π a step, as the town counts it), or at
+ * A figure posed: walking at `phase` (π a step, as the town counts it); at
  * work — feet planted and the arm nearer the camera, `near` (+1 left, −1
- * right), swinging a hammer.
+ * right), swinging a hammer; or sitting, on a seat under the origin, facing
+ * forward, hands in their lap.
  */
-export function figureTris(f: Figure, phase: number, work: boolean, near: number): Tri[] {
+export function figureTris(f: Figure, phase: number, pose: Pose, near: number): Tri[] {
+  const work = pose === "work", sit = pose === "sit";
   const out: Tri[] = [];
   const b = f.build, fem = !!f.fem;
   const hipW = (fem ? 0.08 : 0.088) * b, shW = (fem ? 0.162 : 0.185) * b;
@@ -159,6 +166,14 @@ export function figureTris(f: Figure, phase: number, work: boolean, near: number
   // THE LEGS: the thigh swings through the stride, the knee bends as it comes through.
   type Leg = { hip: V3; knee: V3; ankle: V3; foot: number };
   const leg = (side: number): Leg => {
+    if (sit) {
+      // Thighs along the seat, shins down to the ground: lifted by how far the hips are dropped.
+      const lift = HIP_Z - SIT_HIP;
+      return {
+        hip: [0, side * hipW, HIP_Z], knee: [THIGH, side * (hipW + 0.015), HIP_Z + 0.02],
+        ankle: [THIGH + 0.06, side * (hipW + 0.03), ANKLE_Z + lift], foot: 0,
+      };
+    }
     if (work) {
       const hip: V3 = [0, side * hipW, HIP_Z - 0.03];
       const ankle: V3 = [side * 0.05, side * (hipW + 0.04), ANKLE_Z];
@@ -173,7 +188,7 @@ export function figureTris(f: Figure, phase: number, work: boolean, near: number
   };
   const L = leg(1), R = leg(-1);
   // Whole body down so the lower foot is on the ground: the walk's bob.
-  const drop = Math.min(L.ankle[2], R.ankle[2]) - ANKLE_Z;
+  const drop = sit ? HIP_Z - SIT_HIP : Math.min(L.ankle[2], R.ankle[2]) - ANKLE_Z;
   const at = (p: V3): V3 => [p[0], p[1], p[2] - drop];
 
   for (const g of [L, R]) {
@@ -207,7 +222,7 @@ export function figureTris(f: Figure, phase: number, work: boolean, near: number
   }
 
   // THE BODY, hips to shoulders, leaning into the walk; its lower part is the bottoms.
-  const lean = work ? 0.01 : 0.025;
+  const lean = sit ? -0.03 : work ? 0.01 : 0.025;
   const waist = 1.0 - drop;
   const top: Mat = "top";
   const vest = (p: V3): Mat => {
@@ -238,7 +253,15 @@ export function figureTris(f: Figure, phase: number, work: boolean, near: number
     ring(1.43, lean, 0.1, 0.182),
     ring(1.49, lean, 0.06, 0.09),
   ], top, out, vest);
-  if (f.lower === "skirt") {
+  if (f.lower === "skirt" && sit) {
+    // Sat in: drawn forward over the thighs to a hem at the knee.
+    loft([
+      ring(1.03, lean * 0.3, 0.092, 0.125),
+      ring(0.97, 0.03, 0.13, 0.19),
+      ring(0.9, 0.24, 0.31, 0.2),
+      ring(0.83, 0.25, 0.32, 0.21),
+    ].reverse(), "bottom", out);
+  } else if (f.lower === "skirt") {
     loft([
       // An A-line from the waist, over the hips, to a hem below the knee.
       ring(1.03, lean * 0.3, 0.092, 0.125),
@@ -253,7 +276,8 @@ export function figureTris(f: Figure, phase: number, work: boolean, near: number
     const g = side > 0 ? L : R;
     const shoulder: V3 = [lean, side * shW, SHOULDER_Z - drop];
     let up: number, fore: number;
-    if (work) { up = side === near ? 1.2 + 0.9 * Math.sin(phase) : 0.45; fore = up + 0.6; }
+    if (sit) { up = 0.3; fore = 1.35; }
+    else if (work) { up = side === near ? 1.2 + 0.9 * Math.sin(phase) : 0.45; fore = up + 0.6; }
     else { const th = Math.asin((g.knee[0] - g.hip[0]) / THIGH); up = -0.8 * th; fore = up + 0.35; }
     const out1 = side * 0.06;
     const elbow = add(shoulder, [Math.sin(up) * UPPER_ARM, out1 * 0.5, -Math.cos(up) * UPPER_ARM]);
@@ -285,7 +309,7 @@ export function figureTris(f: Figure, phase: number, work: boolean, near: number
   if (f.hair === "long") ball([hl - 0.05, 0, hz - 0.1], [0.07, 0.095, 0.16], "hair", out);
   if (f.hair === "bun") ball([hl - 0.085, 0, hz + 0.06], [0.05, 0.05, 0.05], "hair", out, undefined, 8, 6);
   if (f.hair === "ponytail") {
-    const swing = work ? 0 : 0.03 * Math.sin(phase * 2);
+    const swing = work || sit ? 0 : 0.03 * Math.sin(phase * 2);
     limb([hl - 0.09, 0, hz + 0.03], [hl - 0.16, swing, hz - 0.16], 0.035, 0.022, "hair", out, 6);
   }
   if (f.hair === "curly") ball([hl - 0.025, 0, hz + 0.035], [0.105, 0.105, 0.105], "hair", out, (p) => (p[0] > hl + 0.05 && p[2] < hz + 0.04 ? "skin" : "hair"));

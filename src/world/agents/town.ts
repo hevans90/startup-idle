@@ -78,7 +78,18 @@ export type Mover = {
    * one end into the road. @see town-render
    */
   pitch?: number;
+  /**
+   * SAT ON A BENCH, a walker for a while: where and facing which way, the
+   * seat's key, and seconds left. Their place on their line waits for them.
+   * @see Seat
+   */
+  sit?: { x: number; y: number; heading: number; seat: string; left: number };
+  /** The bench they last sat on, so they don't sit straight back down on it. */
+  sat?: string;
 };
+
+/** A place on a bench: which bench and which place on it, where, facing which way. Set by the scene. @see street-props */
+export type Seat = { key: string; bench: string; x: number; y: number; heading: number };
 
 export type Town = {
   /**
@@ -94,6 +105,8 @@ export type Town = {
   culture?: { remote: number; shuttle: boolean; vans: boolean };
   /** People out for a stroll, over the town's own: one a home on the finest streets. Set by the scene. @see liveBeauty */
   strollers?: number;
+  /** The benches' seats, by the cell they are on. Set by the scene. @see seatsByCell */
+  seats?: Map<number, Seat[]>;
   movers: Mover[];
   /** Movers on a job that arrived since the last look. @see stepWorks */
   arrived: Mover[];
@@ -498,7 +511,17 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
 
   // MOVING, each car minding only the cars near it. @see nearGrid
   const near = nearGrid(cars);
+  const taken = new Set<string>();
+  for (const m of t.movers) if (m.sit) taken.add(m.sit.seat);
   for (const m of t.movers) {
+    // SAT DOWN, until they've had their rest.
+    if (m.sit) {
+      m.sit.left -= h;
+      if (m.sit.left > 0) continue;
+      m.sat = m.sit.seat.slice(0, m.sit.seat.lastIndexOf(":"));
+      m.sit = undefined;
+      m.speed = 0;
+    }
     // AT WORK on a site: standing, swinging a hammer. @see town-render
     if (atWork(m)) { m.phase += h * WORK_RATE; continue; }
     // AT A STOP: standing, then on its way.
@@ -530,7 +553,10 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     let d = want2 - m.heading;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     m.heading += d * Math.min(1, h * (drives(m) ? 10 : 14));
-    if (m.kind === "person") m.phase += (h * m.speed * Math.PI) / STRIDE;
+    if (m.kind === "person") {
+      m.phase += (h * m.speed * Math.PI) / STRIDE;
+      if (!m.job && t.seats) sitDown(m, t.seats, taken, g);
+    }
   }
 
   // ARRIVING, and the road going from under somebody.
@@ -544,6 +570,42 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     const c = m.path[k];
     return isPaved(g, c.x, c.y);
   });
+}
+
+/** How near a seat a walker must pass to take it, tiles; and how many of them do. */
+const SEAT_REACH = 0.1;
+const SITS = 0.3;
+
+/** The cell key a seat is filed under. */
+export const seatCell = (g: Pick<Grid, "w">, x: number, y: number) => Math.round(y) * g.w + Math.round(x);
+
+/** File seats under their cells. */
+export function seatsByCell(g: Pick<Grid, "w">, seats: readonly Seat[]): Map<number, Seat[]> {
+  const by = new Map<number, Seat[]>();
+  for (const s of seats) { const k = seatCell(g, s.x, s.y); const l = by.get(k); if (l) l.push(s); else by.set(k, [s]); }
+  return by;
+}
+
+/** A small hash of a walker and a seat, 0–1: whether they sit, and for how long. */
+const roll = (id: number, key: string, salt: number) => {
+  let h = Math.imul(id ^ salt, 0x9e3779b1);
+  for (let k = 0; k < key.length; k++) h = Math.imul(h ^ key.charCodeAt(k), 0x85ebca6b);
+  return ((h >>> 8) & 0xffff) / 0x10000;
+};
+
+/**
+ * A WALKER PASSING A FREE SEAT may sit on it: about one in three, for ten to
+ * thirty seconds, then on their way. Not the one they've just got up from.
+ */
+export function sitDown(m: Mover, seats: Map<number, Seat[]>, taken: Set<string>, g: Grid): void {
+  for (const s of seats.get(seatCell(g, m.x, m.y)) ?? []) {
+    if (taken.has(s.key) || m.sat === s.bench || Math.hypot(s.x - m.x, s.y - m.y) > SEAT_REACH) continue;
+    if (roll(m.id, s.key, 0x51) >= SITS) continue;
+    m.sit = { x: s.x, y: s.y, heading: s.heading, seat: s.key, left: 10 + 20 * roll(m.id, s.key, 0x7e) };
+    m.x = s.x; m.y = s.y; m.heading = s.heading; m.speed = 0;
+    taken.add(s.key);
+    return;
+  }
 }
 
 /** Standing at work, a builder on a site or a vibe coder mopping up sludge: not going anywhere. */
