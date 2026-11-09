@@ -162,7 +162,11 @@ export function ball(m: PipeMesh, s: number, cu: number, cv: number, ch: number,
  * level, half steps, at the face — and, where it runs into a building's
  * port, the `wall` collar's colour, its fluid's: the main meets the wall there.
  */
-export type Limb = { dx: number; dy: number; zf: number; wall?: number };
+export type Limb = {
+  dx: number; dy: number; zf: number;
+  /** Into a building's port: its fluid's colour; and how far past the cell's face its outlet stands, tiles. */
+  wall?: number; reach?: number;
+};
 
 /** How a cell's main looks: its radius, tiles; its colours as `0xRRGGBB`; its faces round. */
 export type PipeLook = {
@@ -223,8 +227,13 @@ export const FITTING = {
 /** A window's frame and a painted band: how much wider than the tube, and how long, tiles. */
 const FRAME_R = 1.12, FRAME_T = 0.0175, BAND_R = 1.05, BAND_T = 0.045;
 
-/** How far off a building's wall its port's collar stands, tiles: clear of the wall's face. */
-const WALL_GAP = 0.03;
+/**
+ * A PORT'S OUTLET: its plate on the wall, half its size in tube radii, and
+ * how thick, tiles; how far out from the wall its flange's face is, tiles.
+ * A main joined to it ends PORT_JOINT out, its own flange against that one.
+ */
+const PLATE = 2.1, PLATE_T = 0.016, PLATE_COLOUR = 0x5b636c;
+export const SPIGOT = 0.1;
 
 /** A pump house's walls, half their length in u and in v; its height at least, half steps. */
 const PUMP_U = 0.11, PUMP_V = 0.09, PUMP_TALL = 1.3;
@@ -233,6 +242,7 @@ const INTAKE = 0.06;
 
 /** A flange: how much wider than the tube, how thick, tiles; how many bolts round it. */
 export const FLANGE_R = 1.4, FLANGE_T = 0.025, BOLTS = 6;
+export const PORT_JOINT = SPIGOT + FLANGE_T / 2;
 /** A bend's radius to its middle line, tiles: most of the half tile, so it reads as a sweep. */
 export const BEND_R = 0.35;
 /** A tee's weld collar: how much wider than the tube, and where along the stub, in tube radii. */
@@ -579,9 +589,20 @@ function legs(at: { u: number; v: number; along: "u" | "v" | null }, r: number):
 export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number, limbs: readonly Limb[], look: PipeLook) {
   const h = z * ZT, { r, sides } = look, c = solid(look.colour);
   const face = (l: Limb): Pt => [x + l.dx * 0.5, y + l.dy * 0.5, l.zf * ZT];
+  // INTO A PORT, the main stops at its outlet's flange: nothing of it nearer the wall than that.
+  const walls = limbs.filter((l) => l.wall !== undefined);
+  const stopOf = (l: Limb) => 0.5 + (l.reach ?? 0) - PORT_JOINT;
+  const short = (path: readonly Pt[]): readonly Pt[] => !walls.length ? path : path.map((p): Pt => {
+    let [u, v] = p;
+    for (const l of walls) {
+      const along = (u - x) * l.dx + (v - y) * l.dy, stop = stopOf(l);
+      if (along > stop) { u -= l.dx * (along - stop); v -= l.dy * (along - stop); }
+    }
+    return [u, v, p[2]];
+  });
   // Over a road, the length nearest the camera into the next band's mesh. @see PipeLook.near
   const sw = (path: readonly Pt[], ends?: readonly [readonly number[] | null, readonly number[] | null]) =>
-    look.near ? sweepSplit(m, look.near, x, y, s, path, r, c, sides, ends) : sweep(m, s, path, r, c, sides, ends);
+    look.near ? sweepSplit(m, look.near, x, y, s, short(path), r, c, sides, ends) : sweep(m, s, short(path), r, c, sides, ends);
   // A LIMB ALONE, from `from` out of the middle — level there — to its face.
   const length = (l: Limb, from = 0) => {
     const { path, out } = halfPath(x, y, z, l, from, 0, sides);
@@ -597,10 +618,14 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     if (far(l)) { length(l, r * COLLAR_TO); collar(l); } else { collar(l); length(l, r * COLLAR_TO); }
   };
 
-  // A PORT'S COLLAR where a limb meets a building's wall: in its fluid's colour, on whichever side.
+  // INTO A PORT: the main's own flange, bolted to its outlet's — and, where
+  // that stands back past the cell's face, a straight length on to it. @see outlet
   const wall = (l: Limb) => {
-    const [fu, fv, fh] = face(l);
-    flange(m, s, fu - l.dx * WALL_GAP, fv - l.dy * WALL_GAP, fh, -l.dx, -l.dy, r, l.wall!, sides, look.bolts !== false, false, -faceSlope(l, z));
+    const stop = stopOf(l), h = l.zf * ZT;
+    const end = () => flange(m, s, x + l.dx * stop, y + l.dy * stop, h, -l.dx, -l.dy, r, look.colour, sides, look.bolts !== false, false);
+    if (stop <= 0.5) { end(); return; }
+    const on = () => tube(m, s, x + l.dx * 0.5, y + l.dy * 0.5, h, x + l.dx * stop, y + l.dy * stop, h, r, c, sides);
+    if (far(l)) { end(); on(); } else { on(); end(); }
   };
   for (const l of limbs) {
     if (!far(l)) continue;
@@ -865,30 +890,44 @@ function fitting(m: PipeMesh, s: number, kind: Fitting, x: number, y: number, h:
 }
 
 /**
- * A BUILDING'S PORT: a nozzle out of its wall, from the wall of the cell
- * at (x, y) — the building on the far side of it, along (−dx, −dy) — in
- * its fluid's colour: a steel collar at the wall, a lip at the mouth. Open,
- * with no main joined to it, it stops short of the cell's middle, dark
- * inside; joined, it reaches the middle, where the main ends, and its lip is
- * the joint. Part of the building, joined to or not.
+ * A BUILDING'S PORT, an OUTLET on its wall, at the cell (x, y) in front of
+ * it — the building on the far side, along (−dx, −dy): a square plate on the
+ * wall, a short spigot out of it in the main's own metal, and a flange at its
+ * end in the fluid's colour, bolted at the corners and round. Open, the
+ * flange shows its dark bore; joined, a main's flange is bolted to it, the
+ * main ending `PORT_JOINT` out from the wall. The wall stands `setback` in
+ * past the cell's face: an AI building's own, or an entry's at the edge of
+ * the plot (0). Part of the building, joined to or not. @see pipeCell, portSetback
  */
-export function nozzle(
+export function outlet(
   m: PipeMesh, s: number, x: number, y: number, z: number, dx: number, dy: number,
-  r: number, colour: number, steel: number, sides: number, open = true,
+  r: number, fluid: number, metal: number, sides: number, joined = false, bolts = true, setback = 0,
 ) {
-  const h = z * ZT, c = solid(colour);
-  const short = open ? 0.12 : 0;
-  const wu = x - dx * 0.5, wv = y - dy * 0.5, mu = x - dx * short, mv = y - dy * short;
-  const toward = facing(dx, dy, 0) > 0;
-  const collar = () => flange(m, s, wu + dx * 0.03, wv + dy * 0.03, h, dx, dy, r, steel, sides, false, false);
-  const lip = () => {
-    flange(m, s, mu, mv, h, dx, dy, r, colour, sides, false, false);
-    if (!open) return;
-    const o = FLANGE_T / 2 + 0.002;
-    disc(m, s, mu + dx * o, mv + dy * o, h, dx, dy, 0, r * 0.95, solid(FITTING.bore), sides);
+  const h = z * ZT, wu = x - dx * (0.5 + setback), wv = y - dy * (0.5 + setback), P = r * PLATE;
+  // Out from the wall: along u for a wall facing u, else along v; across the other, and up.
+  const at = (k: number) => [wu + dx * k, wv + dy * k] as const;
+  const plate = () => {
+    const [au, av] = at(0), [bu, bv] = at(PLATE_T);
+    const u0 = dx ? Math.min(au, bu) : wu - P, u1 = dx ? Math.max(au, bu) : wu + P;
+    const v0 = dy ? Math.min(av, bv) : wv - P, v1 = dy ? Math.max(av, bv) : wv + P;
+    box(m, s, u0, v0, h - P, u1, v1, h + P, solid(PLATE_COLOUR));
+    if (!bolts || facing(dx, dy, 0) <= 0) return;
+    // Its four bolts, in from the corners.
+    const [fu, fv] = at(PLATE_T + 0.001), k = P * 0.72, head = solid(darker(PLATE_COLOUR, 0.6));
+    for (const [a, b] of [[-k, -k], [k, -k], [-k, k], [k, k]]) {
+      disc(m, s, fu + (dx ? 0 : a), fv + (dy ? 0 : a), h + b, dx, dy, 0, P * 0.09, head, 6);
+    }
   };
-  if (toward) { collar(); tube(m, s, wu, wv, h, mu, mv, h, r * 0.85, c, sides); lip(); }
-  else { lip(); tube(m, s, mu, mv, h, wu, wv, h, r * 0.85, c, sides); collar(); }
+  const [su, sv] = at(PLATE_T), [eu, ev] = at(SPIGOT - FLANGE_T), [cu, cv] = at(SPIGOT - FLANGE_T / 2);
+  const spigot = () => tube(m, s, su, sv, h, eu, ev, h, r, solid(metal), sides);
+  const end = () => {
+    flange(m, s, cu, cv, h, dx, dy, r, fluid, sides, bolts, false);
+    if (joined) return;
+    const o = FLANGE_T / 2 + 0.002;
+    disc(m, s, cu + dx * o, cv + dy * o, h, dx, dy, 0, r * 0.8, solid(FITTING.bore), sides);
+  };
+  // Nearer draws over farther.
+  if (facing(dx, dy, 0) > 0) { plate(); spigot(); end(); } else { end(); spigot(); plate(); }
 }
 
 /** `0xRRGGBB`, opaque, as a vertex word. */

@@ -27,6 +27,7 @@ import { siteAt, topOf, type Site } from "./projects/schedule";
 import {
   OPENING, craneHeight, cranePose, craneRest, drawConfetti, drawFinished, drawSite, drawSky, jibLength,
 } from "./projects/site";
+import { structureDef } from "./def";
 import { registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
 
 type ProjectHandle = StructureHandle & {
@@ -209,7 +210,7 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
     g.clear();
     const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, h.cells[k]);
     if (site) drawSite(p, h.model, f, site, stockOf(s), laidUp(s));
-    else drawFinished(p, h.model, f);
+    else drawFinished(p, h.model, f, structureDef(s.def)?.ports);
   });
   drawCrane(h, s, ctx, ground);
   drawCrew(h, s, ctx, ground);

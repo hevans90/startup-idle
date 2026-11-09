@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
-import { BEND_R, BOLTS, FITTING, NEAR_SPLIT, SUN, VIEW, WORDS, ZT, ball, cellPaths, elbowPath, flange, nozzle, pipeCell, pipeMesh, solid, tube, windowGlass, windowSpan, type PipeMesh } from "./pipe-mesh";
+import { BEND_R, BOLTS, FITTING, NEAR_SPLIT, SUN, VIEW, WORDS, ZT, ball, cellPaths, elbowPath, flange, outlet, pipeCell, pipeMesh, solid, tube, windowGlass, windowSpan, type PipeMesh } from "./pipe-mesh";
 import { pipeFragmentGlsl, pipeShaderSource } from "./pipe-gpu";
 
 const normalOf = (m: PipeMesh, v: number) => [m.f32[v * WORDS + 2], m.f32[v * WORDS + 3], m.f32[v * WORDS + 4]];
@@ -106,16 +106,27 @@ describe("a main as a solid", () => {
     expect(plain.nv).toBeLessThan(valved.nv);
   });
 
-  test("a main into a port runs on to the wall, collared there in its fluid's colour, either side", () => {
-    for (const [l, wall] of [[N, { ...S, wall: 0x3f86c6 }], [S, { ...N, wall: 0x3f86c6 }]]) {
+  test("a main into a port stops at its outlet's flange, with its own flange there; one set back runs on to it", () => {
+    const along = (m: PipeMesh) => {
+      // How far toward the wall it reaches: the N limb runs along −v, so up and right on screen — the most screen x written.
+      let most = -Infinity;
+      for (let v = 0; v < m.nv; v++) most = Math.max(most, m.f32[v * WORDS]);
+      return most;
+    };
+    for (const [l, wall] of [[S, { ...N, wall: 0x3f86c6 }], [N, { ...S, wall: 0x3f86c6 }]]) {
       const plain = pipeMesh(), ported = pipeMesh();
       pipeCell(plain, 1, 5, 5, 1, [l, { ...wall, wall: undefined }], { ...look, flanges: false });
       pipeCell(ported, 1, 5, 5, 1, [l, wall], { ...look, flanges: false });
-      // The same run, and a flange more — its face and bolts only where they face the camera.
+      // A flange more — in the main's own colour, not the fluid's: that one is the outlet's.
       expect(ported.nv).toBeGreaterThanOrEqual(plain.nv + 14);
       const colours = new Set(Array.from({ length: ported.nv }, (_, v) => ported.u32[v * WORDS + 5]));
-      expect(colours.has(solid(0x3f86c6))).toBe(true);
+      expect(colours.has(solid(0x3f86c6))).toBe(false);
     }
+    // Set back past the cell's face, it reaches further toward the wall.
+    const at = pipeMesh(), back = pipeMesh();
+    pipeCell(at, 1, 5, 5, 1, [S, { ...N, wall: 0x3f86c6 }], { ...look, flanges: false });
+    pipeCell(back, 1, 5, 5, 1, [S, { ...N, wall: 0x3f86c6, reach: 0.4 }], { ...look, flanges: false });
+    expect(along(back)).toBeGreaterThan(along(at) + 0.3 * HW);
   });
 
   test("a window holds its water as a tube inside the glass, streaks along it, the glass over all", () => {
@@ -271,7 +282,7 @@ describe("a main as a solid", () => {
     for (const end of ENDS) {
       const m = pipeMesh();
       pipeCell(m, 1, 5, 5, 1, [N], { ...look, flanges: false, end, floor: 0 });
-      // A drain is the building's nozzle's to draw: the main is its length and the knuckle it turns at.
+      // A drain is the building outlet's to draw: the main is its length and the knuckle it turns at.
       if (end === "drain") { expect(m.nv).toBe(dome.nv); continue; }
       expect(m.nv, end).toBeGreaterThan(14);
       expect(m.nv, end).not.toBe(dome.nv);
@@ -286,25 +297,30 @@ describe("a main as a solid", () => {
     expect(y).toBeLessThan((5 + 5) * HH - (4 * ZT + 0.1) * (HEIGHT_UNIT / ZT));
   });
 
-  test("a nozzle points out of the wall: its lip toward the camera is written last", () => {
-    const toward = pipeMesh(), away = pipeMesh();
-    nozzle(toward, 1, 5, 5, 1, 1, 0, 0.1, 0x3f86c6, 0x888888, 12);
-    nozzle(away, 1, 5, 5, 1, -1, 0, 0.1, 0x3f86c6, 0x888888, 12);
-    // A lip facing the camera shows its face and the dark inside; one facing away shows neither.
-    expect(toward.nv).toBe(away.nv + 24 + 13 + 24);
-    expect(toward.u32[(toward.nv - 1) * WORDS + 5]).toBe(solid(FITTING.bore));
-    // Joined, it reaches the middle and shows no dark inside.
-    const joined = pipeMesh();
-    nozzle(joined, 1, 5, 5, 1, 1, 0, 0.1, 0x3f86c6, 0x888888, 12, false);
-    expect(joined.nv).toBe(toward.nv - 13);
+  test("an outlet: a plate on the wall, a spigot, a flange in the fluid's colour; open, its bore last", () => {
+    const open = pipeMesh(), joined = pipeMesh(), plain = pipeMesh();
+    outlet(open, 1, 5, 5, 1, 1, 0, 0.1, 0x3f86c6, 0x888888, 12);
+    outlet(joined, 1, 5, 5, 1, 1, 0, 0.1, 0x3f86c6, 0x888888, 12, true);
+    outlet(plain, 1, 5, 5, 1, 1, 0, 0.1, 0x3f86c6, 0x888888, 12, false, false);
+    // Facing the camera, the dark bore is written last; joined, none.
+    expect(open.u32[(open.nv - 1) * WORDS + 5]).toBe(solid(FITTING.bore));
+    expect(joined.nv).toBe(open.nv - 13);
+    const colours = new Set(Array.from({ length: joined.nv }, (_, v) => joined.u32[v * WORDS + 5]));
+    expect(colours.has(solid(0x3f86c6))).toBe(true);
+    // Its bolts, plate and flange, only when asked for.
+    expect(plain.nv).toBeLessThan(open.nv);
+    // Set back, the whole of it moves toward the wall: on screen, up and left by the same.
+    const back = pipeMesh();
+    outlet(back, 1, 5, 5, 1, 1, 0, 0.1, 0x3f86c6, 0x888888, 12, false, true, 0.3);
+    expect(back.f32[0]).toBeCloseTo(open.f32[0] - 0.3 * HW, 3);
   });
 
   test("everything a cell writes points somewhere real", () => {
     const m = pipeMesh();
     for (const limbs of [[N], [N, S], [E, N], [N, S, E], [N, S, E, W]]) pipeCell(m, 1, 5, 5, 1, limbs, { ...look, end: "cap" });
     for (const end of ENDS) for (const limbs of [[], [N], [E], [S], [W]]) pipeCell(m, 1, 5, 5, 1, limbs, { ...look, end, floor: 0 });
-    nozzle(m, 1, 5, 5, 1, 1, 0, 0.1, 0x3f86c6, 0x888888, 12);
-    nozzle(m, 1, 5, 5, 1, -1, 0, 0.1, 0x3f86c6, 0x888888, 12);
+    outlet(m, 1, 5, 5, 1, 1, 0, 0.1, 0x3f86c6, 0x888888, 12);
+    outlet(m, 1, 5, 5, 1, -1, 0, 0.1, 0x3f86c6, 0x888888, 12);
     for (let v = 0; v < m.nv; v++) expect(Math.hypot(...normalOf(m, v))).toBeCloseTo(1);
     for (const t of tris(m)) for (const v of t) expect(v).toBeLessThan(m.nv);
   });

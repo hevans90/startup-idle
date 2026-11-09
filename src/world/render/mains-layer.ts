@@ -31,9 +31,11 @@ import { HEIGHT_UNIT, HH, HW, surfaceHeight } from "../iso";
 import { findMains, joined, mainReportAt, mainReports, type MainState } from "../water/mains";
 import { portsOf, type PortCell } from "../water/ports";
 import type { BandLayer } from "./bands";
+import { lookOf } from "../structures/projects/looks";
+import { portSetback } from "../structures/projects/entries";
 import { destroyPipeDrawable, pipeDrawable, pipeLiveDrawable } from "./pipe-gpu";
 import {
-  FRAME_HALF, K, cellPaths, nozzle, pipeCell, pipeMesh, valve, windowGlass, windowSpan, ZT,
+  FRAME_HALF, K, cellPaths, outlet, pipeCell, pipeMesh, valve, windowGlass, windowSpan, ZT,
   type Fitting, type Limb, type PipeMesh, type Support, type WindowFill,
 } from "./pipe-mesh";
 
@@ -287,12 +289,30 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
    * rides high, a saddle on the ground — every other tile, far off — nothing
    * under a fitting: it stands on its own, or on its building's nozzle.
    */
+  /**
+   * How far in past the port's cell its outlet stands, tiles: an AI
+   * building's own wall, however far back; else 0. Once a map revision.
+   * @see portSetback
+   */
+  const setbacks = new Map<number, number>();
+  let setbackRev = -1;
+  const setbackOf = (g: Grid, p: PortCell): number => {
+    if (setbackRev !== g.rev) { setbacks.clear(); setbackRev = g.rev; }
+    let k = setbacks.get(p.i);
+    if (k === undefined) {
+      const st = g.structures.get(p.building), f = { w: st?.w ?? 1, h: st?.h ?? 1 };
+      k = st ? portSetback(lookOf(st.def, f), f, p.port) : 0;
+      setbacks.set(p.i, k);
+    }
+    return k;
+  };
+
   /** A cell's limbs, and INTO A BUILDING'S PORT: on to the wall, like any other join, collared there in its fluid's colour. */
   const cellLimbs = (g: Grid, x: number, y: number, port?: PortCell): Limb[] => {
     const out = limbsAt(g, x, y);
     if (port) {
       const [dx, dy] = NEIGHBOUR[port.port.face];
-      out.push({ dx: -dx, dy: -dy, zf: levelAt(g, x, y), wall: PORT_COLOUR[port.port.fluid] });
+      out.push({ dx: -dx, dy: -dy, zf: levelAt(g, x, y), wall: PORT_COLOUR[port.port.fluid], reach: setbackOf(g, port) });
     }
     return out;
   };
@@ -512,20 +532,23 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       };
       for (const [band, list] of cells) {
         const m = pipeMesh(), back = pipeMesh();
-        // A NOZZLE pointing away from the camera goes in before the mains, one pointing toward it after: nearer draws over farther.
-        const port = (toward: boolean) => {
+        // EACH PORT'S OUTLET, nearer drawn over farther: an open one pointing away
+        // from the camera before the mains, toward it after; a joined one, which
+        // stands between its main and the wall, the other way round. @see outlet
+        const port = (before: boolean) => {
           for (const p of nozzles.get(band) ?? []) {
-            const [dx, dy] = NEIGHBOUR[p.port.face];
-            if ((dx + dy > 0) !== toward || joinedPort.has(idx(g, p.x, p.y))) continue;
-            nozzle(m, scale, p.x, p.y, levelAt(g, p.x, p.y), dx, dy, TUBE_R, PORT_COLOUR[p.port.fluid], STEEL, sides, true);
+            const [dx, dy] = NEIGHBOUR[p.port.face], toward = dx + dy > 0, i = idx(g, p.x, p.y), joined = joinedPort.has(i);
+            if ((joined ? toward : !toward) !== before) continue;
+            const slop = p.port.fluid === "slop", r = joined ? tubeR(g.main[i]) : TUBE_R * (slop ? SEWER_WIDE : 1);
+            outlet(m, scale, p.x, p.y, levelAt(g, p.x, p.y), dx, dy, r, PORT_COLOUR[p.port.fluid], slop ? IRON : STEEL, sides, joined, d === "near", setbackOf(g, p));
           }
         };
-        port(false);
+        port(true);
         for (const i of list) {
           const road = g.paved[i] !== 0 && band + 1 < bands.dynamicOf.length;
           tubeCell(m, g, i, scale, d, joinedPort.get(i), road ? { back, near: nearOf(band + 1) } : {});
         }
-        port(true);
+        port(false);
         place(back, bands.pavedOf[band], 0);
         place(m, bands.dynamicOf[band], PIPE_Z);
         // ITS WINDOWS last in the band, over all its tubes — IN A RENDER GROUP OF THEIR OWN:

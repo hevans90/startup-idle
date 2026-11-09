@@ -9,6 +9,8 @@
  * fence along the front. The crane's jib and hook stand clear above all of it
  * and are drawn once, unclipped, in front of the whole site. @see drawSky
  */
+import type { Port } from "../def";
+import { drawEntries } from "./entries";
 import { mix, tone, type Pen } from "./pen";
 import {
   CONCRETE, REBAR, drawClad, drawFrame, drawMass, floorsOf, sortMasses, wholeFloors,
@@ -470,11 +472,13 @@ export function drawConfetti(p: Pen, f: Footprint, top: number, t: number) {
 }
 
 /** A finished building: its grounds, plinth, masses and fit-out. */
-export function drawFinished(p: Pen, b: Building, f: Footprint) {
+export function drawFinished(p: Pen, b: Building, f: Footprint, ports: readonly Port[] = []) {
   b.grounds?.(p, f);
   const pi = b.plinth.inset;
   if (b.plinth.h > 0) p.box(pi, pi, f.w - pi, f.h - pi, 0, b.plinth.h, b.plinth.colour, { top: b.plinth.top });
   b.court?.(p, f);
   for (const m of sortMasses(b.masses)) drawMass(p, m);
   b.details?.(p, f);
+  // WHERE ITS PIPES GO IN, in front of it all. @see drawEntries
+  drawEntries(p, b, f, ports);
 }

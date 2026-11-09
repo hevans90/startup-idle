@@ -6,7 +6,7 @@
  * build the exact awkward cases on demand, so "the cursor lands on the wrong
  * cell" becomes reproducible.
  */
-import { DIR } from "../../iso/dir";
+import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { mapRiver, poolDepthOf } from "../boats/river";
 import { SERVICE_DEFS } from "../agents/needs";
 import { startLadder } from "../agents/unlocks";
@@ -16,7 +16,7 @@ import {
 } from "../structures/def";
 import { placeCommand, validatePlacement } from "../structures/place";
 import { planLateral } from "../sewers/lay";
-import { layMain, routeMain } from "../water/mains";
+import { layMain, planMain, routeMain } from "../water/mains";
 import { portsOf } from "../water/ports";
 import { derivedRamp } from "../roads/ramp-derive";
 import { gamePipeRun, layPipe } from "../water/pipes";
@@ -30,7 +30,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -680,6 +680,38 @@ export function buildSewers(g: Grid, material: number) {
   edited(g);
 }
 
+/**
+ * PORTS: every building with a port, in two rows on flat ground — the far
+ * row with its ports open, the near row with a short main joined to each,
+ * out from the port and capped. To look at outlets on. @see nozzle
+ */
+export const PORT_BUILDINGS = ["ai-node", "compute-spire", "gpu-farm", "office-vibe", "refinery", "datacentre", "lattice", "studio"] as const;
+export function buildPorts(g: Grid, material: number) {
+  clear(g, material);
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) set(g, x, y, 4);
+  let x = 3;
+  for (const id of PORT_BUILDINGS) {
+    const def = structureDef(id);
+    if (!def) continue;
+    for (const [row, joined] of [[4, false], [g.h - 16, true]] as const) {
+      const cmd = placeCommand(g, { ...def, placement: undefined }, x, row);
+      if (!cmd) continue;
+      commit(g, createHistory(), cmd);
+      if (!joined) continue;
+      const s = [...g.structures.values()].find((b) => b.def === id && b.y === row);
+      for (const p of s ? portsOf(g, s) : []) {
+        // Out from the port, away from the building, three tiles.
+        const [dx, dy] = NEIGHBOUR[p.port.face];
+        const cells = [0, 1, 2, 3].map((k) => ({ x: p.x + dx * k, y: p.y + dy * k }));
+        const plan = planMain(g, cells, () => false, false, p.port.fluid === "slop");
+        if (!("refused" in plan)) layMain(g, plan.cells, p.port.fluid === "slop");
+      }
+    }
+    x += def.footprint.w + 4;
+  }
+  edited(g);
+}
+
 export function buildLake(g: Grid, material: number) {
   clear(g, material);
   const cx = g.w / 2, cy = g.h / 2, r = Math.min(g.w, g.h) * 0.3;
@@ -1004,7 +1036,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1039,6 +1071,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "ascension": buildSingularity(g, material, cx, cy); recomputeHeightRange(g); return;
     case "bigtown": buildBigTown(g, material); recomputeHeightRange(g); return;
     case "sewers": buildSewers(g, material); recomputeHeightRange(g); return;
+    case "ports": buildPorts(g, material); recomputeHeightRange(g); return;
   }
 }
 
