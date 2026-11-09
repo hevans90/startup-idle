@@ -48,9 +48,11 @@ export type Pt = [number, number];
 export type Pen = {
   /** Projection of a local point to the Graphics' own space. */
   P: (u: number, v: number, z: number) => Pt;
-  /** The column being drawn, in local `u`. */
+  /** The tile being drawn: its column in local `u`, its row in `v`. */
   cu0: number;
   cu1: number;
+  cv0: number;
+  cv1: number;
   /** The view's scale, for anything that has to know it. */
   sc: number;
   /** A polygon in screen space, filled. */
@@ -164,5 +166,5 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
     g.circle(x, y, Math.max(0.6, r * HW * sc));
     g.fill({ color: colour, alpha });
   };
-  return { P, cu0, cu1, sc, poly, box, flat, onV, onU, strut, dot };
+  return { P, cu0, cu1, cv0, cv1, sc, poly, box, flat, onV, onU, strut, dot };
 }

@@ -17,7 +17,7 @@
 import { Graphics, type Container, type Geometry, type Mesh, type Shader } from "pixi.js";
 
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { SEWER_BORE, SEWER_FIT, idx, type Grid } from "../grid";
+import { SEWER_BORE, SEWER_FIT, idx, structureAt, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import type { SewerPlan } from "../sewers/lay";
 import { sewerReportsFor } from "../sewers/flow";
@@ -25,6 +25,7 @@ import { LATERAL_REACH, SEWER_KIND, solveSewers, type SewerSolve } from "../sewe
 import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
 import { LATERAL_IRON, LATERAL_R } from "./mains-layer";
+import { portsOf, type PortCell } from "../water/ports";
 import { ZT, pipeCell, pipeMesh, hring, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
 
 const SIDES = ["N", "E", "S", "W"] as const;
@@ -100,12 +101,24 @@ type Drawn = Graphics | Mesh<Geometry, Shader>;
 const MOUTH = 0.15;
 /**
  * The level a trunk tile is drawn at, height units: sunk if buried, as laid
- * on a span — and at an outfall or an inlet, up at its headwall's mouth.
- * @see SINK
+ * on a span — and at an outfall, up at its headwall's mouth. At a
+ * processor's inlet it stays buried: a riser comes up to it. @see SINK, riserPort
  */
 const drawnAt = (g: Grid, s: SewerSolve, i: number) =>
-  g.sewerFit[i] === SEWER_FIT.outfall || g.sewerFit[i] === SEWER_FIT.inlet ? g.height[i] + MOUTH
+  g.sewerFit[i] === SEWER_FIT.outfall || (g.sewerFit[i] === SEWER_FIT.inlet && !riserPort(g, i % g.w, (i / g.w) | 0)) ? g.height[i] + MOUTH
     : s.level[i] - (s.kind[i] === SEWER_KIND.span ? 0 : SINK);
+
+/** The processor's slop inlet a sewer's inlet tile rises into, or null. */
+export function riserPort(g: Grid, x: number, y: number): PortCell | null {
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const id = structureAt(g, x + dx, y + dy);
+    const st = id >= 0 ? g.structures.get(id) : undefined;
+    if (!st) continue;
+    const p = portsOf(g, st).find((q) => q.x === x && q.y === y && q.port.fluid === "slop" && q.port.dir === "in");
+    if (p) return p;
+  }
+  return null;
+}
 
 export function createSewerLayer(bands: BandLayer): SewerLayer {
   /** What each band has drawn in it, by tier, so it can be cleared. */
@@ -204,13 +217,17 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
         });
         // A MANHOLE'S SHAFT, after the trunk: down from its cover onto the trunk's
         // top, a collar where it meets it — its far half first, behind the shaft.
-        if (g.sewerFit[i] === SEWER_FIT.node && s.kind[i] !== SEWER_KIND.span) {
+        // And at a processor's inlet, where its riser goes down: the same shaft, under the riser's collar.
+        const fit = g.sewerFit[i];
+        if ((fit === SEWER_FIT.node || fit === SEWER_FIT.inlet) && s.kind[i] !== SEWER_KIND.span) {
           const m = meshOf(tubes, b), iron = solid(SHAFT), dark = solid(SHAFT_DARK);
           const foot = lvl * ZT + r * 0.8, R = SHAFT_R * SHAFT_COLLAR, band = SHAFT_R * 0.9;
           hring(m, scale, x, y, foot + band, SHAFT_R, R, dark, TRUNK_SIDES);
           solidTube(m, scale, x, y, g.height[i] * ZT, x, y, foot + band, SHAFT_R, iron, TRUNK_SIDES);
           solidTube(m, scale, x, y, foot + band, x, y, foot, R, dark, TRUNK_SIDES);
         }
+        // Its RISER, up out of the ground into the processor's inlet, is the
+        // mains layer's: drawn in the same mesh as the inlet's outlet, in order. @see mains-layer
       }
     }
     const place = (m: PipeMesh, tier: Container | undefined) => {
@@ -262,8 +279,8 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           gfx.poly([...P(-0.08, 0), ...P(0.08, 0), ...P(0.08, 1.4), ...P(-0.08, 1.4)]).fill({ color: IRON });
         }
         const fit = g.sewerFit[i];
-        // A HEADWALL where it pours out or feeds a processor.
-        if (fit === SEWER_FIT.outfall || fit === SEWER_FIT.inlet) {
+        // A HEADWALL where it pours out — or feeds a processor with no inlet to rise into. @see riserPort
+        if (fit === SEWER_FIT.outfall || (fit === SEWER_FIT.inlet && !riserPort(g, x, y))) {
           const gfx = take(up, bands.structureOf, b);
           // Its mouth on the side toward the water, or else the side it isn't joined on.
           const open = (s: (typeof SIDES)[number]) => {

@@ -25,7 +25,7 @@
 import { Container, Graphics, Matrix, Text, type Geometry, type Mesh, type Shader } from "pixi.js";
 
 import { NEIGHBOUR } from "../../iso/dir";
-import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, idx, inBounds, rampDir, rampRise, structureAt, type Grid } from "../grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_FIT, idx, inBounds, rampDir, rampRise, structureAt, type Grid } from "../grid";
 import { allTanks } from "../projects/cooling";
 import { HEIGHT_UNIT, HH, HW, surfaceHeight } from "../iso";
 import { findMains, joined, mainReportAt, mainReports, type MainState } from "../water/mains";
@@ -225,7 +225,7 @@ const faceClear = (r: number) => r / ZT + 0.2;
  * over a road, and over a dip (both cells it joins higher) level with the
  * lower of them.
  */
-function levelAt(g: Grid, x: number, y: number): number {
+export function levelAt(g: Grid, x: number, y: number): number {
   if (!inBounds(g, x, y)) return LIFT;
   let z = ground(g, x, y), banks = 0, low = Infinity;
   for (const side of SIDES) {
@@ -593,10 +593,21 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         // stands between its main and the wall, the other way round. @see outlet
         const port = (before: boolean) => {
           for (const p of nozzles.get(band) ?? []) {
-            const [dx, dy] = NEIGHBOUR[p.port.face], toward = dx + dy > 0, i = idx(g, p.x, p.y), joined = joinedPort.has(i);
+            // A sewer RISING into a processor's inlet is joined to it too. @see sewer-layer riser
+            const i = idx(g, p.x, p.y), riser = p.port.dir === "in" && p.port.fluid === "slop" && g.sewerFit[i] === SEWER_FIT.inlet;
+            const [dx, dy] = NEIGHBOUR[p.port.face], toward = dx + dy > 0, joined = joinedPort.has(i) || riser;
             if ((joined ? toward : !toward) !== before) continue;
-            const slop = p.port.fluid === "slop", r = joined ? tubeR(g.main[i]) : TUBE_R * (slop ? SEWER_WIDE : 1);
-            outlet(m, scale, p.x, p.y, levelAt(g, p.x, p.y), dx, dy, r, PORT_COLOUR[p.port.fluid], slop ? IRON : STEEL, sides, joined, d === "near", setbackOf(g, p));
+            const slop = p.port.fluid === "slop", r = joinedPort.has(i) ? tubeR(g.main[i]) : riser ? LATERAL_R : TUBE_R * (slop ? SEWER_WIDE : 1);
+            const out = () => outlet(m, scale, p.x, p.y, levelAt(g, p.x, p.y), dx, dy, r, PORT_COLOUR[p.port.fluid], slop ? IRON : STEEL, sides, joined, d === "near", setbackOf(g, p));
+            if (!riser) { out(); continue; }
+            // A SEWER'S RISER, up out of the ground in its collar and round into
+            // the inlet, its flange bolted to the outlet's: the lateral's drop the
+            // other way. Nearer the camera than the outlet it stands in front of. @see pipeCell "drop"
+            const z = levelAt(g, p.x, p.y);
+            const rise = () => pipeCell(m, scale, p.x, p.y, z, [{ dx: -dx, dy: -dy, zf: z, wall: 0, reach: setbackOf(g, p) }], {
+              r: LATERAL_R, colour: LATERAL_IRON, sides, end: "drop", floor: ground(g, p.x, p.y), flanges: true, bolts: d === "near",
+            });
+            if (toward) { out(); rise(); } else { rise(); out(); }
           }
         };
         port(true);

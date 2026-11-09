@@ -1,9 +1,10 @@
 /**
  * World v2 — WHERE A PIPE GOES IN, so a main always joins something standing:
  *
- *  - an AI building's water inlet is FLANGED STRAIGHT ONTO ITS WALL: the main
- *    runs on past the edge of the plot to the wall, however far back it is;
- *  - a slop port has an ENTRY, part of the building: a concrete service
+ *  - an AI building's water inlet, and a processor's slop inlet, is FLANGED
+ *    STRAIGHT ONTO ITS WALL: the main runs on past the edge of the plot to the
+ *    wall, however far back it is;
+ *  - a workplace's slop outlet has an ENTRY, part of the building: a concrete service
  *    housing from its wall out to the edge of the plot, where the outlet is
  *    bolted to its face — a cap on top, a band in the fluid's colour round
  *    it, and a vent on its side where it is long enough to have one.
@@ -47,8 +48,11 @@ export function wallBehind(b: Building, f: Footprint, p: Port): number {
   return Math.min(edge, Math.max(...ground.map((m) => (s ? m.u1 : m.v1))));
 }
 
-/** Whether a port's outlet is flanged straight onto the wall: an AI building's water inlet. */
-export const direct = (port: Port) => port.fluid === "water";
+/**
+ * Whether a port's outlet is flanged straight onto the wall: an AI building's
+ * water inlet, and a processor's slop inlet — each drawn with a wall there for it.
+ */
+export const direct = (port: Port) => port.fluid === "water" || port.dir === "in";
 
 /**
  * How far in from the edge of the plot a port's outlet stands, tiles: at the
@@ -59,7 +63,7 @@ export function portSetback(b: Building, f: Footprint, port: Port): number {
   return Math.max(0, (port.face === "S" ? f.w : f.h) - wallBehind(b, f, port));
 }
 
-/** Each slop port's entry, on the faces the camera sees (S and W), in front of the building. */
+/** Each slop outlet's entry, on the faces the camera sees (S and W), in front of the building. */
 export function drawEntries(p: Pen, b: Building, f: Footprint, ports: readonly Port[]) {
   for (const port of ports) {
     if ((port.face !== "S" && port.face !== "W") || direct(port)) continue;

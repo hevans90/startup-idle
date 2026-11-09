@@ -8,7 +8,7 @@
  * building is ordinary, its own where it is meant to be seen from across the
  * map. Colours are the face lit from the left; the pen shades the rest.
  */
-import { mix, tone, type Pen } from "./pen";
+import { RIGHT, TOP, mix, tone, type Pen, type Pt } from "./pen";
 import type { Building, FaceAt, Footprint, Live, Mass, Trace } from "./model";
 import { drawLiveBase, traceOf } from "./ai-live";
 import { latticeForm } from "../../../game/quests/finale";
@@ -37,6 +37,26 @@ const inside = (f: Footprint, inset: number | [number, number, number, number], 
   const [a, b, c, d] = typeof inset === "number" ? [inset, inset, inset, inset] : inset;
   return { u0: a, v0: b, u1: f.w - c, v1: f.h - d, z0, z1 };
 };
+
+/**
+ * A DRUM: an upright cylinder `r` across at `(u, v)`, `z0` to `z1` up, its
+ * side shaded round from the lit +v to the darker +u. Drawn whole by the
+ * tile its middle is in, so it must stand inside one.
+ */
+function drum(p: Pen, u: number, v: number, r: number, z0: number, z1: number, colour: number, o: { noTop?: boolean; top?: number } = {}) {
+  if (u < p.cu0 || u >= p.cu1 || v < p.cv0 || v >= p.cv1) return;
+  const N = 16, at = (a: number, z: number) => p.P(u + Math.cos(a) * r, v + Math.sin(a) * r, z);
+  // The half the camera sees: from the far right edge (-45°) round the front to the far left (135°).
+  for (let k = 0; k < N; k++) {
+    const a0 = -Math.PI / 4 + (k / N) * Math.PI, a1 = -Math.PI / 4 + ((k + 1) / N) * Math.PI;
+    const lit = RIGHT + (1 - RIGHT) * ((k + 0.5) / N);
+    p.poly([at(a0, z1), at(a1, z1), at(a1, z0), at(a0, z0)], tone(colour, lit));
+  }
+  if (o.noTop) return;
+  const top: Pt[] = [];
+  for (let k = 0; k < N * 2; k++) top.push(at((k / (N * 2)) * Math.PI * 2, z1));
+  p.poly(top, o.top ?? tone(colour, TOP));
+}
 
 /** A door on a mass's lit face, centred at `a` along it. */
 function door(p: Pen, m: Mass, a: number, w: number, h: number, colour = DARK, frame = FRAME) {
@@ -730,24 +750,43 @@ export function climbing(f: Footprint): Building {
   };
 }
 
-/** SLOP REFINERY: a squat brick works, two brown-banded tanks beside it and a stack venting on the roof. */
+/**
+ * SLOP REFINERY: a brick hall, a stack, two tanks behind, and at its front
+ * corner the RECEIVING HOUSE — a concrete block banded in slop brown, both
+ * its inlets flanged onto its faces, piped back to the tanks.
+ */
 export function refinery(f: Footprint): Building {
   const m: Mass = {
-    u0: 0.18, v0: 0.18, u1: f.w * 0.62, v1: f.h - 0.2, z0: PLINTH.h, z1: PLINTH.h + 2.2, wall: 0x8a6a52, storey: 2.2,
+    u0: 0.15, v0: 0.15, u1: f.w - 0.85, v1: f.h - 0.75, z0: PLINTH.h, z1: PLINTH.h + 2.2, wall: 0x8a6a52, storey: 2.2,
     facade: { kind: "windows", glass: tone(GLASS, 0.8), frame: 0x5e4636, w: 0.12, gap: 0.22, sill: 0.6, head: 0.5 },
     roof: { kind: "parapet", deck: 0x4b4038, rim: 0x5e4636, h: 0.14 },
   };
+  const house: Mass = {
+    u0: f.w - 0.78, v0: f.h - 0.7, u1: f.w - 0.14, v1: f.h - 0.14, z0: PLINTH.h, z1: PLINTH.h + 1.6, wall: 0xc9c4b8, storey: 1.6,
+    facade: { kind: "plain", lines: 0xb9b4a8, every: 0.4 }, roof: { kind: "parapet", deck: 0x8f897e, rim: 0xa9a396, h: 0.1 },
+  };
+  const SLOP = 0x7a5230;
   return {
-    plinth: { inset: 0.04, h: 0.2, colour: 0xa49d8f, top: 0xb7b0a2 }, masses: [m], crane: "none",
+    plinth: { inset: 0.04, h: 0.2, colour: 0xa49d8f, top: 0xb7b0a2 }, masses: [m, house], crane: "none",
     grounds: (p) => p.flat(0.02, 0.02, f.w - 0.02, f.h - 0.02, 0.004, 0xb7b0a2),
     details: (p) => {
-      door(p, m, m.u0 + 0.35, 0.36, 1.2, 0x2b2420, 0x7a5230);
-      // THE TANKS: round-ish, banded in slop brown.
-      for (const [u, v] of [[f.w - 0.42, 0.55], [f.w - 0.42, f.h - 0.55]]) {
-        p.box(u - 0.26, v - 0.26, u + 0.26, v + 0.26, 0.2, 1.6, 0xb9b3a6);
-        p.box(u - 0.27, v - 0.27, u + 0.27, v + 0.27, 0.9, 1.05, 0x7a5230);
-        p.dot(u, v, 1.62, 0.2, 0x8f897e);
+      door(p, m, m.u0 + 0.35, 0.36, 1.2, 0x2b2420, SLOP);
+      // THE TANKS, behind the receiving house: round-ish, banded in slop brown, each piped from it.
+      const tu = (house.u0 + house.u1) / 2;
+      // Each inside one tile: a drum is drawn whole by the tile its middle is in.
+      // Run to the tile's edge: past it, behind the house, it would be drawn over the house's roof.
+      p.box(tu - 0.035, 0.3, tu + 0.035, 0.999, 1.36, 1.44, 0x6f6a62);
+      for (const v of [0.3, 0.75]) {
+        drum(p, tu, v, 0.2, PLINTH.h, 1.75, 0xb9b3a6);
+        drum(p, tu, v, 0.205, 0.95, 1.08, SLOP, { noTop: true });
+        drum(p, tu, v, 0.06, 1.75, 1.85, 0x8f897e);
       }
+      // THE RECEIVING HOUSE: its slop-brown band, a vent on its roof, a hatch on each face.
+      p.box(house.u0, house.v0, house.u1 + 0.006, house.v1 + 0.006, house.z1 - 0.32, house.z1 - 0.2, SLOP, { noTop: true });
+      p.box(house.u0 + 0.18, house.v0 + 0.18, house.u0 + 0.36, house.v0 + 0.36, house.z1, house.z1 + 0.3, 0x8f897e);
+      p.box(house.u0 + 0.16, house.v0 + 0.16, house.u0 + 0.38, house.v0 + 0.38, house.z1 + 0.3, house.z1 + 0.36, 0x6f6a62);
+      p.onV(house.v1 + 0.004, house.u0 + 0.06, house.u0 + 0.16, PLINTH.h + 0.1, PLINTH.h + 0.9, 0x6f6a62);
+      p.onU(house.u1 + 0.004, house.v0 + 0.06, house.v0 + 0.16, PLINTH.h + 0.1, PLINTH.h + 0.9, 0x6f6a62);
       // THE STACK, and what comes out of it.
       const su = m.u0 + 0.4, sv = m.v0 + 0.4;
       p.box(su - 0.08, sv - 0.08, su + 0.08, sv + 0.08, m.z1, m.z1 + 1.8, 0x6e5a4a);
@@ -755,8 +794,8 @@ export function refinery(f: Footprint): Building {
       p.dot(su + 0.05, sv, m.z1 + 2.05, 0.14, 0xcfc6b8);
       p.dot(su + 0.15, sv - 0.05, m.z1 + 2.3, 0.1, 0xddd6ca);
       // "BEST PRACTICES", lit, on the front.
-      p.box(m.u0 + 0.15, m.v1, m.u1 - 0.15, m.v1 + 0.03, m.z1 - 0.55, m.z1 - 0.2, 0x2b2420);
-      p.onV(m.v1 + 0.03, m.u0 + 0.25, m.u1 - 0.3, m.z1 - 0.45, m.z1 - 0.32, 0x8ee07a);
+      p.box(m.u0 + 0.12, m.v1, m.u1 - 0.12, m.v1 + 0.03, m.z1 - 0.55, m.z1 - 0.2, 0x2b2420);
+      p.onV(m.v1 + 0.03, m.u0 + 0.2, m.u1 - 0.22, m.z1 - 0.45, m.z1 - 0.32, 0x8ee07a);
     },
   };
 }
@@ -764,7 +803,7 @@ export function refinery(f: Footprint): Building {
 /** TRAINING DATA PLANT: a long grey labelling hall, a row of skylights, and server cabinets humming along its side. */
 export function dataplant(f: Footprint): Building {
   const m: Mass = {
-    ...inside(f, [0.16, 0.2, 0.16, 0.5], PLINTH.h, PLINTH.h + 2.4), wall: 0xc9ccd1, storey: 2.4,
+    ...inside(f, [0.16, 0.2, 0.16, 0.3], PLINTH.h, PLINTH.h + 2.4), wall: 0xc9ccd1, storey: 2.4,
     facade: { kind: "ribbon", glass: 0x5a7f95, frame: 0x9aa1a8, sill: 0.9, head: 0.4 },
     roof: { kind: "parapet", deck: 0x5c636b, rim: 0x9aa1a8, h: 0.14 },
   };
@@ -772,13 +811,14 @@ export function dataplant(f: Footprint): Building {
     plinth: PLINTH, masses: [m], crane: "none",
     grounds: paved,
     details: (p) => {
-      door(p, m, m.u1 - 0.35, 0.32, 1.15, 0x23292f, 0x6c7cff);
+      // The door and the cabinets clear of the inlet, in the middle of its +u face's tile. @see SLOP_IN
+      door(p, m, m.u0 + 0.35, 0.32, 1.15, 0x23292f, 0x6c7cff);
       // SKYLIGHTS along the roof.
       for (let u = m.u0 + 0.25; u < m.u1 - 0.2; u += 0.42) p.box(u - 0.12, m.v0 + 0.3, u + 0.12, m.v1 - 0.3, m.z1, m.z1 + 0.22, 0x9cc3d8, { top: 0xbfe0ee });
       // CABINETS out front, each with a light.
-      for (let u = m.u0 + 0.2; u < m.u1 - 0.6; u += 0.3) {
-        p.box(u - 0.1, m.v1 + 0.08, u + 0.1, m.v1 + 0.3, PLINTH.h, PLINTH.h + 0.7, 0x2f343a);
-        p.onV(m.v1 + 0.3, u - 0.05, u + 0.05, PLINTH.h + 0.5, PLINTH.h + 0.58, 0x6c7cff);
+      for (const u of [0.86, 1.12]) {
+        p.box(u - 0.1, m.v1 + 0.04, u + 0.1, m.v1 + 0.24, PLINTH.h, PLINTH.h + 0.7, 0x2f343a);
+        p.onV(m.v1 + 0.24, u - 0.05, u + 0.05, PLINTH.h + 0.5, PLINTH.h + 0.58, 0x6c7cff);
       }
       roofSign(p, m.u0 + 0.2, m.u0 + 1.1, m.v1 - 0.15, m.z1, 0.9, 0x1f2430, 0x9fb0ff);
     },

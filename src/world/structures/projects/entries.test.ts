@@ -21,13 +21,16 @@ const setup = (id: string) => {
 };
 
 describe("where a pipe goes in", () => {
-  test("an AI building's water inlet is flanged onto its own wall, however far back", () => {
-    for (const id of ["ai-node", "compute-spire", "gpu-farm", "datacentre", "lattice"]) {
+  test("an inlet — an AI building's water, a processor's slop — is flanged onto its own wall, however far back", () => {
+    for (const id of ["ai-node", "compute-spire", "gpu-farm", "datacentre", "lattice", "refinery", "dataplant", "contentfarm"]) {
       const { f, b, ports } = setup(id);
       for (const p of ports) {
         const edge = p.face === "S" ? f.w : f.h, back = portSetback(b, f, p);
         expect(back, id).toBeGreaterThanOrEqual(0);
         expect(back, id).toBeCloseTo(edge - wallBehind(b, f, p), 6);
+        // A wall stands across it, not just a corner of one: the flange's plate is on it.
+        const a = p.at + 0.5, s = p.face === "S";
+        expect(b.masses.some((m) => (s ? m.v0 + 0.15 <= a && a <= m.v1 - 0.15 : m.u0 + 0.15 <= a && a <= m.u1 - 0.15) && (s ? m.u1 : m.v1) >= edge - back - 1e-6), id).toBe(true);
       }
       // And no housing is drawn for it.
       const c = counter();
@@ -36,8 +39,8 @@ describe("where a pipe goes in", () => {
     }
   });
 
-  test("a slop port has an entry out to the edge of the plot, its outlet on the face", () => {
-    for (const id of ["office-vibe", "refinery", "studio"]) {
+  test("a workplace's slop outlet has an entry out to the edge of the plot, its outlet on the face", () => {
+    for (const id of ["office-vibe", "studio"]) {
       const { f, b, ports } = setup(id);
       for (const p of ports) expect(portSetback(b, f, p), id).toBe(0);
       const c = counter();
