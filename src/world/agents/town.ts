@@ -28,6 +28,7 @@
 import { residentsIn } from "../../game/housing";
 import type { Grid } from "../grid";
 import { liveCommutes } from "./commute";
+import { AI_TRUCK_COLOUR, BUS_COLOUR, halfLength, SHUTTLE_COLOUR, VAN_COLOUR } from "./cars/fleet";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
@@ -150,17 +151,13 @@ export function setTownCaps(c: Partial<typeof townCaps>) { Object.assign(townCap
 const CAR_CRUISE = 1.6;
 const TRUCK_CRUISE = 1.15;
 const TRUCK_COLOUR = 0xd98c2b;
-/** The Machine's lorries: white, cabless, a violet light bar. @see Autonomous Freight, drawMoverFront */
-export const AI_TRUCK_COLOUR = 0xeef0f6;
 const BUS_CRUISE = 1.2;
-const BUS_COLOUR = 0xf2b51d;
 const LIMO_CRUISE = 1.45;
 const LIMO_COLOUR = 0x17181c;
-/** Shuttle Bus's buses, blue, and the share of the town's car trips they take. */
-const SHUTTLE_COLOUR = 0x3a78c9;
+export { AI_TRUCK_COLOUR, VAN_COLOUR };
+/** The share of the town's car trips Shuttle Bus's buses take. */
 const SHUTTLE_SHARE = 0.12;
-/** Hire to Fire's moving vans, white, a load of boxes on the back, and their share. */
-export const VAN_COLOUR = 0xe9e6dd;
+/** The share of the town's car trips Hire to Fire's moving vans take. */
 const VAN_SHARE = 0.12;
 const PERSON_CRUISE = 0.45;
 const SPREAD = 0.2;
@@ -175,8 +172,14 @@ const BRAKE = 4;
  */
 const LOOK = 1.2;
 const CLEAR = 0.3;
-/** The gap a car keeps to the one in front, nose to tail, tiles. */
-const GAP = 0.5;
+/**
+ * The gap a car keeps to the one in front, nose to tail, tiles, on top of
+ * half of each one's length: by their models, so a bus keeps a bus's room.
+ * Two cars of the old box's length, 0.38 tiles, kept 0.5 middle to middle.
+ * @see cars/fleet.ts
+ */
+const GAP = 0.12;
+const spacing = (m: Mover, o: Mover) => halfLength(m) + halfLength(o) + GAP;
 /** Seconds stuck before it pushes on, and for how long. */
 const PATIENCE = 4;
 const PUSH = 1.5;
@@ -424,12 +427,12 @@ function trafficLimit(m: Mover, cars: readonly Mover[]): number {
     const d = conflict(m, o);
     if (Number.isFinite(d)) {
       if (m.id < o.id && Number.isFinite(conflict(o, m))) continue;
-      limit = Math.min(limit, Math.max(0, (d - GAP) * 2.5));
+      limit = Math.min(limit, Math.max(0, (d - spacing(m, o)) * 2.5));
       continue;
     }
     if (m.id < o.id) continue;
     const meet = meeting(m, o);
-    if (Number.isFinite(meet)) limit = Math.min(limit, Math.max(0, (meet - GAP) * 2.5));
+    if (Number.isFinite(meet)) limit = Math.min(limit, Math.max(0, (meet - spacing(m, o)) * 2.5));
   }
   return limit;
 }
@@ -515,7 +518,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     m.z = roadHeightAt(g, p.x, p.y);
     if (drives(m)) {
       // Nose and tail, half a vehicle either way along the way it goes.
-      const half = m.kind === "truck" ? 0.28 : m.kind === "bus" ? 0.31 : m.kind === "limo" ? 0.3 : 0.19;
+      const half = halfLength(m);
       const zf = roadHeightAt(g, p.x + p.dx * half, p.y + p.dy * half);
       const zb = roadHeightAt(g, p.x - p.dx * half, p.y - p.dy * half);
       m.pitch = (zf - zb) / (2 * half);

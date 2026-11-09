@@ -10,8 +10,7 @@
 import { Assets, Matrix, Rectangle, Texture } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
-import { AI_TRUCK_COLOUR, VAN_COLOUR, type Mover } from "../town";
-import { CAR_WEIGHTS, LORRY_WEIGHTS, TILES_PER_M, VAN_WEIGHTS } from "./models";
+import { TILES_PER_M } from "./models";
 import { CAR_GAP, type CarSheet } from "./sheet-format";
 
 const BASE = "/isometric_assets/derived";
@@ -54,25 +53,7 @@ export async function loadCarSprites(): Promise<CarSprites> {
   return { res: sheet.res, headings: sheet.headings, looks };
 }
 
-/** One of a list, the same for the same mover always. */
-const ofId = <T>(id: number, salt: number, list: readonly T[]) =>
-  list[Math.abs(Math.imul(id ^ salt, 0x9e3779b1) >>> 7) % list.length];
-
-/** Each model as many times as its weight in fifths: as common as on real roads. */
-const picks = (weights: Readonly<Record<string, number>>) =>
-  Object.entries(weights).flatMap(([id, w]) => Array<string>(Math.round(w * 5)).fill(id));
-const CAR_PICKS = picks(CAR_WEIGHTS), VAN_PICKS = picks(VAN_WEIGHTS), LORRY_PICKS = picks(LORRY_WEIGHTS);
-
-/** Which baked model a mover is drawn as, or null for one the sheet has no model of yet. */
-export function modelFor(m: Pick<Mover, "id" | "kind" | "colour">): string | null {
-  if (m.kind === "car") return ofId(m.id, 0x51ed, CAR_PICKS);
-  if (m.kind === "limo") return "limo";
-  if (m.kind === "truck") {
-    if (m.colour === AI_TRUCK_COLOUR) return "machineLorry";
-    return ofId(m.id, 0x7a11, m.colour === VAN_COLOUR ? VAN_PICKS : LORRY_PICKS);
-  }
-  return null;
-}
+export { modelFor } from "./fleet";
 
 /** The frame for a heading, of `n` round the turn. */
 export const headingIndex = (heading: number, n: number) => {

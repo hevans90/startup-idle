@@ -604,6 +604,94 @@ const fireEngine: Model = (() => {
   return livered(base, "fireEngine", "liveryRed", lightBar(base.roof!, 0.2));
 })();
 
+// ─── BUSES ───────────────────────────────────────────────────────────────────
+
+/** A minibus: a long-wheelbase van with a window in every bay, a sliding door. The interns'. */
+const minibus = car("minibus", {
+  length: 6.9, width: 2.02, sill: 0.3,
+  line: [[3.45, 0.65], [3.3, 0.86], [2.8, 1.02], [2.45, 1.08], [-3.15, 1.12], [-3.45, 1.1]],
+  cabin: { foot: 2.47, front: 1.77, back: -3.35, tail: -3.43, roof: 2.6, w: 0.98, inS: 0.04, r: 0.16 },
+  windows: [[2.25, 1.4], [1.25, 0.15], [0.0, -1.1], [-1.25, -2.4], [-2.55, -3.2]], doors: [2.37, 1.33, -0.05],
+  axles: [2.5, -2.3], tyre: { r: 0.35, width: 0.22, rim: "steel" }, lampZ: 0.84, tailZ: 1.1,
+  hulls: [{ sections: [], side: "paint", top: "paint", decals: [
+    { mat: "seam", at: (l, y, z) => l < -3.4 && Math.abs(y) < 0.012 && z > 0.5 && z < 2.4 },
+  ] }],
+});
+
+/**
+ * A BUS: one long rounded box on its wheels, deck upon deck of windows,
+ * doors on the near side (left, as the traffic keeps), a destination sign
+ * lit over the screen, a light roof. `coach`: high, dark glass all along and
+ * luggage hatches under it, no doors but one at the front.
+ */
+function bus(id: string, length: number, width: number, height: number, opts: { decks: 1 | 2; coach?: boolean; axles: number[] }): Model {
+  const L = length / 2, w = width / 2, H = height, front = (l: number) => l > L - 0.12, back = (l: number) => l < -L + 0.12;
+  const onSide = (y: number) => Math.abs(y) > w - 0.05, near = (y: number) => y > w - 0.05;
+  // Each deck's windows, from the waist up: [bottom, top].
+  const decks: [number, number][] = opts.coach ? [[1.6, H - 0.4]]
+    : opts.decks === 2 ? [[1.3, 2.0], [2.6, H - 0.45]] : [[1.3, H - 0.5]];
+  const inDeck = (z: number, pad = 0) => decks.some(([a, b]) => z > a - pad && z < b + pad);
+  const BAY = opts.coach ? 1.6 : 1.15;
+  // Doors: [front, back] along the near side.
+  const doors: [number, number][] = opts.coach ? [[L - 0.3, L - 1.15]] : [[L - 0.3, L - 1.45], [0.2, -1.0]];
+  const inDoor = (l: number, y: number) => near(y) && doors.some(([f, b]) => l < f && l > b);
+  const decals: Decal[] = [
+    { mat: "trim", at: (_l, _y, z) => z < 0.42 },
+    // Arches round the wheels.
+    ...opts.axles.map((a): Decal => ({ mat: "arch", at: (l, y, z) => onSide(y) && (l - a) ** 2 + (z - 0.5) ** 2 < 0.58 ** 2 })),
+    // The windows: a black band on each deck, glass in it, a slim pillar every bay.
+    { mat: "trim", at: (l, y, z) => onSide(y) && l < L - 0.25 && l > -L + 0.3 && inDeck(z, 0.04) },
+    { mat: "glass", at: (l, y, z) => onSide(y) && l < L - 0.3 && l > -L + 0.35 && inDeck(z) && ((L - l) % BAY) > 0.07 },
+    ...(opts.coach ? [
+      { mat: "seam" as Mat, at: (l: number, y: number, z: number) => onSide(y) && z > 0.5 && z < 1.3 && l < L - 1.4 && l > -L + 0.5 && ((L - l) % 1.4 < 0.015 || Math.abs(z - 0.52) < 0.01 || Math.abs(z - 1.28) < 0.01) },
+      { mat: "livery" as Mat, at: (_l: number, y: number, z: number) => onSide(y) && Math.abs(z - 1.38) < 0.04 },
+    ] : []),
+    // Doors on the near side, glazed, split down the middle.
+    { mat: "trim", at: (l, y, z) => inDoor(l, y) && z > 0.35 && z < (opts.decks === 2 ? 2.15 : H - 0.35) },
+    { mat: "glass", at: (l, y, z) => inDoor(l, y) && z > 0.5 && z < (opts.decks === 2 ? 2.05 : H - 0.45) && doors.every(([f, b]) => Math.abs(l - (f + b) / 2) > 0.025) },
+    // THE FRONT: a deep screen, the sign over it, lamps low at the corners, a grille, the plate.
+    { mat: "trim", at: (l, y, z) => front(l) && Math.abs(y) < w - 0.06 && z > 1.0 && z < (opts.decks === 2 ? 2.15 : H - 0.12) },
+    { mat: "glass", at: (l, y, z) => front(l) && Math.abs(y) < w - 0.1 && z > 1.05 && z < (opts.decks === 2 ? 2.05 : H - 0.5) },
+    ...(opts.decks === 2 ? [{ mat: "glass" as Mat, at: (l: number, y: number, z: number) => front(l) && Math.abs(y) < w - 0.1 && z > 2.5 && z < H - 0.55 }] : []),
+    { mat: "sign", at: (l, y, z) => front(l) && Math.abs(y) < w - 0.3 && z > (opts.decks === 2 ? 2.2 : H - 0.44) && z < (opts.decks === 2 ? 2.42 : H - 0.2) },
+    { mat: "grille", at: (l, y, z) => front(l) && Math.abs(y) < w - 0.45 && z > 0.5 && z < 0.75 },
+    ...[1, -1].flatMap((s): Decal[] => [
+      { mat: "lamp", at: (l, y, z) => l > L - 0.35 && lens(y - s * (w - 0.22), z - 0.68, 0.16, 0.08) },
+      { mat: "indicator", at: (l, y, z) => l > L - 0.35 && lens(y - s * (w - 0.04), z - 0.68, 0.04, 0.07) },
+      { mat: "tail", at: (l, y, z) => l < -L + 0.3 && lens(y - s * (w - 0.12), z - 0.95, 0.08, 0.22) },
+    ]),
+    { mat: "plate", at: (l, y, z) => front(l) && Math.abs(y) < 0.26 && z > 0.44 && z < 0.56 },
+    // THE BACK: a window high up, the engine's grille low down, the plate.
+    { mat: "glass", at: (l, y, z) => back(l) && Math.abs(y) < w - 0.3 && z > H - 1.05 && z < H - 0.35 },
+    { mat: "grille", at: (l, y, z) => back(l) && Math.abs(y) < w - 0.35 && z > 0.5 && z < 0.95 },
+    { mat: "rearPlate", at: (l, y, z) => back(l) && Math.abs(y) < 0.26 && z > 1.05 && z < 1.17 },
+  ];
+  return {
+    id, length, width, roof: { l0: L - 0.3, l1: -L + 0.3, w: w - 0.1, z: H },
+    hulls: [{
+      sections: [
+        { l: L, w: w - 0.06, z0: 0.3, z1: H - 0.08, inS: 0.04, r: 0.3 },
+        { l: L - 0.1, w, z0: 0.28, z1: H, inS: 0.04, r: 0.32 },
+        { l: -L + 0.1, w, z0: 0.28, z1: H, inS: 0.04, r: 0.32 },
+        { l: -L, w: w - 0.05, z0: 0.3, z1: H - 0.06, inS: 0.04, r: 0.3 },
+      ],
+      side: "paint", top: "roofWhite", decals,
+    }],
+    slabs: [
+      ...mirrors(L - 0.05, w + 0.1, 1.75).map((m) => ({ ...m, z1: m.z1 + 0.25, mat: "trim" as Mat })),
+      ...(opts.coach ? [] : [{ l0: -L + 0.6, l1: -L + 1.6, w: 0.45, wc: -0.3, z0: H, z1: H + 0.22, inS: 0.06, inF: 0.06, inB: 0.06, mat: "roofWhite" as Mat }]),
+    ],
+    wheels: opts.axles.map((l) => ({ l, w: w - 0.165, r: 0.5, width: 0.3, rim: "steel" as const })),
+  };
+}
+
+/** A single-decker, a city's: low floor, two doors. */
+const singleDecker = bus("singleDecker", 9.6, 2.5, 3.1, { decks: 1, axles: [2.7, -2.4] });
+/** A double-decker: two decks of windows, the stairs' landing between. */
+const doubleDecker = bus("doubleDecker", 9.6, 2.5, 4.3, { decks: 2, axles: [2.6, -2.4] });
+/** A coach: high, long, dark glass all down it, luggage hatches beneath, three axles. */
+const coach = bus("coach", 10.4, 2.5, 3.5, { decks: 1, coach: true, axles: [3.1, -2.2, -3.25] });
+
 // ─── VARIANTS: the same car with something on its roof, or its roof another colour ──
 
 /** Roof rails along each edge of the roof. */
@@ -629,6 +717,7 @@ const variant = (m: Model, tag: string, add: Slab[], roof?: Mat): Model => ({
 
 const CARS = [cityCar, hatchback, hotHatch, saloon, estate, mpv, smallSuv, largeSuv, coupe, convertible];
 const SPECIAL = [limo];
+const BUSES = [minibus, singleDecker, doubleDecker, coach];
 const VARIANTS: Model[] = [
   variant(cityCar, "whiteRoof", [], "roofWhite"), variant(cityCar, "blackRoof", [], "roofBlack"),
   variant(hatchback, "rails", rails(hatchback)), variant(hatchback, "blackRoof", [], "roofBlack"),
@@ -641,7 +730,7 @@ const VARIANTS: Model[] = [
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];
 
-export const MODELS: readonly Model[] = [...CARS, ...VARIANTS, ...WORK, ...SERVICE, ...SPECIAL];
+export const MODELS: readonly Model[] = [...CARS, ...VARIANTS, ...WORK, ...SERVICE, ...SPECIAL, ...BUSES];
 export const modelById = new Map(MODELS.map((m) => [m.id, m]));
 
 /**
@@ -661,3 +750,6 @@ export const CAR_WEIGHTS: Readonly<Record<string, number>> = {
 /** The removal vans the culture's moves hire, and the builders' lorries to the works. */
 export const VAN_WEIGHTS: Readonly<Record<string, number>> = { lutonVan: 3, panelVan: 2, smallVan: 1 };
 export const LORRY_WEIGHTS: Readonly<Record<string, number>> = { flatbed: 2, boxLorry: 1, tipper: 2 };
+/** The interns' bus, and Shuttle Bus's. */
+export const MINIBUS_WEIGHTS: Readonly<Record<string, number>> = { minibus: 2, singleDecker: 1 };
+export const BUS_WEIGHTS: Readonly<Record<string, number>> = { singleDecker: 2, doubleDecker: 2, coach: 1 };

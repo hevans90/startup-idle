@@ -3,7 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
 import { AI_TRUCK_COLOUR, VAN_COLOUR } from "../town";
 import { baseCorners, headingIndex, modelFor, pitchMatrix } from "./car-sheet";
-import { CAR_WEIGHTS, LORRY_WEIGHTS, MODELS, TILES_PER_M, VAN_WEIGHTS, type Model } from "./models";
+import { BUS_WEIGHTS, CAR_WEIGHTS, LORRY_WEIGHTS, MINIBUS_WEIGHTS, MODELS, TILES_PER_M, VAN_WEIGHTS, type Model } from "./models";
+import { BUS_COLOUR, halfLength, SHUTTLE_COLOUR } from "./fleet";
 import { bakeFrame } from "./raster";
 
 const box: Model = {
@@ -68,6 +69,9 @@ describe("in the game", () => {
     expect(modelFor({ id: 3, kind: "truck", colour: AI_TRUCK_COLOUR })).toBe("machineLorry");
     for (const id of [...vans, ...lorries]) expect(MODELS.some((m) => m.id === id)).toBe(true);
     expect(modelFor({ id: 3, kind: "limo", colour: 0 })).toBe("limo");
+    const buses = (colour: number) => new Set(Array.from({ length: 200 }, (_, id) => modelFor({ id, kind: "bus", colour })));
+    expect(buses(SHUTTLE_COLOUR)).toEqual(new Set(Object.keys(BUS_WEIGHTS)));
+    expect(buses(BUS_COLOUR)).toEqual(new Set(Object.keys(MINIBUS_WEIGHTS)));
     expect(modelFor({ id: 3, kind: "person", colour: 0 })).toBeNull();
   });
 
@@ -96,5 +100,16 @@ describe("in the game", () => {
       expect(across.x).toBeCloseTo((-sh - ch) * HW);
       expect(across.y).toBeCloseTo((-sh + ch) * HH);
     }
+  });
+
+  test("a vehicle is as long as its model: a bus far longer than a city car, nobody on foot", () => {
+    const len = (kind: "car" | "bus" | "person", colour = 0) => {
+      let most = 0, least = Infinity;
+      for (let id = 0; id < 200; id++) { const h = halfLength({ id, kind, colour }); most = Math.max(most, h); least = Math.min(least, h); }
+      return { most, least };
+    };
+    expect(len("bus", SHUTTLE_COLOUR).least).toBeGreaterThan(len("car").most);
+    expect(len("car").least).toBeCloseTo((3.55 * TILES_PER_M) / 2);
+    expect(len("person").most).toBe(0);
   });
 });
