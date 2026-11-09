@@ -12,10 +12,12 @@
  * one more for the crane's jib in front of them all. Redrawn when the work
  * has moved on enough to see, not every frame.
  */
-import { Graphics } from "pixi.js";
+import { Container, Graphics, Sprite } from "pixi.js";
 
 import { getWorks, startedOnFixture, useWorldStore } from "../../state/world.store";
-import { crosses, drawMover } from "../agents/town-render";
+import { crosses, drawMover, outfitOf } from "../agents/town-render";
+import { heightOf } from "../agents/people/cast";
+import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import type { Mover } from "../agents/town";
 import { idx, inBounds, type Structure } from "../grid";
 import { HEIGHT_UNIT, HH, HW, cellToWorld } from "../iso";
@@ -44,8 +46,8 @@ type ProjectHandle = StructureHandle & {
   sky: Graphics;
   model: Building;
   drawn: string;
-  /** The crew, one Graphics each, in the same group as the crane. @see crewAt */
-  crew: Graphics[];
+  /** The crew, one each, in the same group as the crane. @see crewAt */
+  crew: Hand[];
   /** Seconds the crane has been working, which is where it is in its lift. */
   t: number;
   /** Seconds since it opened, while the confetti is still falling; else -1. */
@@ -175,6 +177,36 @@ const stalled = (s: Structure) => !startedOnFixture() && getWorks().stalled.has(
 /** Whether a site is laid up: paused, nobody called to it. */
 const laidUp = (s: Structure) => s.build?.priority === 0;
 
+/**
+ * One of the crew: drawn as the town draws a person, a Graphics posed each
+ * time; or from the people sheet once it is in — five sprites, and a load
+ * when they carry one. @see people-sheet
+ */
+type Hand = { node: Container; g: Graphics | null; parts: Sprite[]; load: Graphics | null; key: string };
+
+function makeHand(baked: boolean, tints: () => number[]): Hand {
+  if (!baked) {
+    const g = new Graphics();
+    g.eventMode = "none";
+    // Batched: redrawn every frame, a worker alone was a draw call and an
+    // upload of its own — a gallery's crews were nine hundred of each.
+    g.context.batchMode = "batch";
+    return { node: g, g, parts: [], load: null, key: "" };
+  }
+  const node = new Container();
+  node.eventMode = "none";
+  const parts = tints().map((t) => { const sp = new Sprite(); sp.tint = t; node.addChild(sp); return sp; });
+  const load = new Graphics();
+  load.context.batchMode = "batch";
+  node.addChild(load);
+  return { node, g: null, parts, load, key: "" };
+}
+
+const dropHand = (w: Hand) => { w.node.parent?.removeChild(w.node); w.node.destroy({ children: true }); };
+
+/** A baked person is 1.75 m: their load a box of bricks at their chest, half steps and tiles. */
+const LOAD = { half: 0.018, ahead: 0.03, z0: 0.42, z1: 0.56 };
+
 /** Hi-vis, and the foreman in a white shirt. */
 const VESTS = [0xf47b20, 0xc8dc32, 0xf47b20, 0xe8e23a];
 const FOREMAN = 0xf2f2f2;
@@ -183,32 +215,42 @@ const FOREMAN = 0xf2f2f2;
 function drawCrew(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number): void {
   const site = h.site;
   const crew = site ? crewAt(h.model, { w: s.w, h: s.h }, site, crewOn(s), h.t, stalled(s)) : [];
-  while (h.crew.length < crew.length) {
-    const g = new Graphics();
-    g.eventMode = "none";
-    // Batched: redrawn every frame, a worker alone was a draw call and an
-    // upload of its own — a gallery's crews were nine hundred of each.
-    g.context.batchMode = "batch";
-    h.crew.push(g);
-  }
-  while (h.crew.length > crew.length) {
-    const g = h.crew.pop()!;
-    g.parent?.removeChild(g);
-    g.destroy();
-  }
+  // THE PEOPLE SHEET, once in: whoever was drawn before it is drawn again from it.
+  const P = bakedPeople() ? peopleLoaded() : null;
+  if (bakedPeople() && !P) void peopleSprites();
+  for (const w of h.crew.splice(crew.length)) dropHand(w);
   crew.forEach((w, k) => {
-    const g = h.crew[k];
+    const id = s.id * 64 + k;
     const m = {
-      id: s.id * 64 + k, kind: "person", x: s.x - 0.5 + w.u, y: s.y - 0.5 + w.v, z: ground + w.z,
+      id, kind: "person", x: s.x - 0.5 + w.u, y: s.y - 0.5 + w.v, z: ground + w.z,
       heading: w.heading, phase: w.phase, pitch: 0,
       colour: w.role === "foreman" ? FOREMAN : VESTS[k % VESTS.length],
       job: { site: s.id, role: w.working ? "working" : "builder" },
     } as unknown as Mover;
-    drawMover(g, m, ctx.scale, ctx.bands.bands.length);
-    if (w.carrying) {
-      const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, null);
-      const du = Math.cos(w.heading) * 0.07, dv = Math.sin(w.heading) * 0.07;
-      p.box(w.u + du - 0.05, w.v + dv - 0.05, w.u + du + 0.05, w.v + dv + 0.05, w.z + 0.55, w.z + 0.78, 0xb3563f);
+    if (h.crew[k] && !h.crew[k].g !== !!P) { dropHand(h.crew[k]); h.crew.splice(k, 1); }
+    if (!h.crew[k]) {
+      const o = outfitOf(m);
+      h.crew.splice(k, 0, makeHand(!!P, () => [o.skin, o.legs, m.colour, o.hair, 0xffffff]));
+    }
+    const hand = h.crew[k], g = hand.node;
+    if (hand.g) {
+      drawMover(hand.g, m, ctx.scale, ctx.bands.bands.length);
+      if (w.carrying) {
+        const p = makePen(hand.g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, null);
+        const du = Math.cos(w.heading) * 0.07, dv = Math.sin(w.heading) * 0.07;
+        p.box(w.u + du - 0.05, w.v + dv - 0.05, w.u + du + 0.05, w.v + dv + 0.05, w.z + 0.55, w.z + 0.78, 0xb3563f);
+      }
+    } else {
+      // A BUILDER from the sheet, hammering or walking, at their own height.
+      hand.key = posePerson(hand.parts, P!, "builder", w.working, w.heading, w.phase, ctx.scale, heightOf(id), hand.key);
+      const x = (m.x - m.y) * HW * ctx.scale, y = (m.x + m.y) * HH * ctx.scale - m.z * HEIGHT_UNIT * ctx.scale;
+      for (const sp of hand.parts) sp.position.set(x, y);
+      hand.load!.clear();
+      if (w.carrying) {
+        const p = makePen(hand.load!, s.x - 0.5, s.y - 0.5, ground, ctx.scale, null);
+        const du = Math.cos(w.heading) * LOAD.ahead, dv = Math.sin(w.heading) * LOAD.ahead, r = LOAD.half;
+        p.box(w.u + du - r, w.v + dv - r, w.u + du + r, w.v + dv + r, w.z + LOAD.z0, w.z + LOAD.z1, 0xb3563f);
+      }
     }
     // IN THE BAND OF THE TILE THEY STAND ON, over that tile's share of the
     // building — they stand at its front faces — and under anything in
@@ -299,7 +341,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
     columns, cells, sky, live, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
     t: s.id * 3.7, site: null, crew: [], opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false,
-    destroy: () => { for (const g of [...columns, sky, live, ...handle.crew]) { g.parent?.removeChild(g); g.destroy(); } },
+    destroy: () => { for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); },
   };
   draw(handle, s, ctx);
   return handle;

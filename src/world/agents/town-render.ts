@@ -22,7 +22,7 @@ import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
 import { baseCorners, bakedCars, headingIndex, loadCarSprites, modelFor, pitchMatrix, type CarSprites } from "./cars/car-sheet";
 import { figureFor, heightOf } from "./people/cast";
-import { bakedPeople, loadPeopleSprites, type PeopleSprites } from "./people/people-sheet";
+import { bakedPeople, peopleSprites, posePerson, type PeopleSprites } from "./people/people-sheet";
 import { AI_TRUCK_COLOUR, atWork, HALF_STEP_IN_TILES, LEG, SWING, type Mover, type Town } from "./town";
 
 /** A car, tiles long and wide, and its body and cabin heights in half steps. */
@@ -237,7 +237,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
   // THE BAKED PEOPLE likewise: drawn people until their sheet is in. @see people/people-sheet
   let people: PeopleSprites | null = null;
   if (bakedPeople()) {
-    loadPeopleSprites().then((p) => {
+    peopleSprites().then((p) => {
       if (gone) return;
       people = p;
       for (const [id, d] of drawn) if (!d.baked && d.parts.length === PERSON_PARTS.length) { d.c.destroy({ children: true }); drawn.delete(id); }
@@ -325,16 +325,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         front = baseCorners(car, (h / sheet!.headings) * Math.PI * 2);
       } else if (fig && d.baked) {
         // FROM THE PEOPLE SHEET: the frame for their heading and step, or their hammer's swing.
-        const P = people!, h = headingIndex(m.heading, P.headings);
-        const work = atWork(m) && fig.work ? fig.work : null;
-        const p = (((m.phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
-        const f = Math.round(p * P.strides) % P.strides;
-        const key = `figure|${figId}|${work ? "w" : ""}|${h}|${f}|${scale}`;
-        if (d.key !== key) {
-          d.key = key;
-          const look = (work ?? fig.walk)[h * P.strides + f], k = (scale / P.res) * heightOf(m.id);
-          look.tex.forEach((t, j) => { const sp = d!.parts[j]; sp.texture = t; sp.anchor.set(look.anchor[j].x, look.anchor[j].y); sp.scale.set(k); });
-        }
+        d.key = posePerson(d.parts, people!, figId!, atWork(m), m.heading, m.phase, scale, heightOf(m.id), d.key);
         d.c.position.set(x, y);
         front = PERSON_BASE;
       } else {

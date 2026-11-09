@@ -5,7 +5,9 @@
  * heading and their step. `?people=boxes` keeps the old drawn people.
  * @see dev/bake-people.ts, town-render
  */
-import { Assets, Rectangle, Texture } from "pixi.js";
+import { Assets, Rectangle, Texture, type Sprite } from "pixi.js";
+
+import { headingIndex } from "../cars/car-sheet";
 
 import { PERSON_GAP, type PeopleSheet, type PersonFrame } from "./people-format";
 
@@ -39,4 +41,32 @@ export async function loadPeopleSprites(): Promise<PeopleSprites> {
   const figures: PeopleSprites["figures"] = new Map();
   for (const [id, f] of Object.entries(sheet.figures)) figures.set(id, { walk: f.walk.map(cut), work: f.work?.map(cut) });
   return { res: sheet.res, headings: sheet.headings, strides: sheet.strides, figures };
+}
+
+/** The sheet, loaded once for the town and the building sites both. */
+let loading: Promise<PeopleSprites> | null = null;
+let loaded: PeopleSprites | null = null;
+export const peopleSprites = () => (loading ??= loadPeopleSprites().then((p) => (loaded = p)));
+/** The sheet if it is in yet, else null: whoever draws a person meanwhile draws the old one. */
+export const peopleLoaded = () => loaded;
+
+/**
+ * Turn a person's five sprites to the frame for their heading and their step
+ * — or their hammer's swing, at work — at the map's scale and their height.
+ * Answers the frame's key, so a caller can skip it when nothing has changed.
+ */
+export function posePerson(
+  parts: readonly Sprite[], P: PeopleSprites, figure: string, work: boolean,
+  heading: number, phase: number, scale: number, height: number, was = "",
+): string {
+  const fig = P.figures.get(figure)!;
+  const frames = work && fig.work ? fig.work : fig.walk;
+  const h = headingIndex(heading, P.headings);
+  const p = (((phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+  const f = Math.round(p * P.strides) % P.strides;
+  const key = `figure|${figure}|${frames === fig.work ? "w" : ""}|${h}|${f}|${scale}|${height}`;
+  if (key === was) return key;
+  const look = frames[h * P.strides + f], k = (scale / P.res) * height;
+  look.tex.forEach((t, j) => { const sp = parts[j]; sp.texture = t; sp.anchor.set(look.anchor[j].x, look.anchor[j].y); sp.scale.set(k); });
+  return key;
 }
