@@ -3946,6 +3946,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   useTick(() => {
     const pl = plRef.current, vp = useWorldStore.getState().viewport;
     if (!pl?.painter || !vp) return;
+    pl.painter.reap();
     const want = lodFor(scale * vp.scale.x * app.renderer.resolution, pl.lodWant);
     const keys = pl.painter.stats().keys;
     const L = lodView.current, step = 66 * scale;

@@ -12,7 +12,7 @@
  * middle of a network is worse than a slightly wrong family. The count is what
  * the debug overlay reports.
  */
-import { Sprite, type Texture } from "pixi.js";
+import { Sprite, type RenderGroup, type Texture } from "pixi.js";
 
 import { GROUND_FRAME_H, bandOf, cellToWorld, spriteY } from "../iso";
 import { keyOf, looksOf, type Look } from "../roads/looks";
@@ -256,8 +256,17 @@ export function lodPaved(pl: PavedLayer, grid: Grid, want: number, view: View, b
     if (s.texture !== tex) s.texture = tex;
     pl.lod[i] = lod;
   }
-  // Every cell has what it should: the levels and pages nothing draws now can go.
-  if (done) for (let l = 1; l < tiers.length; l++) { P.dropOld(l); if (l !== want) P.evict(l); }
+  // Every cell has what it should: the levels and pages nothing draws now can
+  // go — once the render groups that bound them have rebuilt. @see RoadPainter.reap
+  if (done) {
+    let freed = false;
+    for (let l = 1; l < tiers.length; l++) { freed = P.dropOld(l) || freed; if (l !== want) freed = P.evict(l) || freed; }
+    if (freed) {
+      const groups = new Set<RenderGroup>();
+      for (const s of pl.sprites) if (s?.parentRenderGroup) groups.add(s.parentRenderGroup);
+      for (const g of groups) g.structureDidChange = true;
+    }
+  }
   return done;
 }
 

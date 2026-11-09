@@ -685,10 +685,20 @@ export type RoadPainter = {
    * its pages is replaced without anything on screen losing its texture.
    */
   rotate(lod: number): void;
-  /** Let go of a level's old pages. Nothing may still draw them. */
-  dropOld(lod: number): void;
-  /** Drop a closer level's pages and textures, old and new. Nothing may still draw them. */
-  evict(lod: number): void;
+  /** Let go of a level's old pages. Nothing may still draw them. Whether there were any. */
+  dropOld(lod: number): boolean;
+  /** Drop a closer level's pages and textures, old and new. Nothing may still draw them. Whether there were any. */
+  evict(lod: number): boolean;
+  /**
+   * Destroy what was let go two calls ago: call once a frame. NOT AT ONCE,
+   * because a render group's batches keep every page they have ever bound
+   * (a sprite moved to another page already in its batch is swapped in place,
+   * `Batcher.checkAndUpdateTexture`), so a page destroyed under them is bound
+   * again and the renderer crashes on its null resource. Whoever lets pages go
+   * marks those render groups to rebuild; by the time this destroys the pages,
+   * a frame has drawn with batches that no longer list them.
+   */
+  reap(): void;
   /** Upload what was painted since the last flush. */
   flush(): void;
   stats(): { keys: number; pages: number; tiers: { keys: number; pages: number; old: number }[] };
@@ -725,14 +735,27 @@ export function createRoadPainter(): RoadPainter {
     flushing = false;
     for (const t of tiers) for (const p of t.pages) if (p.dirty) { p.dirty = false; p.source.update(); }
   };
-  const free = (t: Set_) => {
+  // Let go, then destroyed two reaps later. @see RoadPainter.reap
+  let letGo: Set_[] = [], dying: Set_[] = [];
+  const destroy = (t: Set_) => {
     for (const tex of t.cache.values()) tex.destroy(false);
-    t.cache.clear();
     for (const p of t.pages) p.source.destroy();
-    t.pages.length = 0;
   };
-  const dropOld = (lod: number) => { const t = tiers[lod]; if (t.old) { free(t.old); t.old = null; } };
-  const drop = (lod: number) => { dropOld(lod); free(tiers[lod]); };
+  const free = (t: Set_) => {
+    if (!t.pages.length && !t.cache.size) return false;
+    letGo.push({ pages: [...t.pages], cache: new Map(t.cache) });
+    t.cache.clear();
+    t.pages.length = 0;
+    return true;
+  };
+  const dropOld = (lod: number) => {
+    const t = tiers[lod];
+    if (!t.old) return false;
+    free(t.old);
+    t.old = null;
+    return true;
+  };
+  const drop = (lod: number) => { const a = dropOld(lod); return free(tiers[lod]) || a; };
 
   const painter: RoadPainter = {
     textureFor(key, cells, ramp, lod = 0) {
@@ -784,20 +807,29 @@ export function createRoadPainter(): RoadPainter {
     peek: (key, lod) => tiers[lod].cache.get(key),
     rotate(lod) {
       const t = tiers[lod];
-      dropOld(lod);
+      if (t.old) return;
       t.old = { pages: t.pages, cache: t.cache };
       t.pages = [];
       t.cache = new Map();
     },
     dropOld,
-    evict(lod) { if (lod > 0) drop(lod); },
+    evict: (lod) => lod > 0 && drop(lod),
+    reap() {
+      for (const t of dying) destroy(t);
+      dying = letGo;
+      letGo = [];
+    },
     flush,
     stats: () => ({
       keys: tiers.reduce((n, t) => n + t.cache.size, 0),
       pages: tiers.reduce((n, t) => n + t.pages.length, 0),
       tiers: tiers.map((t) => ({ keys: t.cache.size, pages: t.pages.length, old: t.old?.pages.length ?? 0 })),
     }),
-    destroy() { for (let l = 0; l < tiers.length; l++) drop(l); },
+    destroy() {
+      for (let l = 0; l < tiers.length; l++) drop(l);
+      for (const t of [...dying, ...letGo]) destroy(t);
+      dying = letGo = [];
+    },
   };
   // How many looks, how many pages: for the console. @see stats
   if (import.meta.env?.DEV) (globalThis as { __roadPainter?: RoadPainter }).__roadPainter = painter;
