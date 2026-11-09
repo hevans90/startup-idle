@@ -21,6 +21,8 @@ import { Container, Graphics, Matrix, Rectangle, RenderTexture, Sprite, Texture,
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
 import { baseCorners, bakedCars, headingIndex, loadCarSprites, modelFor, pitchMatrix, type CarSprites } from "./cars/car-sheet";
+import { figureFor, heightOf } from "./people/cast";
+import { bakedPeople, loadPeopleSprites, type PeopleSprites } from "./people/people-sheet";
 import { AI_TRUCK_COLOUR, atWork, HALF_STEP_IN_TILES, LEG, SWING, type Mover, type Town } from "./town";
 
 /** A car, tiles long and wide, and its body and cabin heights in half steps. */
@@ -211,6 +213,9 @@ function createAtlas(renderer: Renderer) {
   };
 }
 
+/** A baked person's footprint for the band: a few centimetres round their feet. */
+const PERSON_BASE = [{ u: 0.02, v: 0.02 }, { u: -0.02, v: 0.02 }, { u: 0.02, v: -0.02 }, { u: -0.02, v: -0.02 }];
+
 /** One mover on the map: a container of its sprites — one for a vehicle, a part each for a person. */
 type Shown = { c: Container; parts: Sprite[]; band: number; key: string; baked: boolean; tilted: boolean };
 
@@ -228,6 +233,15 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       // Every vehicle drawn as a box so far is drawn again from the sheet.
       for (const [id, d] of drawn) if (!d.baked && d.parts.length === 1) { d.c.destroy({ children: true }); drawn.delete(id); }
     }).catch((e) => console.warn("car sheet failed to load; drawing box cars", e));
+  }
+  // THE BAKED PEOPLE likewise: drawn people until their sheet is in. @see people/people-sheet
+  let people: PeopleSprites | null = null;
+  if (bakedPeople()) {
+    loadPeopleSprites().then((p) => {
+      if (gone) return;
+      people = p;
+      for (const [id, d] of drawn) if (!d.baked && d.parts.length === PERSON_PARTS.length) { d.c.destroy({ children: true }); drawn.delete(id); }
+    }).catch((e) => console.warn("people sheet failed to load; drawing people", e));
   }
 
   const bake = (m: Mover, scale: number): Look => {
@@ -270,18 +284,21 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       live.add(m.id);
       const model = sheet && m.kind !== "person" ? modelFor(m) : null;
       const car = model ? sheet!.looks.get(model) ?? null : null;
+      const figId = people && m.kind === "person" ? figureFor(m) : null;
+      const fig = figId ? people!.figures.get(figId) ?? null : null;
       let d = drawn.get(m.id);
       if (!d) {
         const c = new Container();
         c.eventMode = "none";
-        const n = m.kind === "person" ? PERSON_PARTS.length : car ? 2 : 1;
+        const n = m.kind === "person" ? (fig ? 5 : PERSON_PARTS.length) : car ? 2 : 1;
         const parts = Array.from({ length: n }, () => { const sp = new Sprite(); sp.scale.set(1 / BAKE); c.addChild(sp); return sp; });
         // A person's parts tinted their own colours, once: they never change.
         if (m.kind === "person") {
           const o = outfitOf(m);
-          [o.legs, m.colour, o.skin, o.hair].forEach((t, k) => { parts[k].tint = t; });
+          // Baked: skin, bottoms, top, hair and the rest; drawn: trousers, shirt, skin, hair.
+          (fig ? [o.skin, o.legs, m.colour, o.hair, 0xffffff] : [o.legs, m.colour, o.skin, o.hair]).forEach((t, k) => { parts[k].tint = t; });
         }
-        d = { c, parts, band: -1, key: "", baked: !!car, tilted: false };
+        d = { c, parts, band: -1, key: "", baked: !!car || !!fig, tilted: false };
         if (car) parts[0].tint = m.colour;
         drawn.set(m.id, d);
       }
@@ -306,6 +323,20 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
           d.c.position.set(x, y);
         }
         front = baseCorners(car, (h / sheet!.headings) * Math.PI * 2);
+      } else if (fig && d.baked) {
+        // FROM THE PEOPLE SHEET: the frame for their heading and step, or their hammer's swing.
+        const P = people!, h = headingIndex(m.heading, P.headings);
+        const work = atWork(m) && fig.work ? fig.work : null;
+        const p = (((m.phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+        const f = Math.round(p * P.strides) % P.strides;
+        const key = `figure|${figId}|${work ? "w" : ""}|${h}|${f}|${scale}`;
+        if (d.key !== key) {
+          d.key = key;
+          const look = (work ?? fig.walk)[h * P.strides + f], k = (scale / P.res) * heightOf(m.id);
+          look.tex.forEach((t, j) => { const sp = d!.parts[j]; sp.texture = t; sp.anchor.set(look.anchor[j].x, look.anchor[j].y); sp.scale.set(k); });
+        }
+        d.c.position.set(x, y);
+        front = PERSON_BASE;
       } else {
       const { key } = lookOf(m);
       const look = looks.get(key) ?? bake(m, scale);

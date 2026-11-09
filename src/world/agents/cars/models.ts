@@ -20,7 +20,8 @@ export type Mat =
   | "plate" | "rearPlate" | "grille" | "roof" | "livery" | "liveryAlt" | "light" | "bed"
   | "roofBlack" | "roofWhite" | "seat" | "interior"
   | "liveryWhite" | "liveryBlack" | "liveryRed" | "liveryGreen" | "load" | "brick" | "gravel" | "aiLoad" | "sign" | "violet"
-  | "seam" | "arch" | "rim" | "spoke";
+  | "seam" | "arch" | "rim" | "spoke"
+  | "skin" | "top" | "bottom" | "hair" | "shoe" | "bag" | "hivis" | "hardhat";
 
 export type Faces = { side?: Mat; top?: Mat; front?: Mat; back?: Mat };
 

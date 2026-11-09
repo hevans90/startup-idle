@@ -38,6 +38,8 @@ const COLOUR: Record<Mat, [number, number, number]> = {
   liveryWhite: [0.93, 0.93, 0.92], liveryBlack: [0.09, 0.09, 0.1], liveryRed: [0.72, 0.08, 0.07], liveryGreen: [0.2, 0.62, 0.26],
   load: [0.6, 0.45, 0.28], brick: [0.64, 0.32, 0.23], gravel: [0.56, 0.53, 0.49], aiLoad: [0.16, 0.15, 0.22],
   sign: [0.98, 0.82, 0.22], violet: [0.66, 0.38, 1.0],
+  skin: [1, 1, 1], top: [1, 1, 1], bottom: [1, 1, 1], hair: [1, 1, 1],
+  shoe: [0.13, 0.12, 0.11], bag: [0.2, 0.21, 0.23], hivis: [0.86, 0.96, 0.18], hardhat: [0.96, 0.76, 0.14],
   seam: [0.3, 0.3, 0.32], arch: [0.05, 0.05, 0.06], rim: [0.7, 0.72, 0.75], spoke: [0.08, 0.08, 0.09],
 };
 /** How glossy: the highlight's strength and tightness. Paint and glass shine; tyres and plastic don't. */
@@ -45,6 +47,7 @@ const GLOSS: Partial<Record<Mat, [number, number]>> = {
   paint: [0.38, 36], roofBlack: [0.3, 36], roofWhite: [0.3, 36], glass: [0.7, 70], chrome: [0.65, 24], rim: [0.45, 20],
   liveryWhite: [0.32, 36], liveryBlack: [0.38, 36], liveryRed: [0.32, 36], liveryGreen: [0.3, 36], livery: [0.25, 30], liveryAlt: [0.25, 30],
   lamp: [0.4, 40], tail: [0.4, 40],
+  hair: [0.12, 14], skin: [0.06, 10], hardhat: [0.4, 30], shoe: [0.15, 20],
 };
 const PAINTED: ReadonlySet<Mat> = new Set(["paint"]);
 /** Lit from within: they barely take the light. */
@@ -53,21 +56,21 @@ const GLOWS: ReadonlySet<Mat> = new Set(["lamp", "tail", "indicator", "light", "
 /** The light, in the ground's own frame (u, v, up), true lengths. */
 const LIGHT = (() => { const v = [-0.3, 0.6, 1.0]; const n = Math.hypot(...v); return v.map((c) => c / n); })();
 
-type V3 = [number, number, number];
+export type V3 = [number, number, number];
 /** A triangle: its points in the model's metres, its material, its face's normal, and, if smooth, a normal at each point. */
-type Tri = { p: [V3, V3, V3]; mat: Mat; n: V3; ns?: [V3, V3, V3]; paint?: (p: V3) => Mat };
+export type Tri = { p: [V3, V3, V3]; mat: Mat; n: V3; ns?: [V3, V3, V3]; paint?: (p: V3) => Mat };
 /** Toward the camera, true lengths: the line of sight (1, 1, 4) in tiles and half steps. */
 const VIEW = norm3([1, 1, 4 * 0.2041]);
 /** Halfway between the light and the eye, for the highlight. */
 const HALF = norm3([LIGHT[0] + VIEW[0], LIGHT[1] + VIEW[1], LIGHT[2] + VIEW[2]]);
 function norm3(a: number[]): V3 { const n = Math.hypot(...a) || 1; return [a[0] / n, a[1] / n, a[2] / n]; }
 
-const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const norm = (a: V3): V3 => { const n = Math.hypot(...a) || 1; return [a[0] / n, a[1] / n, a[2] / n]; };
+export const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+export const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+export const norm = (a: V3): V3 => { const n = Math.hypot(...a) || 1; return [a[0] / n, a[1] / n, a[2] / n]; };
 
 /** A face (a convex polygon) as triangles, its normal turned outward from `inside`. */
-function face(pts: V3[], mat: Mat, inside: V3, out: Tri[]) {
+export function face(pts: V3[], mat: Mat, inside: V3, out: Tri[]) {
   let n = norm(cross(sub(pts[1], pts[0]), sub(pts[2], pts[0])));
   if (Math.hypot(...n) < 0.5) n = norm(cross(sub(pts[2], pts[0]), sub(pts[3] ?? pts[1], pts[0])));
   const c = pts.reduce((a, p) => [a[0] + p[0] / pts.length, a[1] + p[1] / pts.length, a[2] + p[2] / pts.length] as V3, [0, 0, 0] as V3);
@@ -245,6 +248,31 @@ export function modelTris(m: Model): Tri[] {
  * texels to a world px at scale 1.
  */
 export function bakeFrame(m: Model, heading: number, res: number): Baked {
+  const b = bakeTris(modelTris(m), heading, res, {
+    layers: 2, layerOf: (mat) => (PAINTED.has(mat) ? 0 : 1),
+    shadow: { hl: m.length / 2 - 0.25, hw: m.width / 2 - 0.25, edge: 0.08, soft: 0.4, strength: 0.42, reach: 0.35 },
+  });
+  return { paint: b.layers[0], trim: b.layers[1], ox: b.ox, oy: b.oy };
+}
+
+/**
+ * How a bake is split and shadowed: how many layers, which each material
+ * goes in (the last takes the shadow and is drawn on top), and the soft
+ * shadow on the road — a rounded rectangle `hl` by `hw` from the middle,
+ * solid `edge` beyond it and fading over `soft`, as dark as `strength`.
+ */
+export type BakeOpts = {
+  layers: number;
+  layerOf: (mat: Mat) => number;
+  shadow: { hl: number; hw: number; edge: number; soft: number; strength: number; reach: number };
+};
+
+/**
+ * Bake triangles at `heading`, `res` texels to a world px, into layers. Each
+ * layer is drawn over the one before; where a texel is shared, each layer's
+ * alpha is set so the stack gives the texel's true coverage.
+ */
+export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpts): { layers: Image[]; ox: number; oy: number } {
   const ch = Math.cos(heading), sh = Math.sin(heading);
   // Model metres → ground (u, v tiles; up half steps), as town-render's `at`.
   const ground = (p: V3) => {
@@ -252,10 +280,10 @@ export function bakeFrame(m: Model, heading: number, res: number): Baked {
     return { u: l * ch - w * sh, v: l * sh + w * ch, up: p[2] * HALF_STEPS_PER_M };
   };
   const screen = (u: number, v: number, up: number) => ({ x: (u - v) * HW * res, y: ((u + v) * HH - up * HEIGHT_UNIT) * res });
+  const sd = opt.shadow;
 
-  const tris = modelTris(m);
   // THE FRAME: every point of the model, and the shadow's reach round it.
-  const sl = m.length / 2 + 0.35, sw = m.width / 2 + 0.3;
+  const sl = sd.hl + 0.25 + sd.reach, sw = sd.hw + 0.25 + sd.reach - 0.05;
   const pts: { x: number; y: number }[] = [];
   for (const t of tris) for (const p of t.p) { const g = ground(p); pts.push(screen(g.u, g.v, g.up)); }
   for (const [l, w] of [[sl, sw], [sl, -sw], [-sl, sw], [-sl, -sw]]) { const g = ground([l, w, 0]); pts.push(screen(g.u, g.v, 0)); }
@@ -263,7 +291,7 @@ export function bakeFrame(m: Model, heading: number, res: number): Baked {
   const x0 = Math.floor(Math.min(...pts.map((p) => p.x))) - PAD, y0 = Math.floor(Math.min(...pts.map((p) => p.y))) - PAD;
   const W = Math.ceil(Math.max(...pts.map((p) => p.x))) + PAD - x0, H = Math.ceil(Math.max(...pts.map((p) => p.y))) + PAD - y0;
 
-  // THE SAMPLES: depth, colour, and which layer (0 none, 1 paint, 2 trim).
+  // THE SAMPLES: depth, colour, and which layer (0 none, else the layer and one).
   const SW = W * SS, SH = H * SS, n = SW * SH;
   const depth = new Float32Array(n).fill(-Infinity);
   const col = new Float32Array(n * 3);
@@ -324,7 +352,7 @@ export function bakeFrame(m: Model, heading: number, res: number): Baked {
           w0 * t.ns[0][2] + w1 * t.ns[1][2] + w2 * t.ns[2][2],
         ]) : t.n, mat);
         col[i * 3] = c[0] * ao; col[i * 3 + 1] = c[1] * ao; col[i * 3 + 2] = c[2] * ao;
-        layer[i] = PAINTED.has(mat) ? 1 : 2;
+        layer[i] = opt.layerOf(mat) + 1;
       }
     }
   }
@@ -336,35 +364,35 @@ export function bakeFrame(m: Model, heading: number, res: number): Baked {
     // Back into the car's frame, metres, a touch toward the shade (+x on the ground).
     const uu = u / TILES_PER_M - 0.12, vv = v / TILES_PER_M + 0.06;
     const l = uu * ch + vv * sh, w = -uu * sh + vv * ch;
-    const ex = Math.max(Math.abs(l) - (m.length / 2 - 0.25), 0), ey = Math.max(Math.abs(w) - (m.width / 2 - 0.25), 0);
+    const ex = Math.max(Math.abs(l) - sd.hl, 0), ey = Math.max(Math.abs(w) - sd.hw, 0);
     const out = Math.hypot(ex, ey);
-    return 0.42 * (1 - Math.min(1, Math.max(0, (out - 0.08) / 0.4)));
+    return sd.strength * (1 - Math.min(1, Math.max(0, (out - sd.edge) / sd.soft)));
   };
 
-  // DOWN TO TEXELS.
-  const paint = { w: W, h: H, px: new Uint8Array(W * H * 4) };
-  const trim = { w: W, h: H, px: new Uint8Array(W * H * 4) };
-  const N = SS * SS;
+  // DOWN TO TEXELS. Shadow samples add alpha and no colour to the last layer: black.
+  const NL = opt.layers, N = SS * SS;
+  const layers: Image[] = Array.from({ length: NL }, () => ({ w: W, h: H, px: new Uint8Array(W * H * 4) }));
   const to8 = (v: number) => Math.round(Math.max(0, Math.min(1, v)) * 255);
+  const cnt = new Float64Array(NL), r = new Float64Array(NL), gr = new Float64Array(NL), bl = new Float64Array(NL);
   for (let ty = 0; ty < H; ty++) for (let tx = 0; tx < W; tx++) {
-    let np = 0, pr = 0, pg = 0, pb = 0;
-    let at = 0, tr = 0, tg = 0, tb = 0;
+    cnt.fill(0); r.fill(0); gr.fill(0); bl.fill(0);
     for (let sy = 0; sy < SS; sy++) for (let sx = 0; sx < SS; sx++) {
       const X = tx * SS + sx, Y = ty * SS + sy, i = Y * SW + X;
-      if (layer[i] === 1) { np++; pr += col[i * 3]; pg += col[i * 3 + 1]; pb += col[i * 3 + 2]; }
-      else if (layer[i] === 2) { at += 1; tr += col[i * 3]; tg += col[i * 3 + 1]; tb += col[i * 3 + 2]; }
-      else { at += shadowAt(X + 0.5, Y + 0.5); }
+      const k = layer[i] - 1;
+      if (k >= 0) { cnt[k] += 1; r[k] += col[i * 3]; gr[k] += col[i * 3 + 1]; bl[k] += col[i * 3 + 2]; }
+      else cnt[NL - 1] += shadowAt(X + 0.5, Y + 0.5);
     }
     const o = (ty * W + tx) * 4;
-    if (at > 0) {
-      // Shadow samples add alpha and no colour: black.
-      trim.px[o] = to8(tr / at); trim.px[o + 1] = to8(tg / at); trim.px[o + 2] = to8(tb / at); trim.px[o + 3] = to8(at / N);
-    }
-    if (np > 0) {
-      paint.px[o] = to8(pr / np); paint.px[o + 1] = to8(pg / np); paint.px[o + 2] = to8(pb / np);
-      // Under the trim, so trim over it gives the texel's coverage.
-      paint.px[o + 3] = to8(np / Math.max(1e-6, N - at));
+    // Each layer's alpha out of what the layers over it leave uncovered.
+    let above = 0;
+    for (let k = NL - 1; k >= 0; k--) {
+      if (cnt[k] > 0) {
+        const px = layers[k].px;
+        px[o] = to8(r[k] / cnt[k]); px[o + 1] = to8(gr[k] / cnt[k]); px[o + 2] = to8(bl[k] / cnt[k]);
+        px[o + 3] = to8(cnt[k] / Math.max(1e-6, N - above));
+      }
+      above += cnt[k];
     }
   }
-  return { paint, trim, ox: -x0, oy: -y0 };
+  return { layers, ox: -x0, oy: -y0 };
 }
