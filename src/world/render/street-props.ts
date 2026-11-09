@@ -120,6 +120,9 @@ const onKerb = (side: StreetProp["side"], a: number, d: number): [number, number
 /** Whether a kerb runs along `u`: the north and south ones. */
 const alongU = (side: StreetProp["side"]) => side === "N" || side === "S";
 
+/** How far a brick pavement laps back over the tile behind it along the kerb. @see DRAW.brick */
+const LAP = 0.06;
+
 /** How far in from the edge a prop stands: on the pavement. */
 const IN = 0.1;
 
@@ -247,18 +250,23 @@ const DRAW: Record<StreetProp["kind"], (p: Pen, pr: StreetProp) => void> = {
   brick: (p, pr) => {
     // The pavement in brick, laid herringbone, a granite kerb along its road edge.
     const along = alongU(pr.side);
-    const [u0, v0] = onKerb(pr.side, 0, 0), [u1, v1] = onKerb(pr.side, 1, 0.17);
+    // From a little BEHIND the tile's edge: the tile behind along the kerb is a
+    // band earlier, and this tile's road sprite, a hair wider than its diamond,
+    // paints over the end of that one's brick — so this one's covers it again.
+    const [u0, v0] = onKerb(pr.side, -LAP, 0), [u1, v1] = onKerb(pr.side, 1, 0.17);
     const lu = Math.min(u0, u1), lv = Math.min(v0, v1), hu = Math.max(u0, u1), hv = Math.max(v0, v1);
     p.flat(lu, lv, hu, hv, 0.012, BRICK);
-    for (let k = 0; k < 14; k++) {
+    // The bricks laid from the tile's own edge, the one in the lap the same as the tile behind's last.
+    const ou = along ? lu + LAP : lu, ov = along ? lv : lv + LAP;
+    for (let k = -1; k < 14; k++) {
       const t = k / 14;
       for (let j = 0; j < 2; j++) {
-        const c = (k + j) % 2 ? tone(BRICK, 1.12) : tone(BRICK, 0.9);
-        if (along) p.flat(lu + t, lv + 0.01 + j * 0.075, lu + t + 0.06, lv + 0.07 + j * 0.075, 0.013, c);
-        else p.flat(lu + 0.01 + j * 0.075, lv + t, lu + 0.07 + j * 0.075, lv + t + 0.06, 0.013, c);
+        const c = (k + 14 + j) % 2 ? tone(BRICK, 1.12) : tone(BRICK, 0.9);
+        if (along) p.flat(Math.max(lu, ou + t), lv + 0.01 + j * 0.075, ou + t + 0.06, lv + 0.07 + j * 0.075, 0.013, c);
+        else p.flat(lu + 0.01 + j * 0.075, Math.max(lv, ov + t), lu + 0.07 + j * 0.075, ov + t + 0.06, 0.013, c);
       }
     }
-    const [g0, h0] = onKerb(pr.side, 0, 0.15), [g1, h1] = onKerb(pr.side, 1, 0.185);
+    const [g0, h0] = onKerb(pr.side, -LAP, 0.15), [g1, h1] = onKerb(pr.side, 1, 0.185);
     p.flat(Math.min(g0, g1), Math.min(h0, h1), Math.max(g0, g1), Math.max(h0, h1), 0.014, GRANITE);
   },
   crossing: (p, pr) => {
