@@ -57,6 +57,83 @@ const copy = (dst: Image, dx: number, dy: number, src: Image, sx: number, sy: nu
   dst.px[d] = src.px[s]; dst.px[d + 1] = src.px[s + 1]; dst.px[d + 2] = src.px[s + 2]; dst.px[d + 3] = src.px[s + 3];
 };
 
+/** How near in colour a soft edge texel must be to the solid one beside it to be its edge, per channel. */
+const EDGE_NEAR = 12;
+/**
+ * TRUE EDGES: each soft edge texel of a frame — partly see-through, the
+ * vendor's antialiasing — given the colour of the solid texel beside it, its
+ * see-through kept. The vendor's are a shade darker than what they edge, so
+ * wherever one tile's edge lies over its neighbour's top of the same green,
+ * a darker line showed: zoomed out, a grid across every field. Only where
+ * it is that texel's edge — near its colour; a shadow, dark and see-through,
+ * is left as it is.
+ */
+function trueEdges(sheet: Image, o: { x: number; y: number }, f: Frame) {
+  const px = sheet.px, W = sheet.w, fix: [number, number][] = [];
+  for (let y = -PAD; y < f.h + PAD; y++) {
+    for (let x = -PAD; x < f.w + PAD; x++) {
+      const k = ((o.y + y) * W + o.x + x) * 4, a = px[k + 3];
+      if (a === 0 || a === 255) continue;
+      // The nearest solid texel, out to two away.
+      let best = -1, bd = Infinity;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const yy = y + dy, xx = x + dx;
+        if (yy < -PAD || xx < -PAD || yy >= f.h + PAD || xx >= f.w + PAD) continue;
+        const q = ((o.y + yy) * W + o.x + xx) * 4, d = dx * dx + dy * dy;
+        if (px[q + 3] === 255 && d < bd) { bd = d; best = q; }
+      }
+      if (best < 0) continue;
+      if (Math.max(Math.abs(px[k] - px[best]), Math.abs(px[k + 1] - px[best + 1]), Math.abs(px[k + 2] - px[best + 2])) > EDGE_NEAR) continue;
+      fix.push([k, best]);
+    }
+  }
+  // All at once, so one fixed texel is not another's solid neighbour.
+  for (const [k, q] of fix) { px[k] = px[q]; px[k + 1] = px[q + 1]; px[k + 2] = px[q + 2]; }
+}
+
+/**
+ * The ground tiles that get an INNER twin. @see innerFrame (src/world/iso-frames)
+ * A wood's frames are grass under trees, so their ground is grass's.
+ */
+const INNER_OF: Record<string, string> = {
+  "landscapeTiles_067.png": "landscapeTiles_067.png",
+  "landscapeTiles_083.png": "landscapeTiles_083.png",
+  "landscapeTiles_059.png": "landscapeTiles_059.png",
+  "landscapeTiles_067_trees1.png": "landscapeTiles_067.png",
+  "landscapeTiles_067_trees2.png": "landscapeTiles_067.png",
+  "landscapeTiles_067_trees3.png": "landscapeTiles_067.png",
+};
+const inner = (name: string) => name.replace(/\.png$/, "_inner.png");
+/** The last row of a flat tile's top face in column `x` of its 132-wide frame. */
+const topEdge = (x: number) => Math.floor(33 + 32 * (1 - Math.abs(x - 65.5) / 65.5));
+
+/**
+ * INNER TILES. A ground tile in the middle of a field shows only its top: the
+ * tiles in front of it hide its lip and sides. But zoomed out, a mip level
+ * averages the top's front edge with the darker lip under it, and every row
+ * of tiles had a dark line along its front — a grid over every field. The
+ * inner twin is the same tile with everything under the top painted the
+ * top's colour, so its edge stays its colour at every level; the terrain uses
+ * it wherever both tiles in front cover it. A tree's texels are left alone.
+ */
+function innerTile(src: Image, f: Frame, base: Frame, self: boolean): Image {
+  const out: Image = { w: f.w, h: f.h, px: new Uint8Array(f.w * f.h * 4) };
+  const at = (fr: Frame, x: number, y: number) => ((fr.y + y) * src.w + fr.x + x) * 4;
+  const c = at(base, 66, 33), fill = [src.px[c], src.px[c + 1], src.px[c + 2]];
+  for (let y = 0; y < f.h; y++) {
+    for (let x = 0; x < f.w; x++) {
+      const s = at(f, x, y), b = at(base, x, y), d = (y * f.w + x) * 4;
+      for (let k = 0; k < 4; k++) out.px[d + k] = src.px[s + k];
+      // The top's front edge too: the vendor's is a shade darker there.
+      if (y < topEdge(x) - 1 || src.px[s + 3] === 0) continue;
+      const ground = self || [0, 1, 2, 3].every((k) => src.px[s + k] === src.px[b + k]);
+      if (!ground) continue;
+      out.px[d] = fill[0]; out.px[d + 1] = fill[1]; out.px[d + 2] = fill[2];
+    }
+  }
+  return out;
+}
+
 /** Shelf-pack the frames, tallest first, each `PAD` all round: where each one's padded slot goes. */
 function pack(frames: Frame[]): { at: Map<string, { x: number; y: number }>; h: number } {
   const at = new Map<string, { x: number; y: number }>();
@@ -72,8 +149,30 @@ function pack(frames: Frame[]): { at: Map<string, { x: number; y: number }>; h: 
 }
 
 function bake(s: (typeof SHEETS)[number]) {
-  const frames = framesOf(readFileSync(join(BASE, s.dir, s.xml), "utf8"));
-  const src = decodePng(readFileSync(join(BASE, s.dir, s.png)));
+  let frames = framesOf(readFileSync(join(BASE, s.dir, s.xml), "utf8"));
+  let src = decodePng(readFileSync(join(BASE, s.dir, s.png)));
+  // The inner twins, drawn below the source in a taller copy of it.
+  const twins = frames.filter((f) => INNER_OF[f.name]);
+  if (twins.length) {
+    const landscape = s.out === "landscape" ? src : decodePng(readFileSync(join(BASE, "landscape", "landscape_sheet.png")));
+    const lf = framesOf(readFileSync(join(BASE, "landscape", "landscape_sheet.xml"), "utf8"));
+    const grown: Image = { w: src.w, h: src.h + 99, px: new Uint8Array(src.w * (src.h + 99) * 4) };
+    grown.px.set(src.px);
+    let x = 0;
+    for (const f of twins) {
+      // The base frame read from the landscape sheet; a twin of a tree frame
+      // compares its own texels against it, so put both in one image.
+      const base = lf.find((b) => b.name === INNER_OF[f.name])!;
+      const both: Image = { w: landscape.w + src.w, h: Math.max(landscape.h, src.h), px: new Uint8Array((landscape.w + src.w) * Math.max(landscape.h, src.h) * 4) };
+      for (let y = 0; y < landscape.h; y++) both.px.set(landscape.px.subarray(y * landscape.w * 4, (y + 1) * landscape.w * 4), y * both.w * 4);
+      for (let y = 0; y < src.h; y++) both.px.set(src.px.subarray(y * src.w * 4, (y + 1) * src.w * 4), (y * both.w + landscape.w) * 4);
+      const t = innerTile(both, { ...f, x: f.x + landscape.w }, base, base.name === f.name);
+      for (let y = 0; y < t.h; y++) grown.px.set(t.px.subarray(y * t.w * 4, (y + 1) * t.w * 4), ((src.h + y) * grown.w + x) * 4);
+      frames = [...frames, { name: inner(f.name), x, y: src.h, w: f.w, h: f.h }];
+      x += f.w;
+    }
+    src = grown;
+  }
   const { at, h } = pack(frames);
   const sheet: Image = { w: WIDTH, h, px: new Uint8Array(WIDTH * h * 4) };
   for (const f of frames) {
@@ -87,6 +186,7 @@ function bake(s: (typeof SHEETS)[number]) {
       }
     }
   }
+  for (const f of frames) trueEdges(sheet, at.get(f.name)!, f);
   const xml = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<TextureAtlas imagePath="${s.out}.png">`,

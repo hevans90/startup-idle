@@ -37,6 +37,29 @@ export function createTerrainLayer(grid: Grid, palette: Palette, scale = 1): Ter
 }
 
 /**
+ * A ground tile's INNER twin: the same tile with its lip and sides painted
+ * its top's colour, baked by `bake:padded` for the common ground frames. Zoomed
+ * out, a mip level averages a tile's front edge with the darker lip under it —
+ * a dark line along every row of a field. Used only where nothing shows that
+ * lip anyway. @see covered
+ */
+export const innerFrame = (frame: string) => frame.replace(/\.png$/, "_inner.png");
+
+/**
+ * Whether both tiles in front of a cell — (x+1,y) and (x,y+1) — stand flat, at
+ * least as high, and are drawn, so they hide its lip and sides.
+ */
+export function covered(grid: Grid, x: number, y: number): boolean {
+  const h = grid.height[idx(grid, x, y)];
+  for (const [nx, ny] of [[x + 1, y], [x, y + 1]] as const) {
+    if (!inBounds(grid, nx, ny)) return false;
+    const j = idx(grid, nx, ny);
+    if (grid.terrain[j] === VOID || grid.height[j] < h || rampDir(grid.ramp[j]) !== RAMP.NONE || hidesTerrain(grid, nx, ny)) return false;
+  }
+  return true;
+}
+
+/**
  * Reconcile one cell: add, re-texture, reposition or remove its sprite.
  * Cheap enough to call per edited cell; no band is rebuilt and nothing sorts.
  */
@@ -70,7 +93,9 @@ export function syncCell(
     : (ramp !== RAMP.NONE
         ? terrainRampFrame(ramp, rampRise(grid.ramp[i])) ?? (tl.palette[mat] ?? null)
         : (tl.palette[mat] ?? null));
-  const tex = frame ? textures[frame] : undefined;
+  const tex = frame
+    ? (ramp === RAMP.NONE && covered(grid, x, y) && textures[innerFrame(frame)]) || textures[frame]
+    : undefined;
 
   const existing = tl.sprites[i];
 

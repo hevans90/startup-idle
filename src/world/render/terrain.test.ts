@@ -5,7 +5,7 @@ import { VOID, createGrid, fillTerrain, idx, setHeight, setTerrain } from "../gr
 import { createBandLayer } from "./bands";
 import {
   TILE_BLEED, buildTerrain, createTerrainLayer, spriteCount, syncCell,
-  syncCellAndNeighbours,
+  syncCellAndNeighbours, covered, innerFrame,
 } from "./terrain";
 
 const GRASS = 1, DIRT = 2;
@@ -157,5 +157,23 @@ describe("syncCellAndNeighbours", () => {
     const { grid, bl, tl } = setup(3, 3);
     buildTerrain(tl, bl, grid, TEX);
     expect(() => syncCellAndNeighbours(tl, bl, grid, TEX, 0, 0)).not.toThrow();
+  });
+});
+
+describe("inner tiles", () => {
+  test("a tile in the middle of a field wears its inner twin; one with a side showing does not", () => {
+    const { grid, bl, tl } = setup(4, 4);
+    const inner = new Texture({ source: Texture.EMPTY.source, frame: { x: 0, y: 0, width: 132, height: 99 } as never });
+    const tex = { ...TEX, [innerFrame("grass.png")]: inner };
+    setHeight(grid, 2, 1, 0); // nothing yet: all flat
+    buildTerrain(tl, bl, grid, tex);
+    expect(covered(grid, 1, 1)).toBe(true);
+    expect(tl.sprites[idx(grid, 1, 1)]!.texture).toBe(inner);
+    // The last row and column show their sides: the map's edge.
+    expect(tl.sprites[idx(grid, 3, 1)]!.texture).toBe(tex["grass.png"]);
+    expect(tl.sprites[idx(grid, 1, 3)]!.texture).toBe(tex["grass.png"]);
+    // A step down in front shows the side.
+    setHeight(grid, 2, 1, -1);
+    expect(covered(grid, 1, 1)).toBe(false);
   });
 });

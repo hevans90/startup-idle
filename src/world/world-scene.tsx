@@ -2208,6 +2208,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (!touched.length) return;
     for (const c of touched) {
       syncCell(tl, bl, grid, tex, c.x, c.y);
+      // The tiles behind it may now show their sides, or stop. @see covered
+      syncCell(tl, bl, grid, tex, c.x - 1, c.y);
+      syncCell(tl, bl, grid, tex, c.x, c.y - 1);
       // A column belongs to the taller cell but EXISTS because of the shorter
       // one, so a height edit re-syncs the neighbours that now look onto it —
       // the store already widened `lastTouched` to include them.
