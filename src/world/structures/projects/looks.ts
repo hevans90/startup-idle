@@ -514,55 +514,149 @@ export function agency(f: Footprint): Building {
   };
 }
 
-/** CAMPUS: low and white, a long block across the back and a wing down one side, roof gardens and solar, a courtyard with trees and a sculpture. */
+/**
+ * CAMPUS: a tech company's grounds. The main building steps back in three
+ * terraces of timber fins and glass, gardens on every one; beside it a slim
+ * charcoal studio block, ribbed in the company's coral, its name lit on the
+ * roof; in front a glass café under a floating roof, and a landscape of lawn,
+ * a pond with a deck, timber seating steps and trees.
+ *
+ * Masses are cut at the terraces' levels so that each level paints back to
+ * front: the studio block in three, beside the terraces. @see sortMasses
+ */
 export function campus(f: Footprint): Building {
-  const split = Math.max(1.2, f.w * 0.55), mid = Math.max(1, f.h * 0.48);
-  const skin = { kind: "ribbon" as const, glass: 0x6c9fb8, frame: 0xd8d8d0, sill: 0.55, head: 0.35 };
-  const back: Mass = {
-    u0: 0.2, v0: 0.2, u1: f.w - 0.2, v1: mid, z0: PLINTH.h, z1: PLINTH.h + 4.2, wall: 0xeeeee8, storey: 2.1,
-    facade: skin, roof: { kind: "parapet", deck: 0x8f969c, rim: 0xeeeee8, h: 0.14 },
-    piers: { colour: 0xf8f8f4, every: 0.9, w: 0.08 },
-    base: { colour: 0xb9b5ab, h: 0.15 },
+  const TIMBER = 0xc08a55, CHAR = 0x30353b, CORAL = 0xff6b4a, SLAB = 0xf1efe8;
+  const L1 = PLINTH.h + 2.2, L2 = L1 + 2.0, L3 = L2 + 1.8;
+  const front = f.h - 1.55;
+  const fins = { kind: "fins" as const, glass: 0x5f8f92, fin: TIMBER, every: 0.17 };
+  const garden = (deck: number) => ({ kind: "garden" as const, deck, rim: SLAB });
+  // THE MAIN BUILDING, in terraces stepping back from the front corner.
+  const t1: Mass = {
+    u0: 0.2, v0: 0.2, u1: f.w - 1.3, v1: front - 0.15, z0: PLINTH.h, z1: L1, wall: TIMBER, storey: 2.2,
+    facade: { kind: "curtain", glass: 0x6fa3a8, mullion: 0x3a3f45, every: 0.3 },
+    roof: garden(0x7fae5c), bands: { colour: SLAB, h: 0.12 }, base: { colour: 0x3a3f45, h: 0.12 },
   };
-  const wing: Mass = {
-    u0: split, v0: mid, u1: f.w - 0.2, v1: f.h - 0.2, z0: PLINTH.h, z1: PLINTH.h + 2.1, wall: 0xeeeee8, storey: 2.1,
-    facade: skin, roof: { kind: "garden", deck: 0x7fae5c, rim: 0xeeeee8 },
-    piers: { colour: 0xf8f8f4, every: 0.9, w: 0.08 },
-    base: { colour: 0xb9b5ab, h: 0.15 },
+  const t2: Mass = {
+    u0: 0.2, v0: 0.2, u1: t1.u1 - 0.5, v1: t1.v1 - 0.55, z0: L1, z1: L2, wall: TIMBER, storey: 2.0,
+    facade: fins, roof: garden(0x86b862), bands: { colour: SLAB, h: 0.12 },
   };
-  const live = turning([0.6, 1.1].map((u) => ({ u, v: back.v0 + 0.3, z: back.z1 + 0.34, r: 0.1, housing: tone(PLANT, 0.82) })));
+  const t3: Mass = {
+    u0: 0.2, v0: 0.2, u1: t2.u1 - 0.5, v1: t2.v1 - 0.5, z0: L2, z1: L3, wall: TIMBER, storey: 1.8,
+    facade: fins, roof: { kind: "parapet", deck: 0x8f969c, rim: SLAB, h: 0.12 }, bands: { colour: SLAB, h: 0.12 },
+  };
+  // THE STUDIO BLOCK: charcoal, coral fins, cut at each terrace's level.
+  const su0 = f.w - 1.0, su1 = f.w - 0.2, sv0 = 0.25, sv1 = front - 0.5;
+  const studio = (z0: number, z1: number, top: boolean): Mass => ({
+    u0: su0, v0: sv0, u1: su1, v1: sv1, z0, z1, wall: CHAR, storey: 1.1,
+    facade: { kind: "fins", glass: 0x3d4a52, fin: CORAL, every: 0.2 },
+    roof: top ? { kind: "parapet", deck: 0x4a5058, rim: CHAR, h: 0.14 } : { kind: "flat", deck: CHAR },
+    bands: { colour: 0x22262b, h: 0.1 },
+  });
+  const s1 = studio(PLINTH.h, L1, false), s2 = studio(L1, L2, false), s3 = studio(L2, L3 + 1.2, true);
+  // The pavilion's floating roof, out front.
+  const pu0 = f.w - 1.15, pu1 = f.w - 0.12, pv0 = front + 0.05, pv1 = f.h - 0.12, pz = PLINTH.h + 1.45;
+  const sz = s3.z1;
+  const fans = [
+    ...plantFans((su0 + su1) / 2, sv0 + 0.3, sz),
+    { u: t3.u0 + 0.35, v: t3.v0 + 0.3, z: t3.z1 + 0.34, r: 0.1, housing: tone(PLANT, 0.82) },
+  ];
+  // Festoon lights along the first terrace's front edge, warm, breathing.
+  const festoon: Beacon[] = [];
+  for (let u = 0.35, k = 0; u < t2.u1 - 0.1; u += 0.28, k++) {
+    festoon.push({ u, v: t1.v1 - 0.06, z: L1 + 0.55 - (k % 2) * 0.06, colour: 0xffd27a, period: 3.2, phase: k * 0.4 });
+  }
+  const live = turning(fans, festoon);
   return {
-    plinth: { ...PLINTH, inset: 0.08 }, masses: [back, wing], crane: "tower", live,
+    plinth: { ...PLINTH, inset: 0.08 }, masses: [t1, s1, t2, s2, t3, s3], crane: "tower", live,
     grounds: paved,
-    // THE COURTYARD in the corner the two make: lawn, a path, a bench and a
-    // sculpture, under the wing that stands in front of it. @see Building.court
+    // THE LANDSCAPE in front, on the plinth: lawn, the pond and its deck, a path to the door.
     court: (p) => {
-      const z = PLINTH.h + 0.01, pv = mid + (f.h - 0.2 - mid) / 2;
-      p.flat(0.2, mid, split, f.h - 0.2, z, LAWN);
-      p.flat(0.2, pv - 0.08, split, pv + 0.08, z + 0.004, GRAVEL);
-      p.flat(split / 2 - 0.08, mid, split / 2 + 0.08, f.h - 0.2, z + 0.004, GRAVEL);
-      p.flat(split / 2 - 0.25, pv - 0.25, split / 2 + 0.25, pv + 0.25, z + 0.005, GRAVEL);
+      const z = PLINTH.h + 0.01;
+      p.flat(0.15, front, f.w - 1.25, f.h - 0.15, z, LAWN);
+      // A path from the front edge up to the main door, gravel edged in stone.
+      const du = (t1.u0 + t1.u1) / 2 + 0.3;
+      p.flat(du - 0.2, t1.v1, du + 0.2, f.h - 0.15, z + 0.003, STONE);
+      p.flat(du - 0.16, t1.v1, du + 0.16, f.h - 0.15, z + 0.004, GRAVEL);
+      // THE POND, a stone edge and the water, ripples lit.
+      const ou0 = 0.3, ou1 = du - 0.35, ov0 = front + 0.25, ov1 = f.h - 0.35;
+      p.flat(ou0 - 0.05, ov0 - 0.05, ou1 + 0.05, ov1 + 0.05, z + 0.003, STONE_TOP);
+      p.flat(ou0, ov0, ou1, ov1, z + 0.004, 0x4f93b0);
+      p.flat(ou0 + 0.04, ov0 + 0.04, ou1 - 0.04, ov0 + 0.14, z + 0.005, 0x3b7a96);
+      for (const [a, b, w] of [[0.3, 0.45, 0.25], [0.55, 0.7, 0.18], [0.2, 0.8, 0.12]]) {
+        const u = ou0 + (ou1 - ou0) * a, v = ov0 + (ov1 - ov0) * b;
+        p.flat(u - w / 2, v - 0.008, u + w / 2, v + 0.008, z + 0.006, 0xbfe3ef, 0.8);
+      }
+      // A timber deck along its back, boards scored.
+      p.flat(ou0, front + 0.02, ou1, ov0 - 0.06, z + 0.005, TIMBER);
+      for (let u = ou0 + 0.1; u < ou1; u += 0.1) p.flat(u - 0.004, front + 0.02, u + 0.004, ov0 - 0.06, z + 0.006, tone(TIMBER, 0.8));
+      // The café's terrace, paved under its roof.
+      p.flat(pu0, pv0, pu1, pv1, z + 0.003, 0xe6e1d3);
     },
     details: (p) => {
-      const z = PLINTH.h + 0.01, pv = mid + (f.h - 0.2 - mid) / 2;
-      door(p, back, (0.2 + split) / 2, 0.4, 1.2, 0x2c3e48);
-      canopy(p, back, (0.2 + split) / 2, 0.75, back.z0 + 1.35, 0xf8f8f4);
-      // The back block's roof: solar, and plant along its back.
-      solar(p, back.u0 + 1.5, back.v0 + 0.2, back.u1 - 0.25, back.v1 - 0.2, back.z1);
-      for (const u of [0.6, 1.1]) unit(p, u, back.v0 + 0.3, back.z1);
-      // The courtyard's sculpture where the paths cross: a red loop on a plinth.
-      const su = split / 2;
-      p.box(su - 0.1, pv - 0.1, su + 0.1, pv + 0.1, z, z + 0.2, STONE, { top: STONE_TOP });
-      for (let k = 0; k < 10; k++) {
-        const a0 = (k / 10) * Math.PI, a1 = ((k + 1) / 10) * Math.PI;
-        p.strut([su - Math.cos(a0) * 0.18, pv, z + 0.2 + Math.sin(a0) * 0.5], [su - Math.cos(a1) * 0.18, pv, z + 0.2 + Math.sin(a1) * 0.5], 0.05, 0xd8432f);
+      const z = PLINTH.h + 0.01;
+      const du = (t1.u0 + t1.u1) / 2 + 0.3;
+      // The main door, a deep coral canopy over it.
+      door(p, t1, du, 0.5, 1.3, 0x1f262b);
+      canopy(p, t1, du, 0.7, t1.z0 + 1.45, CORAL);
+      // The studio's door on its lit face.
+      door(p, s1, (su0 + su1) / 2, 0.36, 1.25, 0x14181c, CORAL);
+      // THE TERRACES' GARDENS: planters and small trees along each front edge,
+      // kept clear of the studio block beside them.
+      for (let u = 0.45; u < t2.u1 - 0.2; u += 0.7) {
+        planter(p, u, t1.v1 - 0.2, L1, 0xffb4a2);
+        tree(p, u + 0.35, t1.v1 - 0.3, L1, 0.42);
       }
-      tree(p, 0.6, mid + 0.55, z, 0.9);
-      tree(p, split - 0.45, f.h - 0.55, z, 1);
-      tree(p, 0.55, f.h - 0.5, z, 0.8);
-      bench(p, split - 0.5, mid + 0.45, z);
-      lamp(p, split - 0.2, pv + 0.2, z);
-      bikes(p, split + 0.1, split + 0.9, f.h - 0.12, PLINTH.h, [0x2f8f6b, 0xd8432f, 0x2e6fb5]);
+      bench(p, t2.u1 - 0.35, t1.v1 - 0.25, L1, "u", TIMBER);
+      for (let u = 0.45; u < t3.u1 - 0.1; u += 0.6) tree(p, u, t2.v1 - 0.22, L2, 0.36);
+      // The festoon's wire, posts at either end.
+      for (const u of [0.25, t2.u1 - 0.1]) p.box(u - 0.012, t1.v1 - 0.07, u + 0.012, t1.v1 - 0.05, L1, L1 + 0.62, 0x3a3f45);
+      for (let u = 0.25; u < t2.u1 - 0.1; u += 0.14) {
+        const sag = 0.06 * Math.sin(((u - 0.25) / 0.28) * Math.PI) ** 2;
+        p.strut([u, t1.v1 - 0.06, L1 + 0.6 - sag], [Math.min(t2.u1 - 0.1, u + 0.14), t1.v1 - 0.06, L1 + 0.6 - sag], 0.008, 0x2a2e33);
+      }
+      // The top terrace's roof: solar, and its unit.
+      solar(p, t3.u0 + 0.7, t3.v0 + 0.15, t3.u1 - 0.15, t3.v1 - 0.12, t3.z1);
+      unit(p, t3.u0 + 0.35, t3.v0 + 0.3, t3.z1);
+      // The studio's roof: plant, and the company's name, lit coral.
+      plant(p, (su0 + su1) / 2, sv0 + 0.3, sz);
+      roofSign(p, su0 + 0.05, su1 - 0.05, sv1 - 0.2, sz, 0.9, CHAR, CORAL);
+      // THE CAFÉ: a glass box under a white roof floating on slim columns.
+      const gu0 = pu0 + 0.15, gu1 = pu1 - 0.2, gv0 = pv0 + 0.1, gv1 = pv1 - 0.25;
+      p.box(gu0, gv0, gu1, gv1, PLINTH.h, PLINTH.h + 0.06, 0x3a3f45);
+      p.box(gu0, gv0, gu1, gv1, PLINTH.h + 0.06, pz - 0.05, 0xffe2b0, { noTop: true });
+      p.box(gu0 + 0.03, gv0 + 0.03, gu1 - 0.03, gv1 - 0.03, PLINTH.h + 0.06, pz - 0.05, 0x9cc6cf, { noTop: true, alpha: 0.45 });
+      for (let a = gu0 + 0.2; a < gu1 - 0.05; a += 0.2) p.onV(gv1 + 0.002, a - 0.01, a + 0.01, PLINTH.h + 0.06, pz - 0.05, 0x2a2e33);
+      for (let b = gv0 + 0.2; b < gv1 - 0.05; b += 0.2) p.onU(gu1 + 0.002, b - 0.01, b + 0.01, PLINTH.h + 0.06, pz - 0.05, 0x1f2226);
+      // Inside: the counter's warm light, and a pendant or two.
+      p.onV(gv1 + 0.003, gu0 + 0.08, gu1 - 0.08, PLINTH.h + 0.06, PLINTH.h + 0.4, 0xd99a5a, 0.6);
+      for (const [cu, cv] of [[pu0 + 0.06, pv0 + 0.06], [pu1 - 0.06, pv0 + 0.06], [pu0 + 0.06, pv1 - 0.06], [pu1 - 0.06, pv1 - 0.06]]) {
+        p.box(cu - 0.02, cv - 0.02, cu + 0.02, cv + 0.02, PLINTH.h, pz, 0xe8e6df);
+      }
+      // Its roof: a white slab, planted with sedum, lit along its soffit.
+      p.box(pu0, pv0, pu1, pv1, pz, pz + 0.1, 0xf6f4ee, { top: 0xf6f4ee });
+      p.flat(pu0 + 0.06, pv0 + 0.06, pu1 - 0.06, pv1 - 0.06, pz + 0.101, 0x8fb86a);
+      for (let k = 0; k < 9; k++) p.dot(pu0 + 0.15 + hash(k * 3.1) * (pu1 - pu0 - 0.3), pv0 + 0.15 + hash(k * 7.7) * (pv1 - pv0 - 0.3), pz + 0.13, 0.03, k % 3 ? 0x6f9a50 : 0xd9a0c4);
+      p.onV(pv1 + 0.001, pu0 + 0.02, pu1 - 0.02, pz + 0.01, pz + 0.035, 0xfff3c4, 0.8);
+      // Tables out front of it, coral parasols.
+      for (const u of [gu0 + 0.15, gu1 - 0.15]) {
+        const v = pv1 - 0.1;
+        p.box(u - 0.01, v - 0.01, u + 0.01, v + 0.01, PLINTH.h, PLINTH.h + 0.6, 0xe8e6df);
+        p.box(u - 0.06, v - 0.06, u + 0.06, v + 0.06, PLINTH.h + 0.24, PLINTH.h + 0.27, 0xe8e6df);
+      }
+      // THE SEATING STEPS facing the pond: timber, three deep.
+      const ou1 = du - 0.35;
+      for (let k = 0; k < 3; k++) {
+        p.box(du + 0.28 + k * 0.18, front + 0.1, du + 0.46 + k * 0.18, f.h - 0.3, z, z + 0.15 * (k + 1), TIMBER, { top: tone(TIMBER, 1.12) });
+      }
+      // Trees round the lawn, and beanbags in the company's colours.
+      tree(p, 0.22, f.h - 0.2, z, 0.85);
+      tree(p, ou1 - 0.1, front + 0.15, z, 0.7);
+      for (const [u, v, c] of [[0.95, f.h - 0.22, 0x3b82f6], [1.25, f.h - 0.24, 0xf2c230]] as const) {
+        p.dot(u, v, z + 0.07, 0.07, tone(c, 0.8));
+        p.dot(u - 0.01, v, z + 0.1, 0.055, c);
+      }
+      lamp(p, du + 0.25, f.h - 0.2, z);
+      bikes(p, su0 + 0.05, su1 - 0.05, sv1 + 0.18, PLINTH.h, [0x2f8f6b, CORAL, 0x2e6fb5, 0xf2c230]);
       drawLiveBase(p, live);
     },
   };
