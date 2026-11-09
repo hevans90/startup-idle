@@ -93,6 +93,8 @@ import {
   drawBandStripes, drawGrid, drawHeightTint, drawHover, drawNetComponents,
   drawOrigin, drawPickCrosshair, drawRoadGaps, drawRoadMask,
 } from "./render/overlays";
+import { drawLaneGraph } from "./render/lane-overlay";
+import { buildLaneGraph, type LaneGraph } from "./agents/lanes/graph";
 
 /**
  * How solid the ground stays in x-ray.
@@ -1770,6 +1772,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const netGfx = useRef<Graphics | null>(null);
   const maskGfx = useRef<Graphics | null>(null);
   const gapGfx = useRef<Graphics | null>(null);
+  const laneGfx = useRef<Graphics | null>(null);
+  const laneCache = useRef<{ grid: Grid; rev: number; G: LaneGraph } | null>(null);
   const originGfx = useRef<Graphics | null>(null);
   const hoverGfx = useRef<Graphics | null>(null);
   const openGfx = useRef<Graphics | null>(null);
@@ -1812,6 +1816,16 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           isPaved(grid, x, y) ? roadSpriteFor(ROAD_TABLE, maskAt(grid, x, y)) : null);
       } else gapGfx.current.clear();
     }
+    if (laneGfx.current) {
+      if (overlays.lanes) {
+        // Built once a revision: panning redraws the overlays.
+        const rev = useWorldStore.getState().revision, c = laneCache.current;
+        const G = c && c.grid === grid && c.rev === rev ? c.G : buildLaneGraph(grid);
+        laneCache.current = { grid, rev, G };
+        drawLaneGraph(laneGfx.current, grid, G, scale);
+      }
+      else laneGfx.current.clear();
+    }
     if (originGfx.current) {
       if (overlays.origin) drawOrigin(originGfx.current, grid, scale);
       else originGfx.current.clear();
@@ -1843,7 +1857,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // created later (it needs the band layer) and must stay on top of these
     // however the two effects happen to interleave.
     root.sortableChildren = true;
-    const refs = [bandGfx, tintGfx, netGfx, maskGfx, gapGfx, gridGfx, originGfx, hoverGfx, crossGfx, openGfx];
+    const refs = [bandGfx, tintGfx, netGfx, maskGfx, gapGfx, laneGfx, gridGfx, originGfx, hoverGfx, crossGfx, openGfx];
     const made = refs.map((r, i) => {
       const g = new Graphics();
       g.zIndex = i;              // stripes, tint, net, mask, grid, origin, hover, crosshair, what opens

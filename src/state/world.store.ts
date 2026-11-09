@@ -96,6 +96,8 @@ export type Overlays = {
   mask: boolean;
   /** Paved cells whose art is substituted or missing — the labelling to-do list. */
   gaps: boolean;
+  /** The lane graph: lanes, the curves through junctions, conflict zones, pavements and crossings. @see agents/lanes/graph */
+  lanes: boolean;
   /**
    * See THROUGH the ground, to the pipework buried in it.
    *
@@ -769,7 +771,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   overlays: {
     // The tile grid off: a faint line round every tile, over everything, zoomed in.
     grid: false, bands: false, height: false, origin: true, faces: true,
-    net: false, mask: false, gaps: false, xray: false,
+    net: false, mask: false, gaps: false, lanes: false, xray: false,
     readout: START_READOUT,
   },
   seed: null,

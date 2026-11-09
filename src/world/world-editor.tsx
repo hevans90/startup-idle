@@ -114,6 +114,7 @@ export function WorldEditor() {
               "net",
               "mask",
               "gaps",
+              "lanes",
               "xray",
               "faces",
               "readout",
