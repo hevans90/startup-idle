@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
 import { VAN_COLOUR } from "../town";
 import { baseCorners, headingIndex, modelFor, pitchMatrix } from "./car-sheet";
-import { MODELS, TILES_PER_M, type Model } from "./models";
+import { CAR_WEIGHTS, MODELS, TILES_PER_M, type Model } from "./models";
 import { bakeFrame } from "./raster";
 
 const box: Model = {
@@ -55,8 +55,12 @@ describe("bakeFrame", () => {
 describe("in the game", () => {
   test("a mover keeps its model, and vans are vans", () => {
     for (let id = 0; id < 50; id++) expect(modelFor({ id, kind: "car", colour: 0 })).toBe(modelFor({ id, kind: "car", colour: 0 }));
-    const seen = new Set(Array.from({ length: 200 }, (_, id) => modelFor({ id, kind: "car", colour: 0 })));
-    expect(seen).toEqual(new Set(["hatchback", "saloon"]));
+    const picks = Array.from({ length: 4000 }, (_, id) => modelFor({ id, kind: "car", colour: 0 }));
+    // Every car model shows up, and the common ones far more often than the rare.
+    expect(new Set(picks)).toEqual(new Set(Object.keys(CAR_WEIGHTS)));
+    const count = (id: string) => picks.filter((p) => p === id).length;
+    expect(count("hatchback")).toBeGreaterThan(count("largeSuv+box") * 5);
+    for (const id of new Set(picks)) expect(MODELS.some((m) => m.id === id)).toBe(true);
     expect(modelFor({ id: 3, kind: "truck", colour: VAN_COLOUR })).toBe("panelVan");
     expect(modelFor({ id: 3, kind: "person", colour: 0 })).toBeNull();
   });

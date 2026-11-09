@@ -11,7 +11,7 @@ import { Assets, Matrix, Rectangle, Texture } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
 import { VAN_COLOUR, type Mover } from "../town";
-import { TILES_PER_M } from "./models";
+import { CAR_WEIGHTS, TILES_PER_M } from "./models";
 import { CAR_GAP, type CarSheet } from "./sheet-format";
 
 const BASE = "/isometric_assets/derived";
@@ -55,9 +55,12 @@ export async function loadCarSprites(): Promise<CarSprites> {
 const ofId = <T>(id: number, salt: number, list: readonly T[]) =>
   list[Math.abs(Math.imul(id ^ salt, 0x9e3779b1) >>> 7) % list.length];
 
+/** Every car model, each as many times as its weight in halves: as common as on real roads. */
+const CAR_PICKS = Object.entries(CAR_WEIGHTS).flatMap(([id, w]) => Array<string>(Math.round(w * 2)).fill(id));
+
 /** Which baked model a mover is drawn as, or null for one the sheet has no model of yet. */
 export function modelFor(m: Pick<Mover, "id" | "kind" | "colour">): string | null {
-  if (m.kind === "car") return ofId(m.id, 0x51ed, ["hatchback", "hatchback", "saloon"]);
+  if (m.kind === "car") return ofId(m.id, 0x51ed, CAR_PICKS);
   if (m.kind === "truck" && m.colour === VAN_COLOUR) return "panelVan";
   return null;
 }

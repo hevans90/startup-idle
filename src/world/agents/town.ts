@@ -192,7 +192,12 @@ const START_CLEAR = 1;
 /** How far beyond the rim a car going off the map drives before it is gone. */
 const OFF_MAP = 0.7;
 
-const CAR_COLOURS = [0xc0392b, 0x2e6fb5, 0xf2f0ea, 0xe8b931, 0x3f8f4f, 0x7c8691, 0x2b2b2b];
+/** Car paint, as often as it is on real roads: mostly white, black, grey and silver. */
+const CAR_COLOURS = ([
+  [0xf2f0ea, 14], [0xe4e6e3, 6], [0x26282b, 12], [0x3b3e42, 5], [0x7c8691, 9], [0x5a6068, 5], [0xb8bec4, 10],
+  [0x2e6fb5, 5], [0x1f3a66, 4], [0x7fa6c9, 1], [0xc0392b, 6], [0x7a1f24, 2], [0x3f8f4f, 1], [0x24452f, 1],
+  [0xcdbb98, 2], [0x6b4a32, 1], [0xe8b931, 1], [0xe0702a, 1],
+] as const).flatMap(([c, n]) => Array<number>(n).fill(c));
 const SHIRTS = [0xd35454, 0x4a7fc1, 0xe6c35c, 0x5aa36b, 0x9b6bc2, 0xe08a3c, 0xf0f0f0];
 
 /** A number in [0, 1), the next in the town's own sequence. */

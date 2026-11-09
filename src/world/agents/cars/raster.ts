@@ -34,6 +34,7 @@ const COLOUR: Record<Mat, [number, number, number]> = {
   lamp: [0.96, 0.95, 0.88], tail: [0.78, 0.1, 0.09], indicator: [0.95, 0.55, 0.1],
   plate: [0.94, 0.94, 0.9], rearPlate: [0.98, 0.8, 0.16],
   livery: [0.98, 0.84, 0.1], liveryAlt: [0.12, 0.35, 0.75], light: [0.25, 0.45, 0.95], bed: [0.36, 0.37, 0.4],
+  roofBlack: [0.1, 0.1, 0.11], roofWhite: [0.92, 0.92, 0.9], seat: [0.5, 0.36, 0.25], interior: [0.12, 0.11, 0.11],
 };
 const PAINTED: ReadonlySet<Mat> = new Set(["paint"]);
 /** Lit from within: they barely take the light. */
