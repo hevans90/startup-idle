@@ -1,6 +1,6 @@
 # Cars baked from models: a town's worth of variety
 
-Status: **planned** (2026-11-09). Nothing built yet.
+Status: **phase 1 built** (2026-11-09): hatchback, saloon and panel van baked and in the game. Decided: colour by tint, a base sheet plus close pages, new kinds later, headlights left for later.
 
 ## Why
 

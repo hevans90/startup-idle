@@ -20,6 +20,7 @@ import { Container, Graphics, Matrix, Rectangle, RenderTexture, Sprite, Texture,
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
+import { baseCorners, bakedCars, headingIndex, loadCarSprites, modelFor, pitchMatrix, type CarSprites } from "./cars/car-sheet";
 import { AI_TRUCK_COLOUR, atWork, HALF_STEP_IN_TILES, LEG, SWING, type Mover, type Town } from "./town";
 
 /** A car, tiles long and wide, and its body and cabin heights in half steps. */
@@ -211,12 +212,23 @@ function createAtlas(renderer: Renderer) {
 }
 
 /** One mover on the map: a container of its sprites — one for a vehicle, a part each for a person. */
-type Shown = { c: Container; parts: Sprite[]; band: number; key: string };
+type Shown = { c: Container; parts: Sprite[]; band: number; key: string; baked: boolean; tilted: boolean };
 
 export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer {
   const drawn = new Map<number, Shown>();
   const looks = new Map<string, Look>();
   let atlas = createAtlas(renderer), atScale = NaN;
+  // THE BAKED VEHICLES, once their sheet has loaded: until then, and for any
+  // kind it has no model of, the box cars. @see cars/car-sheet
+  let sheet: CarSprites | null = null, gone = false;
+  if (bakedCars()) {
+    loadCarSprites().then((s) => {
+      if (gone) return;
+      sheet = s;
+      // Every vehicle drawn as a box so far is drawn again from the sheet.
+      for (const [id, d] of drawn) if (!d.baked && d.parts.length === 1) { d.c.destroy({ children: true }); drawn.delete(id); }
+    }).catch((e) => console.warn("car sheet failed to load; drawing box cars", e));
+  }
 
   const bake = (m: Mover, scale: number): Look => {
     const { key, canon } = lookOf(m);
@@ -256,29 +268,55 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       // wherever they were put down. @see projects/crew
       if (m.job?.role === "working") continue;
       live.add(m.id);
+      const model = sheet && m.kind !== "person" ? modelFor(m) : null;
+      const car = model ? sheet!.looks.get(model) ?? null : null;
       let d = drawn.get(m.id);
       if (!d) {
         const c = new Container();
         c.eventMode = "none";
-        const n = m.kind === "person" ? PERSON_PARTS.length : 1;
+        const n = m.kind === "person" ? PERSON_PARTS.length : car ? 2 : 1;
         const parts = Array.from({ length: n }, () => { const sp = new Sprite(); sp.scale.set(1 / BAKE); c.addChild(sp); return sp; });
         // A person's parts tinted their own colours, once: they never change.
         if (m.kind === "person") {
           const o = outfitOf(m);
           [o.legs, m.colour, o.skin, o.hair].forEach((t, k) => { parts[k].tint = t; });
         }
-        d = { c, parts, band: -1, key: "" };
+        d = { c, parts, band: -1, key: "", baked: !!car, tilted: false };
+        if (car) parts[0].tint = m.colour;
         drawn.set(m.id, d);
       }
+      let front: readonly { u: number; v: number }[];
+      const x = (m.x - m.y) * HW * scale, y = (m.x + m.y) * HH * scale - m.z * HEIGHT_UNIT * scale;
+      if (car) {
+        // FROM THE SHEET: the paint tinted, the trim over it, the frame for its heading.
+        const h = headingIndex(m.heading, sheet!.headings);
+        const key = `baked|${car.id}|${h}|${scale}`;
+        if (d.key !== key) {
+          d.key = key;
+          const a = car.anchor[h];
+          d.parts[0].texture = car.paint[h]; d.parts[1].texture = car.trim[h];
+          for (const sp of d.parts) { sp.anchor.set(a.x, a.y); sp.scale.set(scale / sheet!.res); }
+        }
+        // Tilted on a ramp; set straight again off it.
+        const tilt = pitchMatrix((h / sheet!.headings) * Math.PI * 2, m.pitch ?? 0);
+        if (tilt) { tilt.tx = x; tilt.ty = y; d.c.setFromMatrix(tilt); d.tilted = true; }
+        else {
+          if (d.tilted) { d.c.scale.set(1); d.c.skew.set(0, 0); d.c.rotation = 0; d.tilted = false; }
+          d.c.position.set(x, y);
+        }
+        front = baseCorners(car, (h / sheet!.headings) * Math.PI * 2);
+      } else {
       const { key } = lookOf(m);
       const look = looks.get(key) ?? bake(m, scale);
       if (d.key !== key) {
         d.key = key;
         look.frames.forEach((f, k) => { const sp = d!.parts[k]; sp.texture = f.tex; sp.anchor.set(f.ax, f.ay); });
       }
-      d.c.position.set((m.x - m.y) * HW * scale, (m.x + m.y) * HH * scale - m.z * HEIGHT_UNIT * scale);
+      d.c.position.set(x, y);
+      front = look.front;
+      }
       let band = -Infinity;
-      for (const p of look.front) band = Math.max(band, Math.round(m.x + p.u) + Math.round(m.y + p.v));
+      for (const p of front) band = Math.max(band, Math.round(m.x + p.u) + Math.round(m.y + p.v));
       band = Math.max(0, Math.min(bands.bands.length - 1, band));
       const z = m.x + m.y - band;
       if (band !== d.band) {
@@ -298,6 +336,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
   return {
     draw,
     destroy: () => {
+      gone = true;
       for (const d of drawn.values()) d.c.destroy({ children: true });
       drawn.clear();
       looks.clear();

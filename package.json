@@ -16,6 +16,7 @@
     "bake:road-corners": "bun run dev/bake-road-corners.ts",
     "bake:trees": "bun run dev/bake-trees.ts",
     "bake:padded": "bun run dev/bake-padded-atlases.ts",
+    "bake:cars": "bun run dev/bake-cars.ts",
     "wording": "bun run src/game/wording-audit.ts"
   },
   "dependencies": {

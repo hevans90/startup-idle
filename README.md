@@ -69,7 +69,7 @@ The town (`world/play/company-map.tsx`): buildings need **road frontage**; no la
 
 ★ Wonders: a bonus for good (headcounts interns · vibe · 10x).
 
-- **Seaports** (`boats/traffic.ts`): three tiers, paid per call. **Town life** (`agents/town.ts`): traffic, a 10-minute day. **Leaders on the map** (`agents/leaders.ts`) boost their workplace's desks.
+- **Seaports** (`boats/traffic.ts`): three tiers, paid per call. **Town life** (`agents/town.ts`): traffic, a 10-minute day. **Vehicles are baked** from low-poly models in metres (`agents/cars/`): a software rasteriser (`raster.ts`, z-buffered, lit from the left, 4×4 samples) bakes 32 headings into a sheet; in game a vehicle is two sprites, the paint tinted and the trim over it, sheared on ramps (`car-sheet.ts`); `?cars=boxes` draws the old boxes. Plan: `plans/baked-cars.md`. **Leaders on the map** (`agents/leaders.ts`) boost their workplace's desks.
 - **At a sale** (`projects/town-worth.ts`): the town adds up to +50% Equity. Run and editor maps save apart (`world-run`, `world-map`).
 
 ## Tech stack
@@ -91,6 +91,7 @@ React 19 + TypeScript (Vite, SWC); Tailwind CSS v4 with the console's tokens (`s
 | `bun run preview` | Preview the build |
 | `bun run tauri:dev` / `tauri:build` | Desktop app |
 | `bun run bake:trees` / `bake:road-corners` | Regenerate tile sheets in `public/isometric_assets/derived/` |
+| `bun run bake:cars` | Bake vehicle models (`agents/cars/models.ts`) into `derived/cars_*.png` + `cars.json`; `dev/preview-cars.ts out.png` draws a gallery |
 
 ## Project structure
 

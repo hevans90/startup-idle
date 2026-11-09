@@ -160,7 +160,7 @@ const LIMO_COLOUR = 0x17181c;
 const SHUTTLE_COLOUR = 0x3a78c9;
 const SHUTTLE_SHARE = 0.12;
 /** Hire to Fire's moving vans, white, a load of boxes on the back, and their share. */
-const VAN_COLOUR = 0xe9e6dd;
+export const VAN_COLOUR = 0xe9e6dd;
 const VAN_SHARE = 0.12;
 const PERSON_CRUISE = 0.45;
 const SPREAD = 0.2;
