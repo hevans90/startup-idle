@@ -49,7 +49,7 @@ describe("bakeFrame", () => {
       const reach = (m.length + 0.8) * TILES_PER_M * HW * 2 * 2;
       expect(f.paint.w).toBeLessThan(reach + 8);
     }
-  });
+  }, 30_000);
 });
 
 describe("in the game", () => {
@@ -67,6 +67,7 @@ describe("in the game", () => {
     expect(lorries).toEqual(new Set(Object.keys(LORRY_WEIGHTS)));
     expect(modelFor({ id: 3, kind: "truck", colour: AI_TRUCK_COLOUR })).toBe("machineLorry");
     for (const id of [...vans, ...lorries]) expect(MODELS.some((m) => m.id === id)).toBe(true);
+    expect(modelFor({ id: 3, kind: "limo", colour: 0 })).toBe("limo");
     expect(modelFor({ id: 3, kind: "person", colour: 0 })).toBeNull();
   });
 

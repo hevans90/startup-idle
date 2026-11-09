@@ -66,6 +66,7 @@ const CAR_PICKS = picks(CAR_WEIGHTS), VAN_PICKS = picks(VAN_WEIGHTS), LORRY_PICK
 /** Which baked model a mover is drawn as, or null for one the sheet has no model of yet. */
 export function modelFor(m: Pick<Mover, "id" | "kind" | "colour">): string | null {
   if (m.kind === "car") return ofId(m.id, 0x51ed, CAR_PICKS);
+  if (m.kind === "limo") return "limo";
   if (m.kind === "truck") {
     if (m.colour === AI_TRUCK_COLOUR) return "machineLorry";
     return ofId(m.id, 0x7a11, m.colour === VAN_COLOUR ? VAN_PICKS : LORRY_PICKS);
