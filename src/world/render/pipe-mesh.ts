@@ -221,18 +221,18 @@ export const FITTING = {
   wheel: 0x2b3440, valve: 0xb8463a, slop: 0x7a5230, mouth: 0x5a4030, bore: 0x1a120c,
 } as const;
 /** A window's frame and a painted band: how much wider than the tube, and how long, tiles. */
-const FRAME_R = 1.12, FRAME_T = 0.035, BAND_R = 1.05, BAND_T = 0.09;
+const FRAME_R = 1.12, FRAME_T = 0.0175, BAND_R = 1.05, BAND_T = 0.045;
 
 /** How far off a building's wall its port's collar stands, tiles: clear of the wall's face. */
 const WALL_GAP = 0.03;
 
 /** A pump house's walls, half their length in u and in v; its height at least, half steps. */
-const PUMP_U = 0.22, PUMP_V = 0.18, PUMP_TALL = 2.6;
+const PUMP_U = 0.11, PUMP_V = 0.09, PUMP_TALL = 1.3;
 /** An intake's box, half its width, tiles. */
-const INTAKE = 0.12;
+const INTAKE = 0.06;
 
 /** A flange: how much wider than the tube, how thick, tiles; how many bolts round it. */
-export const FLANGE_R = 1.4, FLANGE_T = 0.05, BOLTS = 6;
+export const FLANGE_R = 1.4, FLANGE_T = 0.025, BOLTS = 6;
 /** A bend's radius to its middle line, tiles: most of the half tile, so it reads as a sweep. */
 export const BEND_R = 0.35;
 /** A tee's weld collar: how much wider than the tube, and where along the stub, in tube radii. */
@@ -306,7 +306,7 @@ export function flange(
   disc(m, s, fu, fv, fh, du, dv, blind ? 0 : r, R, c, sides, dh);
   if (!bolts || facing(du, dv, dh) <= 0) return;
   // THE BOLTS: on the face, between the bore and the rim — round the whole face of a blind one.
-  const at = blind ? R * 0.72 : (r + R) / 2, size = Math.max(0.006, (R - r) * 0.36);
+  const at = blind ? R * 0.72 : (r + R) / 2, size = Math.max(0.003, (R - r) * 0.36);
   const b = solid(darker(colour, 0.55));
   for (let k = 0; k < BOLTS; k++) {
     const a = ((k + 0.5) / BOLTS) * Math.PI * 2, cc = Math.cos(a) * at, sn = Math.sin(a) * at;
@@ -503,7 +503,7 @@ export const SUN: readonly [number, number, number] = (() => {
 /** Concrete, for what a main rests on. */
 export const CONCRETE = 0xc9c4b8;
 /** A saddle's length along the tube; a frame's legs, square, and its beam's depth, tiles. */
-const SADDLE = 0.1, LEG = 0.05, BEAM = 0.05;
+const SADDLE = 0.05, LEG = 0.025, BEAM = 0.025;
 
 /** One flat face, its four corners in order round it, all facing `n`. */
 function quad(m: PipeMesh, s: number, q: readonly Pt[], nu: number, nv: number, nh: number, colour: number) {
@@ -778,10 +778,10 @@ export const FRAME_HALF = FRAME_T / 2;
 
 /** AN OUTLET'S VALVE: a stem up out of the top of the tube, and a red handwheel on it. */
 export function valve(m: PipeMesh, s: number, x: number, y: number, h: number, r: number) {
-  const top = h + r + 0.07, steel = solid(FITTING.wheel), red = solid(FITTING.valve);
-  box(m, s, x - 0.012, y - 0.012, h + r * 0.8, x + 0.012, y + 0.012, top, steel);
-  hring(m, s, x, y, top, 0.045, 0.062, red, 16);
-  box(m, s, x - 0.018, y - 0.018, top, x + 0.018, y + 0.018, top + 0.01, red);
+  const top = h + r + 0.035, steel = solid(FITTING.wheel), red = solid(FITTING.valve);
+  box(m, s, x - 0.006, y - 0.006, h + r * 0.8, x + 0.006, y + 0.006, top, steel);
+  hring(m, s, x, y, top, 0.0225, 0.031, red, 16);
+  box(m, s, x - 0.009, y - 0.009, top, x + 0.009, y + 0.009, top + 0.005, red);
 }
 
 /**
@@ -814,7 +814,7 @@ function fitting(m: PipeMesh, s: number, kind: Fitting, x: number, y: number, h:
       ball(m, s, x, y, h, r, solid(look.colour), sides);
       return;
     case "outfall": {
-      box(m, s, x - 0.03, y - 0.03, g - 0.12, x + 0.03, y + 0.03, h - r, concrete);
+      box(m, s, x - 0.015, y - 0.015, g - 0.06, x + 0.015, y + 0.015, h - r, concrete);
       flange(m, s, x, y, h, ou, ov, r * 1.05, FITTING.mouth, sides, false, false);
       const lip = FLANGE_T / 2 + 0.002;
       disc(m, s, x + ou * lip, y + ov * lip, h, ou, ov, 0, r * 1.05, solid(FITTING.bore), sides);
@@ -822,21 +822,21 @@ function fitting(m: PipeMesh, s: number, kind: Fitting, x: number, y: number, h:
     }
     case "intake": {
       const top = h + r * 0.9, grate = solid(FITTING.grate), bar = solid(look.colour);
-      box(m, s, x - INTAKE, y - INTAKE, g - 0.1, x + INTAKE, y + INTAKE, top, concrete);
-      const i = INTAKE - 0.025;
-      box(m, s, x - i, y - i, top, x + i, y + i, top + 0.004, grate);
-      for (const k of [-0.5, 0, 0.5]) box(m, s, x - i, y + k * i - 0.008, top + 0.004, x + i, y + k * i + 0.008, top + 0.012, bar);
+      box(m, s, x - INTAKE, y - INTAKE, g - 0.05, x + INTAKE, y + INTAKE, top, concrete);
+      const i = INTAKE - 0.0125;
+      box(m, s, x - i, y - i, top, x + i, y + i, top + 0.002, grate);
+      for (const k of [-0.5, 0, 0.5]) box(m, s, x - i, y + k * i - 0.004, top + 0.002, x + i, y + k * i + 0.004, top + 0.006, bar);
       return;
     }
     case "pump": {
-      const top = Math.max(h + r * 2, g + PUMP_TALL * ZT), o = 0.03;
+      const top = Math.max(h + r * 2, g + PUMP_TALL * ZT), o = 0.015;
       box(m, s, x - PUMP_U, y - PUMP_V, g, x + PUMP_U, y + PUMP_V, top, solid(FITTING.pumpWall));
       // Its door, on the +v wall; its wheel, on the +u.
-      box(m, s, x - 0.06, y + PUMP_V, g, x + 0.06, y + PUMP_V + 0.006, g + (top - g) * 0.6, solid(FITTING.pumpDoor));
+      box(m, s, x - 0.03, y + PUMP_V, g, x + 0.03, y + PUMP_V + 0.003, g + (top - g) * 0.6, solid(FITTING.pumpDoor));
       const mid = (g + top) / 2, wheel = solid(FITTING.wheel);
-      disc(m, s, x + PUMP_U + 0.004, y, mid, 1, 0, 0.045, 0.065, wheel, 16);
-      disc(m, s, x + PUMP_U + 0.004, y, mid, 1, 0, 0, 0.016, wheel, 8);
-      box(m, s, x - PUMP_U - o, y - PUMP_V - o, top, x + PUMP_U + o, y + PUMP_V + o, top + 0.07, solid(FITTING.pumpRoof));
+      disc(m, s, x + PUMP_U + 0.002, y, mid, 1, 0, 0.0225, 0.0325, wheel, 16);
+      disc(m, s, x + PUMP_U + 0.002, y, mid, 1, 0, 0, 0.008, wheel, 8);
+      box(m, s, x - PUMP_U - o, y - PUMP_V - o, top, x + PUMP_U + o, y + PUMP_V + o, top + 0.035, solid(FITTING.pumpRoof));
       return;
     }
   }

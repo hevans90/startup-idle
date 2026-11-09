@@ -50,7 +50,7 @@ const LIFT = 1.1;
  * each kind of main — the steel a warm grey, which the night's blue grade
  * turns to grey rather than to violet. @see pipe-mesh, plans/pipe-rendering.md
  */
-const TUBE_R = 0.18 / Math.SQRT2;
+const TUBE_R = 0.09 / Math.SQRT2;
 const STEEL = 0xb9b7b1, IRON = 0x7d5c40;
 /**
  * HOW MUCH DETAIL, by how wide a tile is on the screen, px: far off, a

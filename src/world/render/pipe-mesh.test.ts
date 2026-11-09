@@ -260,7 +260,7 @@ describe("a main as a solid", () => {
     // The near leg — the +v one, left of the run on screen — is written last, after the tube: it stands in front of it.
     let x = 0;
     for (let v = frame.nv - 4; v < frame.nv; v++) x += frame.f32[v * WORDS] / 4;
-    expect(x).toBeCloseTo(-(0.1 + 0.05) * HW, 3);
+    expect(x).toBeCloseTo(-(0.1 + 0.025) * HW, 3);
   });
 
   const ENDS = ["cap", "intake", "pump", "outlet", "drain", "outfall"] as const;
