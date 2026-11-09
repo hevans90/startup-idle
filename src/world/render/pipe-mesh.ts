@@ -804,9 +804,12 @@ function fitting(m: PipeMesh, s: number, kind: Fitting, x: number, y: number, h:
       flange(m, s, x, y, h, ou, ov, r, FITTING.cap, sides, bolts, true);
       return;
     case "drop": {
-      ball(m, s, x, y, h, r, solid(look.colour), sides);
-      const a = r * 0.72;
-      box(m, s, x - a, y - a, g, x + a, y + a, h, solid(look.colour));
+      // The knuckle, a round downpipe from it into the ground, and an iron collar where it goes in.
+      const c = solid(look.colour), collar = solid(darker(look.colour, 0.7)), R = r * COLLAR_R * 1.15, lip = r * 0.6;
+      tube(m, s, x, y, h, x, y, g, r, c, sides);
+      ball(m, s, x, y, h, r, c, sides);
+      tube(m, s, x, y, g + lip, x, y, g, R, collar, sides);
+      hring(m, s, x, y, g + lip, r, R, collar, sides);
       return;
     }
     case "outlet":

@@ -24,13 +24,21 @@ import { sewerReportsFor } from "../sewers/flow";
 import { LATERAL_REACH, SEWER_KIND, solveSewers, type SewerSolve } from "../sewers/solve";
 import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
-import { ZT, pipeCell, pipeMesh, type Limb, type PipeMesh } from "./pipe-mesh";
+import { ZT, pipeCell, pipeMesh, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 /** The fittings' scale, from a slim tube's radius, tile units; how much fatter a widened bore is. */
 const TUBE_R = 0.07, BORE_WIDE = 1.35;
 /** A trunk's radius, tiles: a solid tube, lit, as a main above ground once was. @see pipeCell */
 const TRUNK_R = (0.18 / Math.SQRT2) * 1.18, TRUNK_SIDES = 10;
+/**
+ * How much deeper a buried trunk is DRAWN than the solve lays it, height
+ * units: a cover's depth is less than the tube is thick, and drawn there it
+ * would graze the surface, with no room for a manhole's shaft to show.
+ */
+const SINK = 2.5;
+/** A manhole's shaft, from its cover down into the trunk: its radius, tiles; cast iron. */
+const SHAFT_R = TRUNK_R * 0.62, SHAFT = 0x5d6066;
 /** Its colours: draining, going nowhere; the dark under it and the light along it. */
 const UMBER = 0x7a5230, NOWHERE = 0x8b8f96, BACKED = 0x9c3b1e, SHADE = 0x2a1c10, SHINE = 0xc79a66;
 /** A sewer being dragged: how see-through, and a tile it can't be laid on. */
@@ -86,6 +94,17 @@ function cover(gfx: Graphics, x: number, y: number, z: number, scale: number) {
 }
 
 type Drawn = Graphics | Mesh<Geometry, Shader>;
+
+/** Where a headwall's pipe comes out, height units over the ground. */
+const MOUTH = 0.15;
+/**
+ * The level a trunk tile is drawn at, height units: sunk if buried, as laid
+ * on a span — and at an outfall or an inlet, up at its headwall's mouth.
+ * @see SINK
+ */
+const drawnAt = (g: Grid, s: SewerSolve, i: number) =>
+  g.sewerFit[i] === SEWER_FIT.outfall || g.sewerFit[i] === SEWER_FIT.inlet ? g.height[i] + MOUTH
+    : s.level[i] - (s.kind[i] === SEWER_KIND.span ? 0 : SINK);
 
 export function createSewerLayer(bands: BandLayer): SewerLayer {
   /** What each band has drawn in it, by tier, so it can be cleared. */
@@ -167,7 +186,7 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
     for (const net of s.nets) {
       for (const i of net.cells) {
         if (o.only && !o.only.has(i)) continue;
-        const x = i % g.w, y = (i / g.w) | 0, b = bandOf(x, y), lvl = s.level[i];
+        const x = i % g.w, y = (i / g.w) | 0, b = bandOf(x, y), lvl = drawnAt(g, s, i);
         const colour = i === o.bad ? BAD : !o.only && trouble.has(net.id) ? BACKED : s.drains[i] ? UMBER : NOWHERE;
         // Out to each face it joins, level there with the neighbour's halfway.
         const limbs: Limb[] = [];
@@ -176,7 +195,11 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           const [dx, dy] = NEIGHBOUR[side];
           const j = idx(g, x + dx, y + dy);
           if (!(g.sewer[j] & DIR[({ N: "S", S: "N", E: "W", W: "E" } as const)[side]])) continue;
-          limbs.push({ dx, dy, zf: (lvl + s.level[j]) / 2 });
+          limbs.push({ dx, dy, zf: (lvl + drawnAt(g, s, j)) / 2 });
+        }
+        // A MANHOLE'S SHAFT down from its cover, before the trunk, which hides where it goes in.
+        if (g.sewerFit[i] === SEWER_FIT.node && s.kind[i] !== SEWER_KIND.span) {
+          solidTube(meshOf(tubes, b), scale, x, y, g.height[i] * ZT, x, y, lvl * ZT, SHAFT_R, solid(SHAFT), TRUNK_SIDES);
         }
         pipeCell(meshOf(s.kind[i] === SEWER_KIND.span ? spans : tubes, b), scale, x, y, lvl, limbs, {
           r: TRUNK_R * (g.sewer[i] & SEWER_BORE ? BORE_WIDE : 1), colour, sides: TRUNK_SIDES,
@@ -205,7 +228,7 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
         if (o.only && !o.only.has(i)) continue;
         const x = i % g.w, y = (i / g.w) | 0, b = bandOf(x, y), ground = g.height[i];
         const r = TUBE_R * HW * scale * (g.sewer[i] & SEWER_BORE ? BORE_WIDE : 1);
-        const lvl = s.level[i], kind = s.kind[i];
+        const lvl = drawnAt(g, s, i), kind = s.kind[i];
         // The tube's middle, in height units: the level it is laid at.
         const mid = (l: number) => l;
         // THE WAY IT FALLS, a chevron toward the next down.
@@ -245,7 +268,7 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           const sides = SIDES.map(open);
           const side = (sides.find((o) => o.wet && !o.joined) ?? sides.find((o) => !o.joined) ?? sides[0]).s;
           const [dx, dy] = NEIGHBOUR[side];
-          const z = ground + 0.15;
+          const z = ground + MOUTH;
           const from = at(x, y, z, scale), to = at(x, y, z, scale, dx * 0.58, dy * 0.58);
           // Toward the camera's sides the wall hides it; away from them, it shows past the wall.
           const behind = dx < 0 || dy < 0;
@@ -257,13 +280,8 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           box(gfx, x, y, ground - 0.4, 0.26, 1.1, scale, CONCRETE_DARK, CONCRETE, CONCRETE);
           if (!behind) pipe();
         }
-        // A NODE: its cover at the surface, and its drop down to the pipe.
-        if (fit === SEWER_FIT.node) {
-          cover(take(flush, bands.pavedOf, b), x, y, ground, scale);
-          const gfx = take(under, bands.sewerOf, b);
-          const [sx, sy] = at(x, y, ground, scale), [, py] = at(x, y, mid(lvl), scale);
-          gfx.rect(sx - r * 1.2, sy, r * 2.4, Math.max(0, py - sy)).fill({ color: IRON_RIM, alpha: 0.55 });
-        }
+        // A NODE: its cover at the surface; its shaft is with the tubes.
+        if (fit === SEWER_FIT.node) cover(take(flush, bands.pavedOf, b), x, y, ground, scale);
       }
     }
   }
