@@ -767,7 +767,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   openEdge: OPEN_EDGE_DEFAULT,
   gpuWater: true,
   overlays: {
-    grid: true, bands: false, height: false, origin: true, faces: true,
+    // The tile grid off: a faint line round every tile, over everything, zoomed in.
+    grid: false, bands: false, height: false, origin: true, faces: true,
     net: false, mask: false, gaps: false, xray: false,
     readout: START_READOUT,
   },
