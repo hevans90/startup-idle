@@ -90,6 +90,33 @@ const PORT_COLOUR = { water: 0x3f86c6, slop: 0x7a5230 } as const;
 const SLOP_IN = 0x7a5230, SLOP_LUMP = 0x3f2a18;
 /** The water in a main, and the warning at one that cannot deliver; the light running along it. */
 const WATER = 0x5fb7ff, WARN = 0xf2a33a, STREAK = 0xeaf6ff;
+const INK = 0x16181c;
+
+/**
+ * A WARNING SIGN over a main that cannot deliver: a rounded triangle `r`
+ * across at `(x, y)`, outlined in ink with an ink "!", on a pin down to
+ * `foot`, and a ring going out from it every second and a half — the sign
+ * itself steady, so it reads at a glance.
+ */
+function warnSign(g: Graphics, x: number, y: number, r: number, foot: number, colour: number, t: number) {
+  const line = Math.max(1, r * 0.11);
+  // The pin, down to the fitting.
+  g.moveTo(x, y + r * 0.62).lineTo(x, foot);
+  g.stroke({ color: INK, width: line * 1.6, alpha: 0.55, cap: "round" });
+  g.circle(x, foot, line * 1.4);
+  g.fill({ color: INK, alpha: 0.55 });
+  // The ring, going out and fading.
+  const k = (t / 1.5) % 1;
+  g.circle(x, y, r * (1 + 0.9 * k));
+  g.stroke({ color: colour, width: line * 1.2, alpha: 0.6 * (1 - k) });
+  // The sign: a triangle, corners rounded by round-joined strokes — ink outside, its own colour in.
+  const h = r * 0.95, tri = [x, y - h, x + h * 1.08, y + h * 0.62, x - h * 1.08, y + h * 0.62];
+  g.poly(tri).stroke({ color: INK, width: line * 4.2, join: "round", alpha: 0.85 });
+  g.poly(tri).fill({ color: colour }).stroke({ color: colour, width: line * 2.2, join: "round" });
+  // The "!".
+  g.roundRect(x - line * 0.75, y - h * 0.48, line * 1.5, h * 0.62, line * 0.75).fill({ color: INK });
+  g.circle(x, y + h * 0.33, line * 0.85).fill({ color: INK });
+}
 /** Where an outlet's valve stands on a bend, tiles from the middle toward the wall: on the straight past the elbow. */
 const VALVE_OUT = 0.37;
 /** How much of a window's glass shows over what is in it, 0 to 1. */
@@ -125,6 +152,16 @@ export type MainsLayer = {
   tick: (g: Grid, scale: number, now: number, preview?: readonly { x: number; y: number }[] | null, ok?: boolean, water?: boolean, hover?: { x: number; y: number } | null) => void;
   destroy: () => void;
 };
+
+/** The point of a cell's tube paths nearest its middle, `[u, v, h]`, or null with none. */
+function nearestOn(paths: readonly (readonly (readonly number[])[])[], x: number, y: number): readonly number[] | null {
+  let best: readonly number[] | null = null, d = Infinity;
+  for (const path of paths) for (const p of path) {
+    const e = Math.abs(p[0] - x) + Math.abs(p[1] - y);
+    if (e < d) { d = e; best = p; }
+  }
+  return best;
+}
 
 /**
  * WHERE A CELL'S ARROW GOES on the length that leaves it at face (fu, fv): a
@@ -691,17 +728,18 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
           }
         }
         if (state && state !== "flowing" && state !== "full") {
-          // CANNOT DELIVER: a pulsing warning at each intake — or at its far end, with none.
+          // CANNOT DELIVER: a warning sign at each intake — or at its far end,
+          // with none — on a pin down to the fitting, in the colour of what is
+          // wrong, a ring going out from it.
           const at = net.intakes.length ? net.intakes : [net.cells[0]];
-          const pulse = 0.55 + 0.45 * Math.sin(t * 4);
           for (const i of at) {
             const x = i % g.w, y = (i / g.w) | 0;
-            // Floated over the fitting: a pump house stands tall at an intake.
+            // Floated over the fitting — a pump house stands tall at an intake — its pin down to the tube.
             const c = P(scale, x, y, Math.max(levelAt(g, x, y), ground(g, x, y) + 3.4));
-            flow.circle(c[0], c[1] - ow * 2.4, ow * 0.9);
-            flow.fill({ color: WARN, alpha: pulse });
-            flow.rect(c[0] - ow * 0.12, c[1] - ow * 2.9, ow * 0.24, ow * 0.6);
-            flow.fill({ color: 0x1a1a1a, alpha: pulse });
+            const tube = nearestOn(routes.get(i) ?? [], x, y);
+            const foot = tube ? P(scale, tube[0], tube[1], tube[2] / ZT) : P(scale, x, y, levelAt(g, x, y));
+            const top = net.intakes.length ? c[1] - ow * 2.4 : foot[1] - ow * 1.9;
+            warnSign(flow, foot[0], top, ow * 0.7, foot[1], STATE_COLOUR[state], t + i * 0.37);
           }
         }
       }
