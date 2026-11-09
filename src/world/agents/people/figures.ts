@@ -11,9 +11,9 @@
  * bottoms, top, hair — so every figure comes in every colour; shoes, bags,
  * a builder's hi-vis and hard hat are baked in their own.
  */
-import { HEIGHT_UNIT, HH, HW } from "../../iso";
-import { TILES_PER_M, type Mat } from "../cars/models";
+import type { Mat } from "../cars/models";
 import { cross, face, norm, sub, type Tri, type V3 } from "../cars/raster";
+import { STEP_M } from "./people-format";
 
 export type Figure = {
   id: string;
@@ -25,20 +25,22 @@ export type Figure = {
   carry?: "backpack" | "bag";
   /** A builder's hi-vis over the top. */
   hivis?: boolean;
+  /** A woman's figure: shorter, a waist, hips and a bust, narrower shoulders, slimmer limbs. */
+  fem?: boolean;
 };
 
 export const FIGURES: readonly Figure[] = [
   { id: "suit", build: 1.05, lower: "trousers", sleeves: "long", hair: "short" },
   { id: "casual", build: 1, lower: "trousers", sleeves: "short", hair: "short", carry: "backpack" },
-  { id: "longHair", build: 0.92, lower: "trousers", sleeves: "long", hair: "long", carry: "bag" },
-  { id: "skirt", build: 0.9, lower: "skirt", sleeves: "short", hair: "long" },
-  { id: "bun", build: 0.92, lower: "trousers", sleeves: "long", hair: "bun", carry: "bag" },
-  { id: "ponytail", build: 0.9, lower: "shorts", sleeves: "short", hair: "ponytail" },
+  { id: "longHair", build: 0.92, lower: "trousers", sleeves: "long", hair: "long", carry: "bag", fem: true },
+  { id: "skirt", build: 0.9, lower: "skirt", sleeves: "short", hair: "long", fem: true },
+  { id: "bun", build: 0.92, lower: "trousers", sleeves: "long", hair: "bun", carry: "bag", fem: true },
+  { id: "ponytail", build: 0.9, lower: "shorts", sleeves: "short", hair: "ponytail", fem: true },
   { id: "curly", build: 1, lower: "trousers", sleeves: "short", hair: "curly", carry: "backpack" },
   { id: "bald", build: 1.12, lower: "trousers", sleeves: "long", hair: "bald" },
   { id: "shorts", build: 1.05, lower: "shorts", sleeves: "short", hair: "short", carry: "backpack" },
-  { id: "skirtLong", build: 0.9, lower: "skirt", sleeves: "long", hair: "bun" },
-  { id: "slim", build: 0.88, lower: "trousers", sleeves: "short", hair: "ponytail", carry: "bag" },
+  { id: "skirtLong", build: 0.9, lower: "skirt", sleeves: "long", hair: "bun", fem: true },
+  { id: "slim", build: 0.88, lower: "trousers", sleeves: "short", hair: "ponytail", carry: "bag", fem: true },
   { id: "builder", build: 1.1, lower: "trousers", sleeves: "long", hair: "hardhat", hivis: true },
 ];
 export const figureById = new Map(FIGURES.map((f) => [f.id, f]));
@@ -55,16 +57,15 @@ export const layerOfMat = (m: Mat): number => {
 const HIP_Z = 0.93, THIGH = 0.45, SHIN = 0.43, ANKLE_Z = 0.08;
 const SHOULDER_Z = 1.42, UPPER_ARM = 0.29, FOREARM = 0.26;
 const HEAD: V3 = [0.015, 0, 1.64];
-/** A tile along the ground in half steps' height, on the screen. @see town.ts */
-const HALF_STEP_IN_TILES = HEIGHT_UNIT / Math.hypot(HW, HH);
 /**
- * THE STRIDE THE TOWN WALKS AT, metres a step: `town.ts`'s STRIDE, which sets
- * how fast the phase runs. The legs swing just far enough to cover it, so
- * the feet keep pace with the ground and do not skate. @see town.ts STRIDE
+ * THE STEP THE TOWN WALKS AT, metres: `STEP_M`, which sets how fast the phase
+ * runs. The legs swing just far enough to cover it — a woman's, scaled down
+ * whole, a little further — so the feet keep pace with the ground and do not
+ * skate. @see people-format STEP_M
  */
-export const STRIDE_M = (2 * 0.5 * Math.sin(0.5) * HALF_STEP_IN_TILES) / TILES_PER_M;
-const SWING = Math.asin(Math.min(0.95, STRIDE_M / (2 * (THIGH + SHIN) * 0.97)));
-const KNEE = 0.7;
+export const STRIDE_M = STEP_M;
+const swingFor = (scale: number) => Math.asin(Math.min(0.95, STRIDE_M / scale / (2 * (THIGH + SHIN) * 0.97)));
+const KNEE = 0.45;
 
 // ─── PRIMITIVES ──────────────────────────────────────────────────────────────
 
@@ -150,7 +151,10 @@ function loft(rings: { z: number; l: number; rl: number; rw: number }[], mat: Ma
  */
 export function figureTris(f: Figure, phase: number, work: boolean, near: number): Tri[] {
   const out: Tri[] = [];
-  const b = f.build, hipW = 0.085 * b, shW = 0.185 * b;
+  const b = f.build, fem = !!f.fem;
+  const hipW = (fem ? 0.08 : 0.088) * b, shW = (fem ? 0.162 : 0.185) * b;
+  /** Limbs a little slimmer on a woman. */
+  const lr = fem ? 0.86 : 1;
 
   // THE LEGS: the thigh swings through the stride, the knee bends as it comes through.
   type Leg = { hip: V3; knee: V3; ankle: V3; foot: number };
@@ -161,7 +165,7 @@ export function figureTris(f: Figure, phase: number, work: boolean, near: number
       return { hip, knee: [0.04, side * (hipW + 0.02), (HIP_Z + ANKLE_Z) / 2], ankle, foot: 0 };
     }
     const p = phase + (side > 0 ? 0 : Math.PI);
-    const th = SWING * Math.sin(p), bend = KNEE * Math.max(0, Math.cos(p));
+    const th = swingFor(fem ? FEM_HEIGHT : 1) * Math.sin(p), bend = KNEE * Math.max(0, Math.cos(p));
     const hip: V3 = [0, side * hipW, HIP_Z];
     const knee = add(hip, [Math.sin(th) * THIGH, 0, -Math.cos(th) * THIGH]);
     const ankle = add(knee, [Math.sin(th - bend) * SHIN, 0, -Math.cos(th - bend) * SHIN]);
@@ -174,21 +178,32 @@ export function figureTris(f: Figure, phase: number, work: boolean, near: number
 
   for (const g of [L, R]) {
     const hip = at(g.hip), knee = at(g.knee), ankle = at(g.ankle);
+    // A LEG as legs go: a full thigh tapering to the knee, the calf swelling
+    // below it, a slim ankle. Trousers hang straighter, to a hem over the shoe.
+    const calf = lerp(knee, ankle, 0.32);
+    const thigh = (mat: Mat, to: V3 = knee, r1 = 0.054 * lr) => limb(hip, to, 0.088 * lr, r1, mat, out, 10);
+    const shin = (mat: Mat) => {
+      limb(knee, calf, 0.052 * lr, 0.056 * lr, mat, out, 10, false);
+      limb(calf, ankle, 0.056 * lr, 0.032 * lr, mat, out, 10, false);
+      ball(ankle, [0.032 * lr, 0.032 * lr, 0.032 * lr], mat, out, undefined, 8, 5);
+    };
     if (f.lower === "trousers") {
-      limb(hip, knee, 0.075, 0.06, "bottom", out);
-      limb(knee, ankle, 0.06, 0.045, "bottom", out);
+      thigh("bottom", knee, 0.064 * lr);
+      limb(knee, ankle, 0.064 * lr, 0.055 * lr, "bottom", out, 10, false);
     } else if (f.lower === "shorts") {
-      const hem = lerp(hip, knee, 0.7);
-      limb(hip, hem, 0.08, 0.072, "bottom", out);
-      limb(hem, knee, 0.055, 0.05, "skin", out, 8, false);
-      limb(knee, ankle, 0.05, 0.038, "skin", out);
+      const hem = lerp(hip, knee, 0.62);
+      limb(hip, hem, 0.094 * lr, 0.082 * lr, "bottom", out, 10);
+      limb(hem, knee, 0.068 * lr, 0.054 * lr, "skin", out, 10, false);
+      ball(knee, [0.054 * lr, 0.054 * lr, 0.054 * lr], "skin", out, undefined, 8, 5);
+      shin("skin");
     } else {
-      limb(hip, knee, 0.06, 0.05, "skin", out);
-      limb(knee, ankle, 0.05, 0.038, "skin", out);
+      thigh("skin");
+      shin("skin");
     }
-    // THE SHOE: a long rounded block forward of the ankle, tipped with the step.
+    // THE SHOE: heel under the ankle, the toe forward, tipped with the step; low and narrow.
     const c = g.foot, fwd: V3 = [Math.cos(c), 0, Math.sin(c)];
-    ball(add(ankle, add(mul(fwd, 0.06), [0, 0, -0.035])), [0.12, 0.05, 0.045], "shoe", out, undefined, 10, 6);
+    const shoe: V3 = fem ? [0.1, 0.038, 0.032] : [0.12, 0.045, 0.04];
+    ball(add(ankle, add(mul(fwd, shoe[0] * 0.55), [0, 0, -0.04])), shoe, "shoe", out, undefined, 12, 6);
   }
 
   // THE BODY, hips to shoulders, leaning into the walk; its lower part is the bottoms.
@@ -202,19 +217,34 @@ export function figureTris(f: Figure, phase: number, work: boolean, near: number
     if (Math.abs(p[2] - (1.16 - drop)) < 0.022 || Math.abs(p[2] - (1.3 - drop)) < 0.022) return "chrome";
     return "hivis";
   };
-  loft([
-    { z: 0.86 - drop, l: 0, rl: 0.1, rw: 0.15 * b },
-    { z: 1.0 - drop, l: lean * 0.3, rl: 0.095, rw: 0.14 * b },
-    { z: 1.18 - drop, l: lean * 0.6, rl: 0.11, rw: 0.155 * b },
-    { z: 1.34 - drop, l: lean, rl: 0.12, rw: 0.185 * b },
-    { z: 1.43 - drop, l: lean, rl: 0.1, rw: 0.18 * b },
-    { z: 1.49 - drop, l: lean, rl: 0.06, rw: 0.09 },
+  // From the crotch up: a pelvis the legs go into, the waist, the chest — a
+  // woman's narrower at the waist, fuller at the hips and bust.
+  const ring = (z: number, l: number, rl: number, rw: number) => ({ z: z - drop, l, rl, rw: rw * b });
+  loft(fem ? [
+    ring(0.8, 0, 0.1, 0.15),
+    ring(0.9, 0, 0.11, 0.168),
+    ring(1.02, lean * 0.3, 0.085, 0.118),
+    ring(1.14, lean * 0.5, 0.095, 0.13),
+    ring(1.24, lean * 0.7 + 0.025, 0.125, 0.145),
+    ring(1.33, lean, 0.1, 0.152),
+    ring(1.41, lean, 0.085, 0.15),
+    ring(1.47, lean, 0.05, 0.075),
+  ] : [
+    ring(0.8, 0, 0.1, 0.148),
+    ring(0.9, 0, 0.105, 0.155),
+    ring(1.0, lean * 0.3, 0.098, 0.145),
+    ring(1.18, lean * 0.6, 0.112, 0.16),
+    ring(1.34, lean, 0.12, 0.188),
+    ring(1.43, lean, 0.1, 0.182),
+    ring(1.49, lean, 0.06, 0.09),
   ], top, out, vest);
   if (f.lower === "skirt") {
     loft([
-      { z: 0.98 - drop, l: 0, rl: 0.11, rw: 0.155 * b },
-      { z: 0.78 - drop, l: 0, rl: 0.17, rw: 0.21 * b },
-      { z: 0.56 - drop, l: 0, rl: 0.21, rw: 0.25 * b },
+      // An A-line from the waist, over the hips, to a hem below the knee.
+      ring(1.03, lean * 0.3, 0.092, 0.125),
+      ring(0.9, 0, 0.125, 0.195),
+      ring(0.72, 0, 0.17, 0.2),
+      ring(0.52, 0, 0.2, 0.215),
     ].reverse(), "bottom", out);
   }
 
@@ -229,16 +259,16 @@ export function figureTris(f: Figure, phase: number, work: boolean, near: number
     const elbow = add(shoulder, [Math.sin(up) * UPPER_ARM, out1 * 0.5, -Math.cos(up) * UPPER_ARM]);
     const wrist = add(elbow, [Math.sin(fore) * FOREARM, out1 * 0.3, -Math.cos(fore) * FOREARM]);
     if (f.sleeves === "long") {
-      limb(shoulder, elbow, 0.052, 0.045, top, out);
-      limb(elbow, wrist, 0.045, 0.036, top, out);
+      limb(shoulder, elbow, 0.052 * lr, 0.045 * lr, top, out);
+      limb(elbow, wrist, 0.045 * lr, 0.036 * lr, top, out);
     } else {
       const hem = lerp(shoulder, elbow, 0.55);
-      limb(shoulder, hem, 0.056, 0.052, top, out);
-      limb(hem, elbow, 0.04, 0.036, "skin", out, 8, false);
-      limb(elbow, wrist, 0.036, 0.03, "skin", out);
+      limb(shoulder, hem, 0.056 * lr, 0.052 * lr, top, out);
+      limb(hem, elbow, 0.04 * lr, 0.036 * lr, "skin", out, 8, false);
+      limb(elbow, wrist, 0.036 * lr, 0.03 * lr, "skin", out);
     }
     const hand = add(wrist, mul(norm(sub(wrist, elbow)), 0.045));
-    ball(hand, [0.045, 0.035, 0.05], "skin", out, undefined, 8, 5);
+    ball(hand, [0.045 * lr, 0.035 * lr, 0.05 * lr], "skin", out, undefined, 8, 5);
   }
 
   // THE HEAD on its neck, a nose to say which way it faces, and the hair.
@@ -270,5 +300,14 @@ export function figureTris(f: Figure, phase: number, work: boolean, near: number
     ball([0.0, -0.21 * b, 0.98 - drop], [0.12, 0.04, 0.09], "bag", out);
     limb([lean, 0.17 * b, 1.42 - drop], [0.0, -0.2 * b, 1.06 - drop], 0.012, 0.012, "bag", out, 4, false);
   }
+  // A WOMAN a little shorter: 1.63 m to a man's 1.75, scaled whole about her feet.
+  if (fem) for (const t of out) {
+    t.p = t.p.map((q) => mul(q, FEM_HEIGHT)) as Tri["p"];
+    const paint = t.paint;
+    if (paint) t.paint = (q) => paint(mul(q, 1 / FEM_HEIGHT));
+  }
   return out;
 }
+
+/** How tall a woman's figure is, as a share of a man's. */
+export const FEM_HEIGHT = 0.93;

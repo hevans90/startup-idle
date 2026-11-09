@@ -30,6 +30,7 @@ import type { Grid } from "../grid";
 import { liveCommutes } from "./commute";
 import { AI_TRUCK_COLOUR, BUS_COLOUR, halfLength, SHUTTLE_COLOUR, VAN_COLOUR } from "./cars/fleet";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
+import { STEP_TILES } from "./people/people-format";
 import { isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
 import {
@@ -113,15 +114,15 @@ export const createTown = (): Town => ({
 
 /** A person's leg, half steps long, and how far it swings either side of straight down. */
 export const LEG = 0.5;
-export const SWING = 0.5;
 /** A tile along the ground in half steps' height, on the screen: so a swing can be put in either. */
 export const HALF_STEP_IN_TILES = HEIGHT_UNIT / Math.hypot(HW, HH);
 /**
- * Tiles a person covers in one step: a leg's reach forward plus its reach
- * back. Their phase goes on by π a step, so the feet keep pace with the ground
- * and do not skate. @see town-render
+ * Tiles a person covers in one step: a real one. Their phase goes on by π a
+ * step, so the feet keep pace with the ground and do not skate; the drawn
+ * person's legs swing just far enough to reach it. @see town-render, STEP_M
  */
-export const STRIDE = 2 * LEG * Math.sin(SWING) * HALF_STEP_IN_TILES;
+export const STRIDE = STEP_TILES;
+export const SWING = Math.asin(STRIDE / (2 * LEG * HALF_STEP_IN_TILES));
 
 /** At most this many cars and people. */
 export const MAX_CARS = 40;

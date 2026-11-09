@@ -3,6 +3,16 @@
  * game reads it. @see people-sheet.ts
  */
 
+import { TILES_PER_M } from "../cars/models";
+
+/**
+ * A STEP, as people walk: about 0.72 m at an easy pace. Everyone on foot —
+ * the town's walkers, the old drawn people, a site's carriers — moves their
+ * phase on by π a step of this, so their feet keep pace with the ground.
+ */
+export const STEP_M = 0.72;
+export const STEP_TILES = STEP_M * TILES_PER_M;
+
 /** Headings baked round the turn, and frames through a stride (two steps). */
 export const PERSON_HEADINGS = 16;
 export const PERSON_STRIDES = 12;

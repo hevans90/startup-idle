@@ -19,6 +19,7 @@
  */
 import { sortMasses, wholeFloors, type Building, type Footprint, type Mass } from "./model";
 import type { Site } from "./schedule";
+import { STEP_TILES } from "../../agents/people/people-format";
 
 export type Role = "fixer" | "cladder" | "carrier" | "foreman";
 
@@ -40,9 +41,9 @@ export const MAX_DRAWN = 14;
 
 /** Swings of a hammer a second. */
 const SWINGS = 9;
-/** A walker's pace, tiles a second, and strides a tile. */
+/** A walker's pace, tiles a second, and steps a tile: a real step's. @see STEP_TILES */
 const PACE = 0.32;
-const STRIDES = 7;
+const STRIDES = 1 / STEP_TILES;
 
 /** Positions spread along a length, inset from its ends. */
 function spread(a0: number, a1: number, n: number, k: number): number {
