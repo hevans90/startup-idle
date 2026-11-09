@@ -78,8 +78,9 @@ describe("bandQuads", () => {
     const grid = flat(3, 3);
     setHeight(grid, 1, 1, 3);
     const q = bandQuads(grid, PALETTE, 2);
-    // (0, 2) walls off the map's front; (1, 1) down both faces; (2, 0) off the map's side.
-    expect(kinds(q)).toEqual([0, 2, 0, 1, 2, 0, 1]);
+    // (0, 2) walls off the map's front; (1, 1) down both faces, and fringes
+    // over the lower ground behind it; (2, 0) off the map's side.
+    expect(kinds(q)).toEqual([0, 2, 0, 1, 2, 3, 3, 0, 1]);
     // (1, 1)'s +x face: its bottom corners sit 3 half steps below its top.
     const face = 3 * 4 * 6;
     expect(q.verts[face + 2 * 6 + 5]).toBe(3);
@@ -135,7 +136,7 @@ describe("ramps", () => {
     setRamp(grid, 2, 1, RAMP.N);
     expect(wallFoot(grid, 1, 1, 2, 1, 0, 0, 2)).toBe(2);
     expect(wallFoot(grid, 1, 1, 2, 1, 0, 1, 2)).toBe(2);
-    expect(kinds(bandQuads(grid, PALETTE, 2))).toEqual([0, 2, 0, 2, 0, 1]);
+    expect(kinds(bandQuads(grid, PALETTE, 2))).toEqual([0, 2, 0, 2, 3, 3, 0, 1]);
   });
 
   test("slopes facing the light are brighter, the others darker, level ones neither", () => {
@@ -145,5 +146,25 @@ describe("ramps", () => {
     expect(slopeLight(RAMP.N)).toBeLessThan(0);
     expect(slopeLight(RAMP.W)).toBeLessThan(0);
     expect(Math.abs(slopeLight(packRamp(RAMP.S, 1)))).toBeLessThan(slopeLight(RAMP.S));
+  });
+});
+
+describe("fringe", () => {
+  test("grass stands over a road behind it, and only over the edges it meets", () => {
+    const grid = flat(3, 3);
+    // Band 2: (0, 2) and (2, 0) wall off the map's edges.
+    expect(kinds(bandQuads(grid, PALETTE, 2))).toEqual([0, 2, 0, 0, 1]);
+    grid.paved[1 * 3 + 0] = 1; // (0, 1): behind (0, 2)'s upper-right edge and (1, 1)'s upper-left
+    const q = bandQuads(grid, PALETTE, 2);
+    expect(kinds(q)).toEqual([0, 2, 3, 0, 3, 0, 1]);
+    // A fringe's ground is its cell, its last word its height.
+    const f = 4 * 4 * 6;
+    expect([q.verts[f + 2], q.verts[f + 3], q.verts[f + 5]]).toEqual([1, 1, 0]);
+  });
+
+  test("no fringe from a cell that isn't bare level grass", () => {
+    const grid = flat(3, 3, DIRT);
+    grid.paved[1 * 3 + 0] = 1;
+    expect(kinds(bandQuads(grid, PALETTE, 2))).toEqual([0, 2, 0, 0, 1]);
   });
 });

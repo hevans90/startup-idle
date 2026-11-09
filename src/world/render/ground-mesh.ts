@@ -102,9 +102,37 @@ export function slopeLight(packed: number): number {
   return (d === RAMP.S || d === RAMP.E ? 0.05 : -0.06) * rise;
 }
 
+/** How far blade tips can stand over a back edge, in screen-shaped units (a cell's diamond is 2 across). */
+const FRINGE = 0.05;
+
+/** Whether this cell's grass can stand over what is behind it: level grass, bare. */
+function fringes(grid: Grid, palette: Palette, x: number, y: number): boolean {
+  const i = idx(grid, x, y);
+  return groundClassOf(palette, grid.terrain[i]) === GROUND.grass && !rampRise(grid.ramp[i])
+    && !grid.paved[i] && !structureOf(grid, x, y);
+}
+
+/**
+ * Whether the cell behind a back edge is something grass stands in front of:
+ * a road or pavement, a structure, ground the mesh doesn't draw, or ground at
+ * another height. Not more of the same level ground, whose own top already
+ * draws the blades leaning into it.
+ */
+function fringeBehind(grid: Grid, palette: Palette, nx: number, ny: number, z: number): boolean {
+  if (!inBounds(grid, nx, ny)) return false;
+  const j = idx(grid, nx, ny);
+  return !!grid.paved[j] || !!structureOf(grid, nx, ny) || !groundDraws(grid, palette, nx, ny)
+    || !!rampRise(grid.ramp[j]) || grid.height[j] !== z;
+}
+
 // ─── THE MESH ────────────────────────────────────────────────────────────────
 
-/** Floats a vertex: world x, y; ground u, v (cells); kind (0 top, 1 face +x, 2 face +y); depth below the top, half steps. */
+/**
+ * Floats a vertex: world x, y; ground u, v (cells); kind (0 top, 1 face +x,
+ * 2 face +y, 3 fringe); then for a top its slope's light, for a face its depth
+ * below the top in half steps, for a fringe its height. A fringe's ground is
+ * its cell's corner (x, y), the same at every vertex.
+ */
 const WORDS = 6;
 const STRIDE = WORDS * 4;
 
@@ -146,6 +174,17 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
     // AND ALONG y+1.
     const ga = wallFoot(grid, x, y, x, y + 1, 0, 0, z01), gb = wallFoot(grid, x, y, x, y + 1, 1, 0, z11);
     if (ga < z01 || gb < z11) { at(x, y + 1, z01, 2, 0); at(x + 1, y + 1, z11, 2, 0); at(x + 1, y + 1, gb, 2, z11 - gb); at(x, y + 1, ga, 2, z01 - ga); }
+    // THE FRINGE over each back edge where something else is behind it, for
+    // the tips of this cell's blades to stand over. Ground (x, y) is the cell,
+    // the second word its height. @see fringeColour
+    if (fringes(grid, palette, x, y)) {
+      const fr = (gu: number, gv: number, lift: number) => {
+        const cx = gu - 0.5, cy = gv - 0.5;
+        v.push((cx - cy) * HW * scale, ((cx + cy) * HH - z00 * HEIGHT_UNIT - lift * HW) * scale, x, y, 3, z00);
+      };
+      if (fringeBehind(grid, palette, x, y - 1, z00)) { fr(x, y, 0); fr(x + 1, y, 0); fr(x + 1, y, FRINGE); fr(x, y, FRINGE); }
+      if (fringeBehind(grid, palette, x - 1, y, z00)) { fr(x, y + 1, 0); fr(x, y, 0); fr(x, y, FRINGE); fr(x, y + 1, FRINGE); }
+    }
   }
   // Never empty: a buffer of nothing is no buffer at all to some drivers. One quad at a point draws nothing.
   if (!v.length) for (let k = 0; k < 4; k++) v.push(0, 0, 0, 0, 0, 0);
@@ -205,9 +244,10 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
 export function markGround(gm: GroundMesh, grid: Grid, palette: Palette, x: number, y: number) {
   if (!inBounds(grid, x, y)) return;
   writeCell(gm, grid, palette, x, y);
-  // Its own band; the band behind, whose walls stand over it.
+  // Its own band; the band behind, whose walls stand over it; the band in
+  // front, whose grass fringes over it.
   const b = bandOf(x, y);
-  for (const k of [b - 1, b]) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
+  for (const k of [b - 1, b, b + 1]) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
 }
 
 /** Rebuild the bands marked, and send the texels. */
@@ -326,9 +366,9 @@ fn cellAt(c: vec2<i32>) -> vec4<f32> {
 fn riseOf(c: vec4<f32>) -> f32 { return floor((c.z + 0.5) / 16.0); }
 
 // Blade lattice, in screen-shaped units (a cell's diamond is 2 across), and the frequency they fade in at.
-const BLADE_W = 0.02;
-const BLADE_H = 0.036;
-const BLADE_F = 26.0;
+const BLADE_W = 0.007;
+const BLADE_H = 0.014;
+const BLADE_F = 45.0;
 /*
  * Blades of grass, standing up the screen. In screen-shaped space — x across,
  * y down, one unit the same length both ways — a lattice of cells each roots
@@ -344,12 +384,21 @@ const BLADE_F = 26.0;
 var<private> gScreen: vec2<f32>;
 var<private> gScreenFp: f32;
 
-fn blades(p: vec2<f32>, base: vec3<f32>, tuft: f32, fp_: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
+// The ground point under a screen point, on level ground at height z (half steps).
+fn groundAt(sp: vec2<f32>, z: f32) -> vec2<f32> {
+  let sum = 2.0 * (sp.y + z * 0.25) + 1.0;
+  return vec2<f32>((sum + sp.x) * 0.5, (sum - sp.x) * 0.5);
+}
+
+// Opaque over the ground between them; or, for a FRINGE, only the blades
+// rooted in the cell at lo, at height z, over nothing (alpha is their cover).
+fn blades(base: vec3<f32>, tuft: f32, dens: f32, under: vec3<f32>, fringe: bool, lo: vec2<f32>, z: f32) -> vec4<f32> {
   let fp = gScreenFp;
   let g = vec2<f32>(gScreen.x / BLADE_W, gScreen.y / BLADE_H);
   let gi = vec2<i32>(floor(g));
   let aa = max(fp * 0.9 / BLADE_W, 0.04);
-  var col = mix(under, base * 0.8, smoothstep(0.55, 0.95, dens));
+  var col = vec4<f32>(mix(under, base * 0.8, smoothstep(0.55, 0.95, dens)), 1.0);
+  if (fringe) { col = vec4<f32>(0.0); }
   for (var dy = 0; dy <= 3; dy++) {
     for (var dx = -1; dx <= 1; dx++) {
       let c = gi + vec2<i32>(dx, dy);
@@ -357,6 +406,10 @@ fn blades(p: vec2<f32>, base: vec3<f32>, tuft: f32, fp_: f32, dens: f32, under: 
       // Thinner toward the grass's edge: fewer blades, and shorter.
       if (hash(c + vec2<i32>(23, 11)) > dens * 1.15) { continue; }
       let root = vec2<f32>(f32(c.x) + 0.2 + 0.6 * h1, f32(c.y) + h2);
+      if (fringe) {
+        let rg = groundAt(root * vec2<f32>(BLADE_W, BLADE_H), z) - lo;
+        if (rg.x < 0.0 || rg.y < 0.0 || rg.x >= 1.0 || rg.y >= 1.0) { continue; }
+      }
       let len = (1.3 + 1.5 * h3) * (0.8 + 0.4 * tuft) * mix(0.55, 1.0, dens);
       let t = (root.y - g.y) / len;
       if (t < 0.0 || t > 1.0) { continue; }
@@ -368,7 +421,7 @@ fn blades(p: vec2<f32>, base: vec3<f32>, tuft: f32, fp_: f32, dens: f32, under: 
       let lit = clamp(-off / max(half, 0.05), -1.0, 1.0);
       var bc = base * mix(0.86, 1.2, t) * (0.92 + 0.16 * h1) * (1.0 + 0.1 * lit);
       bc = mix(bc, bc * vec3<f32>(1.08, 1.02, 0.8), step(0.8, h2) * 0.6);
-      col = mix(col, bc, cover);
+      col = mix(col, vec4<f32>(bc, 1.0), cover);
     }
   }
   return col;
@@ -386,19 +439,21 @@ fn grassAt(p: vec2<f32>, fp: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
   // Far off, thinning grass is a speckled fade onto the soil; close up, sparser blades.
   let speck = vnoise(p * 18.0 + 7.0);
   var out = mix(under, c, smoothstep(0.35, 0.7, dens + (speck - 0.5) * 0.7 * shows(18.0, fp)));
+  // Grain: the grass too fine to see blade by blade, streaked up the screen.
+  out = out * (1.0 + (vnoise(vec2<f32>(gScreen.x * 90.0, gScreen.y * 25.0)) - 0.5) * 0.18 * shows(30.0, gScreenFp) * dens);
   let bf = shows(BLADE_F, gScreenFp);
-  if (bf > 0.0) { out = mix(out, blades(p, c, t, fp, dens, under), bf); }
+  if (bf > 0.0) { out = mix(out, blades(c, t, dens, under, false, vec2<f32>(0.0), 0.0).rgb, bf); }
   c = out;
   // A daisy now and then.
-  let g = p * 14.0; let gi = vec2<i32>(floor(g));
+  let g = p * 32.0; let gi = vec2<i32>(floor(g));
   let r = hash(gi + vec2<i32>(91, 7));
-  if (r > 0.975 && dens > 0.85) {
+  if (r > 0.993 && dens > 0.85) {
     let ctr = vec2<f32>(gi) + vec2<f32>(hash(gi + vec2<i32>(3, 1)), hash(gi + vec2<i32>(5, 9))) * 0.6 + 0.2;
     let d = length(g - ctr);
     let petal = 1.0 - smoothstep(0.11, 0.16, d);
     let eye = 1.0 - smoothstep(0.04, 0.07, d);
-    let flower = select(vec3<f32>(0.97, 0.96, 0.92), vec3<f32>(0.98, 0.85, 0.35), r > 0.992);
-    c = mix(c, mix(flower, vec3<f32>(0.95, 0.75, 0.2), eye), petal * shows(30.0, fp));
+    let flower = select(vec3<f32>(0.97, 0.96, 0.92), vec3<f32>(0.98, 0.85, 0.35), r > 0.998);
+    c = mix(c, mix(flower, vec3<f32>(0.95, 0.75, 0.2), eye), petal * shows(70.0, fp));
   }
   return c;
 }
@@ -436,6 +491,21 @@ fn sandAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
     c = mix(c, vec3<f32>(0.97, 0.93, 0.88), (1.0 - smoothstep(0.07, 0.1, d)) * shows(24.0, fp));
   }
   return c;
+}
+
+// A FRINGE: the tips of a grass cell's blades, standing up over whatever is
+// behind its back edges — a pavement, a road, a building's foot, a ledge.
+fn fringeColour(lo: vec2<f32>, z: f32) -> vec4<f32> {
+  let bf = shows(BLADE_F, gScreenFp);
+  if (bf <= 0.0) { return vec4<f32>(0.0); }
+  let p = groundAt(gScreen, z);
+  var c = vec3<f32>(138.0, 181.0, 73.0) / 255.0;
+  c = mix(c, vec3<f32>(0.60, 0.70, 0.30), smoothstep(0.55, 0.85, fbm(p * 0.45)) * 0.25);
+  c = c * (0.96 + 0.08 * fbm(p * 0.9 + 5.0));
+  let t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0);
+  c = c * (1.0 + (t - 0.6) * 0.12);
+  let r = blades(c, t, 1.0, c, true, lo, z);
+  return vec4<f32>(r.rgb, r.a * bf);
 }
 
 fn topColour(p: vec2<f32>, fp: f32) -> vec3<f32> {
@@ -522,6 +592,11 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   gScreenFp = max(fs.x, fs.y) * 1.5;
   let fw = fwidth(vGround) + vec2<f32>(fwidth(vWall.y) * 0.5);
   let fp = max(fw.x, fw.y);
+  if (vWall.x > 2.5) {
+    let f = fringeColour(vGround, vWall.y);
+    if (f.a <= 0.003) { discard; }
+    return vec4<f32>(f.rgb * f.a, f.a) * vTint;
+  }
   var col: vec3<f32>;
   // A top's second word is the light on its slope, 0 on the level.
   if (vWall.x < 0.5) { col = topColour(vGround, fp) * (1.0 + vWall.y); }
@@ -589,23 +664,31 @@ vec4 cellAt(ivec2 c) {
 }
 float riseOf(vec4 c) { return floor((c.z + 0.5) / 16.0); }
 
-const float BLADE_W = 0.02;
-const float BLADE_H = 0.036;
-const float BLADE_F = 26.0;
+const float BLADE_W = 0.007;
+const float BLADE_H = 0.014;
+const float BLADE_F = 45.0;
 vec2 gScreen;
 float gScreenFp;
-vec3 blades(vec2 p, vec3 base, float tuft, float fp_, float dens, vec3 under) {
+vec2 groundAt(vec2 sp, float z) {
+  float sum = 2.0 * (sp.y + z * 0.25) + 1.0;
+  return vec2((sum + sp.x) * 0.5, (sum - sp.x) * 0.5);
+}
+vec4 blades(vec3 base, float tuft, float dens, vec3 under, bool fringe, vec2 lo, float z) {
   float fp = gScreenFp;
   vec2 g = vec2(gScreen.x / BLADE_W, gScreen.y / BLADE_H);
   ivec2 gi = ivec2(floor(g));
   float aa = max(fp * 0.9 / BLADE_W, 0.04);
-  vec3 col = mix(under, base * 0.8, smoothstep(0.55, 0.95, dens));
+  vec4 col = fringe ? vec4(0.0) : vec4(mix(under, base * 0.8, smoothstep(0.55, 0.95, dens)), 1.0);
   for (int dy = 0; dy <= 3; dy++) {
     for (int dx = -1; dx <= 1; dx++) {
       ivec2 c = gi + ivec2(dx, dy);
       float h1 = hash(c), h2 = hash(c + ivec2(17, 3)), h3 = hash(c + ivec2(5, 29));
       if (hash(c + ivec2(23, 11)) > dens * 1.15) continue;
       vec2 root = vec2(float(c.x) + 0.2 + 0.6 * h1, float(c.y) + h2);
+      if (fringe) {
+        vec2 rg = groundAt(root * vec2(BLADE_W, BLADE_H), z) - lo;
+        if (rg.x < 0.0 || rg.y < 0.0 || rg.x >= 1.0 || rg.y >= 1.0) continue;
+      }
       float len = (1.3 + 1.5 * h3) * (0.8 + 0.4 * tuft) * mix(0.55, 1.0, dens);
       float t = (root.y - g.y) / len;
       if (t < 0.0 || t > 1.0) continue;
@@ -617,7 +700,7 @@ vec3 blades(vec2 p, vec3 base, float tuft, float fp_, float dens, vec3 under) {
       float lit = clamp(-off / max(half_, 0.05), -1.0, 1.0);
       vec3 bc = base * mix(0.86, 1.2, t) * (0.92 + 0.16 * h1) * (1.0 + 0.1 * lit);
       bc = mix(bc, bc * vec3(1.08, 1.02, 0.8), step(0.8, h2) * 0.6);
-      col = mix(col, bc, cover);
+      col = mix(col, vec4(bc, 1.0), cover);
     }
   }
   return col;
@@ -631,18 +714,19 @@ vec3 grassAt(vec2 p, float fp, float dens, vec3 under) {
   c *= 1.0 + (t - 0.6) * 0.12 * shows(9.0, fp);
   float speck = vnoise(p * 18.0 + 7.0);
   vec3 out_ = mix(under, c, smoothstep(0.35, 0.7, dens + (speck - 0.5) * 0.7 * shows(18.0, fp)));
+  out_ *= 1.0 + (vnoise(vec2(gScreen.x * 90.0, gScreen.y * 25.0)) - 0.5) * 0.18 * shows(30.0, gScreenFp) * dens;
   float bf = shows(BLADE_F, gScreenFp);
-  if (bf > 0.0) out_ = mix(out_, blades(p, c, t, fp, dens, under), bf);
+  if (bf > 0.0) out_ = mix(out_, blades(c, t, dens, under, false, vec2(0.0), 0.0).rgb, bf);
   c = out_;
-  vec2 g = p * 14.0; ivec2 gi = ivec2(floor(g));
+  vec2 g = p * 32.0; ivec2 gi = ivec2(floor(g));
   float r = hash(gi + ivec2(91, 7));
-  if (r > 0.975 && dens > 0.85) {
+  if (r > 0.993 && dens > 0.85) {
     vec2 ctr = vec2(gi) + vec2(hash(gi + ivec2(3, 1)), hash(gi + ivec2(5, 9))) * 0.6 + 0.2;
     float d = length(g - ctr);
     float petal = 1.0 - smoothstep(0.11, 0.16, d);
     float eye = 1.0 - smoothstep(0.04, 0.07, d);
-    vec3 flower = r > 0.992 ? vec3(0.98, 0.85, 0.35) : vec3(0.97, 0.96, 0.92);
-    c = mix(c, mix(flower, vec3(0.95, 0.75, 0.2), eye), petal * shows(30.0, fp));
+    vec3 flower = r > 0.998 ? vec3(0.98, 0.85, 0.35) : vec3(0.97, 0.96, 0.92);
+    c = mix(c, mix(flower, vec3(0.95, 0.75, 0.2), eye), petal * shows(70.0, fp));
   }
   return c;
 }
@@ -677,6 +761,19 @@ vec3 sandAt(vec2 p, float fp) {
     c = mix(c, vec3(0.97, 0.93, 0.88), (1.0 - smoothstep(0.07, 0.1, d)) * shows(24.0, fp));
   }
   return c;
+}
+
+vec4 fringeColour(vec2 lo, float z) {
+  float bf = shows(BLADE_F, gScreenFp);
+  if (bf <= 0.0) return vec4(0.0);
+  vec2 p = groundAt(gScreen, z);
+  vec3 c = vec3(138.0, 181.0, 73.0) / 255.0;
+  c = mix(c, vec3(0.60, 0.70, 0.30), smoothstep(0.55, 0.85, fbm(p * 0.45)) * 0.25);
+  c *= 0.96 + 0.08 * fbm(p * 0.9 + 5.0);
+  float t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0);
+  c *= 1.0 + (t - 0.6) * 0.12;
+  vec4 r = blades(c, t, 1.0, c, true, lo, z);
+  return vec4(r.rgb, r.a * bf);
 }
 
 vec3 topColour(vec2 p, float fp) {
@@ -752,6 +849,12 @@ void main() {
   gScreenFp = max(fs.x, fs.y) * 1.5;
   vec2 fw = fwidth(vGround) + vec2(fwidth(vWall.y) * 0.5);
   float fp = max(fw.x, fw.y);
+  if (vWall.x > 2.5) {
+    vec4 f = fringeColour(vGround, vWall.y);
+    if (f.a <= 0.003) discard;
+    finalColor = vec4(f.rgb * f.a, f.a) * vTint;
+    return;
+  }
   vec3 col = vWall.x < 0.5 ? topColour(vGround, fp) * (1.0 + vWall.y) : wallColour(vGround, vWall.x, vWall.y, fp);
   finalColor = vec4(col, 1.0) * vTint;
 }
