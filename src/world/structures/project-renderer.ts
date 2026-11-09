@@ -59,6 +59,8 @@ type ProjectHandle = StructureHandle & {
   liveT: number;
   /** Seconds since the crew was last drawn. @see CREW_EVERY */
   crewDue: number;
+  /** Whether the site has moved on since it was mounted: its tiles are then not batched. */
+  growing: boolean;
 };
 
 /**
@@ -238,24 +240,27 @@ const groundOf = (s: Structure, ctx: RenderCtx) =>
   inBounds(ctx.grid, s.x, s.y) ? ctx.grid.height[idx(ctx.grid, s.x, s.y)] : 0;
 
 /** Draw every column of a project, and the crane over it. */
-function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
+function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): void {
   const ground = groundOf(s, ctx);
   const f = { w: s.w, h: s.h };
   const b = s.build;
   const site = b ? siteAt(h.model, Math.min(1, b.done / b.need)) : null;
   h.site = site;
+  h.growing = !!site && (growing || h.growing);
   h.columns.forEach((g, k) => {
-    // A SITE IS NEVER BATCHED: redrawn every quarter percent, a small tile's
-    // piece crossed Pixi's batching limit back and forth as the work grew, and
-    // each crossing re-packed its chunk — the 3×3 garage's pieces flickered,
-    // smeared toward its back tile and lagged the rest.
+    // A SITE GOING UP IS NEVER BATCHED: redrawn every quarter percent, a small
+    // tile's piece crossed Pixi's batching limit back and forth as the work
+    // grew, and each crossing re-packed its chunk — the 3×3 garage's pieces
+    // flickered, smeared toward its back tile and lagged the rest. It is
+    // un-batched the first time the work moves on, once, and stays so; a site
+    // that is not moving — laid up, or a fixture's — is drawn once and batches.
     //
     // A FINISHED BUILDING ALWAYS BATCHES. It is drawn once, so batching costs
     // nothing after; left to Pixi's own rule, any tile over 400 vertices — most
     // of a detailed building — was drawn alone, a draw call and a uniform group
     // of its own every frame: a gallery of them was a thousand draws, and
     // overflowed WebGPU's per-frame uniform buffer outright.
-    g.context.batchMode = site ? "no-batch" : "batch";
+    g.context.batchMode = h.growing ? "no-batch" : "batch";
     g.clear();
     const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, h.cells[k]);
     if (site) drawSite(p, h.model, f, site, stockOf(s), laidUp(s));
@@ -293,7 +298,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   const handle: ProjectHandle = {
     columns, cells, sky, live, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
-    t: s.id * 3.7, site: null, crew: [], opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0,
+    t: s.id * 3.7, site: null, crew: [], opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false,
     destroy: () => { for (const g of [...columns, sky, live, ...handle.crew]) { g.parent?.removeChild(g); g.destroy(); } },
   };
   draw(handle, s, ctx);
@@ -316,7 +321,7 @@ registerCustomRenderer("project", {
     if (now !== handle.drawn) {
       // IT HAS OPENED: a site last frame, a building this one.
       if (handle.site && !s.build) handle.opened = 0;
-      draw(handle, s, ctx);
+      draw(handle, s, ctx, true);
       handle.drawn = now;
     }
     const ground = groundOf(s, ctx);
