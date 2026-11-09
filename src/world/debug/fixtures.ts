@@ -10,6 +10,7 @@ import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { mapRiver, poolDepthOf } from "../boats/river";
 import { SERVICE_DEFS } from "../agents/needs";
 import { startLadder } from "../agents/unlocks";
+import { pinBeauty } from "../agents/beauty";
 import { commit, createHistory } from "../edit/commands";
 import {
   AI_BUILDINGS, DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, PUMP, RACK, SEAPORTS, SERVICES, structureDef, type StructureDef,
@@ -30,7 +31,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "streets";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -1024,7 +1025,7 @@ export function buildCulvert(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, streets: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1036,7 +1037,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "streets",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1066,6 +1067,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "brink": buildBrink(g, material); recomputeHeightRange(g); return;
     case "projects": buildProjects(g, material); recomputeHeightRange(g); return;
     case "shops": buildShops(g, material, cx, cy); recomputeHeightRange(g); return;
+    case "streets": buildStreets(g, material); recomputeHeightRange(g); return;
     case "singularity": buildSingularity(g, material, cx, cy); recomputeHeightRange(g); return;
     // The same town, its company at the end of book 1. @see seedAscension
     case "ascension": buildSingularity(g, material, cx, cy); recomputeHeightRange(g); return;
@@ -1176,6 +1178,55 @@ export function buildShops(g: Grid, material: number, cx: number, cy: number) {
   for (let y = cy; y <= y2; y++) g.paved[idx(g, x0, y)] = 1;
   // EVERYTHING UNLOCKED, so its streets are as fine as what is on them makes them. @see liveBeauty
   startLadder(g, SERVICE_DEFS.map((d) => d.id));
+  edited(g);
+}
+
+/**
+ * THE STREETS MADE FINE, every level side by side: three streets, houses on
+ * both sides, at levels one, two and three from the north — trees and bins;
+ * lamps, benches, brick and crossings; tables, bunting and murals. Every shop
+ * along each, on the north side its front on the street, on the south its
+ * street behind it, and down the east road on the faces that look east; the
+ * buildings of their own along a fourth street. @see pinBeauty, street-props
+ */
+export function buildStreets(g: Grid, material: number) {
+  clear(g, material);
+  const history = createHistory();
+  const put = (id: string, x: number, y: number, shop?: string) => {
+    const def = structureDef(id);
+    if (!def) return;
+    const cmd = placeCommand(g, { ...def, placement: undefined }, x, y);
+    if (!cmd) return;
+    commit(g, history, cmd);
+    const live = cmd.structures?.added[0] && g.structures.get(cmd.structures.added[0].id);
+    if (!live) return;
+    delete live.residents;
+    if (shop) live.shop = shop;
+  };
+  const shops = SERVICE_DEFS.filter((d) => d.shop).map((d) => d.id);
+  const big = SERVICE_DEFS.filter((d) => !d.shop).map((d) => d.id);
+  const kinds = ["intern", "vibe_coder", "10x_dev"];
+  const X0 = 3, X1 = g.w - 4, rows = [7, 17, 27], Y3 = g.h - 6;
+  for (const y of [...rows, Y3]) for (let x = X0; x <= X1; x++) g.paved[idx(g, x, y)] = 1;
+  for (const x of [X0, X1]) for (let y = rows[0]; y <= Y3; y++) g.paved[idx(g, x, y)] = 1;
+  let n = 0;
+  rows.forEach((y, r) => {
+    // A house every other tile each side, out of step, so the pavements show between them; a shop in every other.
+    for (let x = X0 + 2, k = 0; x < X1 - 1; x += 2, k++) {
+      put(`kit:${kinds[(k + r) % 3]}.t${1 + ((k * 7 + r) % 3 === 0 ? 1 : 0)}`, x, y - 1, k % 2 === 0 ? shops[n++ % shops.length] : undefined);
+      put(`kit:${kinds[(k + r + 1) % 3]}.t1`, x + 1, y + 1, k % 2 === 1 ? shops[(n + 4) % shops.length] : undefined);
+    }
+  });
+  // Down the east road, houses facing it on their darker side.
+  for (let y = rows[0] + 2; y < Y3 - 1; y++) {
+    if (rows.includes(y - 1) || rows.includes(y) || rows.includes(y + 1)) continue;
+    put(`kit:${kinds[y % 3]}.t1`, X1 - 1, y, y % 2 ? shops[y % shops.length] : undefined);
+  }
+  let x = X0 + 2;
+  for (const id of big) { put(id, x, Y3 - (structureDef(id)?.footprint.h ?? 1)); x += (structureDef(id)?.footprint.w ?? 1) + 1; }
+  startLadder(g, SERVICE_DEFS.map((d) => d.id));
+  // Each street at its row's level; the roads joining them, and the fourth, at the finest.
+  pinBeauty(g, (_x, y) => (y === rows[0] ? 1 : y === rows[1] ? 2 : 3));
   edited(g);
 }
 

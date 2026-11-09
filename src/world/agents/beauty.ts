@@ -71,13 +71,35 @@ export function doorsOf(g: Grid, net: Network): Map<number, number> {
   return doors;
 }
 
+/**
+ * A FIXTURE'S STREETS, AT THE LEVELS IT SAYS: each street the level its first
+ * tile is given, whatever is met on it — so every level can be looked at
+ * side by side. Only ever set by a fixture. @see buildStreets
+ */
+const pinned = new WeakMap<Grid, (x: number, y: number) => number>();
+export function pinBeauty(g: Grid, levelAt: (x: number, y: number) => number) { pinned.set(g, levelAt); }
+
+/** A beauty with its streets set to the levels pinned for its map. Pure. */
+export function pinnedBeauty(g: Grid, streets: Streets, b: Beauty, levelAt: (x: number, y: number) => number): Beauty {
+  const street = new Int8Array(b.street.length);
+  streets.tiles.forEach((ts, st) => { if (ts.length) street[st] = levelAt(ts[0] % g.w, Math.floor(ts[0] / g.w)); });
+  const tile = new Int8Array(g.w * g.h).fill(-1);
+  for (let i = 0; i < tile.length; i++) if (streets.of[i] >= 0) tile[i] = street[streets.of[i]];
+  const home = new Map<number, number>();
+  for (const [st, ids] of b.homes) for (const id of ids) home.set(id, street[st]);
+  return { street, tile, home, homes: b.homes };
+}
+
 let memo: { g: Grid | null; rev: number; cover: Coverage | null; value: Beauty | null } = { g: null, rev: -1, cover: null, value: null };
 
 /** Every street's level on this map now, worked out again when the map or what is met has changed. */
 export function liveBeauty(g: Grid, net: Network): Beauty {
   const cover = liveCoverage(g, net);
   if (memo.g !== g || memo.rev !== g.rev || memo.cover !== cover || !memo.value) {
-    memo = { g, rev: g.rev, cover, value: beautyOf(g, streetsOf(g), doorsOf(g, net), (s) => fullyServed(s, cover)) };
+    const streets = streetsOf(g);
+    const b = beautyOf(g, streets, doorsOf(g, net), (s) => fullyServed(s, cover));
+    const pin = pinned.get(g);
+    memo = { g, rev: g.rev, cover, value: pin ? pinnedBeauty(g, streets, b, pin) : b };
   }
   return memo.value!;
 }
