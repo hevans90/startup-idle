@@ -247,6 +247,34 @@ function paved(p: Pen, f: Footprint) {
   for (let v = 0.5; v < f.h - 0.1; v += 0.5) p.flat(0.02, v - 0.006, f.w - 0.02, v + 0.006, 0.005, tone(PAVING, 0.93));
 }
 
+/**
+ * A raised flower bed: a stone kerb round dark soil, planted in rows of leafy
+ * clumps, each drift of them one colour, back to front.
+ */
+function flowerBed(p: Pen, u0: number, v0: number, u1: number, v1: number, blooms: readonly number[]) {
+  const z = 0.03, top = 0.075, KERB = 0.03, GAP = 0.05;
+  p.box(u0, v0, u1, v1, z, top, 0xa9a493, { top: STONE_TOP });
+  p.flat(u0 + KERB, v0 + KERB, u1 - KERB, v1 - KERB, top + 0.001, 0x3f2d22);
+  const plants: { u: number; v: number; k: number }[] = [];
+  let k = 0;
+  for (let v = v0 + KERB + GAP / 2; v < v1 - KERB; v += GAP)
+    for (let u = u0 + KERB + GAP / 2; u < u1 - KERB; u += GAP) {
+      plants.push({ u: u + (hash(k * 2.3) - 0.5) * 0.035, v: v + (hash(k * 4.1) - 0.5) * 0.035, k });
+      k++;
+    }
+  plants.sort((a, b) => a.u + a.v - (b.u + b.v));
+  for (const { u, v, k } of plants) {
+    // Drifts run across the bed on the diagonal, so it reads as planted.
+    const drift = Math.floor((u - u0 - (v - v0) + 1 + 0.06 * Math.sin((u + v) * 9)) / 0.22);
+    const bloom = blooms[((drift % blooms.length) + blooms.length) % blooms.length];
+    const h = top + 0.03 + hash(k * 6.7) * 0.02;
+    p.dot(u, v, h, 0.028 + hash(k * 5.1) * 0.01, tone(0x4f7f3a, 0.85 + hash(k * 1.9) * 0.3));
+    p.dot(u - 0.007, v - 0.007, h + 0.012, 0.02, tone(0x6a9b48, 0.9 + hash(k * 3.3) * 0.2));
+    for (const [du, dv, dz] of [[-0.012, 0.006, 0.03], [0.012, -0.004, 0.034], [0.002, 0.013, 0.022], [-0.004, -0.01, 0.038]])
+      p.dot(u + du, v + dv, h + dz, 0.009, tone(bloom, 0.92 + hash(k * 8.9 + du) * 0.16));
+  }
+}
+
 /** A level disc on the ground, cut to the tile being drawn like a `flat`. */
 function disc(p: Pen, u: number, v: number, r: number, z: number, colour: number) {
   let pts: [number, number][] = Array.from({ length: 24 }, (_, k) => {
@@ -1091,14 +1119,9 @@ export function park(f: Footprint): Building {
       // A hedge along the back, and a flower bed in the front corner.
       hedge(p, 0.06, 0.06, f.w - 0.06, 0.16, 0.03, 0.4);
       hedge(p, 0.06, 0.16, 0.16, f.h - 0.06, 0.03, 0.4);
-      p.flat(mu + 0.25, mv + 0.25, f.w - 0.15, f.h - 0.15, 0.036, 0x6b4a32);
     },
     details: (p) => {
-      // Flowers in the bed.
-      for (let k = 0; k < 18; k++) {
-        const u = mu + 0.3 + hash(k * 3.1) * (f.w - mu - 0.5), v = mv + 0.3 + hash(k * 5.7) * (f.h - mv - 0.5);
-        p.dot(u, v, 0.06, 0.022, FLOWERS[k % FLOWERS.length]);
-      }
+      flowerBed(p, mu + 0.25, mv + 0.25, f.w - 0.15, f.h - 0.15, FLOWERS);
       lamp(p, mu + 0.18, mv + 0.18, 0.03);
       p.box(mu + 0.15, mv - 0.25, mu + 0.2, mv - 0.2, 0.03, 0.22, 0x2f5a3a, { top: 0x1c1f23 });
       if (baked) return;
