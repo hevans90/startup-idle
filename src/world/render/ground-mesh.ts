@@ -24,7 +24,7 @@
 import { BufferImageSource, Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
-import { RAMP, VOID, idx, inBounds, rampDir, structureOf, type Grid } from "../grid";
+import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureOf, type Grid } from "../grid";
 import { structureDef } from "../structures/def";
 import type { BandLayer } from "./bands";
 
@@ -59,21 +59,47 @@ const hidden = (grid: Grid, x: number, y: number) => {
 export function groundDraws(grid: Grid, palette: Palette, x: number, y: number): boolean {
   if (!inBounds(grid, x, y)) return false;
   const i = idx(grid, x, y), frame = palette[grid.terrain[i]] ?? "";
-  return grid.terrain[i] !== VOID && !!CLASS_OF[frame] && !SPRITE_STILL.has(frame)
-    && rampDir(grid.ramp[i]) === RAMP.NONE && !hidden(grid, x, y);
+  return grid.terrain[i] !== VOID && !!CLASS_OF[frame] && !SPRITE_STILL.has(frame) && !hidden(grid, x, y);
 }
 
 /**
- * How far down a cell's face toward `(nx, ny)` shows, as the height it reaches.
- * Off the map, or over a void, at least one step: the plateau's own edge, as a
- * tile's skirt showed it. @see OFF_MAP_HEIGHT
+ * A cell's surface height at a corner `(u, v)` of it (each 0 or 1), in half
+ * steps: its height, or on a ramp its height plus the rise toward the corner.
+ * @see surfaceHeight in iso.ts, the same rule
  */
-export function wallFoot(grid: Grid, x: number, y: number, nx: number, ny: number): number {
+export function cornerZ(grid: Grid, x: number, y: number, u: number, v: number): number {
+  const i = idx(grid, x, y), h = grid.height[i], r = grid.ramp[i];
+  const rise = rampRise(r);
+  if (!rise) return h;
+  const d = rampDir(r);
+  const t = d === RAMP.S ? u : d === RAMP.N ? 1 - u : d === RAMP.W ? v : 1 - v;
+  return h + rise * t;
+}
+
+/**
+ * How far down a cell's face shows at one of its corners: to the surface of
+ * the neighbour `(nx, ny)` in front, at that neighbour's own corner `(u, v)`.
+ * Off the map, or over a void, at least one step below the cell's foot: the
+ * plateau's own edge, as a tile's skirt showed it. Never above the top `z`.
+ */
+export function wallFoot(grid: Grid, x: number, y: number, nx: number, ny: number, u = 0, v = 0, z = grid.height[idx(grid, x, y)]): number {
   const h = grid.height[idx(grid, x, y)];
-  if (!inBounds(grid, nx, ny)) return Math.min(0, h - 2);
+  if (!inBounds(grid, nx, ny)) return Math.min(0, h - 2, z);
   const j = idx(grid, nx, ny);
-  if (grid.terrain[j] === VOID) return Math.min(grid.height[j], h - 2);
-  return Math.min(grid.height[j], h);
+  if (grid.terrain[j] === VOID) return Math.min(grid.height[j], h - 2, z);
+  return Math.min(cornerZ(grid, nx, ny, u, v), z);
+}
+
+/**
+ * The light on a ramp's top, as a fraction brighter. The light comes from the
+ * screen's left, as on the walls: a slope facing up-left (rising toward +x,
+ * S) or down-left (rising toward −y, E) catches it; the other two are in shade.
+ */
+export function slopeLight(packed: number): number {
+  const rise = rampRise(packed);
+  if (!rise) return 0;
+  const d = rampDir(packed);
+  return (d === RAMP.S || d === RAMP.E ? 0.05 : -0.06) * rise;
 }
 
 // ─── THE MESH ────────────────────────────────────────────────────────────────
@@ -83,7 +109,7 @@ const WORDS = 6;
 const STRIDE = WORDS * 4;
 
 export type GroundMesh = {
-  /** A texel a cell: class, height + 128, flags (1 drawn), spare. */
+  /** A texel a cell: class, height + 128, flags (1 drawn, ramp direction × 2, rise in half steps × 16), 255. */
   cells: Uint8Array;
   source: BufferImageSource;
   uniforms: UniformGroup;
@@ -107,15 +133,19 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
   for (let x = x0; x <= x1; x++) {
     const y = b - x;
     if (!groundDraws(grid, palette, x, y)) continue;
-    const h = grid.height[idx(grid, x, y)];
     // THE TOP, corners round its edge: (x, y), (x+1, y), (x+1, y+1), (x, y+1).
-    at(x, y, h, 0, 0); at(x + 1, y, h, 0, 0); at(x + 1, y + 1, h, 0, 0); at(x, y + 1, h, 0, 0);
-    // THE FACE ALONG x+1, down to what is in front of it.
-    const fx = wallFoot(grid, x, y, x + 1, y);
-    if (fx < h) { at(x + 1, y, h, 1, 0); at(x + 1, y + 1, h, 1, 0); at(x + 1, y + 1, fx, 1, h - fx); at(x + 1, y, fx, 1, h - fx); }
+    // A ramp's is a plane tilted toward its high edge.
+    const z00 = cornerZ(grid, x, y, 0, 0), z10 = cornerZ(grid, x, y, 1, 0);
+    const z11 = cornerZ(grid, x, y, 1, 1), z01 = cornerZ(grid, x, y, 0, 1);
+    const lit = slopeLight(grid.ramp[idx(grid, x, y)]);
+    at(x, y, z00, 0, lit); at(x + 1, y, z10, 0, lit); at(x + 1, y + 1, z11, 0, lit); at(x, y + 1, z01, 0, lit);
+    // THE FACE ALONG x+1, each end down to what is in front of it there: a
+    // trapezoid where either side slopes.
+    const fa = wallFoot(grid, x, y, x + 1, y, 0, 0, z10), fb = wallFoot(grid, x, y, x + 1, y, 0, 1, z11);
+    if (fa < z10 || fb < z11) { at(x + 1, y, z10, 1, 0); at(x + 1, y + 1, z11, 1, 0); at(x + 1, y + 1, fb, 1, z11 - fb); at(x + 1, y, fa, 1, z10 - fa); }
     // AND ALONG y+1.
-    const fy = wallFoot(grid, x, y, x, y + 1);
-    if (fy < h) { at(x, y + 1, h, 2, 0); at(x + 1, y + 1, h, 2, 0); at(x + 1, y + 1, fy, 2, h - fy); at(x, y + 1, fy, 2, h - fy); }
+    const ga = wallFoot(grid, x, y, x, y + 1, 0, 0, z01), gb = wallFoot(grid, x, y, x, y + 1, 1, 0, z11);
+    if (ga < z01 || gb < z11) { at(x, y + 1, z01, 2, 0); at(x + 1, y + 1, z11, 2, 0); at(x + 1, y + 1, gb, 2, z11 - gb); at(x, y + 1, ga, 2, z01 - ga); }
   }
   // Never empty: a buffer of nothing is no buffer at all to some drivers. One quad at a point draws nothing.
   if (!v.length) for (let k = 0; k < 4; k++) v.push(0, 0, 0, 0, 0, 0);
@@ -133,7 +163,9 @@ function writeCell(gm: GroundMesh, grid: Grid, palette: Palette, x: number, y: n
   const i = idx(grid, x, y), o = i * 4;
   gm.cells[o] = groundClassOf(palette, grid.terrain[i]);
   gm.cells[o + 1] = Math.max(0, Math.min(255, grid.height[i] + 128));
-  gm.cells[o + 2] = groundDraws(grid, palette, x, y) ? 1 : 0;
+  // Flags: 1 drawn; the ramp's direction × 2; its rise × 16. Alpha stays
+  // opaque: WebGL premultiplies on upload, and a texel of alpha 0 reads as nothing.
+  gm.cells[o + 2] = (groundDraws(grid, palette, x, y) ? 1 : 0) | (rampDir(grid.ramp[i]) << 1) | (rampRise(grid.ramp[i]) << 4);
   gm.cells[o + 3] = 255;
 }
 
@@ -141,7 +173,8 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
   const cells = new Uint8Array(grid.w * grid.h * 4);
   const source = new BufferImageSource({ resource: cells, width: grid.w, height: grid.h, format: "rgba8unorm", scaleMode: "nearest" });
   const uniforms = new UniformGroup({
-    uMap: { value: new Float32Array([grid.w, grid.h, 0, 0]), type: "vec4<f32>" },
+    // The map's size; and world px to screen-shaped units, where a cell's diamond is 2 across.
+    uMap: { value: new Float32Array([grid.w, grid.h, 1 / (HW * scale), 0]), type: "vec4<f32>" },
   });
   const gm: GroundMesh = { cells, source, uniforms, meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
   for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) writeCell(gm, grid, palette, x, y);
@@ -250,6 +283,7 @@ struct VSOutput {
   @location(0) vGround: vec2<f32>,
   @location(1) vWall: vec2<f32>,
   @location(2) vTint: vec4<f32>,
+  @location(3) vWorld: vec2<f32>,
 };
 
 @vertex
@@ -258,6 +292,7 @@ fn mainVertex(@location(0) aPosition: vec2<f32>, @location(1) aGround: vec2<f32>
   var out: VSOutput;
   out.position = vec4<f32>((mvp * vec3<f32>(aPosition, 1.0)).xy, 0.0, 1.0);
   out.vGround = aGround;
+  out.vWorld = aPosition;
   out.vWall = aWall;
   out.vTint = localUniforms.uColor * globalUniforms.uWorldColorAlpha;
   return out;
@@ -287,6 +322,8 @@ fn cellAt(c: vec2<i32>) -> vec4<f32> {
   if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) { return vec4<f32>(0.0); }
   return textureLoad(uCells, c, 0) * 255.0;
 }
+// A cell's ramp rise in half steps, from its flags.
+fn riseOf(c: vec4<f32>) -> f32 { return floor((c.z + 0.5) / 16.0); }
 
 // Blade lattice, in screen-shaped units (a cell's diamond is 2 across), and the frequency they fade in at.
 const BLADE_W = 0.02;
@@ -300,8 +337,16 @@ const BLADE_F = 26.0;
  * left. Blades rooted lower on the screen stand in front, so the rows are
  * drawn back to front. Between them, the ground in their shadow.
  */
-fn blades(p: vec2<f32>, base: vec3<f32>, tuft: f32, fp: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
-  let g = vec2<f32>((p.x - p.y) / BLADE_W, (p.x + p.y) * 0.5 / BLADE_H);
+// Where the pixel is on the screen, in screen-shaped units, and how big a pixel
+// is there, as fp would be on level ground. Blades stand on the screen, not
+// the ground: a slope facing the camera is squashed on screen, and its blades
+// must not be.
+var<private> gScreen: vec2<f32>;
+var<private> gScreenFp: f32;
+
+fn blades(p: vec2<f32>, base: vec3<f32>, tuft: f32, fp_: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
+  let fp = gScreenFp;
+  let g = vec2<f32>(gScreen.x / BLADE_W, gScreen.y / BLADE_H);
   let gi = vec2<i32>(floor(g));
   let aa = max(fp * 0.9 / BLADE_W, 0.04);
   var col = mix(under, base * 0.8, smoothstep(0.55, 0.95, dens));
@@ -341,7 +386,7 @@ fn grassAt(p: vec2<f32>, fp: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
   // Far off, thinning grass is a speckled fade onto the soil; close up, sparser blades.
   let speck = vnoise(p * 18.0 + 7.0);
   var out = mix(under, c, smoothstep(0.35, 0.7, dens + (speck - 0.5) * 0.7 * shows(18.0, fp)));
-  let bf = shows(BLADE_F, fp);
+  let bf = shows(BLADE_F, gScreenFp);
   if (bf > 0.0) { out = mix(out, blades(p, c, t, fp, dens, under), bf); }
   c = out;
   // A daisy now and then.
@@ -404,7 +449,8 @@ fn topColour(p: vec2<f32>, fp: f32) -> vec3<f32> {
       let n = cell + vec2<i32>(dx, dy);
       let c = cellAt(n);
       let k = i32(c.x + 0.5);
-      if (k < 1 || k > 3 || abs(c.y - here.y) > 0.5) { continue; }
+      // Only ground it meets: a neighbour whose heights, ramp and all, touch these.
+      if (k < 1 || k > 3 || c.y > here.y + riseOf(here) + 0.5 || c.y + riseOf(c) < here.y - 0.5) { continue; }
       let lo = vec2<f32>(n);
       let d = length(p - clamp(p, lo, lo + 1.0));
       let s = 1.0 - d / 0.42;
@@ -470,11 +516,15 @@ fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
 }
 
 @fragment
-fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, @location(2) vTint: vec4<f32>) -> @location(0) vec4<f32> {
+fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, @location(2) vTint: vec4<f32>, @location(3) vWorld: vec2<f32>) -> @location(0) vec4<f32> {
+  gScreen = vWorld * ground.uMap.z;
+  let fs = fwidth(gScreen);
+  gScreenFp = max(fs.x, fs.y) * 1.5;
   let fw = fwidth(vGround) + vec2<f32>(fwidth(vWall.y) * 0.5);
   let fp = max(fw.x, fw.y);
   var col: vec3<f32>;
-  if (vWall.x < 0.5) { col = topColour(vGround, fp); }
+  // A top's second word is the light on its slope, 0 on the level.
+  if (vWall.x < 0.5) { col = topColour(vGround, fp) * (1.0 + vWall.y); }
   else { col = wallColour(vGround, vWall.x, vWall.y, fp); }
   return vec4<f32>(col, 1.0) * vTint;
 }
@@ -487,6 +537,7 @@ in vec2 aWall;
 out vec2 vGround;
 out vec2 vWall;
 out vec4 vTint;
+out vec2 vWorld;
 uniform mat3 uProjectionMatrix;
 uniform mat3 uWorldTransformMatrix;
 uniform vec4 uWorldColorAlpha;
@@ -497,6 +548,7 @@ void main() {
   mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
   gl_Position = vec4((mvp * vec3(aPosition, 1.0)).xy, 0.0, 1.0);
   vGround = aGround;
+  vWorld = aPosition;
   vWall = aWall;
   vTint = uColor * uWorldColorAlpha;
 }
@@ -508,6 +560,7 @@ precision highp int;
 in vec2 vGround;
 in vec2 vWall;
 in vec4 vTint;
+in vec2 vWorld;
 out vec4 finalColor;
 uniform vec4 uMap;
 uniform sampler2D uCells;
@@ -534,12 +587,16 @@ vec4 cellAt(ivec2 c) {
   if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) return vec4(0.0);
   return texelFetch(uCells, c, 0) * 255.0;
 }
+float riseOf(vec4 c) { return floor((c.z + 0.5) / 16.0); }
 
 const float BLADE_W = 0.02;
 const float BLADE_H = 0.036;
 const float BLADE_F = 26.0;
-vec3 blades(vec2 p, vec3 base, float tuft, float fp, float dens, vec3 under) {
-  vec2 g = vec2((p.x - p.y) / BLADE_W, (p.x + p.y) * 0.5 / BLADE_H);
+vec2 gScreen;
+float gScreenFp;
+vec3 blades(vec2 p, vec3 base, float tuft, float fp_, float dens, vec3 under) {
+  float fp = gScreenFp;
+  vec2 g = vec2(gScreen.x / BLADE_W, gScreen.y / BLADE_H);
   ivec2 gi = ivec2(floor(g));
   float aa = max(fp * 0.9 / BLADE_W, 0.04);
   vec3 col = mix(under, base * 0.8, smoothstep(0.55, 0.95, dens));
@@ -574,7 +631,7 @@ vec3 grassAt(vec2 p, float fp, float dens, vec3 under) {
   c *= 1.0 + (t - 0.6) * 0.12 * shows(9.0, fp);
   float speck = vnoise(p * 18.0 + 7.0);
   vec3 out_ = mix(under, c, smoothstep(0.35, 0.7, dens + (speck - 0.5) * 0.7 * shows(18.0, fp)));
-  float bf = shows(BLADE_F, fp);
+  float bf = shows(BLADE_F, gScreenFp);
   if (bf > 0.0) out_ = mix(out_, blades(p, c, t, fp, dens, under), bf);
   c = out_;
   vec2 g = p * 14.0; ivec2 gi = ivec2(floor(g));
@@ -631,7 +688,7 @@ vec3 topColour(vec2 p, float fp) {
       ivec2 n = cell + ivec2(dx, dy);
       vec4 c = cellAt(n);
       int k = int(c.x + 0.5);
-      if (k < 1 || k > 3 || abs(c.y - here.y) > 0.5) continue;
+      if (k < 1 || k > 3 || c.y > here.y + riseOf(here) + 0.5 || c.y + riseOf(c) < here.y - 0.5) continue;
       vec2 lo = vec2(n);
       float d = length(p - clamp(p, lo, lo + 1.0));
       float s = 1.0 - d / 0.42;
@@ -690,9 +747,12 @@ vec3 wallColour(vec2 p, float kind, float depth, float fp) {
 }
 
 void main() {
+  gScreen = vWorld * uMap.z;
+  vec2 fs = fwidth(gScreen);
+  gScreenFp = max(fs.x, fs.y) * 1.5;
   vec2 fw = fwidth(vGround) + vec2(fwidth(vWall.y) * 0.5);
   float fp = max(fw.x, fw.y);
-  vec3 col = vWall.x < 0.5 ? topColour(vGround, fp) : wallColour(vGround, vWall.x, vWall.y, fp);
+  vec3 col = vWall.x < 0.5 ? topColour(vGround, fp) * (1.0 + vWall.y) : wallColour(vGround, vWall.x, vWall.y, fp);
   finalColor = vec4(col, 1.0) * vTint;
 }
 `;

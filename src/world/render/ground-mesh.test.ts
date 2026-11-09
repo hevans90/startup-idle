@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { VOID, createGrid, fillTerrain, setHeight, setTerrain } from "../grid";
-import { GROUND, bandQuads, groundClassOf, groundDraws, wallFoot } from "./ground-mesh";
+import { RAMP, VOID, createGrid, fillTerrain, packRamp, setHeight, setRamp, setTerrain, type RampDir } from "../grid";
+import { GROUND, bandQuads, cornerZ, groundClassOf, groundDraws, slopeLight, wallFoot } from "./ground-mesh";
 
 const GRASS = 1, DIRT = 2, SAND = 3, WOODS = 4, OTHER = 5;
 const PALETTE = [
@@ -100,5 +100,50 @@ describe("bandQuads", () => {
     // Diamond round cell 0's centre at the origin: top, right, bottom, left.
     expect(xs).toEqual([0, 66, 0, -66]);
     expect(ys).toEqual([-33, 0, 33, 0]);
+  });
+});
+
+describe("ramps", () => {
+  test("a ramp's top tilts up toward its high edge", () => {
+    const grid = flat(3, 3);
+    // S: high toward +x, a full step (2 half steps).
+    setRamp(grid, 1, 1, RAMP.S);
+    expect(cornerZ(grid, 1, 1, 0, 0)).toBe(0);
+    expect(cornerZ(grid, 1, 1, 1, 0)).toBe(2);
+    expect(cornerZ(grid, 1, 1, 1, 1)).toBe(2);
+    setRamp(grid, 1, 1, packRamp(RAMP.E, 1) as RampDir);
+    expect(cornerZ(grid, 1, 1, 0, 0)).toBe(1);
+    expect(cornerZ(grid, 1, 1, 0, 1)).toBe(0);
+  });
+
+  test("a ramp is drawn by the mesh, its walls trapezoids down to the level ground in front", () => {
+    const grid = flat(3, 3);
+    setRamp(grid, 1, 1, RAMP.W); // high toward +y: its +y face is a full step, its +x face a wedge
+    expect(groundDraws(grid, PALETTE, 1, 1)).toBe(true);
+    const q = bandQuads(grid, PALETTE, 2);
+    expect(kinds(q)).toEqual([0, 2, 0, 1, 2, 0, 1]);
+    // (1, 1)'s +x face: depth 0 at its (x+1, y) end, 2 at its (x+1, y+1) end.
+    const face = 3 * 4 * 6;
+    expect(q.verts[face + 3 * 6 + 5]).toBe(0);
+    expect(q.verts[face + 2 * 6 + 5]).toBe(2);
+  });
+
+  test("a level cell's wall stops at the ramp in front where the ramp rises to meet it", () => {
+    const grid = flat(3, 3);
+    setHeight(grid, 1, 1, 2);
+    // In front along +x, a ramp rising toward −x (N) up to the cell's height: no wall at all.
+    setRamp(grid, 2, 1, RAMP.N);
+    expect(wallFoot(grid, 1, 1, 2, 1, 0, 0, 2)).toBe(2);
+    expect(wallFoot(grid, 1, 1, 2, 1, 0, 1, 2)).toBe(2);
+    expect(kinds(bandQuads(grid, PALETTE, 2))).toEqual([0, 2, 0, 2, 0, 1]);
+  });
+
+  test("slopes facing the light are brighter, the others darker, level ones neither", () => {
+    expect(slopeLight(RAMP.NONE)).toBe(0);
+    expect(slopeLight(RAMP.S)).toBeGreaterThan(0);
+    expect(slopeLight(RAMP.E)).toBeGreaterThan(0);
+    expect(slopeLight(RAMP.N)).toBeLessThan(0);
+    expect(slopeLight(RAMP.W)).toBeLessThan(0);
+    expect(Math.abs(slopeLight(packRamp(RAMP.S, 1)))).toBeLessThan(slopeLight(RAMP.S));
   });
 });

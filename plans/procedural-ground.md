@@ -1,6 +1,6 @@
 # Ground drawn in code: grass, dirt, sand, woods, slopes and cliffs
 
-Status: **phase 1 built** (2026-11-09), with borders, walls and the first detail layers: `render/ground-mesh.ts`, shaders inline. Ramps and woods are still sprites; `cliffs.ts` steps aside for cells the mesh draws.
+Status: **phases 1–4 built** (2026-11-09): `render/ground-mesh.ts`, shaders inline. Tops, borders (grass thins out onto dirt and sand), walls, ramps as tilted tops, and detail by zoom. Woods are still sprites; `cliffs.ts` steps aside for cells the mesh draws and goes at phase 7.
 
 ## Why
 
