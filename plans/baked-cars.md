@@ -1,6 +1,6 @@
 # Cars baked from models: a town's worth of variety
 
-Status: **phases 1–2 built** (2026-11-09): eleven car models plus roof variants (22 looks, 3 pages), picked by weight; a weighted real-world paint palette. Choice by place (vans by works, SUVs in rich districts) is deferred. Decided: colour by tint, a base sheet plus close pages, new kinds later, headlights left for later.
+Status: **phases 1–3 built** (2026-11-09): eleven car models plus roof variants, picked by weight; work vehicles (pickup, vans, flatbed, box lorry, tipper, the Machine's lorry) and liveries (taxi, police, ambulance, postal van, fire engine) — 34 looks in 2½ pages, each layer cropped tight; a weighted real-world paint palette. Choice by place (vans by works, SUVs in rich districts) is deferred. Decided: colour by tint, a base sheet plus close pages, new kinds later, headlights left for later.
 
 ## Why
 

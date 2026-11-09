@@ -293,9 +293,10 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         const key = `baked|${car.id}|${h}|${scale}`;
         if (d.key !== key) {
           d.key = key;
-          const a = car.anchor[h];
           d.parts[0].texture = car.paint[h]; d.parts[1].texture = car.trim[h];
-          for (const sp of d.parts) { sp.anchor.set(a.x, a.y); sp.scale.set(scale / sheet!.res); }
+          d.parts[0].anchor.set(car.paintAnchor[h].x, car.paintAnchor[h].y);
+          d.parts[1].anchor.set(car.trimAnchor[h].x, car.trimAnchor[h].y);
+          for (const sp of d.parts) sp.scale.set(scale / sheet!.res);
         }
         // Tilted on a ramp; set straight again off it.
         const tilt = pitchMatrix((h / sheet!.headings) * Math.PI * 2, m.pitch ?? 0);

@@ -10,8 +10,8 @@
 import { Assets, Matrix, Rectangle, Texture } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
-import { VAN_COLOUR, type Mover } from "../town";
-import { CAR_WEIGHTS, TILES_PER_M } from "./models";
+import { AI_TRUCK_COLOUR, VAN_COLOUR, type Mover } from "../town";
+import { CAR_WEIGHTS, LORRY_WEIGHTS, TILES_PER_M, VAN_WEIGHTS } from "./models";
 import { CAR_GAP, type CarSheet } from "./sheet-format";
 
 const BASE = "/isometric_assets/derived";
@@ -23,8 +23,9 @@ export type CarLook = {
   width: number;
   paint: Texture[];
   trim: Texture[];
-  /** Each heading's anchor: the vehicle's middle at the road, as a share of the frame. */
-  anchor: { x: number; y: number }[];
+  /** Each heading's anchor in each layer: the vehicle's middle at the road, as a share of the layer. */
+  paintAnchor: { x: number; y: number }[];
+  trimAnchor: { x: number; y: number }[];
 };
 export type CarSprites = { res: number; headings: number; looks: Map<string, CarLook> };
 
@@ -39,14 +40,16 @@ export async function loadCarSprites(): Promise<CarSprites> {
     Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } })));
   const looks = new Map<string, CarLook>();
   for (const [id, m] of Object.entries(sheet.models)) {
-    const paint: Texture[] = [], trim: Texture[] = [], anchor: { x: number; y: number }[] = [];
-    for (const [page, x, y, w, h, ox, oy] of m.frames) {
+    const paint: Texture[] = [], trim: Texture[] = [], paintAnchor: { x: number; y: number }[] = [], trimAnchor: typeof paintAnchor = [];
+    for (const [page, x, y, pw, ph, pox, poy, tw, th, tox, toy] of m.frames) {
       const source = pages[page].source;
-      paint.push(new Texture({ source, frame: new Rectangle(x, y, w, h) }));
-      trim.push(new Texture({ source, frame: new Rectangle(x + w + CAR_GAP, y, w, h) }));
-      anchor.push({ x: ox / w, y: oy / h });
+      // A livery has no paint: an empty texture, so the paint sprite draws nothing.
+      paint.push(pw ? new Texture({ source, frame: new Rectangle(x, y, pw, ph) }) : Texture.EMPTY);
+      trim.push(new Texture({ source, frame: new Rectangle(x + pw + CAR_GAP, y, tw, th) }));
+      paintAnchor.push(pw ? { x: pox / pw, y: poy / ph } : { x: 0, y: 0 });
+      trimAnchor.push({ x: tox / tw, y: toy / th });
     }
-    looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, paint, trim, anchor });
+    looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, paint, trim, paintAnchor, trimAnchor });
   }
   return { res: sheet.res, headings: sheet.headings, looks };
 }
@@ -55,13 +58,18 @@ export async function loadCarSprites(): Promise<CarSprites> {
 const ofId = <T>(id: number, salt: number, list: readonly T[]) =>
   list[Math.abs(Math.imul(id ^ salt, 0x9e3779b1) >>> 7) % list.length];
 
-/** Every car model, each as many times as its weight in halves: as common as on real roads. */
-const CAR_PICKS = Object.entries(CAR_WEIGHTS).flatMap(([id, w]) => Array<string>(Math.round(w * 2)).fill(id));
+/** Each model as many times as its weight in fifths: as common as on real roads. */
+const picks = (weights: Readonly<Record<string, number>>) =>
+  Object.entries(weights).flatMap(([id, w]) => Array<string>(Math.round(w * 5)).fill(id));
+const CAR_PICKS = picks(CAR_WEIGHTS), VAN_PICKS = picks(VAN_WEIGHTS), LORRY_PICKS = picks(LORRY_WEIGHTS);
 
 /** Which baked model a mover is drawn as, or null for one the sheet has no model of yet. */
 export function modelFor(m: Pick<Mover, "id" | "kind" | "colour">): string | null {
   if (m.kind === "car") return ofId(m.id, 0x51ed, CAR_PICKS);
-  if (m.kind === "truck" && m.colour === VAN_COLOUR) return "panelVan";
+  if (m.kind === "truck") {
+    if (m.colour === AI_TRUCK_COLOUR) return "machineLorry";
+    return ofId(m.id, 0x7a11, m.colour === VAN_COLOUR ? VAN_PICKS : LORRY_PICKS);
+  }
   return null;
 }
 

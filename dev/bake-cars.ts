@@ -16,7 +16,7 @@
  * its light, which the game tints; and the trim, in its own colours, drawn
  * over it. Both share a size and an origin: the vehicle's middle at the road.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { MODELS } from "../src/world/agents/cars/models.ts";
@@ -45,22 +45,43 @@ function place(w: number, h: number): { page: number; x: number; y: number } {
 function blit(dst: Image, src: Image, dx: number, dy: number) {
   for (let r = 0; r < src.h; r++) dst.px.set(src.px.subarray(r * src.w * 4, (r + 1) * src.w * 4), ((dy + r) * dst.w + dx) * 4);
 }
+/**
+ * A layer cut down to what it covers, and its origin moved to match: 40% of
+ * a frame is clear, the paint's more so. An empty layer is 0 × 0.
+ */
+function crop(img: Image, ox: number, oy: number): { img: Image; ox: number; oy: number } {
+  let x0 = img.w, y0 = img.h, x1 = -1, y1 = -1;
+  for (let y = 0; y < img.h; y++) for (let x = 0; x < img.w; x++) {
+    if (!img.px[(y * img.w + x) * 4 + 3]) continue;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  if (x1 < 0) return { img: { w: 0, h: 0, px: new Uint8Array(0) }, ox: 0, oy: 0 };
+  const w = x1 - x0 + 1, h = y1 - y0 + 1, px = new Uint8Array(w * h * 4);
+  for (let r = 0; r < h; r++) px.set(img.px.subarray(((y0 + r) * img.w + x0) * 4, ((y0 + r) * img.w + x1 + 1) * 4), r * w * 4);
+  return { img: { w, h, px }, ox: ox - x0, oy: oy - y0 };
+}
 
 const sheet: CarSheet = { res: CAR_RES, headings: CAR_HEADINGS, pages: [], models: {} };
 const t0 = performance.now();
-for (const m of MODELS) {
-  const frames: CarSheet["models"][string]["frames"] = [];
-  for (let h = 0; h < CAR_HEADINGS; h++) {
-    const b = bakeFrame(m, (h / CAR_HEADINGS) * Math.PI * 2, CAR_RES);
-    const at = place(b.paint.w * 2 + GAP, b.paint.h);
-    blit(pages[at.page], b.paint, at.x, at.y);
-    blit(pages[at.page], b.trim, at.x + b.paint.w + GAP, at.y);
-    frames.push([at.page, at.x, at.y, b.paint.w, b.paint.h, b.ox, b.oy]);
-  }
-  sheet.models[m.id] = { length: m.length, width: m.width, frames };
+// Baked first and packed tallest first, so a shelf wastes little over its frames.
+const baked = MODELS.flatMap((m) => Array.from({ length: CAR_HEADINGS }, (_, h) => {
+  const b = bakeFrame(m, (h / CAR_HEADINGS) * Math.PI * 2, CAR_RES);
+  return { m, h, paint: crop(b.paint, b.ox, b.oy), trim: crop(b.trim, b.ox, b.oy) };
+}));
+for (const m of MODELS) sheet.models[m.id] = { length: m.length, width: m.width, frames: [] };
+for (const { m, h, paint: p, trim: t } of baked.sort((a, b) => Math.max(b.paint.img.h, b.trim.img.h) - Math.max(a.paint.img.h, a.trim.img.h))) {
+  const at = place(p.img.w + GAP + t.img.w, Math.max(p.img.h, t.img.h));
+  blit(pages[at.page], p.img, at.x, at.y);
+  blit(pages[at.page], t.img, at.x + p.img.w + GAP, at.y);
+  sheet.models[m.id].frames[h] = [at.page, at.x, at.y, p.img.w, p.img.h, p.ox, p.oy, t.img.w, t.img.h, t.ox, t.oy];
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
+// Pages from a bake that needed more of them.
+for (const f of readdirSync(OUT_DIR)) if (/^cars_\d+\.png$/.test(f)) rmSync(join(OUT_DIR, f));
+// The last page only as tall as what is on it, rounded up for its mips.
+const last = pages[pages.length - 1], used = Math.ceil((y + shelf) / 64) * 64;
+if (used < PAGE) pages[pages.length - 1] = { w: PAGE, h: used, px: last.px.slice(0, PAGE * used * 4) };
 pages.forEach((p, k) => {
   const name = `cars_${k}.png`;
   writeFileSync(join(OUT_DIR, name), encodePng(p));

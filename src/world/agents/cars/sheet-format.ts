@@ -8,8 +8,16 @@ export const CAR_HEADINGS = 32;
 /** Texels to a world px at scale 1. */
 export const CAR_RES = 2;
 
-/** A frame: page, x, y, width, height of each layer (the trim sits right of the paint, `GAP` on), and the origin in it. */
-export type CarFrame = [page: number, x: number, y: number, w: number, h: number, ox: number, oy: number];
+/**
+ * A frame: its page and where it starts, then each layer cropped to what it
+ * covers — its width, height and the origin in it. The trim sits right of the
+ * paint, `GAP` on. A livery's paint is empty: 0 wide.
+ */
+export type CarFrame = [
+  page: number, x: number, y: number,
+  pw: number, ph: number, pox: number, poy: number,
+  tw: number, th: number, tox: number, toy: number,
+];
 
 export type CarSheet = {
   res: number;

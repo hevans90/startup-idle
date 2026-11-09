@@ -35,10 +35,13 @@ const COLOUR: Record<Mat, [number, number, number]> = {
   plate: [0.94, 0.94, 0.9], rearPlate: [0.98, 0.8, 0.16],
   livery: [0.98, 0.84, 0.1], liveryAlt: [0.12, 0.35, 0.75], light: [0.25, 0.45, 0.95], bed: [0.36, 0.37, 0.4],
   roofBlack: [0.1, 0.1, 0.11], roofWhite: [0.92, 0.92, 0.9], seat: [0.5, 0.36, 0.25], interior: [0.12, 0.11, 0.11],
+  liveryWhite: [0.93, 0.93, 0.92], liveryBlack: [0.09, 0.09, 0.1], liveryRed: [0.72, 0.08, 0.07], liveryGreen: [0.2, 0.62, 0.26],
+  load: [0.6, 0.45, 0.28], brick: [0.64, 0.32, 0.23], gravel: [0.56, 0.53, 0.49], aiLoad: [0.16, 0.15, 0.22],
+  sign: [0.98, 0.82, 0.22], violet: [0.66, 0.38, 1.0],
 };
 const PAINTED: ReadonlySet<Mat> = new Set(["paint"]);
 /** Lit from within: they barely take the light. */
-const GLOWS: ReadonlySet<Mat> = new Set(["lamp", "tail", "indicator", "light"]);
+const GLOWS: ReadonlySet<Mat> = new Set(["lamp", "tail", "indicator", "light", "sign", "violet"]);
 
 /** The light, in the ground's own frame (u, v, up), true lengths. */
 const LIGHT = (() => { const v = [-0.3, 0.6, 1.0]; const n = Math.hypot(...v); return v.map((c) => c / n); })();

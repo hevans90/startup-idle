@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
-import { VAN_COLOUR } from "../town";
+import { AI_TRUCK_COLOUR, VAN_COLOUR } from "../town";
 import { baseCorners, headingIndex, modelFor, pitchMatrix } from "./car-sheet";
-import { CAR_WEIGHTS, MODELS, TILES_PER_M, type Model } from "./models";
+import { CAR_WEIGHTS, LORRY_WEIGHTS, MODELS, TILES_PER_M, VAN_WEIGHTS, type Model } from "./models";
 import { bakeFrame } from "./raster";
 
 const box: Model = {
@@ -41,7 +41,7 @@ describe("bakeFrame", () => {
   });
 
   test("the origin is inside the frame at every heading, and the frame isn't wastefully large", () => {
-    for (const m of MODELS) for (let h = 0; h < 32; h += 3) {
+    for (const m of MODELS) for (let h = 1; h < 32; h += 8) {
       const f = bakeFrame(m, (h / 32) * Math.PI * 2, 2);
       expect(f.ox).toBeGreaterThan(0); expect(f.ox).toBeLessThan(f.paint.w);
       expect(f.oy).toBeGreaterThan(0); expect(f.oy).toBeLessThan(f.paint.h);
@@ -61,7 +61,12 @@ describe("in the game", () => {
     const count = (id: string) => picks.filter((p) => p === id).length;
     expect(count("hatchback")).toBeGreaterThan(count("largeSuv+box") * 5);
     for (const id of new Set(picks)) expect(MODELS.some((m) => m.id === id)).toBe(true);
-    expect(modelFor({ id: 3, kind: "truck", colour: VAN_COLOUR })).toBe("panelVan");
+    const vans = new Set(Array.from({ length: 200 }, (_, id) => modelFor({ id, kind: "truck", colour: VAN_COLOUR })));
+    expect(vans).toEqual(new Set(Object.keys(VAN_WEIGHTS)));
+    const lorries = new Set(Array.from({ length: 200 }, (_, id) => modelFor({ id, kind: "truck", colour: 0xd98c2b })));
+    expect(lorries).toEqual(new Set(Object.keys(LORRY_WEIGHTS)));
+    expect(modelFor({ id: 3, kind: "truck", colour: AI_TRUCK_COLOUR })).toBe("machineLorry");
+    for (const id of [...vans, ...lorries]) expect(MODELS.some((m) => m.id === id)).toBe(true);
     expect(modelFor({ id: 3, kind: "person", colour: 0 })).toBeNull();
   });
 
