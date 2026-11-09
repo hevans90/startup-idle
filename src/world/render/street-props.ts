@@ -3,7 +3,7 @@
  * its pavements (@see liveBeauty):
  *  1. trees, planters and bins;
  *  2. lamp posts, benches, brick along the kerb and crossings at its ends;
- *  3. café tables, bunting outside its shops, and murals on its houses.
+ *  3. café tables, bunting between some of its lamps, and murals on its houses.
  *
  * DRAWN AS THE CULTURE PROPS ARE: a Graphics a band among the movers of the
  * band, built only when the streets' levels or the map change — never a
@@ -28,11 +28,16 @@ export type StreetProp = {
   x: number; y: number;
   /** The street's level, 1–3: what it has grown into. */
   level?: number;
+  /** Bunting's piece of its span: how many tiles along from the lamp it is tied to. @see SPAN */
+  span?: number;
   /** The kerb: the side of the tile with no road beyond it. */
   side: "N" | "E" | "S" | "W";
 };
 /** A house's mural: on the face away from its street. */
 export type Mural = { id: number; x: number; y: number; face: "u" | "v" };
+
+/** Tiles from one lamp to the next along a kerb: the length of a run of bunting. */
+const SPAN = 4;
 
 const SIDES = { N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] } as const;
 
@@ -43,12 +48,6 @@ const SIDES = { N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] } as const;
  */
 export function streetPropsOf(g: Grid, streets: Streets, b: Beauty): { props: StreetProp[]; murals: Mural[] } {
   const props: StreetProp[] = [];
-  // The tiles a shop is in: on the finest streets, it strings bunting along the kerb outside.
-  const shopAt = new Set<number>();
-  for (const s of g.structures.values()) {
-    if (!s.shop || s.build) continue;
-    for (let dy = 0; dy < s.h; dy++) for (let dx = 0; dx < s.w; dx++) shopAt.add(idx(g, s.x + dx, s.y + dy));
-  }
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
       const i = idx(g, x, y), level = b.tile[i];
@@ -80,9 +79,18 @@ export function streetPropsOf(g: Grid, streets: Streets, b: Beauty): { props: St
         else if (level >= 2 && n % 8 === 3) at("bench");
         else if (n % 8 === 5) at("planter");
         else if (n % 8 === 7) at("bin");
-        if (level >= 3 && inBounds(g, x + dx, y + dy) && shopAt.has(idx(g, x + dx, y + dy))) at("bunting");
       }
     }
+  }
+  // BUNTING, LAMP TO LAMP: on the finest streets, from every other lamp on a
+  // kerb to the next one along it, where that one is there.
+  const lamps = new Set(props.filter((pr) => pr.kind === "lamp").map((pr) => `${pr.x},${pr.y},${pr.side}`));
+  for (const pr of props.filter((q) => q.kind === "lamp" && (q.level ?? 0) >= 3)) {
+    const n = pr.x + pr.y + (pr.side === "S" || pr.side === "E" ? 2 : 0);
+    if (n % 8 !== 0) continue;
+    const [ax, ay] = pr.side === "N" || pr.side === "S" ? [1, 0] : [0, 1];
+    if (!lamps.has(`${pr.x + ax * SPAN},${pr.y + ay * SPAN},${pr.side}`)) continue;
+    for (let t = 0; t <= SPAN; t++) props.push({ kind: "bunting", x: pr.x + ax * t, y: pr.y + ay * t, side: pr.side, level: pr.level, span: t });
   }
   // MURALS: on every other house of the finest streets with no shop, on the face away from its street.
   const murals: Mural[] = [];
@@ -147,16 +155,23 @@ function lampPost(p: Pen, u: number, v: number, side: StreetProp["side"], basket
   const column = () => {
     p.box(u - 0.04, v - 0.04, u + 0.04, v + 0.04, 0, 0.18, IRON, { top: tone(IRON, 1.3) });
     p.box(u - 0.022, v - 0.022, u + 0.022, v + 0.022, 0.18, 1.1, IRON);
-    p.box(u - 0.014, v - 0.014, u + 0.014, v + 0.014, 1.1, 2.25, IRON);
+    p.box(u - 0.014, v - 0.014, u + 0.014, v + 0.014, 1.1, 2.5, IRON);
     p.box(u - 0.03, v - 0.03, u + 0.03, v + 0.03, 1.08, 1.14, tone(IRON, 1.4));
+    p.dot(u, v, 2.53, 0.016, IRON);
   };
+  // THE LANTERN HANGS from the end of the arm on a short rod, the arm running
+  // over its cap: drawn before the arm, which is above it.
   const lantern = () => {
-    p.strut([u, v, 2.2], [lu, lv, 2.3], 0.012, IRON);
-    p.strut([u, v, 2.05], [u + du * 0.1, v + dv * 0.1, 2.24], 0.008, IRON);
-    // Glass lit warm, a cap and a finial.
-    p.box(lu - 0.035, lv - 0.035, lu + 0.035, lv + 0.035, 2.06, 2.24, LAMP_ON, { top: LAMP_ON });
-    p.box(lu - 0.045, lv - 0.045, lu + 0.045, lv + 0.045, 2.24, 2.29, IRON);
-    p.dot(lu, lv, 2.33, 0.012, IRON);
+    // Bottom up: its base, the glass lit warm, the cap over it, the rod.
+    p.box(lu - 0.028, lv - 0.028, lu + 0.028, lv + 0.028, 1.94, 1.98, IRON, { noTop: true });
+    p.box(lu - 0.036, lv - 0.036, lu + 0.036, lv + 0.036, 1.98, 2.22, LAMP_ON, { noTop: true });
+    p.box(lu - 0.046, lv - 0.046, lu + 0.046, lv + 0.046, 2.22, 2.27, IRON);
+    p.box(lu - 0.02, lv - 0.02, lu + 0.02, lv + 0.02, 2.27, 2.3, IRON);
+    p.box(lu - 0.004, lv - 0.004, lu + 0.004, lv + 0.004, 2.3, 2.44, IRON);
+  };
+  const arm = () => {
+    p.strut([u, v, 2.44], [lu, lv, 2.44], 0.012, IRON);
+    p.strut([u, v, 2.2], [u + du * 0.09, v + dv * 0.09, 2.44], 0.008, IRON);
   };
   // A basket hung off the column on its kerb side, flowers spilling: behind it where the arm is in front.
   const hang = () => {
@@ -168,7 +183,7 @@ function lampPost(p: Pen, u: number, v: number, side: StreetProp["side"], basket
   };
   // FARTHER FIRST: an arm reaching back over the road (from a front kerb) is
   // behind the column and its basket in front; from a back kerb the other way.
-  if (du + dv < 0) { lantern(); column(); hang(); } else { hang(); column(); lantern(); }
+  if (du + dv < 0) { lantern(); arm(); column(); hang(); } else { hang(); column(); lantern(); arm(); }
 }
 
 /** A painted pole in black and white bands, an amber globe on top: where to cross. */
@@ -285,19 +300,22 @@ const DRAW: Record<StreetProp["kind"], (p: Pen, pr: StreetProp) => void> = {
     p.dot(u, v, top + 0.02, 0.012, 0xd8dde3);
   },
   bunting: (p, pr) => {
-    // Pennants on a line along the kerb, dipping between the ends of the tile.
-    const n = 6, Z = 2.0, sag = 0.22;
-    const zAt = (a: number) => Z - Math.sin(Math.PI * a) * sag;
-    for (let k = 0; k < 8; k++) {
-      const a0 = k / 8, a1 = (k + 1) / 8;
-      const [u0, v0] = onKerb(pr.side, a0, IN), [u1, v1] = onKerb(pr.side, a1, IN);
-      p.strut([u0, v0, zAt(a0)], [u1, v1, zAt(a1)], 0.006, 0x3a3f45);
+    // This tile's piece of a run of pennants from one lamp's column to the
+    // next one's, sagging between: `g` is along the run, the lamps at its ends.
+    const t = pr.span ?? 0, Z = 2.0, sag = 0.3;
+    const zAt = (g: number) => Z - Math.sin((Math.PI * (g - 0.5)) / SPAN) * sag;
+    const a0 = t === 0 ? 0.5 : 0, a1 = t === SPAN ? 0.5 : 1;
+    const steps = Math.max(1, Math.round((a1 - a0) * 4));
+    for (let k = 0; k < steps; k++) {
+      const b0 = a0 + ((a1 - a0) * k) / steps, b1 = a0 + ((a1 - a0) * (k + 1)) / steps;
+      const [u0, v0] = onKerb(pr.side, b0, IN), [u1, v1] = onKerb(pr.side, b1, IN);
+      p.strut([u0, v0, zAt(t + b0)], [u1, v1, zAt(t + b1)], 0.006, 0x3a3f45);
     }
-    for (let k = 0; k < n; k++) {
-      const a0 = (k + 0.15) / n, a1 = (k + 0.85) / n, am = (a0 + a1) / 2;
-      const [u0, v0] = onKerb(pr.side, a0, IN), [u1, v1] = onKerb(pr.side, a1, IN), [um, vm] = onKerb(pr.side, am, IN);
-      const c = BUNTING[(pr.x + pr.y + k) % BUNTING.length];
-      p.poly([p.P(u0, v0, zAt(a0)), p.P(u1, v1, zAt(a1)), p.P(um, vm, zAt(am) - 0.17)], alongU(pr.side) ? c : tone(c, 0.82));
+    for (let a = a0 + 0.08; a < a1 - 0.08; a += 0.25) {
+      const c0 = a - 0.07, c1 = a + 0.07;
+      const [u0, v0] = onKerb(pr.side, c0, IN), [u1, v1] = onKerb(pr.side, c1, IN), [um, vm] = onKerb(pr.side, a, IN);
+      const c = BUNTING[Math.round((pr.x + pr.y) * 4 + a * 4) % BUNTING.length];
+      p.poly([p.P(u0, v0, zAt(t + c0)), p.P(u1, v1, zAt(t + c1)), p.P(um, vm, zAt(t + a) - 0.16)], alongU(pr.side) ? c : tone(c, 0.82));
     }
   },
 };

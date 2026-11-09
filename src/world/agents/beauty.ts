@@ -1,7 +1,7 @@
 /**
  * World v2 — HOW FINE EACH STREET IS: by the share of the homes on it with
  * every need of their kind met, three levels (`BEAUTY_AT`). A street rising a
- * level gets trees, then lamps and benches, then café tables, and bunting outside its shops
+ * level gets trees, then lamps and benches, then café tables, and bunting between some lamps
  * (@see street-props), and its houses get a little more to like.
  * @see BEAUTY_MOOD, plans/services-overhaul.md §4
  */
