@@ -71,6 +71,8 @@ export type Lane = {
   street?: number;
   slot?: number;
   lanes?: number;
+  /** A street lane's neighbours going the same way, a slot either side: where a car may change lane to. */
+  beside?: number[];
   /** A curve's junction, the arm it comes in from (an index into the junction's arms), the way it turns, and its tightest radius. */
   junction?: number;
   arm?: number;
@@ -89,7 +91,8 @@ export type Lane = {
 };
 
 /** Where two curves of a junction come within {@link LANE_CLEAR}: `sa` along `a`, `sb` along `b`. */
-export type Zone = { id: number; junction: number; a: number; sa: number; b: number; sb: number; merge: boolean };
+/** Two curves that come near: where along each they first do (`sa`, `sb`) and last do (`ea`, `eb`). */
+export type Zone = { id: number; junction: number; a: number; sa: number; ea: number; b: number; sb: number; eb: number; merge: boolean };
 
 export type JunctionKind = "end" | "bend" | "priority" | "signals" | "roundabout";
 
@@ -223,6 +226,7 @@ export function buildLaneGraph(g: Grid): LaneGraph {
     // A stub too short to turn in has no lanes.
     const room = endAt(1) - endAt(0) > 0.2;
     for (const sign of room ? [1, -1] : []) {
+      const way: Lane[] = [];
       for (let s = 0; s < lanesFor(k); s++) {
         const off = bSign * sign * laneOffset(k, s);
         const line: Pt[] = [P(endAt(0), mid[0] + off)];
@@ -239,6 +243,11 @@ export function buildLaneGraph(g: Grid): LaneGraph {
           ...(ends[finishEnd].kind === "rim" ? { sink: true } : {}),
         });
         st.lanes.push(l.id);
+        way.push(l);
+      }
+      for (let s = 1; s < way.length; s++) {
+        (way[s - 1].beside ??= []).push(way[s].id);
+        (way[s].beside ??= []).push(way[s - 1].id);
       }
     }
     // Its ends as arms of their junctions.
@@ -609,16 +618,17 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
  * it, so neither is a conflict; every other pair that comes that near is.
  */
 function findZones(junction: number, inner: readonly Lane[], zones: Zone[]) {
+  const near = (a: Lane, b: Lane, s: number): boolean => {
+    const { p, h } = pointAt(a.pts, a.at, s);
+    const d = distToLine(p, b.pts);
+    return d < LANE_CLEAR || (d < LANE_SWEEP && Math.abs(cross(h, nearestPoint(p, b).h)) > 0.5);
+  };
   const first = (a: Lane, b: Lane): number => {
-    for (let s = 0; s <= a.len; s += 0.04) {
-      const { p, h } = pointAt(a.pts, a.at, s);
-      const d = distToLine(p, b.pts);
-      if (d < LANE_CLEAR) return s;
-      if (d < LANE_SWEEP) {
-        const nb = nearestPoint(p, b);
-        if (Math.abs(cross(h, nb.h)) > 0.5) return s;
-      }
-    }
+    for (let s = 0; s <= a.len; s += 0.04) if (near(a, b, s)) return s;
+    return -1;
+  };
+  const last = (a: Lane, b: Lane): number => {
+    for (let s = a.len; s >= 0; s -= 0.04) if (near(a, b, s)) return s;
     return -1;
   };
   const box = (l: Lane) => l.pts.reduce((b, p) => [Math.min(b[0], p.x), Math.min(b[1], p.y), Math.max(b[2], p.x), Math.max(b[3], p.y)], [Infinity, Infinity, -Infinity, -Infinity]);
@@ -632,7 +642,7 @@ function findZones(junction: number, inner: readonly Lane[], zones: Zone[]) {
     const sa = first(a, b), sb = first(b, a);
     if (sa < 0 || sb < 0) continue;
     const merge = same(a.pts[a.pts.length - 1], b.pts[b.pts.length - 1]) || a.next.some((x) => b.next.includes(x));
-    zones.push({ id: zones.length, junction, a: a.id, sa, b: b.id, sb, merge });
+    zones.push({ id: zones.length, junction, a: a.id, sa, ea: last(a, b), b: b.id, sb, eb: last(b, a), merge });
   }
 }
 

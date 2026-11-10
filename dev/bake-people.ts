@@ -12,9 +12,9 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { bakeTris } from "../src/world/agents/cars/raster.ts";
-import { FIGURES, figureTris, layerOfMat, PERSON_LAYERS } from "../src/world/agents/people/figures.ts";
+import { FIGURES, figureTris, layerOfMat, PERSON_LAYERS, RIDERS } from "../src/world/agents/people/figures.ts";
 import {
-  PERSON_GAP, PERSON_HEADINGS, PERSON_RES, PERSON_SHADOW, PERSON_STRIDES, SITTER_SHADOW, type PeopleSheet, type PersonFrame,
+  PERSON_GAP, PERSON_HEADINGS, PERSON_RES, PERSON_SHADOW, PERSON_STRIDES, RIDER_SHADOW, SITTER_SHADOW, type PeopleSheet, type PersonFrame,
 } from "../src/world/agents/people/people-format.ts";
 import { encodePng, type Image } from "./png-min.ts";
 
@@ -46,7 +46,8 @@ function crop(img: Image, ox: number, oy: number): { img: Image; ox: number; oy:
   return { img: { w, h, px }, ox: ox - x0, oy: oy - y0 };
 }
 
-type Baked = { id: string; set: "walk" | "work" | "sit"; k: number; layers: ReturnType<typeof crop>[] };
+type Baked = { id: string; set: "walk" | "work" | "sit" | "ride"; k: number; layers: ReturnType<typeof crop>[] };
+const rides = (id: string) => (RIDERS as readonly string[]).includes(id);
 const t0 = performance.now();
 const baked: Baked[] = [];
 for (const f of FIGURES) for (const set of f.hivis ? (["walk", "work"] as const) : (["walk"] as const)) {
@@ -58,6 +59,14 @@ for (const f of FIGURES) for (const set of f.hivis ? (["walk", "work"] as const)
       { layers: PERSON_LAYERS.length, layerOf: layerOfMat, shadow: PERSON_SHADOW });
     baked.push({ id: f.id, set, k: h * PERSON_STRIDES + s, layers: b.layers.map((img) => crop(img, b.ox, b.oy)) });
   }
+  // ON A BIKE, those who ride: a turn of the pedals at every heading.
+  if (set === "walk" && rides(f.id)) {
+    for (let h = 0; h < PERSON_HEADINGS; h++) for (let s = 0; s < PERSON_STRIDES; s++) {
+      const heading = (h / PERSON_HEADINGS) * Math.PI * 2, phase = (s / PERSON_STRIDES) * Math.PI * 2;
+      const b = bakeTris(figureTris(f, phase, "ride", 1), heading, PERSON_RES, { layers: PERSON_LAYERS.length, layerOf: layerOfMat, shadow: RIDER_SHADOW });
+      baked.push({ id: f.id, set: "ride", k: h * PERSON_STRIDES + s, layers: b.layers.map((img) => crop(img, b.ox, b.oy)) });
+    }
+  }
   // SAT DOWN: a frame a heading, still.
   for (let h = 0; h < PERSON_HEADINGS; h++) {
     const heading = (h / PERSON_HEADINGS) * Math.PI * 2;
@@ -68,7 +77,7 @@ for (const f of FIGURES) for (const set of f.hivis ? (["walk", "work"] as const)
 const sheet: PeopleSheet = {
   res: PERSON_RES, headings: PERSON_HEADINGS, strides: PERSON_STRIDES, layers: PERSON_LAYERS.length, pages: [], figures: {},
 };
-for (const f of FIGURES) sheet.figures[f.id] = { walk: [], sit: [], ...(f.hivis ? { work: [] } : {}) };
+for (const f of FIGURES) sheet.figures[f.id] = { walk: [], sit: [], ...(f.hivis ? { work: [] } : {}), ...(rides(f.id) ? { ride: [] } : {}) };
 const tall = (b: Baked) => Math.max(...b.layers.map((l) => l.img.h));
 for (const b of baked.sort((p, q) => tall(q) - tall(p))) {
   const w = b.layers.reduce((s, l) => s + l.img.w, 0) + GAP * (b.layers.length - 1);

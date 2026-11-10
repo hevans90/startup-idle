@@ -5,6 +5,7 @@
  * from a crowd. @see figures.ts, town-render
  */
 import type { Mover } from "../town";
+import { RIDERS } from "./people-format";
 
 /** Walkers' figures, and how often each is seen. */
 export const FIGURE_WEIGHTS: Readonly<Record<string, number>> = {
@@ -18,6 +19,9 @@ export function figureFor(m: Pick<Mover, "id" | "job">): string {
   if (m.job && m.job.role !== "moving-in") return "builder";
   return ofId(m.id, 0x9e0, PICKS);
 }
+
+/** Which figure rides a bike: one of those dressed for it. @see RIDERS */
+export const riderFor = (m: Pick<Mover, "id">): string => ofId(m.id, 0xb1c, RIDERS);
 
 /** How tall, as a share of the figure: people differ by a tenth or so either way. */
 export const heightOf = (id: number) => 0.92 + 0.14 * ((Math.imul(id ^ 0x5eed, 0x2c1b3c6d) >>> 8) % 1000) / 1000;

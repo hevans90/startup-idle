@@ -21,7 +21,13 @@ import { Container, Graphics, Matrix, Rectangle, RenderTexture, Sprite, Texture,
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
 import { baseCorners, bakedCars, headingIndex, loadCarSprites, modelFor, pitchMatrix, type CarSprites } from "./cars/car-sheet";
-import { figureFor, heightOf } from "./people/cast";
+import { beaconsOf, HALF_STEPS_PER_M, TILES_PER_M } from "./cars/models";
+import { flashing } from "./emergency";
+import { BIKE_LENGTH, BIKE_WIDTH } from "./people/people-format";
+
+/** A bike's footprint, tiles: what decides its band. */
+const BIKE_BASE = { length: BIKE_LENGTH * TILES_PER_M, width: BIKE_WIDTH * TILES_PER_M };
+import { figureFor, heightOf, riderFor } from "./people/cast";
 import { bakedPeople, peopleSprites, posePerson, type PeopleSprites } from "./people/people-sheet";
 import { AI_TRUCK_COLOUR, atWork, HALF_STEP_IN_TILES, LEG, SWING, type Mover, type Town } from "./town";
 
@@ -217,7 +223,11 @@ function createAtlas(renderer: Renderer) {
 const PERSON_BASE = [{ u: 0.02, v: 0.02 }, { u: -0.02, v: 0.02 }, { u: 0.02, v: -0.02 }, { u: -0.02, v: -0.02 }];
 
 /** One mover on the map: a container of its sprites — one for a vehicle, a part each for a person. */
-type Shown = { c: Container; parts: Sprite[]; band: number; key: string; baked: boolean; tilted: boolean };
+type Shown = { c: Container; parts: Sprite[]; band: number; key: string; baked: boolean; tilted: boolean; flash?: Sprite[] };
+
+/** Blue lights: their colour, and flashes a second, each end of the bar in turn. */
+const BLUE = 0x4a8dff;
+const FLASHES = 2.5;
 
 export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer {
   const drawn = new Map<number, Shown>();
@@ -269,6 +279,17 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
     return look;
   };
 
+  // A SOFT DOT for a blue light, made once.
+  let glow: Texture | null = null;
+  const glowTex = () => {
+    if (glow) return glow;
+    const gr = new Graphics();
+    for (const [r, a] of [[8, 0.12], [5, 0.3], [3, 0.7], [1.6, 1]] as const) gr.circle(0, 0, r).fill({ color: 0xffffff, alpha: a });
+    glow = renderer.generateTexture({ target: gr, resolution: 2 });
+    gr.destroy();
+    return glow;
+  };
+
   const draw = (town: Town, scale: number) => {
     // A new scale is every look baked again.
     if (scale !== atScale) {
@@ -284,22 +305,33 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       live.add(m.id);
       const model = sheet && m.kind !== "person" ? modelFor(m) : null;
       const car = model ? sheet!.looks.get(model) ?? null : null;
-      const figId = people && m.kind === "person" ? figureFor(m) : null;
+      // A CYCLIST is a rider from the people sheet, on the bike baked under them.
+      const bike = m.kind === "bike";
+      const figId = people && m.kind === "person" ? figureFor(m) : people && bike ? riderFor(m) : null;
       const fig = figId ? people!.figures.get(figId) ?? null : null;
       let d = drawn.get(m.id);
       if (!d) {
         const c = new Container();
         c.eventMode = "none";
-        const n = m.kind === "person" ? (fig ? 5 : PERSON_PARTS.length) : car ? 2 : 1;
+        const n = m.kind === "person" ? (fig ? 5 : PERSON_PARTS.length) : fig ? 5 : car ? 2 : 1;
         const parts = Array.from({ length: n }, () => { const sp = new Sprite(); sp.scale.set(1 / BAKE); c.addChild(sp); return sp; });
         // A person's parts tinted their own colours, once: they never change.
-        if (m.kind === "person") {
+        if (m.kind === "person" || fig) {
           const o = outfitOf(m);
           // Baked: skin, bottoms, top, hair and the rest; drawn: trousers, shirt, skin, hair.
           (fig ? [o.skin, o.legs, m.colour, o.hair, 0xffffff] : [o.legs, m.colour, o.skin, o.hair]).forEach((t, k) => { parts[k].tint = t; });
         }
         d = { c, parts, band: -1, key: "", baked: !!car || !!fig, tilted: false };
         if (car) parts[0].tint = m.colour;
+        // BLUE LIGHTS on the roof of an emergency vehicle, over everything of it.
+        if (car && m.siren) {
+          d.flash = [0, 1].map(() => {
+            const sp = new Sprite(glowTex());
+            sp.anchor.set(0.5); sp.tint = BLUE; sp.blendMode = "add"; sp.alpha = 0;
+            c.addChild(sp);
+            return sp;
+          });
+        }
         drawn.set(m.id, d);
       }
       let front: readonly { u: number; v: number }[];
@@ -323,11 +355,25 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
           d.c.position.set(x, y);
         }
         front = baseCorners(car, (h / sheet!.headings) * Math.PI * 2);
+        if (d.flash) {
+          const b = beaconsOf(car.id), on = flashing(m);
+          const tick = Math.floor(town.t * FLASHES * 2 + m.id) % 2;
+          d.flash.forEach((sp, k) => {
+            sp.alpha = on && b && tick === k ? 1 : 0;
+            if (!b || !on) return;
+            // The bar's end, on the roof, turned with the vehicle.
+            const hh = (h / sheet!.headings) * Math.PI * 2, ch = Math.cos(hh), sh = Math.sin(hh);
+            const y = (k ? 1 : -1) * b.w * 0.8;
+            const u = (b.l * ch - y * sh) * TILES_PER_M, v = (b.l * sh + y * ch) * TILES_PER_M;
+            sp.position.set((u - v) * HW * scale, (u + v) * HH * scale - b.z * HALF_STEPS_PER_M * HEIGHT_UNIT * scale);
+            sp.scale.set(scale * 0.5);
+          });
+        }
       } else if (fig && d.baked) {
         // FROM THE PEOPLE SHEET: the frame for their heading and step, or their hammer's swing.
-        d.key = posePerson(d.parts, people!, figId!, m.sit ? "sit" : atWork(m) ? "work" : "walk", m.heading, m.phase, scale, heightOf(m.id), d.key);
+        d.key = posePerson(d.parts, people!, figId!, bike ? "ride" : m.sit ? "sit" : atWork(m) ? "work" : "walk", m.heading, m.phase, scale, heightOf(m.id), d.key);
         d.c.position.set(x, y);
-        front = PERSON_BASE;
+        front = bike ? baseCorners(BIKE_BASE, m.heading) : PERSON_BASE;
       } else {
       const { key } = lookOf(m);
       const look = looks.get(key) ?? bake(m, scale);
@@ -365,6 +411,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       drawn.clear();
       looks.clear();
       atlas.destroy();
+      glow?.destroy(true);
     },
   };
 }

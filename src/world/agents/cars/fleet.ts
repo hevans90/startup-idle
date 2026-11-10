@@ -7,6 +7,7 @@
  * roads — so it is the same vehicle for as long as it drives.
  */
 import type { Mover } from "../town";
+import { BIKE_LENGTH } from "../people/people-format";
 import { BUS_WEIGHTS, CAR_WEIGHTS, LORRY_WEIGHTS, MINIBUS_WEIGHTS, modelById, TILES_PER_M, VAN_WEIGHTS } from "./models";
 
 /** The Machine's lorries: white, cabless, a violet light bar. @see Autonomous Freight */
@@ -27,8 +28,12 @@ const picks = (weights: Readonly<Record<string, number>>) =>
 const CAR_PICKS = picks(CAR_WEIGHTS), VAN_PICKS = picks(VAN_WEIGHTS), LORRY_PICKS = picks(LORRY_WEIGHTS);
 const BUS_PICKS = picks(BUS_WEIGHTS), MINIBUS_PICKS = picks(MINIBUS_WEIGHTS);
 
+/** The emergency services' vehicles. @see agents/emergency */
+const SIREN_MODEL = { police: "police", ambulance: "ambulance", fire: "fireEngine" } as const;
+
 /** Which model a mover is, or null for one on foot. */
-export function modelFor(m: Pick<Mover, "id" | "kind" | "colour">): string | null {
+export function modelFor(m: Pick<Mover, "id" | "kind" | "colour" | "siren">): string | null {
+  if (m.siren) return SIREN_MODEL[m.siren];
   if (m.kind === "car") return ofId(m.id, 0x51ed, CAR_PICKS);
   if (m.kind === "limo") return "limo";
   if (m.kind === "bus") return ofId(m.id, 0xb05, m.colour === SHUTTLE_COLOUR ? BUS_PICKS : MINIBUS_PICKS);
@@ -40,7 +45,8 @@ export function modelFor(m: Pick<Mover, "id" | "kind" | "colour">): string | nul
 }
 
 /** Half a mover's length, tiles: nose or tail from its middle. 0 for one on foot. */
-export function halfLength(m: Pick<Mover, "id" | "kind" | "colour">): number {
+export function halfLength(m: Pick<Mover, "id" | "kind" | "colour" | "siren">): number {
+  if (m.kind === "bike") return (BIKE_LENGTH * TILES_PER_M) / 2;
   const id = modelFor(m);
   const model = id ? modelById.get(id) : undefined;
   return model ? (model.length * TILES_PER_M) / 2 : 0;

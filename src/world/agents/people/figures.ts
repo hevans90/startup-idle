@@ -144,7 +144,101 @@ export function loft(rings: { z: number; l: number; rl: number; rw: number }[], 
 
 // ─── THE POSE ────────────────────────────────────────────────────────────────
 
-export type Pose = "walk" | "work" | "sit";
+export type Pose = "walk" | "work" | "sit" | "ride";
+
+/**
+ * A BICYCLE, metres, in the rider's own frame — the saddle over the origin:
+ * the crank's axle, the wheels' axles and radius, the bars, and how far it
+ * goes a turn of the pedals. The whole is moved back after so the bike's
+ * middle, between its wheels, is the mover's point. @see bikeTris
+ */
+export const BIKE = {
+  crank: [0.24, 0, 0.29] as V3, crankLen: 0.17,
+  front: 0.72, rear: -0.3, wheelZ: 0.34, wheelR: 0.34,
+  bars: [0.56, 0, 1.06] as V3, barW: 0.26,
+  /** Where each hand holds on: the middle of its grip, `y` out to the left (and mirrored). */
+  grip: [0.47, 0.235, 1.07] as V3,
+  hip: 0.95,
+};
+export { RIDERS } from "./people-format";
+
+/**
+ * The middle joint of a two-bone limb from `a` to `b`, bones `l1` and `l2`,
+ * bent toward `hint`: a knee forward, an elbow down and out.
+ */
+function jointOf(a: V3, b: V3, l1: number, l2: number, hint: V3): V3 {
+  const ab = sub(b, a), d = Math.min(Math.hypot(...ab), l1 + l2 - 1e-4), dir = norm(ab);
+  const along = (l1 * l1 - l2 * l2 + d * d) / (2 * d), up = Math.sqrt(Math.max(0, l1 * l1 - along * along));
+  const k = hint[0] * dir[0] + hint[1] * dir[1] + hint[2] * dir[2];
+  const perp = norm(sub(hint, mul(dir, k)));
+  return add(add(a, mul(dir, along)), mul(perp, up));
+}
+
+/** The bike, its pedals turned to `phase` (2π a turn), in the rider's frame. */
+export function bikeTris(phase: number): Tri[] {
+  const out: Tri[] = [];
+  const { crank: C, front: F, rear: R, wheelZ: wz, wheelR: wr, bars } = BIKE;
+  const rearAx: V3 = [R, 0, wz], frontAx: V3 = [F, 0, wz];
+  const seatTop: V3 = [-0.05, 0, 0.84], headTop: V3 = [0.5, 0, 0.86], headFoot: V3 = [0.54, 0, 0.66];
+  // THE WHEELS: a tyre round a rim, and spokes.
+  for (const ax of [rearAx, frontAx]) {
+    const N = 18;
+    for (let k = 0; k < N; k++) {
+      const a0 = (k / N) * Math.PI * 2, a1 = ((k + 1) / N) * Math.PI * 2;
+      const p = (a: number, r: number): V3 => [ax[0] + Math.cos(a) * r, 0, ax[2] + Math.sin(a) * r];
+      limb(p(a0, wr - 0.02), p(a1, wr - 0.02), 0.022, 0.022, "tyre", out, 6, false);
+      limb(p(a0, wr - 0.05), p(a1, wr - 0.05), 0.01, 0.01, "rim", out, 4, false);
+    }
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      limb(ax, [ax[0] + Math.cos(a) * (wr - 0.05), 0, ax[2] + Math.sin(a) * (wr - 0.05)], 0.004, 0.004, "spoke", out, 3, false);
+    }
+    ball(ax, [0.025, 0.04, 0.025], "hub", out, undefined, 6, 4);
+  }
+  // THE FRAME: a diamond of tubes, the forks, the stem and bars, the saddle.
+  const tube = (a: V3, b: V3, r = 0.02) => limb(a, b, r, r, "iron", out, 6, true);
+  tube(C, seatTop); tube(seatTop, headTop); tube(C, headFoot, 0.024);
+  tube(C, rearAx, 0.013); tube(seatTop, rearAx, 0.012); tube(headTop, headFoot, 0.024);
+  for (const side of [1, -1]) limb(headFoot, [F, side * 0.04, wz], 0.014, 0.012, "iron", out, 6, false);
+  // THE STEM up out of the head tube and forward, a clamp at its end.
+  const stemFoot: V3 = [headTop[0] - 0.01, 0, headTop[2] + 0.08];
+  limb(headTop, stemFoot, 0.019, 0.017, "iron", out, 8, false);
+  limb(stemFoot, bars, 0.016, 0.016, "chrome", out, 8, false);
+  ball(bars, [0.028, 0.035, 0.028], "chrome", out, undefined, 8, 5);
+  // THE BARS, swept back toward the rider either side: out from the clamp,
+  // round and back, to a black rubber grip — a brake lever in front of it.
+  const G = BIKE.grip;
+  for (const side of [1, -1]) {
+    const pts: V3[] = [
+      [bars[0], 0, bars[2]],
+      [bars[0], side * 0.1, bars[2] + 0.005],
+      [bars[0] - 0.025, side * 0.16, bars[2] + 0.01],
+      [G[0] + 0.03, side * (G[1] - 0.045), G[2]],
+    ];
+    for (let k = 1; k < pts.length; k++) limb(pts[k - 1], pts[k], 0.012, 0.012, "iron", out, 6, true);
+    const g0: V3 = [G[0] + 0.03, side * (G[1] - 0.045), G[2]], g1: V3 = [G[0] - 0.02, side * (G[1] + 0.05), G[2] - 0.005];
+    limb(g0, g1, 0.018, 0.018, "tyre", out, 8, false);
+    ball(g1, [0.019, 0.019, 0.019], "tyre", out, undefined, 6, 4);
+    // The lever: from the bar, forward and down along the grip.
+    const lv0: V3 = [G[0] + 0.035, side * (G[1] - 0.04), G[2] + 0.005];
+    limb(lv0, [G[0] + 0.075, side * (G[1] + 0.03), G[2] - 0.03], 0.006, 0.005, "chrome", out, 4, false);
+  }
+  // A bell by the left grip, and a lamp on the front.
+  ball([bars[0] - 0.01, 0.13, bars[2] + 0.03], [0.022, 0.022, 0.014], "chrome", out, undefined, 8, 4);
+  ball([headTop[0] + 0.05, 0, headTop[2] - 0.02], [0.03, 0.035, 0.03], "iron", out, undefined, 8, 5);
+  ball([headTop[0] + 0.075, 0, headTop[2] - 0.02], [0.012, 0.025, 0.022], "lamp", out, undefined, 6, 4);
+  limb(seatTop, [-0.06, 0, 0.9], 0.012, 0.012, "chrome", out, 5, false);
+  ball([-0.04, 0, 0.92], [0.12, 0.06, 0.03], "seat", out, undefined, 10, 5);
+  // THE CRANKS, either side, opposite each other, and their pedals.
+  for (const side of [1, -1]) {
+    const a = phase + (side > 0 ? 0 : Math.PI);
+    const ped: V3 = [C[0] + Math.sin(a) * BIKE.crankLen, side * 0.1, C[2] - Math.cos(a) * BIKE.crankLen];
+    limb([C[0], side * 0.06, C[2]], ped, 0.012, 0.012, "chrome", out, 5, false);
+    ball(ped, [0.05, 0.04, 0.012], "tyre", out, undefined, 6, 3);
+  }
+  ball(C, [0.06, 0.03, 0.06], "chrome", out, undefined, 8, 4);
+  return out;
+}
 
 /** How high a sitter's hips are, metres: on a seat 0.45 m up. @see props SEAT_Z */
 export const SIT_HIP = 0.56;
@@ -156,7 +250,7 @@ export const SIT_HIP = 0.56;
  * forward, hands in their lap.
  */
 export function figureTris(f: Figure, phase: number, pose: Pose, near: number): Tri[] {
-  const work = pose === "work", sit = pose === "sit";
+  const work = pose === "work", sit = pose === "sit", ride = pose === "ride";
   const out: Tri[] = [];
   const b = f.build, fem = !!f.fem;
   const hipW = (fem ? 0.08 : 0.088) * b, shW = (fem ? 0.162 : 0.185) * b;
@@ -166,6 +260,13 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
   // THE LEGS: the thigh swings through the stride, the knee bends as it comes through.
   type Leg = { hip: V3; knee: V3; ankle: V3; foot: number };
   const leg = (side: number): Leg => {
+    if (ride) {
+      // ON THE PEDALS: the ankle over its pedal, the knee forward, the hips on the saddle.
+      const a = phase + (side > 0 ? 0 : Math.PI), lift = HIP_Z - BIKE.hip;
+      const ankle: V3 = [BIKE.crank[0] + Math.sin(a) * BIKE.crankLen - 0.03, side * (hipW + 0.02), BIKE.crank[2] - Math.cos(a) * BIKE.crankLen + 0.07 + lift];
+      const hip: V3 = [0, side * hipW, HIP_Z];
+      return { hip, knee: jointOf(hip, ankle, THIGH, SHIN, [1, 0, 0.4]), ankle, foot: 0 };
+    }
     if (sit) {
       // Thighs along the seat, shins down to the ground: lifted by how far the hips are dropped.
       const lift = HIP_Z - SIT_HIP;
@@ -188,7 +289,7 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
   };
   const L = leg(1), R = leg(-1);
   // Whole body down so the lower foot is on the ground: the walk's bob.
-  const drop = sit ? HIP_Z - SIT_HIP : Math.min(L.ankle[2], R.ankle[2]) - ANKLE_Z;
+  const drop = ride ? HIP_Z - BIKE.hip : sit ? HIP_Z - SIT_HIP : Math.min(L.ankle[2], R.ankle[2]) - ANKLE_Z;
   const at = (p: V3): V3 => [p[0], p[1], p[2] - drop];
 
   for (const g of [L, R]) {
@@ -222,7 +323,7 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
   }
 
   // THE BODY, hips to shoulders, leaning into the walk; its lower part is the bottoms.
-  const lean = sit ? -0.03 : work ? 0.01 : 0.025;
+  const lean = ride ? 0.2 : sit ? -0.03 : work ? 0.01 : 0.025;
   const waist = 1.0 - drop;
   const top: Mat = "top";
   const vest = (p: V3): Mat => {
@@ -280,8 +381,13 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
     else if (work) { up = side === near ? 1.2 + 0.9 * Math.sin(phase) : 0.45; fore = up + 0.6; }
     else { const th = Math.asin((g.knee[0] - g.hip[0]) / THIGH); up = -0.8 * th; fore = up + 0.35; }
     const out1 = side * 0.06;
-    const elbow = add(shoulder, [Math.sin(up) * UPPER_ARM, out1 * 0.5, -Math.cos(up) * UPPER_ARM]);
-    const wrist = add(elbow, [Math.sin(fore) * FOREARM, out1 * 0.3, -Math.cos(fore) * FOREARM]);
+    let elbow = add(shoulder, [Math.sin(up) * UPPER_ARM, out1 * 0.5, -Math.cos(up) * UPPER_ARM]);
+    let wrist = add(elbow, [Math.sin(fore) * FOREARM, out1 * 0.3, -Math.cos(fore) * FOREARM]);
+    if (ride) {
+      // HANDS ON THE BARS, the elbows a little bent, down and out.
+      wrist = [BIKE.grip[0] - 0.045, side * BIKE.grip[1], BIKE.grip[2] + 0.025];
+      elbow = jointOf(shoulder, wrist, UPPER_ARM, FOREARM, [-0.3, side * 0.6, -1]);
+    }
     if (f.sleeves === "long") {
       limb(shoulder, elbow, 0.052 * lr, 0.045 * lr, top, out);
       limb(elbow, wrist, 0.045 * lr, 0.036 * lr, top, out);
@@ -296,7 +402,8 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
   }
 
   // THE HEAD on its neck, a nose to say which way it faces, and the hair.
-  const head = at(HEAD), hl = head[0], hz = head[2];
+  // On a bike, carried forward over the leaning shoulders and a little down, looking up the road.
+  const head = ride ? add(at(HEAD), [lean + 0.04, 0, -0.04]) : at(HEAD), hl = head[0], hz = head[2];
   limb([lean, 0, 1.47 - drop], [hl, 0, hz - 0.08], 0.05, 0.045, "skin", out, 8, false);
   const hairline = (p: V3) => {
     const dl = (p[0] - hl) / 0.1, dz = p[2] - hz;
@@ -309,7 +416,7 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
   if (f.hair === "long") ball([hl - 0.05, 0, hz - 0.1], [0.07, 0.095, 0.16], "hair", out);
   if (f.hair === "bun") ball([hl - 0.085, 0, hz + 0.06], [0.05, 0.05, 0.05], "hair", out, undefined, 8, 6);
   if (f.hair === "ponytail") {
-    const swing = work || sit ? 0 : 0.03 * Math.sin(phase * 2);
+    const swing = work || sit || ride ? 0 : 0.03 * Math.sin(phase * 2);
     limb([hl - 0.09, 0, hz + 0.03], [hl - 0.16, swing, hz - 0.16], 0.035, 0.022, "hair", out, 6);
   }
   if (f.hair === "curly") ball([hl - 0.025, 0, hz + 0.035], [0.105, 0.105, 0.105], "hair", out, (p) => (p[0] > hl + 0.05 && p[2] < hz + 0.04 ? "skin" : "hair"));
@@ -329,6 +436,16 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
     t.p = t.p.map((q) => mul(q, FEM_HEIGHT)) as Tri["p"];
     const paint = t.paint;
     if (paint) t.paint = (q) => paint(mul(q, 1 / FEM_HEIGHT));
+  }
+  if (ride) {
+    // ON HER BIKE, or his: the bike under them, and the two moved back so the bike's middle is the point.
+    out.push(...bikeTris(phase));
+    const back = -(BIKE.front + BIKE.rear) / 2;
+    for (const t of out) {
+      t.p = t.p.map((q) => [q[0] + back, q[1], q[2]]) as Tri["p"];
+      const paint = t.paint;
+      if (paint) t.paint = (q) => paint([q[0] - back, q[1], q[2]]);
+    }
   }
   return out;
 }

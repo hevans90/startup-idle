@@ -84,7 +84,21 @@ roundabout island and stop/give-way paint in `roads/looks.ts`, `?fixture=traffic
   test runs 30 min of sim on generated towns and asserts no overlap and no stall
   longer than 60 s.
 
-## Phase 3 — Driving
+## Phase 3 — Driving ✅
+Done: IDM following (`follow`/`drive` in `town.ts`), lane changes (`lanes/drive.ts`), the
+emergency services (`agents/emergency.ts`), cyclists (a "ride" pose in the people sheet), cap 80.
+Tests: `emergency.test.ts`, plus cyclists and a four-lane road in `lanes/traffic.test.ts`. Notes:
+- IDM with a 0.7 s headway (tiles are short), bends slowing cars from 1.5 tiles out.
+- Lane changes are routed (a change edge costs 1.5, at most one per street, only with 2.6 tiles
+  of room left); a waiting car signals and the car behind on the target lane lets it in.
+- Services answer the town's own damage only: fire → fire engine + police, quake → ambulance +
+  police, flood/heat → ambulance. In from the map edge, 30 s at the scene, home without lights.
+  Cars pull in only on roads two cells wide or more; on narrow ones they wait at the junctions.
+  No siren sound (no fitting audio hook).
+- Bikes ride at 0.65 of car speed (0.8 looked too quick on tiles), 10% of trips.
+- A car that has waited 8 s at a junction stops new cars on other curves from taking its zones,
+  so a steady stream can't shut out a side road. Zones are held until a car is past where the
+  two curves last come near, not just where they first do.
 - **IDM following** on lanes: desired speed, time headway 1.2 s, minimum gap, and
   comfortable braking. It replaces `trafficLimit`/`lineLimit`.
 - **Lane changes** on roads ≥2 wide, ahead of a turn: a MOBIL-style safety check

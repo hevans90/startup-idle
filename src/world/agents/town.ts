@@ -30,28 +30,30 @@ import type { Grid } from "../grid";
 import { liveCommutes } from "./commute";
 import { AI_TRUCK_COLOUR, BUS_COLOUR, halfLength, SHUTTLE_COLOUR, VAN_COLOUR } from "./cars/fleet";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
-import { STEP_TILES } from "./people/people-format";
+import { PEDAL_TURN_M, STEP_TILES } from "./people/people-format";
+import { TILES_PER_M } from "./cars/models";
 import { isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
 import {
   outward, placesOf, roadHeightAt, routeBetween, walkLine, type Cell, type Place,
 } from "./roads";
 import {
-  buildTraffic, inside, lightOf, lineOf, LANE_CLEAR, PATIENT, roadKey, roundTo, routeLanes, spotsAt, yieldsTo, zoneOn,
+  buildTraffic, CHANGE_LEN, inside, isChange, lightOf, lineOf, LANE_CLEAR, PATIENT, roadKey, roundTo, routeLanes, spotsAt, yieldsTo, zoneOn,
   type Spot, type Traffic,
 } from "./lanes/drive";
 import type { LaneGraph } from "./lanes/graph";
+import type { Emergency } from "./emergency";
 
 export type Mover = {
   id: number;
-  kind: "car" | "person" | "truck" | "bus" | "limo";
+  kind: "car" | "person" | "truck" | "bus" | "limo" | "bike";
   /**
    * WORK, if it is on some: a builder walking to a site or home from it, a
    * builder at work on one, or a load of materials on its way. Movers on a
    * job are not the town's trips: they are counted apart, reported when they
    * arrive, and a builder at work stands where it is. @see world/projects
    */
-  job?: { site: number; role: "builder" | "home" | "working" | "truck" | "arrive" | "leave" | "moving-in" | "haul" | "haul-back" | "clean-go" | "clean" | "cleaning" | "clean-back" | "leader" };
+  job?: { site: number; role: "builder" | "home" | "working" | "truck" | "arrive" | "leave" | "moving-in" | "haul" | "haul-back" | "clean-go" | "clean" | "cleaning" | "clean-back" | "leader" | "emergency" | "emergency-back" };
   /**
    * Seconds to stand where it is before going on: a bus at a stop, letting
    * its passengers off. @see world/agents/arrivals
@@ -94,11 +96,24 @@ export type Mover = {
   drive?: Drive;
   /** Taken off the roads without arriving: its way there is gone. */
   gone?: boolean;
+  /** The fastest it may take each point of its line for the bend there, tiles a second. @see bendsOf */
+  bends?: Float32Array;
+  /** AN EMERGENCY VEHICLE, which; and whether it is on a call, its blue lights on. @see agents/emergency */
+  siren?: "police" | "ambulance" | "fire";
+  blues?: boolean;
+  /**
+   * SIDEWAYS off its line, tiles to the right (to the kerb), now and where it
+   * is going: pulled in for an emergency vehicle, or one out past them.
+   */
+  side?: number;
+  sideTo?: number;
+  /** Pulled in: where along its line it stops. */
+  pullAt?: number;
 };
 
 /**
  * A vehicle's way along the lanes: the graph it was planned on, its lanes,
- * where along its line each begins, which it is on, the last junction lane
+ * where along its line each begins and where it comes onto each, which it is on, the last junction lane
  * it has been let onto, the conflict zones it holds, how long it has waited
  * at a line, and where it is going — to plan again when the roads change.
  */
@@ -106,6 +121,10 @@ export type Drive = {
   graph: LaneGraph;
   lanes: number[];
   start: number[];
+  /** Where along its line it comes onto each lane: for a change of lane, where it starts across. */
+  enter: number[];
+  /** Waiting to change onto this lane, for a gap in it. @see mayChange */
+  wants?: number;
   k: number;
   let: number;
   claims: { zone: number; lane: number }[];
@@ -135,6 +154,8 @@ export type Town = {
   seats?: Map<number, Seat[]>;
   /** The lanes, and who holds which junction's zones. Built as the roads change. @see trafficOf */
   traffic?: Traffic;
+  /** The emergency services: who has been called out to what. @see stepEmergency */
+  emergency?: Emergency;
   movers: Mover[];
   /** Movers on a job that arrived since the last look. @see stepWorks */
   arrived: Mover[];
@@ -166,7 +187,7 @@ export const STRIDE = STEP_TILES;
 export const SWING = Math.asin(STRIDE / (2 * LEG * HALF_STEP_IN_TILES));
 
 /** At most this many cars and people. */
-export const MAX_CARS = 40;
+export const MAX_CARS = 80;
 export const MAX_PEOPLE = 50;
 /**
  * People living on the map to a car on its roads: cars follow the headcount,
@@ -202,10 +223,28 @@ const SHUTTLE_SHARE = 0.12;
 /** The share of the town's car trips Hire to Fire's moving vans take. */
 const VAN_SHARE = 0.12;
 const PERSON_CRUISE = 0.45;
+/**
+ * CYCLISTS: the share of the town's car trips taken on a bike, how fast they
+ * ride against a car's cruise, and how far toward the kerb from the lane's
+ * middle. Cars queue behind them; nobody overtakes.
+ */
+const BIKE_SHARE = 0.1;
+const BIKE_CRUISE = CAR_CRUISE * 0.65;
+const BIKE_SIDE = 0.07;
 const SPREAD = 0.2;
-/** Tiles a second squared. */
+/** Tiles a second squared: a walker's, and a driver's sums of whether it can stop. */
 const ACCEL = 2.5;
 const BRAKE = 4;
+/**
+ * HOW A DRIVER FOLLOWS (the Intelligent Driver Model): the time it keeps
+ * behind the car in front, s; how hard it pulls away and how hard it likes to
+ * brake, tiles a second squared; and the hardest it ever brakes — the cap
+ * that makes sure nobody runs into anybody. @see follow
+ */
+const HEADWAY = 0.7;
+const IDM_A = 2.2;
+const IDM_B = 3;
+const HARD = 6;
 /**
  * The gap a car keeps to the one in front, nose to tail, tiles, on top of
  * half of each one's length: by their models, so a bus keeps a bus's room.
@@ -224,6 +263,32 @@ const STALLED = 45;
 const STOP_BACK = 0.12;
 /** How far along its way a driver looks for the car in front, tiles. */
 const FOLLOW = 2.5;
+/**
+ * GETTING OUT OF THE WAY: how far ahead of an emergency vehicle the cars in
+ * its lane pull in, how far to the kerb, and how far out it goes to pass,
+ * tiles; how fast anyone moves sideways, tiles a second. Only on a road two
+ * cells wide or more, one lane each way: a narrow one has no room to pass.
+ */
+const PULL_AHEAD = 4;
+const PULL_IN = 0.26;
+const PASS_OUT = -0.2;
+const SIDE_RATE = 0.5;
+/** Pulled in this far, a car is out of an emergency vehicle's way. */
+const PULLED = 0.12;
+const pulled = (m: Mover) => (m.side ?? 0) > PULLED;
+/** Standing where it stopped a while: an emergency vehicle at the scene, a bus at a stop. */
+const standing = (m: Mover) => (m.wait ?? 0) > 0;
+/**
+ * Whether a vehicle goes by another pulled in at the kerb rather than stop
+ * behind it: one on a call by anybody pulled in for it, anybody by one
+ * standing there — from out in the lane, not at the kerb itself; and not one
+ * on a call by another of its own call at the scene.
+ */
+const passes = (m: Mover, o: Mover) =>
+  pulled(o) && !pulled(m) && (m.blues || standing(o)) && !(m.blues && o.siren && standing(o) && o.job?.site === m.job?.site);
+/** How near a junction an emergency vehicle has every other car there wait for it, tiles. */
+const BLUES_NEAR = 4;
+
 /** A trip's ends at least this far apart, tiles along the axes. */
 const MIN_TRIP = 3;
 /**
@@ -294,7 +359,7 @@ function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place, to: Place, c
   const at = new Float32Array(line.length);
   for (let k = 1; k < line.length; k++) at[k] = at[k - 1] + Math.hypot(line[k].x - line[k - 1].x, line[k].y - line[k - 1].y);
   const base = kind === "car" ? CAR_CRUISE : kind === "truck" ? TRUCK_CRUISE : kind === "bus" ? BUS_CRUISE
-    : kind === "limo" ? LIMO_CRUISE : PERSON_CRUISE;
+    : kind === "limo" ? LIMO_CRUISE : kind === "bike" ? BIKE_CRUISE : PERSON_CRUISE;
   const m: Mover = {
     id: t.next++, kind, path, line, at, s: 0, speed: 0,
     cruise: base * (1 + (rand(t) - 0.5) * 2 * SPREAD),
@@ -302,6 +367,7 @@ function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place, to: Place, c
     stuck: 0,
     colour: colour ?? (kind === "truck" ? TRUCK_COLOUR : kind === "bus" ? BUS_COLOUR : kind === "limo" ? LIMO_COLOUR
       : pick(t, kind === "car" ? CAR_COLOURS : SHIRTS)),
+    ...(kind === "bike" ? { side: BIKE_SIDE, sideTo: BIKE_SIDE } : {}),
     phase: rand(t) * Math.PI * 2,
     ...(drive ? { drive } : {}),
   };
@@ -337,10 +403,13 @@ function driveWay(t: Town, g: Grid, from: Place, to: Place, after?: Mover, at?: 
     });
     if (ahead.length) starts = ahead;
   }
+  // Not from the very end of a lane: already at a junction's line, with no room to stop at it.
+  const roomy = starts.filter((sp) => T.G.lanes[sp.lane].len - sp.s > 0.6);
+  if (roomy.length) starts = roomy;
   const goals = spotsAt(T, g, to, to.kind === "gateway" ? "end" : null);
   const r = routeLanes(T.G, starts, goals);
   if (!r) return null;
-  const { pts, start } = lineOf(T.G, r);
+  const { pts, start, enter } = lineOf(T.G, r);
   if (pts.length < 2) return null;
   const line: Cell[] = pts.slice();
   let shift = 0;
@@ -362,7 +431,7 @@ function driveWay(t: Town, g: Grid, from: Place, to: Place, after?: Mover, at?: 
   }
   if (path.length < 2) path.push(path[0]);
   const drive: Drive = {
-    graph: T.G, lanes: r.lanes, start: start.map((s) => s + shift), k: 0, let: 0, claims: [], waited: 0, to,
+    graph: T.G, lanes: r.lanes, start: start.map((s) => s + shift), enter: enter.map((s) => s + shift), k: 0, let: 0, claims: [], waited: 0, to,
     end: { lane: r.lanes[r.lanes.length - 1], s: r.s1 },
   };
   return { path, line, drive };
@@ -436,10 +505,13 @@ type Onto = { m: Mover; s: number };
 function trafficNow(T: Traffic, cars: readonly Mover[]) {
   const on = new Map<number, Onto[]>();
   const coming = new Map<number, { m: Mover; d: number }[]>();
+  const blues: Mover[] = [];
   for (const m of cars) {
     const d = m.drive;
     if (!d || d.graph !== T.G) continue;
-    while (d.k + 1 < d.lanes.length && m.s >= d.start[d.k + 1]) d.k++;
+    if (m.blues) blues.push(m);
+    // On to the next lane past where it begins — into a junction only once let in.
+    while (d.k + 1 < d.lanes.length && m.s >= d.enter[d.k + 1] && (d.let > d.k || !inside(T.G.lanes[d.lanes[d.k + 1]]) || inside(T.G.lanes[d.lanes[d.k]]))) d.k++;
     // LET IN AND STILL WAITING at its line — held up by something on the far
     // side the rules did not see coming: it gives its place back.
     if (d.let > d.k && m.stuck > 3) { letGo(T, m, true); d.let = d.k; }
@@ -447,6 +519,11 @@ function trafficNow(T: Traffic, cars: readonly Mover[]) {
     const list = on.get(lane);
     const o = { m, s: m.s - d.start[d.k] };
     if (list) list.push(o); else on.set(lane, [o]);
+    // GOING ACROSS: on both lanes, till it is clear of the one it left.
+    if (d.k > 0 && m.s < d.enter[d.k] + CHANGE_LEN + halfLength(m) && isChange(T.G, d.lanes[d.k - 1], lane)) {
+      const was = d.lanes[d.k - 1], o2 = { m, s: m.s - d.start[d.k - 1] }, l2 = on.get(was);
+      if (l2) l2.push(o2); else on.set(was, [o2]);
+    }
     const q = d.k + 1;
     if (q < d.lanes.length && d.let < q && inside(T.G.lanes[d.lanes[q]])) {
       const c = coming.get(d.lanes[q]);
@@ -455,7 +532,42 @@ function trafficNow(T: Traffic, cars: readonly Mover[]) {
     }
     letGo(T, m, false);
   }
-  return { on, coming };
+  return { on, coming, blues };
+}
+
+/**
+ * OUT OF THE WAY of an emergency vehicle: the cars ahead of it in its lane,
+ * on a road with room, pull in to the kerb and stop till it is by; it goes
+ * out toward the middle to pass them.
+ */
+function giveWayToBlues(T: Traffic, cars: readonly Mover[], now: ReturnType<typeof trafficNow>) {
+  const G = T.G;
+  const wide = (lane: number) => {
+    const l = G.lanes[lane];
+    return l.kind === "street" && l.lanes === 1 && G.streets[l.street!].width >= 2;
+  };
+  const pull = new Set<Mover>();
+  for (const B of now.blues) {
+    const d = B.drive!, lane = d.lanes[d.k];
+    B.sideTo = wide(lane) ? PASS_OUT : 0;
+    if (!wide(lane)) continue;
+    // Stood short of the scene, where it is going: nobody need wait in at the kerb for it.
+    if (B.speed < 0.05 && B.at[B.at.length - 1] - B.s < 2) continue;
+    const at = B.s - d.start[d.k];
+    for (const o of now.on.get(lane) ?? []) if (!o.m.blues && o.s > at - 0.2 && o.s < at + PULL_AHEAD) pull.add(o.m);
+  }
+  for (const m of cars) {
+    if (m.blues) continue;
+    // AT THE SCENE: in at the kerb, where there is one to be in at.
+    if (m.siren && standing(m)) { const d = m.drive; m.sideTo = d && d.graph === G && wide(d.lanes[d.k]) ? PULL_IN : 0; continue; }
+    if (pull.has(m)) { m.sideTo = PULL_IN; m.pullAt ??= m.s + 0.5 + m.speed * m.speed / (2 * IDM_B); }
+    else {
+      // A cyclist toward the kerb along a street; through a junction, on the curve, as the zones have it.
+      const d = m.drive, l = d && d.graph === G ? G.lanes[d.lanes[d.k]] : undefined;
+      m.sideTo = m.kind === "bike" && l?.kind === "street" ? BIKE_SIDE : 0;
+      m.pullAt = undefined;
+    }
+  }
 }
 
 /** Let go the zones a vehicle is past — or all of them. */
@@ -466,7 +578,7 @@ function letGo(T: Traffic, m: Mover, all: boolean) {
   d.claims = d.claims.filter(({ zone, lane }) => {
     if (!all) {
       const j = d.lanes.indexOf(lane, Math.max(0, d.k - 1));
-      const past = j < 0 || d.k > j || (d.k === j && m.s - d.start[j] > zoneOn(T, zone, lane).s + LANE_CLEAR + 2 * half);
+      const past = j < 0 || d.k > j || (d.k === j && m.s - d.start[j] > zoneOn(T, zone, lane).e + LANE_CLEAR + 2 * half);
       if (!past) return true;
     }
     const c = T.claims.get(zone);
@@ -479,26 +591,52 @@ function letGo(T: Traffic, m: Mover, all: boolean) {
  * The fastest a vehicle on the lanes may go: behind whatever is ahead on its
  * way, and short of a junction it has not been let into. @see mayEnter
  */
-function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof trafficNow>, h: number): number {
+type Ahead = { cap: number; idm: number };
+/**
+ * SOMETHING AHEAD, `free` tiles of clear road from its nose, going at `lead`:
+ * the most a driver may go to stop short of it braking its hardest, and how
+ * much it wants to brake for it (IDM's interaction term, the largest kept).
+ * `s0` is the room it keeps when stopped behind it.
+ */
+function follow(A: Ahead, v: number, free: number, lead: number, s0: number) {
+  const room = Math.max(0, free - s0);
+  A.cap = Math.min(A.cap, Math.sqrt(lead * lead + 2 * HARD * room));
+  const want = Math.max(0, s0 + v * HEADWAY + (v * (v - lead)) / (2 * Math.sqrt(IDM_A * IDM_B)));
+  A.idm = Math.max(A.idm, (want / Math.max(free, 0.01)) ** 2);
+}
+
+function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof trafficNow>, h: number, A: Ahead): void {
   const d = m.drive!;
   const G = T.G;
-  let limit = Infinity;
+  const v = m.speed, half = halfLength(m);
+  // PULLED IN for an emergency vehicle: to a stop at the kerb.
+  if (m.pullAt !== undefined) follow(A, v, m.pullAt - m.s, 0, 0);
   // FOLLOWING: the nearest thing ahead on its own lanes, or one just gone
   // off the same lane onto another curve, still in the way.
   for (let j = d.k; j < d.lanes.length && d.start[j] - m.s < FOLLOW; j++) {
     for (const o of now.on.get(d.lanes[j]) ?? []) {
-      if (o.m === m) continue;
+      if (o.m === m || passes(m, o.m)) continue;
       const gap = d.start[j] + o.s - m.s;
-      if (gap > 0 && gap < FOLLOW + 1) limit = Math.min(limit, Math.max(0, (gap - spacing(m, o.m)) * 2.5));
+      // (Two set off from the same spot: the later waits for the earlier.)
+      const ahead = Math.abs(gap) < 1e-3 ? o.m.id < m.id : gap > 0;
+      if (ahead && gap < FOLLOW + 1) follow(A, v, Math.max(0, gap) - spacing(m, o.m) + GAP, o.m.speed, GAP);
     }
     if (j > 0) {
       for (const sib of G.lanes[d.lanes[j - 1]].next) {
         if (sib === d.lanes[j]) continue;
         for (const o of now.on.get(sib) ?? []) {
-          if (o.m === m || o.s > 0.8) continue;
+          if (o.m === m || o.s > (T.split.get(`${sib},${d.lanes[j]}`) ?? 0.8) + halfLength(o.m) + halfLength(m)) continue;
           const gap = d.start[j] + o.s - m.s;
-          if (gap > 0) limit = Math.min(limit, Math.max(0, (gap - spacing(m, o.m)) * 2.5));
+          if (gap > 0) follow(A, v, gap - spacing(m, o.m) + GAP, o.m.speed, GAP);
         }
+      }
+    }
+    // LETTING IN one waiting beside to change onto this lane, a little ahead.
+    for (const b of G.lanes[d.lanes[j]].beside ?? []) {
+      for (const o of now.on.get(b) ?? []) {
+        if (o.m === m || o.m.drive?.wants !== d.lanes[j]) continue;
+        const gap = d.start[j] + o.s - m.s;
+        if (gap > 0.3) follow(A, v, gap - spacing(m, o.m) + GAP, 0, GAP + 0.25);
       }
     }
     // MERGING: one coming onto this lane from another, nearer the join than
@@ -511,8 +649,21 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
         for (const o of now.on.get(p) ?? []) {
           const left = pl.len - o.s;
           if (o.m === m || left > 1 || left >= mine) continue;
-          limit = Math.min(limit, Math.max(0, (mine - left - spacing(m, o.m)) * 2.5));
+          follow(A, v, mine - left - spacing(m, o.m) + GAP, 0, GAP);
         }
+      }
+    }
+  }
+  // CHANGING LANE: across when there is a gap, and waiting short of the move for one.
+  const c = d.k + 1;
+  if (c < d.lanes.length && d.let < c && isChange(G, d.lanes[d.k], d.lanes[c])) {
+    const toMove = d.enter[c] - m.s;
+    if (toMove < (v * v) / (2 * IDM_B) + 1.5) {
+      if (mayChange(m, c, now)) {
+        if (toMove < 0.5) { d.let = c; d.wants = undefined; }
+      } else {
+        d.wants = d.lanes[c];
+        follow(A, v, toMove, 0, 0.02);
       }
     }
   }
@@ -523,7 +674,7 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
   if (q < d.lanes.length && d.let < q && inside(G.lanes[d.lanes[q]]) && !ringing) {
     const toLine = d.start[q] - m.s;
     const stopping = (m.speed * m.speed) / (2 * BRAKE);
-    if (toLine <= stopping + halfLength(m) + (G.lanes[d.lanes[d.k]].hold ?? STOP_BACK) + 0.8) {
+    if (toLine <= stopping + half + (G.lanes[d.lanes[d.k]].hold ?? STOP_BACK) + 1.2) {
       if (mayEnter(t, T, m, q, toLine, stopping, now)) {
         const y = G.lanes[d.lanes[q]];
         for (const z of y.zones) {
@@ -537,12 +688,23 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
       } else {
         // Its nose at the lane's hold point, short of the line, clear of the junction's curves.
         const back = G.lanes[d.lanes[d.k]].hold ?? STOP_BACK;
-        limit = Math.min(limit, Math.sqrt(2 * BRAKE * Math.max(0, toLine - halfLength(m) - back)));
+        follow(A, v, toLine - half - back, 0, 0.02);
         if (m.speed < 0.1) d.waited += h;
       }
     }
   }
-  return limit;
+}
+
+/** Whether there is a gap for a vehicle to change onto lane `c` of its way: room ahead, and behind for whoever is coming. */
+function mayChange(m: Mover, c: number, now: ReturnType<typeof trafficNow>): boolean {
+  const d = m.drive!, me = Math.max(m.s, d.enter[c]);
+  for (const o of now.on.get(d.lanes[c]) ?? []) {
+    // (Not one at the kerb: it is out of the lane.)
+    if (o.m === m || pulled(o.m)) continue;
+    const at = d.start[c] + o.s, room = spacing(m, o.m) + 0.1;
+    if (at >= me ? at - me < room + Math.max(0, m.speed - o.m.speed) * 0.5 : me - at < room + o.m.speed * 0.8) return false;
+  }
+  return true;
 }
 
 /** Whether a vehicle at the line may take the junction lane `q` of its way. @see Traffic */
@@ -551,11 +713,32 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
   const y = G.lanes[d.lanes[q]];
   // Only the car at the front of the queue.
   const mine = m.s - d.start[d.k];
-  for (const o of now.on.get(d.lanes[d.k]) ?? []) if (o.m !== m && o.s > mine) return false;
-  // Its zones free, or held by cars on the same curve.
+  for (const o of now.on.get(d.lanes[d.k]) ?? []) if (o.m !== m && o.s > mine && !passes(m, o.m)) return false;
+  // Its zones free, or held by cars on the same curve — and none long waited
+  // for by someone else: a stream never shuts out a side road for good.
+  // (Not one too near the line to stop for it.)
+  const hungry = (z: number) => { const w = T.hungry.get(z); return !!w && w.lane !== y.id && t.t - w.at < 0.5 && toLine > stopping + 0.1; };
+  let held = false;
   for (const z of y.zones) {
+    if (hungry(z)) return false;
     const c = T.claims.get(z);
-    if (c && c.cars.size && c.lane !== y.id) return false;
+    if (c && c.cars.size && c.lane !== y.id) held = true;
+  }
+  if (held) {
+    // Waited long enough, it asks for all of them: no more go in across it till it has.
+    // (At the lights, only on its green.)
+    const J = G.junctions[y.junction!];
+    const green = J.kind !== "signals" || y.arm === undefined || lightOf(T, J.id, y.arm, t.t) === "green";
+    if (d.waited >= PATIENT && green) for (const z of y.zones) T.hungry.set(z, { lane: y.id, at: t.t });
+    return false;
+  }
+  // AN EMERGENCY VEHICLE coming: everyone else waits — unless it is behind them, and they are in its way.
+  if (!m.blues) {
+    for (const B of now.blues) {
+      const e = B.drive!;
+      if (e.graph !== G || e.lanes.indexOf(d.lanes[d.k], e.k) >= 0) continue;
+      for (let j = e.k; j < e.lanes.length && e.start[j] - B.s < BLUES_NEAR; j++) if (G.lanes[e.lanes[j]].junction === y.junction) return false;
+    }
   }
   const fromStreet = G.lanes[d.lanes[q - 1]]?.kind === "street";
   if (!fromStreet) return true;
@@ -582,6 +765,8 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
     }
     return true;
   }
+  // ON A CALL: through the lights, and giving way to nobody.
+  if (m.blues) return true;
   // THE LIGHTS.
   if (J.kind === "signals" && y.arm !== undefined) {
     const light = lightOf(T, J.id, y.arm, t.t);
@@ -601,17 +786,48 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
   return true;
 }
 
-/** The fastest a mover may take the line where it is: slower into a bend, and to a stop at the end. */
+/** The fastest a walker may take its line where it is: to a stop at the end. */
 function lineLimit(m: Mover): number {
-  const total = m.at[m.at.length - 1];
-  const left = total - m.s;
-  let v = Math.sqrt(2 * BRAKE * Math.max(0, left)) + 0.05;
-  if (m.kind === "car" || m.kind === "bus" || m.kind === "limo") {
-    const a = along(m, m.s), b = along(m, Math.min(total, m.s + 0.6));
+  const left = m.at[m.at.length - 1] - m.s;
+  return Math.min(m.cruise, Math.sqrt(2 * BRAKE * Math.max(0, left)) + 0.05);
+}
+
+/** How far ahead a driver slows for a bend, tiles. */
+const BEND_LOOK = 1.5;
+
+/**
+ * THE BENDS of a vehicle's line: at each of its points, the fastest it may go
+ * for how far the way turns in the next 0.6 tiles — a right angle at four
+ * tenths of its cruise. Worked out once a trip.
+ */
+function bendsOf(m: Mover): Float32Array {
+  const n = m.line.length, total = m.at[n - 1], out = new Float32Array(n);
+  for (let k = 0; k < n; k++) {
+    const a = along(m, m.at[k]), b = along(m, Math.min(total, m.at[k] + 0.6));
     const turn = Math.abs(Math.atan2(a.dx * b.dy - a.dy * b.dx, a.dx * b.dx + a.dy * b.dy));
-    v = Math.min(v, m.cruise * (1 - 0.6 * Math.min(1, turn / (Math.PI / 2))));
+    out[k] = m.cruise * (1 - 0.6 * Math.min(1, turn / (Math.PI / 2)));
   }
-  return Math.min(v, m.cruise);
+  return out;
+}
+
+/** The speed a driver would like where it is: its cruise, or slower for a bend coming up, braking gently into it. */
+function wishOf(m: Mover): number {
+  const B = (m.bends ??= bendsOf(m));
+  let lo = 0, hi = m.at.length - 1;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (m.at[mid] < m.s) lo = mid + 1; else hi = mid; }
+  let v = m.cruise;
+  for (let k = Math.max(0, lo - 1); k < m.at.length && m.at[k] < m.s + BEND_LOOK; k++) {
+    v = Math.min(v, Math.sqrt(B[k] * B[k] + 2 * IDM_B * Math.max(0, m.at[k] - m.s)));
+  }
+  return Math.max(0.2, v);
+}
+
+/** A driver's speed after a step: IDM toward what it would like, never past what it can stop short of. */
+function drive(m: Mover, A: Ahead, h: number) {
+  const v = m.speed, v0 = wishOf(m);
+  const free = Math.max(-IDM_B, IDM_A * (1 - (v / v0) ** 4));
+  const a = Math.max(-HARD, free - IDM_A * A.idm);
+  m.speed = Math.max(0, Math.min(v + a * h, A.cap));
 }
 
 /**
@@ -633,7 +849,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
         if (!m.drive) continue;
         const way = driveWay(t, g, m.drive.to, m.drive.to, undefined, { x: m.x, y: m.y, heading: m.heading });
         if (!way) { m.gone = true; continue; }
-        m.path = way.path; m.line = way.line; m.drive = way.drive;
+        m.path = way.path; m.line = way.line; m.drive = way.drive; m.bends = undefined;
         m.at = new Float32Array(m.line.length);
         for (let k = 1; k < m.line.length; k++) m.at[k] = m.at[k - 1] + Math.hypot(m.line[k].x - m.line[k - 1].x, m.line[k].y - m.line[k - 1].y);
         m.s = 0;
@@ -661,7 +877,8 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     // Rolled only with one of them in force: the town's sequence as it was without.
     const r = culture.shuttle || culture.vans ? rand(t) : 0.5;
     const [kind, colour] = culture.shuttle && r < SHUTTLE_SHARE ? ["bus", SHUTTLE_COLOUR] as const
-      : culture.vans && r > 1 - VAN_SHARE ? ["truck", VAN_COLOUR] as const : ["car", undefined] as const;
+      : culture.vans && r > 1 - VAN_SHARE ? ["truck", VAN_COLOUR] as const
+      : rand(t) < BIKE_SHARE ? ["bike", undefined] as const : ["car", undefined] as const;
     const m = trip && setOff(t, g, kind, ...trip, colour);
     if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR)) t.movers.push(m);
   }
@@ -676,6 +893,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   // MOVING, each vehicle minding the lanes it is on. @see driveLimit
   const T = trafficOf(t, g);
   const now = trafficNow(T, cars);
+  giveWayToBlues(T, cars, now);
   const taken = new Set<string>();
   for (const m of t.movers) if (m.sit) taken.add(m.sit.seat);
   for (const m of t.movers) {
@@ -689,19 +907,43 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     }
     // AT WORK on a site: standing, swinging a hammer. @see town-render
     if (atWork(m)) { m.phase += h * WORK_RATE; continue; }
-    // AT A STOP: standing, then on its way.
-    if (m.wait && m.wait > 0) { m.wait -= h; m.speed = 0; continue; }
-    const limit = Math.min(lineLimit(m), m.drive && m.drive.graph === T.G ? driveLimit(t, T, m, now, h) : Infinity);
-    if (m.speed < limit) m.speed = Math.min(limit, m.speed + ACCEL * h);
-    else m.speed = Math.max(limit, m.speed - BRAKE * h);
+    // AT A STOP: standing, then on its way — out from the kerb when the lane is clear behind.
+    if (m.wait && m.wait > 0) {
+      m.wait -= h;
+      m.speed = 0;
+      if (m.wait <= 0 && pulled(m) && m.drive && m.drive.graph === T.G && !mayChange(m, m.drive.k, now)) m.wait = 0.1;
+      const to = m.sideTo ?? 0, side = m.side ?? 0;
+      if (side !== to) {
+        m.side = side < to ? Math.min(to, side + SIDE_RATE * h) : Math.max(to, side - SIDE_RATE * h);
+        const p = along(m, m.s);
+        m.x = p.x - p.dy * m.side; m.y = p.y + p.dx * m.side;
+      }
+      continue;
+    }
+    if (drives(m)) {
+      // Behind whatever is ahead, and to a stop at the end of the way.
+      const A: Ahead = { cap: Infinity, idm: 0 };
+      // Its end a little past the line's, so it rolls on up to it rather than creeping.
+      follow(A, m.speed, m.at[m.at.length - 1] - m.s, 0, -0.05);
+      if (m.drive && m.drive.graph === T.G) driveLimit(t, T, m, now, h, A);
+      drive(m, A, h);
+    } else {
+      const limit = lineLimit(m);
+      if (m.speed < limit) m.speed = Math.min(limit, m.speed + ACCEL * h);
+      else m.speed = Math.max(limit, m.speed - BRAKE * h);
+    }
     if (drives(m)) {
       if (m.speed < 0.05) m.stuck += h; else m.stuck = 0;
       if (m.stuck > STALLED) m.gone = true;
     }
     m.s += m.speed * h;
     const p = along(m, m.s);
-    m.x = p.x;
-    m.y = p.y;
+    // Sideways, toward where it is going, off its line to its right.
+    const to = m.sideTo ?? 0, side = m.side ?? 0;
+    if (side !== to) m.side = side < to ? Math.min(to, side + SIDE_RATE * h) : Math.max(to, side - SIDE_RATE * h);
+    const off = m.side ?? 0;
+    m.x = p.x - p.dy * off;
+    m.y = p.y + p.dx * off;
     m.z = roadHeightAt(g, p.x, p.y);
     if (drives(m)) {
       // Nose and tail, half a vehicle either way along the way it goes.
@@ -716,6 +958,8 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     let d = want2 - m.heading;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     m.heading += d * Math.min(1, h * (drives(m) ? 10 : 14));
+    // Pedalling: a turn of the pedals, 2π, a gear's distance.
+    if (m.kind === "bike") m.phase += (h * m.speed * 2 * Math.PI) / (PEDAL_TURN_M * TILES_PER_M);
     if (m.kind === "person") {
       m.phase += (h * m.speed * Math.PI) / STRIDE;
       if (!m.job && t.seats) sitDown(m, t.seats, taken, g);
@@ -773,6 +1017,21 @@ export function sitDown(m: Mover, seats: Map<number, Seat[]>, taken: Set<string>
     taken.add(s.key);
     return;
   }
+}
+
+/** A mover's way cut short where it is: it arrives there. */
+export function stopHere(m: Mover): void {
+  let k = 1;
+  while (k < m.line.length - 1 && m.at[k] < m.s) k++;
+  const p = along(m, m.s);
+  m.line = [...m.line.slice(0, k), { x: p.x, y: p.y }];
+  m.at = new Float32Array(m.line.length);
+  for (let i = 1; i < m.line.length; i++) m.at[i] = m.at[i - 1] + Math.hypot(m.line[i].x - m.line[i - 1].x, m.line[i].y - m.line[i - 1].y);
+  m.s = m.at[m.at.length - 1];
+  m.bends = undefined;
+  // Its way on, if it has one, from here.
+  const d = m.drive;
+  if (d) d.end = { lane: d.lanes[d.k], s: m.s - d.start[d.k] };
 }
 
 /** Standing at work, a builder on a site or a vibe coder mopping up sludge: not going anywhere. */

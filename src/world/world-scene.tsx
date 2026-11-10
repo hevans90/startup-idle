@@ -125,6 +125,7 @@ import { createBuildCursor, type BuildCursor, type Validator } from "./edit/curs
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { seatsByCell, stepTown, type Seat } from "./agents/town";
+import { createEmergency, stepEmergency } from "./agents/emergency";
 import { moveOut, stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution, townChanged, withTier } from "./agents/services";
 import { stepTown as stepTownServices } from "./agents/town-services";
@@ -3082,6 +3083,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (net) {
         const st = useWorldStore.getState();
         { const e = section("tick: stepTown"); stepTown(getTown(), st.grid, net, st.revision, dt); e(); }
+        // THE EMERGENCY SERVICES, to what the disasters have damaged. @see world/agents/emergency
+        { const town = getTown(); stepEmergency(town.emergency ??= createEmergency(), town, st.grid, damagedNow(), dt); }
         // THE PROJECTS going up: crews walking out, loads trucked in, work
         // done — after the town has moved, so who arrived this frame is known.
         // Paid for out of the company's money under the game's rules; free in

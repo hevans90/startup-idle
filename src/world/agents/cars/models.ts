@@ -755,3 +755,9 @@ export const LORRY_WEIGHTS: Readonly<Record<string, number>> = { flatbed: 2, box
 /** The interns' bus, and Shuttle Bus's. */
 export const MINIBUS_WEIGHTS: Readonly<Record<string, number>> = { minibus: 2, singleDecker: 1 };
 export const BUS_WEIGHTS: Readonly<Record<string, number>> = { singleDecker: 2, doubleDecker: 2, coach: 1 };
+
+/** Where a model's light bar is, metres: along it, out to either end of it, and its top. Null for one with none. @see lightBar */
+export function beaconsOf(id: string): { l: number; w: number; z: number } | null {
+  const bar = modelById.get(id)?.slabs.find((sl) => sl.mat === "light");
+  return bar ? { l: (bar.l0 + bar.l1) / 2, w: bar.w, z: bar.z1 } : null;
+}

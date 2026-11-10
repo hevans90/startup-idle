@@ -47,7 +47,17 @@ export type Traffic = {
   offset: Map<number, number>;
   /** The lanes leading into each lane. */
   into: Map<number, number[]>;
+  /**
+   * Two curves from one lane, `a,b`: how far along `a` it is till it is clear
+   * of `b` — a car on `b` till then follows one on `a` as if on its own lane.
+   */
+  split: Map<string, number>;
+  /** Zones a car has waited long for, a curve of another's holding them: whose curve, and when last asked. No more join that hold. */
+  hungry: Map<number, { lane: number; at: number }>;
 };
+
+/** Curves this far apart, middle to middle, keep their cars clear of each other, tiles. */
+const APART = 0.34;
 
 /** What the roads are, cheaply: their cells, heights and ramps. Equal keys, equal graphs. */
 export function roadKey(g: Grid): string {
@@ -80,7 +90,18 @@ export function buildTraffic(g: Grid, key = roadKey(g)): Traffic {
   for (const J of G.junctions) if (J.kind === "signals") offset.set(J.id, ((J.id * 7.31) % 1) * CYCLE);
   const into = new Map<number, number[]>();
   for (const l of G.lanes) for (const n of l.next) { const p = into.get(n); if (p) p.push(l.id); else into.set(n, [l.id]); }
-  return { G, key, byCell, claims: new Map(), offset, into };
+  const split = new Map<string, number>();
+  for (const l of G.lanes) {
+    if (l.next.length < 2) continue;
+    for (const a of l.next) for (const b of l.next) {
+      if (a === b) continue;
+      const A = G.lanes[a], B = G.lanes[b];
+      let s = 0;
+      while (s < A.len && nearestOn(B, pointAt(A.pts, A.at, s).p).d < APART) s += 0.1;
+      split.set(`${a},${b}`, s);
+    }
+  }
+  return { G, key, byCell, claims: new Map(), offset, into, split, hungry: new Map() };
 }
 
 /** The nearest point of a lane to a point, as a distance along it. */
@@ -124,6 +145,16 @@ export function spotsAt(T: Traffic, g: Grid, c: Pt, rim: "start" | "end" | null)
   }
   return found.map(({ lane, s }) => ({ lane, s }));
 }
+
+/**
+ * CHANGING LANE: what it costs a route, the clear road it needs from where it
+ * starts on the lane it leaves, and how long the move across takes, tiles.
+ */
+export const CHANGE_COST = 1.5;
+const CHANGE_ROOM = 2.6;
+export const CHANGE_LEN = 1;
+/** Whether a route's step from `a` to `b` is a change of lane on one street. */
+export const isChange = (G: LaneGraph, a: number, b: number) => !!G.lanes[a].beside?.includes(b);
 
 /** What taking a lane costs on top of its length. */
 const costOf = (l: Lane) => (l.turn === "uturn" ? 6 : l.turn === "left" || l.turn === "right" ? 0.3 : 0);
@@ -173,6 +204,14 @@ export function routeLanes(G: LaneGraph, starts: readonly Spot[], goals: readonl
     const [c, id] = pop();
     if (c > (cost.get(id) ?? Infinity)) continue;
     if (best && c >= best.c) break;
+    // ACROSS to a lane beside it, if there is the road to do it in — once a street.
+    const here = G.lanes[id], before = prev.get(id) ?? -1;
+    if (here.beside && !(before >= 0 && isChange(G, before, id)) && here.len - (startS.get(id) ?? 0) >= CHANGE_ROOM) {
+      for (const n of here.beside) {
+        const nc = c + CHANGE_COST;
+        if (nc < (cost.get(n) ?? Infinity)) { cost.set(n, nc); prev.set(n, id); startS.delete(n); push(nc, n); }
+      }
+    }
     for (const n of G.lanes[id].next) {
       const ln = G.lanes[n];
       for (const gs of goalOn.get(n) ?? []) {
@@ -191,24 +230,54 @@ export function routeLanes(G: LaneGraph, starts: readonly Spot[], goals: readonl
   return { lanes, s0: startS.get(lanes[0]) ?? 0, s1: best.s1 };
 }
 
-/** A route as one line, and where along it each of its lanes begins (its point 0, which may be behind the line's start). */
-export function lineOf(G: LaneGraph, r: Route): { pts: Pt[]; start: number[] } {
+/**
+ * A route as one line; where along it each of its lanes begins (its point 0,
+ * which may be behind the line's start, or level with a lane changed from);
+ * and where the vehicle comes onto each — for a change of lane, where it
+ * starts across.
+ */
+export function lineOf(G: LaneGraph, r: Route): { pts: Pt[]; start: number[]; enter: number[] } {
   const pts: Pt[] = [];
-  const start: number[] = [];
+  const start: number[] = [], enter: number[] = [];
   let run = 0;
+  const add = (p: Pt) => {
+    const last = pts[pts.length - 1];
+    if (last && Math.hypot(p.x - last.x, p.y - last.y) < 1e-6) return;
+    if (last) run += Math.hypot(p.x - last.x, p.y - last.y);
+    pts.push(p);
+  };
+  let from = r.s0;
   r.lanes.forEach((id, k) => {
     const l = G.lanes[id];
-    const a = k === 0 ? r.s0 : 0, b = k === r.lanes.length - 1 ? r.s1 : l.len;
-    start.push(run - a);
-    const piece = slice(l, a, b);
-    for (const p of piece) {
-      const last = pts[pts.length - 1];
-      if (last && Math.hypot(p.x - last.x, p.y - last.y) < 1e-6) continue;
-      if (last) run += Math.hypot(p.x - last.x, p.y - last.y);
-      pts.push(p);
+    const a = from, next = r.lanes[k + 1];
+    from = 0;
+    let b = k === r.lanes.length - 1 ? r.s1 : l.len;
+    if (next !== undefined && isChange(G, id, next)) {
+      // Across before the end, with room to settle in the new lane first.
+      b = Math.max(a + 0.2, Math.min(l.len - CHANGE_LEN - 1.6, l.len - 3));
     }
+    if (k > 0 && isChange(G, r.lanes[k - 1], id)) {
+      // THE MOVE ACROSS: from the lane left, eased onto this one.
+      const was = G.lanes[r.lanes[k - 1]];
+      const c0 = pointAt(was.pts, was.at, Math.min(was.len, nearestOn(was, pts[pts.length - 1]).s)).p;
+      const s0 = nearestOn(was, c0).s;
+      enter.push(run);
+      for (let i = 1; i <= 4; i++) {
+        const f = i / 4, w = f * f * (3 - 2 * f);
+        const pa = pointAt(was.pts, was.at, Math.min(was.len, s0 + f * CHANGE_LEN)).p;
+        const pb = pointAt(l.pts, l.at, nearestOn(l, pa).s).p;
+        add({ x: pa.x + (pb.x - pa.x) * w, y: pa.y + (pb.y - pa.y) * w });
+      }
+      const on = nearestOn(l, pts[pts.length - 1]).s;
+      start.push(run - on);
+      for (const p of slice(l, on, Math.max(on, b))) add(p);
+      return;
+    }
+    start.push(run - a);
+    enter.push(run);
+    for (const p of slice(l, a, b)) add(p);
   });
-  return { pts, start };
+  return { pts, start, enter };
 }
 
 /** The piece of a lane from `a` to `b` along it. */
@@ -236,9 +305,9 @@ export function lightOf(T: Traffic, junction: number, arm: number, t: number): "
 }
 
 /** Where a zone is along one of its two lanes, and the other lane. */
-export function zoneOn(T: Traffic, zone: number, lane: number): { s: number; other: number } {
+export function zoneOn(T: Traffic, zone: number, lane: number): { s: number; e: number; other: number } {
   const z = T.G.zones[zone];
-  return z.a === lane ? { s: z.sa, other: z.b } : { s: z.sb, other: z.a };
+  return z.a === lane ? { s: z.sa, e: z.ea, other: z.b } : { s: z.sb, e: z.eb, other: z.a };
 }
 
 /** Whether cars coming onto `b` have the right of way over a car taking `y`. */
