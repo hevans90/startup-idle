@@ -68,7 +68,7 @@ export type Look = {
    * road's line, on that side, the lane across drawing the other half.
    */
   ctr: string;
-  /** Give way, across the lane coming in on each side listed: `0`–`3` on a one-cell road, `4`–`7` (side + 4) across a whole lane. */
+  /** Give way, across the lane coming in on each side listed: `0`–`3` on a one-cell road, `4`–`7` (side + 4) across a whole lane; set back behind a crossing, `a`–`h`. */
   gw: string;
   /** A stop line across the lane coming in, before a box or at lights: encoded as `gw` is. */
   stop: string;
@@ -82,6 +82,8 @@ export type Look = {
   zz: string;
   /** A zebra crossing over the road, which runs along `u`/`v`. */
   zeb: string;
+  /** A crossing at lights over the road along `u`/`v`: two broken lines, where there is no zebra. */
+  xing: string;
   /** SLOW, toward the side listed, in the lane coming in. */
   slow: string;
   /**
@@ -93,7 +95,7 @@ export type Look = {
 
 /** A look as a key: every field, compact. */
 export const keyOf = (l: Look): string =>
-  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.slow}.${l.rb}`;
+  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.xing}.${l.slow}.${l.rb}`;
 
 /** What the town's beauty puts on a road cell: its level, and a zebra if it has one. @see roadDressOf */
 export const dressOf = (lvl: number, zebra: boolean) => (lvl & 3) | (zebra ? 4 : 0);
@@ -206,7 +208,7 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
     const L: Look = {
       open: o, diag: diagOf(mask[i]), ramp: g.ramp[i], lvl,
       vr: Math.floor(hash(x * 31.7 + y * 57.3 + 0.5) * VARIANTS),
-      ctr: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", slow: "", rb: "",
+      ctr: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", xing: "", slow: "", rb: "",
     };
     out[i] = L;
     const kerbed = o !== 15;
@@ -259,26 +261,39 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
         continue;
       }
       // ONTO A ROUNDABOUT: everyone gives way, to the ring.
+      // (Three ways or more, the street's mouth is crossed: the line set back behind the crossing, `a`–`h`.)
+      const code = (k: number) => (J.arms.size >= 3 ? String.fromCharCode(97 + k) : String(k));
       if (roundabout(J)) {
         const [rx, ry] = rightOf(dx, dy);
-        if (straight) L.gw += sd;
-        else if (sideOf(rx, ry) === lane) L.gw += String(sd + 4);
+        if (straight) L.gw += code(sd);
+        else if (sideOf(rx, ry) === lane) L.gw += code(sd + 4);
         continue;
       }
       // AT LIGHTS: a stop line on every way in.
       const lit = lights(J);
       // A junction ahead: give way, unless this is the major road through it.
       const minor = !lit && (J.major === "" || J.major !== (sd < 2 ? "u" : "v"));
-      if (straight) { if (minor) L.gw += sd; else if (lit) L.stop += sd; continue; }
+      // Crossed at the lights: marked, where it is not a zebra.
+      if (lit && J.arms.size >= 3 && !L.zeb) L.xing = sd < 2 ? "u" : "v";
+      if (straight) { if (minor) L.gw += code(sd); else if (lit) L.stop += code(sd); continue; }
       // On a two-lane road, only the lane coming in: the one with its kerb on the right.
       const [rx, ry] = rightOf(dx, dy);
       if (sideOf(rx, ry) !== lane) continue;
-      if (lit || (J.arms.size >= 4 && boxAt(x + dx, y + dy))) L.stop += String(sd + 4);
-      else if (minor) L.gw += String(sd + 4);
+      if (lit || (J.arms.size >= 4 && boxAt(x + dx, y + dy))) L.stop += code(sd + 4);
+      else if (minor) L.gw += code(sd + 4);
       if (!minor && !L.stop) continue;
-      const left = paved(x + 2 * dx - 2 * rx, y + 2 * dy - 2 * ry);
-      const ahead = paved(x + 3 * dx, y + 3 * dy);
-      const right = paved(x + dx + rx, y + dy + ry);
+    }
+    // THE ARROW in the lane, a cell back from the line — the cell at the line is
+    // the crossing's — at lights or a box, on a two-lane road's lane coming in.
+    if (lane >= 0) for (const sd of along) {
+      const [dx, dy] = STEP[sd], J = regionAt(x + 2 * dx, y + 2 * dy);
+      if (!J || regionAt(x + dx, y + dy) || J.arms.size < 3 || roundabout(J)) continue;
+      const [rx, ry] = rightOf(dx, dy);
+      if (sideOf(rx, ry) !== lane) continue;
+      if (!lights(J) && !(J.arms.size >= 4 && boxAt(x + 2 * dx, y + 2 * dy))) continue;
+      const left = paved(x + 3 * dx - 2 * rx, y + 3 * dy - 2 * ry);
+      const ahead = paved(x + 4 * dx, y + 4 * dy);
+      const right = paved(x + 2 * dx + rx, y + 2 * dy + ry);
       if (left || ahead || right) L.arrow = `${sd}${left ? "L" : ""}${ahead ? "A" : ""}${right ? "R" : ""}`;
     }
     if (straight) L.ctr = warn ? ax.toUpperCase() : ax;

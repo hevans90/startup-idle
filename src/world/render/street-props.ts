@@ -25,6 +25,7 @@ import { makePen, mix, tone, type Pen } from "../structures/projects/pen";
 import { tree } from "../structures/projects/looks";
 import type { BandLayer } from "./bands";
 import type { Seat } from "../agents/town";
+import type { Crossing } from "../agents/lanes/graph";
 import { TILES_PER_M } from "../agents/cars/models";
 import { SEATS_M } from "../props/models";
 import { PROP_TINT } from "../props/props-format";
@@ -67,12 +68,20 @@ function levelOf(g: Grid, streets: Streets, b: Beauty, x: number, y: number): nu
  * pavement is relaid by, and a zebra where a street from level 2 meets a
  * junction. @see dressOf, render/road-paint
  */
-export function roadDressOf(g: Grid, streets: Streets, b: Beauty): Uint8Array {
+/** Where a long street is crossed along it, as its cells: a zebra there, on a fine enough street. @see agents/lanes/graph alongCrossings */
+function zebrasAlong(crossings: readonly Crossing[]): Set<number> {
+  const along = new Set<number>();
+  for (const c of crossings) if (c.long) for (const i of c.cells) along.add(i);
+  return along;
+}
+
+export function roadDressOf(g: Grid, streets: Streets, b: Beauty, crossings: readonly Crossing[] = []): Uint8Array {
   const out = new Uint8Array(g.w * g.h);
+  const along = zebrasAlong(crossings);
   for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
     if (!isPaved(g, x, y)) continue;
     const i = idx(g, x, y), level = Math.max(0, Math.min(3, levelOf(g, streets, b, x, y)));
-    out[i] = dressOf(level, streets.of[i] >= 0 && level >= 2 && endOfStreet(g, streets, x, y));
+    out[i] = dressOf(level, streets.of[i] >= 0 && level >= 2 && (endOfStreet(g, streets, x, y) || along.has(i)));
   }
   return out;
 }
@@ -82,8 +91,9 @@ export function roadDressOf(g: Grid, streets: Streets, b: Beauty): Uint8Array {
  * each kerb — a side with no road beyond it — the tile's place along the
  * street, `(x + y)`, saying which. Pure, for tests.
  */
-export function streetPropsOf(g: Grid, streets: Streets, b: Beauty): { props: StreetProp[]; murals: Mural[] } {
+export function streetPropsOf(g: Grid, streets: Streets, b: Beauty, crossings: readonly Crossing[] = []): { props: StreetProp[]; murals: Mural[] } {
   const props: StreetProp[] = [];
+  const along = zebrasAlong(crossings);
   const paved = (x: number, y: number) => inBounds(g, x, y) && isPaved(g, x, y);
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
@@ -97,7 +107,8 @@ export function streetPropsOf(g: Grid, streets: Streets, b: Beauty): { props: St
       const k = x + y;
       // AT A STREET'S END, where it meets a junction: its zebra, painted on
       // the road (@see roadDressOf), and a beacon on a striped pole at either kerb.
-      const end = endOfStreet(g, streets, x, y);
+      // (Or along a long street, where its zebra is.)
+      const end = endOfStreet(g, streets, x, y) || along.has(i);
       if (level >= 2 && end) {
         for (const side of Object.keys(SIDES) as StreetProp["side"][]) {
           const [dx, dy] = SIDES[side];
@@ -360,7 +371,7 @@ function drawMural(p: Pen, m: Mural) {
 
 export type StreetProps = {
   /** Put the streets' props where their levels say, if those or the map have changed. */
-  sync: (g: Grid, b: Beauty, rev: number, scale: number) => void;
+  sync: (g: Grid, b: Beauty, rev: number, scale: number, crossings?: readonly Crossing[]) => void;
   /** What the road wears, as of the last sync that changed anything: a new array each time. @see roadDressOf */
   dress: () => Uint8Array | null;
   /** The benches' seats, as last laid out. @see seatsOf */
@@ -430,7 +441,7 @@ export function createStreetProps(bands: BandLayer): StreetProps {
     drawn = [];
   };
   return {
-    sync(g, b, rev, scale) {
+    sync(g, b, rev, scale, crossings) {
       // The sheet once it is in; drawn as before until then, and drawn again when it comes.
       const P = bakedProps() ? propsLoaded() : null;
       if (bakedProps() && !P) void propSprites();
@@ -456,8 +467,8 @@ export function createStreetProps(bands: BandLayer): StreetProps {
         return gr;
       };
       const streets = streetsOf(g);
-      dress = roadDressOf(g, streets, b);
-      const { props, murals } = streetPropsOf(g, streets, b);
+      dress = roadDressOf(g, streets, b, crossings);
+      const { props, murals } = streetPropsOf(g, streets, b, crossings);
       seats = seatsOf(props);
       for (const pr of props) {
         const tier = pr.side === "N" || pr.side === "W" ? "back" : "front";

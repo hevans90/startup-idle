@@ -124,7 +124,7 @@ const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
-import { seatsByCell, stepTown, type Seat } from "./agents/town";
+import { seatsByCell, stepTown, trafficOf, type Seat } from "./agents/town";
 import { createEmergency, stepEmergency } from "./agents/emergency";
 import { moveOut, stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution, townChanged, withTier } from "./agents/services";
@@ -3726,12 +3726,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const streetNet = getNetwork();
       if (streetPropsRef.current && streetNet) {
         const st = useWorldStore.getState();
-        streetPropsRef.current.sync(st.grid, liveBeauty(st.grid, streetNet), st.revision, scale);
+        streetPropsRef.current.sync(st.grid, liveBeauty(st.grid, streetNet), st.revision, scale, trafficOf(getTown(), st.grid).G.crossings);
         // THE BENCHES' SEATS, for the town's walkers to sit on. @see Town.seats
         const seats = streetPropsRef.current.seats();
         if (seats !== seatsRef.current) { seatsRef.current = seats; getTown().seats = seatsByCell(st.grid, seats); }
         // What the road wears — its pavement by level, its zebras — painted into the road itself.
         const dress = streetPropsRef.current.dress();
+        // (The town's walkers have the right of way on its zebras.)
+        if (dress) getTown().dress = dress;
         if (dress && plRef.current && blRef.current && texRef.current && plRef.current.dress !== dress) {
           dressPaved(plRef.current, blRef.current, st.grid, texRef.current, dress);
         }

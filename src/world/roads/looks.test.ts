@@ -38,7 +38,7 @@ describe("a T-junction", () => {
 
   test("the minor road gives way where it meets the major", () => {
     const L = look(g, 10, 6);
-    expect(L.gw).toBe("2");
+    expect(L.gw).toBe("c");
     expect(L.ctr).toBe("V");
     expect(L.yl).toBe(true);
   });
@@ -114,7 +114,7 @@ describe("two-lane roads crossing: a roundabout", () => {
   test("give way onto it, across the lane coming in, the one with its kerb on the right", () => {
     // Coming from x−1, heading +x: the kerb on the right is at y+1, so row 6.
     const inbound = look(g, 14, 6), outbound = look(g, 14, 5);
-    expect(inbound.gw).toBe("5");
+    expect(inbound.gw).toBe("f");
     expect(inbound.stop + inbound.arrow).toBe("");
     expect(outbound.gw + outbound.stop + outbound.arrow).toBe("");
   });
@@ -128,19 +128,21 @@ describe("two-lane roads crossing: a roundabout", () => {
 describe("a two-lane road crossed by a one-lane one: lights", () => {
   const g = grid(32, 22, [...row(5, 0, 31), ...row(6, 0, 31), ...col(15, 0, 21).filter(([, y]) => y !== 5 && y !== 6)]);
 
-  test("a stop line and an arrow across the wide road's lane coming in", () => {
+  test("a stop line across the wide road's lane coming in, set back behind the crossing, and an arrow a cell back", () => {
     const inbound = look(g, 14, 6), outbound = look(g, 14, 5);
-    expect(inbound.stop).toBe("5");
-    expect(inbound.arrow.startsWith("1")).toBe(true);
+    expect(inbound.stop).toBe("f");
+    expect(inbound.arrow).toBe("");
+    expect(look(g, 13, 6).arrow.startsWith("1")).toBe(true);
+    expect(look(g, 13, 5).arrow).toBe("");
     expect(inbound.gw).toBe("");
     expect(outbound.stop).toBe("");
   });
 
   test("and across the narrow road's, no give way", () => {
     // Coming down from y−1 toward +y: the junction is on side 3.
-    expect(look(g, 15, 4).stop).toBe("3");
+    expect(look(g, 15, 4).stop).toBe("d");
     expect(look(g, 15, 4).gw).toBe("");
-    expect(look(g, 15, 7).stop).toBe("2");
+    expect(look(g, 15, 7).stop).toBe("c");
   });
 });
 

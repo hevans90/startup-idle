@@ -148,9 +148,19 @@ describe("the lane graph", () => {
     const G = buildLaneGraph(g);
     expect(G.junctions[0].kind).toBe("bend");
     expect(G.lanes.filter((l) => l.kind === "connector").length).toBe(2);
-    expect(G.crossings.length).toBe(0);
-    // One pavement each side of the road.
-    expect(pieces(G, () => true)).toBe(2);
+    expect(G.crossings.filter((c) => c.junction >= 0).length).toBe(0);
+    // One pavement each side of the road, crossed along each leg.
+    expect(pieces(G, (e) => e.crossing === undefined)).toBe(2);
+    expect(G.crossings.length).toBe(2);
+  });
+
+  test("a crossing goes over the middle of a slice, kerb to kerb, and a long street is crossed along it", () => {
+    const g = blank(30, 8);
+    for (let x = 0; x < 30; x++) pave(g, x, 4);
+    const G = buildLaneGraph(g);
+    expect(G.crossings.map((c) => [G.walk.nodes[c.a].x, G.walk.nodes[c.b].x])).toEqual([[5, 5], [15, 15], [25, 25]]);
+    for (const c of G.crossings) expect(Math.abs(G.walk.nodes[c.a].y - G.walk.nodes[c.b].y)).toBeCloseTo(1 - WALK, 5);
+    expect(pieces(G, () => true)).toBe(1);
   });
 
   test("a dead end turns round", () => {
@@ -167,7 +177,7 @@ describe("the lane graph", () => {
 
   test("crossings join the blocks: four pieces of pavement without them, one with", () => {
     const G = buildLaneGraph(cross(1, 1));
-    expect(G.crossings.length).toBe(4);
+    expect(G.crossings.filter((c) => c.junction >= 0).length).toBe(4);
     expect(pieces(G, (e) => e.crossing === undefined)).toBe(4);
     expect(pieces(G, () => true)).toBe(1);
   });

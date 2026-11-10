@@ -33,6 +33,7 @@ import { HEIGHT_UNIT, rampDir, rampRise, RAMP } from "../iso";
 import { hash } from "../structures/projects/model";
 import { mix, tone } from "../structures/projects/pen";
 import { opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
+import { CROSS_HOLD } from "../agents/lanes/graph";
 
 /** How far in from the tile's edge the pavement runs, its kerb, and both. */
 export const PAVE = 0.22, KERB = 0.04, WALK = PAVE + KERB;
@@ -380,11 +381,13 @@ function centreLine(ctx: Ctx, L: Look) {
 /** The lane coming in toward side `s`, across: a one-cell road's right half, or a whole lane of a wider one. */
 const inbound = (wide: boolean): [number, number] => (wide ? [-0.5, 0.5 - WALK] : [0, 0.5 - WALK]);
 
-/** GIVE WAY: two broken lines across the lane coming in, and the triangle behind them. */
-function giveWay(ctx: Ctx, s: Side, wide: boolean) {
+/** GIVE WAY: two broken lines across the lane coming in, and the triangle behind them — set back behind a crossing, the lines alone. */
+function giveWay(ctx: Ctx, s: Side, wide: boolean, back = false) {
   const [c0, c1] = inbound(wide);
   ctx.fillStyle = css(WHITE, 0.92);
-  for (const e of [0.035, 0.085]) for (const [a, b] of dashes(c0 + 0.01, c1 - 0.005, 0.045, 0.03)) { laneRect(ctx, s, e, e + 0.022, a, b); ctx.fill(); }
+  const e0 = back ? SET_BACK - 0.03 : 0;
+  for (const e of [0.035, 0.085]) for (const [a, b] of dashes(c0 + 0.01, c1 - 0.005, 0.045, 0.03)) { laneRect(ctx, s, e0 + e, e0 + e + 0.022, a, b); ctx.fill(); }
+  if (back) return;
   // The triangle, long, its base toward the line: an outline.
   const F = laneFrame(s), cm = (c0 + c1) / 2, half = Math.min(0.06, (c1 - c0) / 2 - 0.03);
   ctx.strokeStyle = css(WHITE, 0.9);
@@ -394,11 +397,15 @@ function giveWay(ctx: Ctx, s: Side, wide: boolean) {
   ctx.stroke();
 }
 
-/** STOP: a solid line across the lane coming in. */
-function stopLine(ctx: Ctx, s: Side, wide: boolean) {
+/** Where a line set back behind a junction's crossing is, from the junction's edge: just ahead of where cars wait. @see agents/lanes/graph CROSS_HOLD */
+const SET_BACK = 0.5 + CROSS_HOLD - 0.045;
+
+/** STOP: a solid line across the lane coming in — set back behind the crossing where there is one. */
+function stopLine(ctx: Ctx, s: Side, wide: boolean, back = false) {
   const [c0, c1] = inbound(wide);
+  const e = back ? SET_BACK : 0.04;
   ctx.fillStyle = css(WHITE, 0.94);
-  laneRect(ctx, s, 0.04, 0.085, c0 + 0.01, c1 - 0.005);
+  laneRect(ctx, s, e, e + 0.045, c0 + 0.01, c1 - 0.005);
   ctx.fill();
 }
 
@@ -493,9 +500,17 @@ function zebra(ctx: Ctx, L: Look) {
   for (const a of [0.2, 0.78]) for (const [b0, b1] of dashes(lo, hi, 0.04, 0.03)) { bandRect(ctx, s0, a, a + 0.02, b0, b1); ctx.fill(); }
 }
 
+/** A CROSSING AT LIGHTS: two broken lines over the road, either side of where walkers cross. */
+function signalCrossing(ctx: Ctx, L: Look) {
+  const [s0, s1] = acrossOf(L.xing);
+  const lo = has(L.open, s0) ? 0 : WALK + 0.01, hi = has(L.open, s1) ? 1 : 1 - WALK - 0.01;
+  ctx.fillStyle = css(WHITE, 0.9);
+  for (const a of [0.33, 0.65]) for (const [b0, b1] of dashes(lo, hi, 0.035, 0.03)) { bandRect(ctx, s0, a, a + 0.02, b0, b1); ctx.fill(); }
+}
+
 /** A road's wear and fittings, one of four: a gully, a manhole, a patch, cracks and a stain. */
 function fittings(ctx: Ctx, L: Look, S: Shape) {
-  if (L.open === 0 || L.box || L.zeb || L.rb) return;
+  if (L.open === 0 || L.box || L.zeb || L.xing || L.rb) return;
   const v = L.vr;
   if (v > 3) return; // most of a road is just road
   if (v === 0 && S.bands.length) {
@@ -573,14 +588,21 @@ function paintGround(ctx: Ctx, L: Look) {
   if (L.box) yellowBox(ctx, L);
   if (L.rb) islandFoot(ctx, L);
   if (L.zeb) zebra(ctx, L);
+  else if (L.xing) signalCrossing(ctx, L);
   if (L.zz) zigzags(ctx, L);
   centreLine(ctx, L);
   if (L.yl) {
     alongKerb(ctx, S, WALK + 0.018, WALK + 0.03, css(YELLOW, 0.92));
     alongKerb(ctx, S, WALK + 0.04, WALK + 0.052, css(YELLOW, 0.92));
   }
-  for (const ch of L.gw) { const k = Number(ch); giveWay(ctx, (k & 3) as Side, k >= 4); }
-  for (const ch of L.stop) { const k = Number(ch); stopLine(ctx, (k & 3) as Side, k >= 4); }
+  for (const ch of L.gw) {
+    const back = ch >= "a", k = back ? ch.charCodeAt(0) - 97 : Number(ch);
+    giveWay(ctx, (k & 3) as Side, k >= 4, back);
+  }
+  for (const ch of L.stop) {
+    const back = ch >= "a", k = back ? ch.charCodeAt(0) - 97 : Number(ch);
+    stopLine(ctx, (k & 3) as Side, k >= 4, back);
+  }
   if (L.arrow) arrow(ctx, L.arrow);
   for (const ch of L.slow) slow(ctx, Number(ch) as Side);
   // The kerb's face, where the raised pavement leaves it showing.

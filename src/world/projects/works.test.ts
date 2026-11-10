@@ -71,8 +71,8 @@ describe("a project", () => {
     const wallet = { money: 10_000 };
     const spend = (n: number) => (wallet.money >= n ? ((wallet.money -= n), true) : false);
     let walking = 0, working = 0;
-    // Thirty seconds: the furthest of them lives ten tiles off, at a walk.
-    for (let k = 0; k < 30 * 30; k++) {
+    // Forty seconds: the furthest of them lives ten tiles off, at a walk, by way of a crossing.
+    for (let k = 0; k < 40 * 30; k++) {
       stepTown(t, g, net, 0, 1 / 30);
       stepWorks(w, g, net, t, { intern: 10 }, spend, 1 / 30, k * 33);
       walking = Math.max(walking, t.movers.filter((m) => m.job?.role === "builder").length);

@@ -38,9 +38,10 @@ import {
   outward, placesOf, roadHeightAt, routeBetween, walkLine, type Cell, type Place,
 } from "./roads";
 import {
-  buildTraffic, CHANGE_LEN, inside, isChange, lightOf, lineOf, LANE_CLEAR, PATIENT, roadKey, roundTo, routeLanes, spotsAt, yieldsTo, zoneOn,
+  buildTraffic, CHANGE_LEN, inside, isChange, lightOf, lineOf, LANE_CLEAR, PATIENT, roadKey, roundTo, routeLanes, spotsAt, walkLeft, yieldsTo, zoneOn,
   type Spot, type Traffic,
 } from "./lanes/drive";
+import { walkBetween, type Walk } from "./lanes/walk";
 import type { LaneGraph } from "./lanes/graph";
 import type { Emergency } from "./emergency";
 
@@ -109,6 +110,12 @@ export type Mover = {
   sideTo?: number;
   /** Pulled in: where along its line it stops. */
   pullAt?: number;
+  /**
+   * ON FOOT over the pavements: the graph its way was planned on, the
+   * crossings on it, the next of them, whether it has stepped out onto that
+   * one, and how long it has stood at its kerb. @see walkBetween, mayCross
+   */
+  walk?: { graph: LaneGraph; crossings: Walk["crossings"]; k: number; on: boolean; waited: number };
 };
 
 /**
@@ -150,6 +157,8 @@ export type Town = {
   culture?: { remote: number; shuttle: boolean; vans: boolean };
   /** People out for a stroll, over the town's own: one a home on the finest streets. Set by the scene. @see liveBeauty */
   strollers?: number;
+  /** What each road cell wears, a zebra in bit 4: where walkers have the right of way. Set by the scene. @see roadDressOf */
+  dress?: Uint8Array;
   /** The benches' seats, by the cell they are on. Set by the scene. @see seatsByCell */
   seats?: Map<number, Seat[]>;
   /** The lanes, and who holds which junction's zones. Built as the roads change. @see trafficOf */
@@ -335,27 +344,43 @@ function along(m: Mover, s: number) {
 const drives = (m: { kind: Mover["kind"] }) => m.kind !== "person";
 
 function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place, to: Place, colour?: number, after?: Mover): Mover | null {
-  let path: Cell[], line: Cell[], drive: Drive | undefined;
+  let path: Cell[], line: Cell[], drive: Drive | undefined, walk: Mover["walk"];
   if (kind !== "person") {
     const way = driveWay(t, g, from, to, after);
     if (!way) return null;
     ({ path, line, drive } = way);
   } else {
-    const p = routeBetween(g, from, to, false);
-    if (!p || p.length < 2) return null;
-    path = p;
-    line = walkLine(g, path, (rand(t) - 0.5) * 0.08);
+    // OVER THE PAVEMENTS, crossing where they are crossed — or, where they
+    // do not join, along the kerb lines as before.
+    const T = trafficOf(t, g);
+    const w = walkBetween(T.G, g, from, to);
+    let shift = 0;
+    if (w) {
+      line = w.pts.slice();
+      path = cellsOf(g, line);
+      walk = { graph: T.G, crossings: w.crossings, k: 0, on: false, waited: 0 };
+    } else {
+      const p = routeBetween(g, from, to, false);
+      if (!p || p.length < 2) return null;
+      path = p;
+      line = walkLine(g, path, (rand(t) - 0.5) * 0.08);
+    }
     // OFF THE MAP AND ON AGAIN: a trip from a gateway comes in from beyond the
     // rim, and one to a gateway walks on past it.
     if (from.kind === "gateway") {
       const o = outward(g, from);
       line.unshift({ x: line[0].x + o.x * OFF_MAP, y: line[0].y + o.y * OFF_MAP });
+      shift = OFF_MAP;
     }
     if (to.kind === "gateway") {
       const o = outward(g, to), end = line[line.length - 1];
       line.push({ x: end.x + o.x * OFF_MAP, y: end.y + o.y * OFF_MAP });
     }
+    if (walk && shift) walk.crossings = walk.crossings.map((x) => ({ ...x, s0: x.s0 + shift, s1: x.s1 + shift }));
   }
+  // (No step of no length: a way has a heading at every point.)
+  line = line.filter((p, k) => k === 0 || Math.hypot(p.x - line[k - 1].x, p.y - line[k - 1].y) > 1e-6);
+  if (line.length < 2) return null;
   const at = new Float32Array(line.length);
   for (let k = 1; k < line.length; k++) at[k] = at[k - 1] + Math.hypot(line[k].x - line[k - 1].x, line[k].y - line[k - 1].y);
   const base = kind === "car" ? CAR_CRUISE : kind === "truck" ? TRUCK_CRUISE : kind === "bus" ? BUS_CRUISE
@@ -371,6 +396,11 @@ function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place, to: Place, c
     phase: rand(t) * Math.PI * 2,
     ...(drive ? { drive } : {}),
   };
+  if (walk) {
+    m.walk = walk;
+    // Not single file: each a little in or out of the pavement's middle.
+    m.side = m.sideTo = (rand(t) - 0.5) * 0.06;
+  }
   const p = along(m, 0);
   m.heading = after ? after.heading : Math.atan2(p.dy, p.dx);
   return m;
@@ -422,7 +452,16 @@ function driveWay(t: Town, g: Grid, from: Place, to: Place, after?: Mover, at?: 
     const n = pts.length, h = norm2(pts[n - 1].x - pts[n - 2].x, pts[n - 1].y - pts[n - 2].y);
     line.push({ x: pts[n - 1].x + h.x * OFF_MAP, y: pts[n - 1].y + h.y * OFF_MAP });
   }
-  // The cells it crosses, for the road going from under it.
+  const path = cellsOf(g, line);
+  const drive: Drive = {
+    graph: T.G, lanes: r.lanes, start: start.map((s) => s + shift), enter: enter.map((s) => s + shift), k: 0, let: 0, claims: [], waited: 0, to,
+    end: { lane: r.lanes[r.lanes.length - 1], s: r.s1 },
+  };
+  return { path, line, drive };
+}
+
+/** The cells a line crosses, for the road going from under it. */
+function cellsOf(g: Grid, line: readonly Cell[]): Cell[] {
   const path: Cell[] = [];
   for (const p of line) {
     const c = { x: Math.min(g.w - 1, Math.max(0, Math.round(p.x))), y: Math.min(g.h - 1, Math.max(0, Math.round(p.y))) };
@@ -430,11 +469,7 @@ function driveWay(t: Town, g: Grid, from: Place, to: Place, after?: Mover, at?: 
     if (!last || last.x !== c.x || last.y !== c.y) path.push(c);
   }
   if (path.length < 2) path.push(path[0]);
-  const drive: Drive = {
-    graph: T.G, lanes: r.lanes, start: start.map((s) => s + shift), enter: enter.map((s) => s + shift), k: 0, let: 0, claims: [], waited: 0, to,
-    end: { lane: r.lanes[r.lanes.length - 1], s: r.s1 },
-  };
-  return { path, line, drive };
+  return path;
 }
 
 const norm2 = (x: number, y: number) => { const l = Math.hypot(x, y) || 1; return { x: x / l, y: y / l }; };
@@ -502,7 +537,18 @@ export function wanted(places: readonly Place[], g: Grid): { cars: number; peopl
  * to be let onto which junction lane, and the zones let go by those past them.
  */
 type Onto = { m: Mover; s: number };
-function trafficNow(T: Traffic, cars: readonly Mover[]) {
+function trafficNow(T: Traffic, cars: readonly Mover[], walkers: readonly Mover[] = []) {
+  // ON FOOT AT THE CROSSINGS: who is out on one, who waits at its kerb.
+  const foot = { on: new Set<number>(), waiting: new Set<number>() };
+  for (const m of walkers) {
+    const w = m.walk;
+    if (!w || w.graph !== T.G || m.sit) continue;
+    const x = w.crossings[w.k];
+    if (!x) continue;
+    // (Out on it from when they make up their mind to go: the last steps to the kerb too.)
+    if (w.on) foot.on.add(x.c);
+    else if (x.s0 - m.s < KERB_LOOK) foot.waiting.add(x.c);
+  }
   const on = new Map<number, Onto[]>();
   const coming = new Map<number, { m: Mover; d: number }[]>();
   const blues: Mover[] = [];
@@ -532,7 +578,7 @@ function trafficNow(T: Traffic, cars: readonly Mover[]) {
     }
     letGo(T, m, false);
   }
-  return { on, coming, blues };
+  return { on, coming, blues, foot };
 }
 
 /**
@@ -630,6 +676,13 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
           if (gap > 0) follow(A, v, gap - spacing(m, o.m) + GAP, o.m.speed, GAP);
         }
       }
+    }
+    // A CROSSING ahead with somebody out on it — or, a zebra, at its kerb:
+    // stopped short of it. (Not one it is already over.)
+    for (const x of T.over.get(d.lanes[j]) ?? []) {
+      const front = d.start[j] + x.s - m.s - half;
+      if (front < CROSS_STOP || front > FOLLOW) continue;
+      if (now.foot.on.has(x.c) || (now.foot.waiting.has(x.c) && zebraAt(t, T, x.c))) follow(A, v, front - CROSS_STOP, 0, 0.02);
     }
     // LETTING IN one waiting beside to change onto this lane, a little ahead.
     for (const b of G.lanes[d.lanes[j]].beside ?? []) {
@@ -786,6 +839,52 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
   return true;
 }
 
+/** How far short of a crossing's kerb a walker looks to cross, tiles. */
+const KERB_LOOK = 0.35;
+/** How far a car's nose stops short of a crossing's middle, tiles: half its width and a little. */
+const CROSS_STOP = 0.2;
+/** A gap a walker crosses a plain road in, seconds; and how long they wait before trusting the cars to stop for them. */
+const CROSS_GAP = 2.5;
+const WALK_PATIENT = 10;
+
+/** Whether a crossing is a zebra, as the road is painted. */
+const zebraAt = (t: Town, T: Traffic, c: number) => !!t.dress && (t.dress[T.G.crossings[c].cells[0]] & 4) !== 0;
+
+/** The vehicles coming to a crossing, or on it: each with the gap from its nose to the crossing's middle. */
+function comingTo(T: Traffic, now: ReturnType<typeof trafficNow>, c: number): { m: Mover; f: number }[] {
+  const out: { m: Mover; f: number }[] = [];
+  for (const L of T.lanesOver.get(c) ?? []) {
+    const s = T.over.get(L)!.find((x) => x.c === c)!.s;
+    for (const o of now.on.get(L) ?? []) out.push({ m: o.m, f: s - o.s - halfLength(o.m) });
+    for (const P of T.into.get(L) ?? []) {
+      const len = T.G.lanes[P].len;
+      for (const o of now.on.get(P) ?? []) if (len - o.s + s < 4) out.push({ m: o.m, f: len - o.s + s - halfLength(o.m) });
+    }
+  }
+  return out;
+}
+
+/**
+ * WHETHER A WALKER MAY STEP OUT over a crossing now. At lights, on the walk,
+ * with time to get over. On a zebra, unless a car is too near to stop for
+ * them; elsewhere, in a gap in the traffic — or, waited long enough, as on a
+ * zebra. Never with a car over it.
+ */
+function mayCross(t: Town, T: Traffic, now: ReturnType<typeof trafficNow>, m: Mover, x: Walk["crossings"][number]): boolean {
+  const C = T.G.crossings[x.c];
+  const lit = C.junction >= 0 && T.G.junctions[C.junction].kind === "signals";
+  if (lit && walkLeft(T, C.junction, t.t) < (x.s1 - x.s0) / m.cruise + 0.5) return false;
+  const yielded = lit || zebraAt(t, T, x.c) || m.walk!.waited > WALK_PATIENT;
+  for (const { m: o, f } of comingTo(T, now, x.c)) {
+    if (f < -2 * halfLength(o) - CROSS_STOP) continue;
+    if (f < CROSS_STOP) return false;
+    if (o.speed < 0.1) continue;
+    const room = f - CROSS_STOP;
+    if (yielded ? room < (o.speed * o.speed) / (2 * IDM_B) + 0.15 : room / o.speed < CROSS_GAP) return false;
+  }
+  return true;
+}
+
 /** The fastest a walker may take its line where it is: to a stop at the end. */
 function lineLimit(m: Mover): number {
   const left = m.at[m.at.length - 1] - m.s;
@@ -892,7 +991,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
 
   // MOVING, each vehicle minding the lanes it is on. @see driveLimit
   const T = trafficOf(t, g);
-  const now = trafficNow(T, cars);
+  const now = trafficNow(T, cars, t.movers.filter((m) => m.walk));
   giveWayToBlues(T, cars, now);
   const taken = new Set<string>();
   for (const m of t.movers) if (m.sit) taken.add(m.sit.seat);
@@ -928,7 +1027,21 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
       if (m.drive && m.drive.graph === T.G) driveLimit(t, T, m, now, h, A);
       drive(m, A, h);
     } else {
-      const limit = lineLimit(m);
+      let limit = lineLimit(m);
+      // AT A CROSSING'S KERB: over when it is safe to be, and stood till then.
+      const w = m.walk;
+      if (w && w.graph === T.G) {
+        while (w.k < w.crossings.length && m.s > w.crossings[w.k].s1) { w.k++; w.on = false; w.waited = 0; }
+        const x = w.crossings[w.k];
+        if (x && !w.on) {
+          const to = x.s0 - m.s;
+          if (to <= 0 || (to < KERB_LOOK && mayCross(t, T, now, m, x))) w.on = true;
+          else if (to < KERB_LOOK) {
+            w.waited += h;
+            limit = Math.min(limit, Math.sqrt(2 * BRAKE * Math.max(0, to - 0.04)));
+          }
+        }
+      }
       if (m.speed < limit) m.speed = Math.min(limit, m.speed + ACCEL * h);
       else m.speed = Math.max(limit, m.speed - BRAKE * h);
     }

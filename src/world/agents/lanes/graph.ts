@@ -37,6 +37,8 @@ import {
   add, arc, chaikin, cross, distToLine, dot, lengths, minRadius, pointAt, right, turnCurve, type Pt,
 } from "./geometry";
 
+/** How far back of a crossing's middle a car's nose waits at a junction, tiles: clear of its stripes. @see render/road-paint stopLine */
+export const CROSS_HOLD = 0.3;
 /** The pavement's width with its kerb, tiles: `WALK` in render/road-paint.ts. */
 export const WALK = 0.26;
 /** How far from a cell's middle a walker on its pavement is. */
@@ -133,7 +135,13 @@ export type Street = {
 export type StreetEnd = { kind: "junction"; junction: number } | { kind: "rim" } | { kind: "dead" };
 
 export type WalkEdge = { a: number; b: number; len: number; crossing?: number };
-export type Crossing = { id: number; a: number; b: number; junction: number; street: number; end: 0 | 1 };
+/**
+ * A way over a street, kerb to kerb, across the middle of one slice of it: at
+ * the mouth of a junction (`junction`, `end`), or along it (`junction` -1).
+ * `cells`, the slice's cells across. `long`: along a street long enough to
+ * have a zebra, on a fine enough one, as a junction's mouth does. @see render/street-props roadDressOf
+ */
+export type Crossing = { id: number; a: number; b: number; junction: number; street: number; end?: 0 | 1; cells: number[]; long?: true };
 
 export type LaneGraph = {
   lanes: Lane[];
@@ -141,7 +149,8 @@ export type LaneGraph = {
   junctions: Junction[];
   streets: Street[];
   /** The pavements: points, the stretches between them, and each point's stretches. */
-  walk: { nodes: Pt[]; edges: WalkEdge[]; adj: number[][] };
+  /** The pavements: points, stretches between them, and each point's stretches; `at`, a point by its cell corner (`x,y,sx,sy`) or kerb middle (`x,y,m,side`). */
+  walk: { nodes: Pt[]; edges: WalkEdge[]; adj: number[][]; at: Map<string, number> };
   crossings: Crossing[];
   /** Road cells left out of any street or junction: joined to nothing. */
   loose: number;
@@ -302,10 +311,34 @@ export function buildLaneGraph(g: Grid): LaneGraph {
 
   // ── pavements ────────────────────────────────────────────────────────
   const { walk, crossings } = pavements(g, streets, junctions);
+  // Cars wait behind a junction's crossings, clear of them for whoever walks over.
+  for (const J of junctions) {
+    for (const A of J.arms) {
+      if (A.crossing === undefined) continue;
+      const c = crossings[A.crossing], m = { x: (walk.nodes[c.a].x + walk.nodes[c.b].x) / 2, y: (walk.nodes[c.a].y + walk.nodes[c.b].y) / 2 };
+      for (const id of A.inLanes) {
+        const l = lanes[id], e = l.pts[l.pts.length - 1];
+        const back = Math.abs(dot({ x: e.x - m.x, y: e.y - m.y }, heading(l)));
+        l.hold = Math.max(l.hold ?? 0, back + CROSS_HOLD);
+      }
+    }
+  }
 
   let loose = 0;
   for (let i = 0; i < n; i++) if (isPaved(g, i % g.w, (i / g.w) | 0) && streetOf[i] < 0 && region[i] < 0) loose++;
   return { lanes, zones, junctions, streets, walk, crossings, loose };
+}
+
+/** Cells between crossings along a street, about. */
+export const CROSS_EVERY = 8;
+/**
+ * Where along a street of `n` slices it is crossed, as well as at its ends:
+ * slices from its start. One in the middle of anything four long or more, and
+ * one every {@link CROSS_EVERY} on a long one. @see render/street-props roadDressOf
+ */
+export function alongCrossings(n: number): number[] {
+  const k = n >= 4 ? Math.max(1, Math.floor(n / CROSS_EVERY)) : 0;
+  return Array.from({ length: k }, (_, i) => Math.floor(((i + 0.5) * n) / k));
 }
 
 /** The way a lane runs at its end. */
@@ -675,6 +708,13 @@ function pavements(g: Grid, streets: readonly Street[], junctions: readonly Junc
     if (id === undefined) { id = nodes.length; nodes.push({ x: x + sx * PAVE_AT, y: y + sy * PAVE_AT }); key.set(k, id); }
     return id;
   };
+  /** The middle of a cell's kerb on side `d`. */
+  const mid = (x: number, y: number, d: Dir) => {
+    const k = `${x},${y},m,${d}`;
+    let id = key.get(k);
+    if (id === undefined) { const v = V(d); id = nodes.length; nodes.push({ x: x + v.x * PAVE_AT, y: y + v.y * PAVE_AT }); key.set(k, id); }
+    return id;
+  };
   const edges: WalkEdge[] = [];
   const seen = new Set<string>();
   const edge = (a: number, b: number, crossing?: number) => {
@@ -686,6 +726,41 @@ function pavements(g: Grid, streets: readonly Street[], junctions: readonly Junc
   /** A kerb: a side with no road beyond it, inside the map. */
   const kerb = (x: number, y: number, d: Dir) =>
     isPaved(g, x, y) && !connects(g, x, y, d) && inBounds(g, x + NEIGHBOUR[d][0], y + NEIGHBOUR[d][1]);
+  // WHERE THE CROSSINGS GO: over the middle of a street's last slice at each
+  // junction of three ways or more, and along a long street, every so often.
+  type Plan = { st: Street; a: number; junction: number; end?: 0 | 1; long?: true };
+  const plans: Plan[] = [];
+  const cellsOf = (st: Street, a: number) => {
+    const [b0, b1] = st.span[a - st.a0];
+    const at = (b: number) => (st.axis === "x" ? { x: a, y: b } : { x: b, y: a });
+    // The kerbs either side: off the low side and the high side across.
+    const [lo, hi] = st.axis === "x" ? (["E", "W"] as const) : (["N", "S"] as const);
+    return { first: at(b0), last: at(b1), lo: lo as Dir, hi: hi as Dir };
+  };
+  const across = (st: Street, a: number) => {
+    const { first, last, lo, hi } = cellsOf(st, a);
+    const lv = V(lo);
+    // The low side is the one toward smaller coordinates across.
+    const [dl, dh] = (st.axis === "x" ? lv.y : lv.x) < 0 ? [lo, hi] : [hi, lo];
+    return kerb(first.x, first.y, dl) && kerb(last.x, last.y, dh) ? { first, last, dl, dh } : null;
+  };
+  for (const J of junctions) for (const A of J.arms) {
+    // Round a bend, or at the end of a road, the pavement runs round: nothing to cross.
+    if (J.arms.length < 3) continue;
+    const st = streets[A.street];
+    plans.push({ st, a: A.end ? st.a1 : st.a0, junction: J.id, end: A.end });
+  }
+  for (const st of streets) {
+    const n = st.a1 - st.a0 + 1;
+    for (const k of alongCrossings(n)) plans.push({ st, a: st.a0 + k, junction: -1, ...(n >= CROSS_EVERY ? { long: true as const } : {}) });
+  }
+  const split = new Set<string>();
+  const ok = plans.filter((P) => {
+    const c = across(P.st, P.a);
+    if (!c) return false;
+    split.add(`${c.first.x},${c.first.y},${c.dl}`); split.add(`${c.last.x},${c.last.y},${c.dh}`);
+    return true;
+  });
   for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
     if (!isPaved(g, x, y)) continue;
     for (const d of DIRS) {
@@ -694,7 +769,10 @@ function pavements(g: Grid, streets: readonly Street[], junctions: readonly Junc
       // The two ways along this kerb.
       const along: Pt[] = dv.x ? [{ x: 0, y: -1 }, { x: 0, y: 1 }] : [{ x: -1, y: 0 }, { x: 1, y: 0 }];
       const [e0, e1] = along;
-      edge(node(x, y, dv.x || e0.x, dv.y || e0.y), node(x, y, dv.x || e1.x, dv.y || e1.y));
+      const n0 = node(x, y, dv.x || e0.x, dv.y || e0.y), n1 = node(x, y, dv.x || e1.x, dv.y || e1.y);
+      // Through its middle, where a crossing sets off from it.
+      if (split.has(`${x},${y},${d}`)) { const m = mid(x, y, d); edge(n0, m); edge(m, n1); }
+      else edge(n0, n1);
       for (const e of along) {
         const ed = dirOf(e);
         if (!connects(g, x, y, ed)) continue;
@@ -704,26 +782,33 @@ function pavements(g: Grid, streets: readonly Street[], junctions: readonly Junc
         if (kerb(nx, ny, d)) { edge(here, node(nx, ny, dv.x || -e.x, dv.y || -e.y)); continue; }
         // …or turns round its nub, up the side street.
         const mx = nx + dv.x, my = ny + dv.y;
-        if (connects(g, nx, ny, d) && kerb(mx, my, dirOf({ x: -e.x, y: -e.y }))) edge(here, node(mx, my, -e.x || -dv.x, -e.y || -dv.y));
+        // (By the nub's own corner, on the road's side of the block's corner, not across it.)
+        if (connects(g, nx, ny, d) && kerb(mx, my, dirOf({ x: -e.x, y: -e.y }))) {
+          const nub = node(nx, ny, dv.x || -e.x, dv.y || -e.y);
+          edge(here, nub);
+          edge(nub, node(mx, my, -e.x || -dv.x, -e.y || -dv.y));
+        }
       }
     }
   }
-  // CROSSINGS over each street's mouth, kerb to kerb, at the junction's edge.
+  // THE CROSSINGS, kerb middle to kerb middle.
   const crossings: Crossing[] = [];
-  for (const J of junctions) for (const A of J.arms) {
-    // Round a bend, or at the end of a road, the pavement runs round: nothing to cross.
-    if (J.arms.length < 3) continue;
-    const st = streets[A.street];
-    const a = A.end ? st.a1 : st.a0, s = A.end ? 1 : -1;
-    const [b0, b1] = st.span[a - st.a0];
-    const lo = st.axis === "x" ? node(a, b0, s, -1) : node(b0, a, -1, s);
-    const hi = st.axis === "x" ? node(a, b1, s, 1) : node(b1, a, 1, s);
-    const c: Crossing = { id: crossings.length, a: lo, b: hi, junction: J.id, street: st.id, end: A.end };
+  for (const P of ok) {
+    const { first, last, dl, dh } = across(P.st, P.a)!;
+    const c: Crossing = {
+      id: crossings.length, a: mid(first.x, first.y, dl), b: mid(last.x, last.y, dh), junction: P.junction, street: P.st.id,
+      ...(P.end !== undefined ? { end: P.end } : {}), ...(P.long ? { long: true as const } : {}),
+      cells: Array.from({ length: Math.abs(last.x - first.x) + Math.abs(last.y - first.y) + 1 }, (_, k) =>
+        idx(g, first.x + Math.sign(last.x - first.x) * k, first.y + Math.sign(last.y - first.y) * k)),
+    };
     crossings.push(c);
-    A.crossing = c.id;
-    edge(lo, hi, c.id);
+    if (P.junction >= 0) {
+      const A = junctions[P.junction].arms.find((r) => r.street === P.st.id && r.end === P.end);
+      if (A) A.crossing = c.id;
+    }
+    edge(c.a, c.b, c.id);
   }
   const adj: number[][] = nodes.map(() => []);
   edges.forEach((e, k) => { adj[e.a].push(k); adj[e.b].push(k); });
-  return { walk: { nodes, edges, adj }, crossings };
+  return { walk: { nodes, edges, adj, at: key }, crossings };
 }

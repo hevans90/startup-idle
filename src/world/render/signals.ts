@@ -9,7 +9,7 @@
 import { Container, Graphics } from "pixi.js";
 
 import { roadHeightAt } from "../agents/roads";
-import { lightOf, type Traffic } from "../agents/lanes/drive";
+import { lightOf, walkLeft, type Traffic } from "../agents/lanes/drive";
 import { right, sub, dot, type Pt } from "../agents/lanes/geometry";
 import type { Grid } from "../grid";
 import { bandOf } from "../iso";
@@ -22,23 +22,28 @@ type State = keyof typeof LAMP;
 /** Lamp heights, top down. */
 const AT: Record<State, number> = { red: 1.62, amber: 1.5, green: 1.38 };
 
-/** Where an arm's pole stands: the corner on the right of the way in. */
-function poleAt(T: Traffic, j: number, arm: number): { p: Pt; face: Pt } | null {
+/** The walk lamp, under the head, facing over the crossing: don't walk above, walk below; its height. */
+const WALKER = { stop: 0xff4a32, walk: 0xe8fff0 } as const;
+const WALK_AT = { stop: 1.04, walk: 0.94 } as const;
+
+/** Where an arm's pole stands: the corner on the right of the way in; and which way over its crossing is. */
+function poleAt(T: Traffic, j: number, arm: number): { p: Pt; face: Pt; over: Pt } | null {
   const G = T.G, A = G.junctions[j].arms[arm];
   const l = G.lanes[A.inLanes[0]];
   if (!l) return null;
   const end = l.pts[l.pts.length - 1], h = { x: -A.out.x, y: -A.out.y }, r = right(h);
   const c = A.crossing !== undefined ? G.crossings[A.crossing] : undefined;
   if (c) {
-    for (const n of [c.a, c.b]) {
-      const p = G.walk.nodes[n];
-      if (dot(sub(p, end), r) > 0) return { p, face: A.out };
+    for (const [n, o] of [[c.a, c.b], [c.b, c.a]]) {
+      const p = G.walk.nodes[n], q = G.walk.nodes[o];
+      const d = sub(q, p), l = Math.hypot(d.x, d.y) || 1;
+      if (dot(sub(p, end), r) > 0) return { p, face: A.out, over: { x: d.x / l, y: d.y / l } };
     }
   }
   return null;
 }
 
-type Pole = { j: number; arm: number; lit: Record<State, Graphics>; on: State | "" };
+type Pole = { j: number; arm: number; lit: Record<State, Graphics>; on: State | ""; man: Partial<Record<keyof typeof WALKER, Graphics>>; walk: boolean | null };
 
 export type Signals = {
   sync: (g: Grid, T: Traffic, scale: number) => void;
@@ -66,7 +71,7 @@ export function createSignals(bands: BandLayer): Signals {
         J.arms.forEach((_, arm) => {
           const at = poleAt(T, J.id, arm);
           if (!at) return;
-          const { p, face } = at;
+          const { p, face, over } = at;
           const band = bandOf(Math.round(p.x), Math.round(p.y)), layer = bands.dynamicOf[band];
           if (!layer) return;
           const box = new Container();
@@ -98,9 +103,24 @@ export function createSignals(bands: BandLayer): Signals {
               lit[s] = gr;
             }
           } else head();
+          // THE WALK LAMP, a little box on the pole facing over the crossing; lit only on the side the camera sees.
+          const wx = p.x + over.x * 0.035, wy = p.y + over.y * 0.035;
+          pen.box(wx - 0.028, wy - 0.028, wx + 0.028, wy + 0.028, 0.88, 1.1, POLE, { top: tone(POLE, 1.3) });
+          const man: Pole["man"] = {};
+          if (over.x + over.y > 0) {
+            const mx = wx + over.x * 0.03, my = wy + over.y * 0.03;
+            for (const s of Object.keys(WALKER) as (keyof typeof WALKER)[]) {
+              pen.dot(mx, my, WALK_AT[s], 0.022, tone(WALKER[s], 0.35));
+              const gr = new Graphics();
+              makePen(gr, 0, 0, z, scale, null).dot(mx, my, WALK_AT[s], 0.024, WALKER[s]);
+              gr.alpha = 0;
+              box.addChild(gr);
+              man[s] = gr;
+            }
+          }
           layer.addChild(box);
           drawn.push(box);
-          poles.push({ j: J.id, arm, lit, on: "" });
+          poles.push({ j: J.id, arm, lit, on: "", man, walk: null });
         });
       }
     },
@@ -111,6 +131,13 @@ export function createSignals(bands: BandLayer): Signals {
         if (P.on && P.lit[P.on]) P.lit[P.on].alpha = 0;
         if (P.lit[s]) P.lit[s].alpha = 1;
         P.on = s;
+      }
+      for (const P of poles) {
+        const w = walkLeft(T, P.j, t) > 0;
+        if (w === P.walk) continue;
+        if (P.man.walk) P.man.walk.alpha = w ? 1 : 0;
+        if (P.man.stop) P.man.stop.alpha = w ? 0 : 1;
+        P.walk = w;
       }
     },
     destroy() { clear(); key = ""; },

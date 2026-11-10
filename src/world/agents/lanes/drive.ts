@@ -31,9 +31,10 @@ import { dot, pointAt, sub, type Pt } from "./geometry";
 export type Spot = { lane: number; s: number };
 export type Route = { lanes: number[]; s0: number; s1: number };
 
-/** Lights: green, amber, and the all-red between, seconds. */
-export const GREEN = 9, AMBER = 2, CLEARANCE = 1.5;
-export const CYCLE = 2 * (GREEN + AMBER + CLEARANCE);
+/** Lights: green, amber, and the all-red between, seconds; then, all red, the walk, and its clearance. */
+export const GREEN = 9, AMBER = 2, CLEARANCE = 1.5, WALK_TIME = 6;
+const PHASES = 2 * (GREEN + AMBER + CLEARANCE);
+export const CYCLE = PHASES + WALK_TIME + CLEARANCE;
 
 export type Traffic = {
   G: LaneGraph;
@@ -54,6 +55,9 @@ export type Traffic = {
   split: Map<string, number>;
   /** Zones a car has waited long for, a curve of another's holding them: whose curve, and when last asked. No more join that hold. */
   hungry: Map<number, { lane: number; at: number }>;
+  /** Each lane's crossings, where along it, in order; and each crossing's lanes. */
+  over: Map<number, { c: number; s: number }[]>;
+  lanesOver: Map<number, number[]>;
 };
 
 /** Curves this far apart, middle to middle, keep their cars clear of each other, tiles. */
@@ -101,7 +105,40 @@ export function buildTraffic(g: Grid, key = roadKey(g)): Traffic {
       split.set(`${a},${b}`, s);
     }
   }
-  return { G, key, byCell, claims: new Map(), offset, into, split, hungry: new Map() };
+  // OVER THE CROSSINGS: where each lane runs over each, by lane, along it.
+  const over = new Map<number, { c: number; s: number }[]>();
+  const lanesOver = new Map<number, number[]>();
+  for (const c of G.crossings) {
+    const a = G.walk.nodes[c.a], b = G.walk.nodes[c.b];
+    const near = new Set<number>();
+    for (const i of c.cells) for (const l of byCell.get(i) ?? []) near.add(l);
+    for (const id of near) {
+      const l = G.lanes[id];
+      for (let k = 1; k < l.pts.length; k++) {
+        const t = segCross(l.pts[k - 1], l.pts[k], a, b);
+        if (t === null) continue;
+        const s = l.at[k - 1] + t * (l.at[k] - l.at[k - 1]);
+        const list = over.get(id) ?? [];
+        list.push({ c: c.id, s });
+        over.set(id, list.sort((p, q) => p.s - q.s));
+        const ls = lanesOver.get(c.id) ?? [];
+        if (!ls.includes(id)) ls.push(id);
+        lanesOver.set(c.id, ls);
+        break;
+      }
+    }
+  }
+  return { G, key, byCell, claims: new Map(), offset, into, split, hungry: new Map(), over, lanesOver };
+}
+
+/** Where along p0→p1 it crosses q0→q1, 0–1, or null. */
+function segCross(p0: Pt, p1: Pt, q0: Pt, q1: Pt): number | null {
+  const rx = p1.x - p0.x, ry = p1.y - p0.y, sx = q1.x - q0.x, sy = q1.y - q0.y;
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-9) return null;
+  const qx = q0.x - p0.x, qy = q0.y - p0.y;
+  const t = (qx * sy - qy * sx) / den, u = (qx * ry - qy * rx) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
 }
 
 /** The nearest point of a lane to a point, as a distance along it. */
@@ -302,6 +339,13 @@ export function lightOf(T: Traffic, junction: number, arm: number, t: number): "
   if (into >= 0 && into < GREEN) return "green";
   if (into >= GREEN && into < GREEN + AMBER) return "amber";
   return "red";
+}
+
+/** Seconds of the walk left at a lights junction, at a time: 0 when walkers wait. */
+export function walkLeft(T: Traffic, junction: number, t: number): number {
+  const tau = (((t + (T.offset.get(junction) ?? 0)) % CYCLE) + CYCLE) % CYCLE;
+  const into = tau - PHASES;
+  return into >= 0 && into < WALK_TIME ? WALK_TIME - into : 0;
 }
 
 /** Where a zone is along one of its two lanes, and the other lane. */

@@ -114,7 +114,21 @@ Tests: `emergency.test.ts`, plus cyclists and a four-lane road in `lanes/traffic
 - Caps go to 80 cars. A spatial hash over lanes means each mover only checks its own
   lane, the next connector and its zones.
 
-## Phase 4 — Crossings
+## Phase 4 — Crossings ✅
+Done: `lanes/walk.ts` (routing), crossings in `lanes/graph.ts`, `mayCross` and the car's stop in
+`town.ts`, the walk phase (`walkLeft`), paint in `roads/looks.ts` / `render/road-paint.ts`, the walk lamp
+in `render/signals.ts`. Tests: `lanes/walkers.test.ts`. Notes:
+- A crossing goes over the middle of a street's last cell at a junction of three ways or more (where the
+  zebra paint already was), and along any street 4+ long — one per 8 cells. Along a street 8+ long on
+  a fine street it is a zebra, with beacons; elsewhere plain.
+- Cars wait behind a junction's crossings (`hold`), so the give-way and stop lines moved back with
+  them (paint codes `a`–`h`), and a lane's arrow moved a cell back. A crossing at lights is marked with
+  two broken lines.
+- Lights get a 6 s all-red walk phase per cycle; walkers set off only with time to get over.
+- Zebras: cars stop for anyone on one or waiting at its kerb; walkers wait only for a car too near to
+  stop. Plain: a 2.5 s gap, or after 10 s, as on a zebra. Cars stop for anyone on any crossing.
+- Walkers keep a small side offset so they aren't single file. Where the pavements don't join two
+  places, a walker falls back to the old kerb line.
 - Walkers route over the **pavement graph** (Dijkstra, cost by length, with a small
   penalty per crossing) and only cross on crossing links.
 - **Zebras**: generated at junction mouths on streets of beauty level 2 and up
