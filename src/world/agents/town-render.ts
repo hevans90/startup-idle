@@ -23,12 +23,12 @@ import type { BandLayer } from "../render/bands";
 import { baseCorners, bakedCars, headingIndex, loadCarSprites, modelFor, pitchMatrix, type CarSprites } from "./cars/car-sheet";
 import { beaconsOf, HALF_STEPS_PER_M, TILES_PER_M } from "./cars/models";
 import { flashing } from "./emergency";
-import { BIKE_LENGTH, BIKE_WIDTH } from "./people/people-format";
+import { BIKE_LENGTH, BIKE_WIDTH, COLLAR, DOGS } from "./people/people-format";
 
 /** A bike's footprint, tiles: what decides its band. */
 const BIKE_BASE = { length: BIKE_LENGTH * TILES_PER_M, width: BIKE_WIDTH * TILES_PER_M };
 import { figureFor, heightOf, riderFor } from "./people/cast";
-import { bakedPeople, peopleSprites, posePerson, type PeopleSprites } from "./people/people-sheet";
+import { bakedPeople, peopleSprites, posePerson, type PeopleSprites, type PoseSet } from "./people/people-sheet";
 import { AI_TRUCK_COLOUR, atWork, HALF_STEP_IN_TILES, LEG, SWING, type Mover, type Town } from "./town";
 
 /** A car, tiles long and wide, and its body and cabin heights in half steps. */
@@ -223,7 +223,18 @@ function createAtlas(renderer: Renderer) {
 const PERSON_BASE = [{ u: 0.02, v: 0.02 }, { u: -0.02, v: 0.02 }, { u: 0.02, v: -0.02 }, { u: -0.02, v: -0.02 }];
 
 /** One mover on the map: a container of its sprites — one for a vehicle, a part each for a person. */
-type Shown = { c: Container; parts: Sprite[]; band: number; key: string; baked: boolean; tilted: boolean; flash?: Sprite[] };
+type Shown = { c: Container; parts: Sprite[]; band: number; key: string; baked: boolean; tilted: boolean; flash?: Sprite[]; lead?: Graphics };
+
+/** A walker's pose: stood still, running, hand in hand, or walking. @see posePerson */
+export function walkerPose(m: Mover): PoseSet {
+  if (m.sit) return "sit";
+  if (atWork(m)) return "work";
+  if (m.speed < 0.02) return "stand";
+  return m.jog ? "run" : m.hand !== undefined ? "hold" : "walk";
+}
+
+/** A lead, from the walker's hand to the dog's collar. */
+const LEAD_COLOUR = 0x2b2420;
 
 /** Blue lights: their colour, and flashes a second, each end of the bar in turn. */
 const BLUE = 0x4a8dff;
@@ -290,13 +301,63 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
     return glow;
   };
 
+  /** Into the band its front is in, ordered in it by depth, `dz` nearer the camera. */
+  const file = (d: Shown, mx: number, my: number, front: readonly { u: number; v: number }[], dz: number) => {
+    let band = -Infinity;
+    for (const p of front) band = Math.max(band, Math.round(mx + p.u) + Math.round(my + p.v));
+    band = Math.max(0, Math.min(bands.bands.length - 1, band));
+    const z = mx + my - band + dz;
+    if (band !== d.band) {
+      d.c.parent?.removeChild(d.c);
+      d.c.zIndex = z;
+      bands.dynamicOf[band].addChild(d.c);
+      d.band = band;
+    } else if (crosses(d.c, z)) d.c.zIndex = z;
+  };
+
+  /** Where a point is on the screen: `l` forward and `w` to the right of (x, y) facing `heading`, tiles, `up` metres over `z`. */
+  const screenAt = (x: number, y: number, z: number, heading: number, l: number, w: number, up: number, scale: number) => {
+    const u = x + l * Math.cos(heading) - w * Math.sin(heading), v = y + l * Math.sin(heading) + w * Math.cos(heading);
+    return { x: (u - v) * HW * scale, y: (u + v) * HH * scale - (z + up * HALF_STEPS_PER_M) * HEIGHT_UNIT * scale };
+  };
+
+  /** A walker's dog, drawn as one of the people sheet's figures, under its own id; and its lead, drawn with the walker. */
+  const walkDog = (m: Mover, ox: number, oy: number, owner: Shown, scale: number) => {
+    const g = m.dog!, id = -m.id;
+    live.add(id);
+    let d = drawn.get(id);
+    if (!d) {
+      const c = new Container();
+      c.eventMode = "none";
+      const parts = Array.from({ length: 5 }, () => { const sp = new Sprite(); c.addChild(sp); return sp; });
+      const [coat, marks] = DOGS[g.breed].coats[g.coat];
+      parts[2].tint = coat; parts[3].tint = marks;
+      d = { c, parts, band: -1, key: "", baked: true, tilted: false };
+      drawn.set(id, d);
+    }
+    d.key = posePerson(d.parts, people!, `dog-${g.breed}`, g.sniff > 0 ? "sniff" : "walk", g.heading, g.phase, scale, 1, d.key);
+    const dx = (g.x - g.y) * HW * scale, dy = (g.x + g.y) * HH * scale - g.z * HEIGHT_UNIT * scale;
+    d.c.position.set(dx, dy);
+    file(d, g.x, g.y, PERSON_BASE, 0);
+    // THE LEAD: from the walker's left hand, sagging a little, to the collar.
+    if (!owner.lead) { owner.lead = new Graphics(); owner.c.addChild(owner.lead); }
+    const k = heightOf(m.id);
+    const hand = screenAt(m.x, m.y, m.z, m.heading, 0.04 * TILES_PER_M, -0.3 * TILES_PER_M, 0.82 * k, scale);
+    const C = COLLAR[g.breed], col = screenAt(g.x, g.y, g.z, g.heading, C.l * TILES_PER_M, 0, C.z, scale);
+    const hx = hand.x - ox, hy = hand.y - oy, cx = col.x - ox, cy = col.y - oy;
+    const sag = Math.min(3, Math.hypot(cx - hx, cy - hy) * 0.15) * scale;
+    owner.lead.clear().moveTo(hx, hy).quadraticCurveTo((hx + cx) / 2, (hy + cy) / 2 + sag, cx, cy)
+      .stroke({ width: 0.3 * scale, color: LEAD_COLOUR });
+  };
+
+  let live = new Set<number>();
   const draw = (town: Town, scale: number) => {
     // A new scale is every look baked again.
     if (scale !== atScale) {
       atlas.destroy(); atlas = createAtlas(renderer); looks.clear(); atScale = scale;
       for (const d of drawn.values()) d.key = "";
     }
-    const live = new Set<number>();
+    live = new Set<number>();
     // (The parked cars too, in their bays.)
     for (const m of town.parked.length ? [...town.movers, ...town.parked] : town.movers) {
       // A BUILDER AT WORK is drawn by the site, where the work is: on the
@@ -372,7 +433,10 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         }
       } else if (fig && d.baked) {
         // FROM THE PEOPLE SHEET: the frame for their heading and step, or their hammer's swing.
-        d.key = posePerson(d.parts, people!, figId!, bike ? "ride" : m.sit ? "sit" : atWork(m) ? "work" : "walk", m.heading, m.phase, scale, heightOf(m.id), d.key);
+        const pose = bike ? "ride" : walkerPose(m);
+        // Stood, swaying slowly from foot to foot.
+        const phase = pose === "stand" ? town.t * 0.9 + m.id : m.phase;
+        d.key = posePerson(d.parts, people!, figId!, pose, m.heading, phase, scale, heightOf(m.id), d.key);
         d.c.position.set(x, y);
         front = bike ? baseCorners(BIKE_BASE, m.heading) : PERSON_BASE;
       } else {
@@ -385,17 +449,10 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       d.c.position.set(x, y);
       front = look.front;
       }
-      let band = -Infinity;
-      for (const p of front) band = Math.max(band, Math.round(m.x + p.u) + Math.round(m.y + p.v));
-      band = Math.max(0, Math.min(bands.bands.length - 1, band));
       // SAT ON A BENCH: in front of one that faces the camera, behind the back of one that faces away. @see street-props
-      const z = m.x + m.y - band + (m.sit ? 0.06 * Math.sign(Math.cos(m.heading) + Math.sin(m.heading)) : 0);
-      if (band !== d.band) {
-        d.c.parent?.removeChild(d.c);
-        d.c.zIndex = z;
-        bands.dynamicOf[band].addChild(d.c);
-        d.band = band;
-      } else if (crosses(d.c, z)) d.c.zIndex = z;
+      file(d, m.x, m.y, front, m.sit ? 0.06 * Math.sign(Math.cos(m.heading) + Math.sin(m.heading)) : 0);
+      // A DOG on its lead, and the lead from the hand to its collar.
+      if (m.dog && people && fig && d.baked) walkDog(m, x, y, d, scale);
     }
     for (const [id, d] of drawn) {
       if (live.has(id)) continue;

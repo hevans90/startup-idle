@@ -9,15 +9,15 @@ import { Assets, Rectangle, Texture, type Sprite } from "pixi.js";
 
 import { headingIndex } from "../cars/car-sheet";
 
-import { PERSON_GAP, type PeopleSheet, type PersonFrame } from "./people-format";
+import { PERSON_GAP, type FigureFrames, type FrameSet, type PeopleSheet, type PersonFrame } from "./people-format";
 
 const BASE = "/isometric_assets/derived";
 
 /** A frame's layers: each a texture and its anchor, the figure's feet. */
 export type PersonLook = { tex: Texture[]; anchor: { x: number; y: number }[] };
 export type PeopleSprites = {
-  res: number; headings: number; strides: number;
-  figures: Map<string, { walk: PersonLook[]; work?: PersonLook[]; sit: PersonLook[]; ride?: PersonLook[] }>;
+  res: number; headings: number; strides: number; runStrides: number; standFrames: number;
+  figures: Map<string, Partial<Record<FrameSet, PersonLook[]>> & { walk: PersonLook[] }>;
 };
 
 export const bakedPeople = () =>
@@ -39,8 +39,11 @@ export async function loadPeopleSprites(): Promise<PeopleSprites> {
     return { tex, anchor };
   };
   const figures: PeopleSprites["figures"] = new Map();
-  for (const [id, f] of Object.entries(sheet.figures)) figures.set(id, { walk: f.walk.map(cut), work: f.work?.map(cut), sit: f.sit.map(cut), ride: f.ride?.map(cut) });
-  return { res: sheet.res, headings: sheet.headings, strides: sheet.strides, figures };
+  for (const [id, f] of Object.entries(sheet.figures)) {
+    const sets = Object.fromEntries(Object.entries(f as FigureFrames).map(([k, v]) => [k, (v as PersonFrame[]).map(cut)]));
+    figures.set(id, sets as PeopleSprites["figures"] extends Map<string, infer V> ? V : never);
+  }
+  return { res: sheet.res, headings: sheet.headings, strides: sheet.strides, runStrides: sheet.runStrides, standFrames: sheet.standFrames, figures };
 }
 
 /** The sheet, loaded once for the town and the building sites both. */
@@ -50,25 +53,29 @@ export const peopleSprites = () => (loading ??= loadPeopleSprites().then((p) => 
 /** The sheet if it is in yet, else null: whoever draws a person meanwhile draws the old one. */
 export const peopleLoaded = () => loaded;
 
+/** How a figure is drawn: a set of its frames, its step or sway through them. Sets it has no frames for fall back. */
+export type PoseSet = "walk" | "work" | "sit" | "ride" | "stand" | "run" | "hold" | "sniff";
+
 /**
- * Turn a person's five sprites to the frame for their heading and their step
- * — or their hammer's swing, at work, or sat down — at the map's scale and
- * their height.
+ * Turn a person's five sprites — or a dog's — to the frame for their heading
+ * and their step, their hammer's swing, their sway, or sat down, at the map's
+ * scale and their height. A set the figure has no frames for is drawn as
+ * walking; stood, as the first frame of it.
  * Answers the frame's key, so a caller can skip it when nothing has changed.
  */
 export function posePerson(
-  parts: readonly Sprite[], P: PeopleSprites, figure: string, pose: "walk" | "work" | "sit" | "ride",
+  parts: readonly Sprite[], P: PeopleSprites, figure: string, pose: PoseSet,
   heading: number, phase: number, scale: number, height: number, was = "",
 ): string {
   const fig = P.figures.get(figure)!;
   const h = headingIndex(heading, P.headings);
-  const sat = pose === "sit";
-  const frames = sat ? fig.sit : pose === "work" && fig.work ? fig.work : pose === "ride" && fig.ride ? fig.ride : fig.walk;
+  const frames = fig[pose] ?? fig.walk, set = fig[pose] ? pose : "walk";
+  const n = set === "sit" || set === "sniff" ? 1 : set === "stand" ? P.standFrames : set === "run" ? P.runStrides : P.strides;
   const p = (((phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
-  const f = sat ? 0 : Math.round(p * P.strides) % P.strides;
-  const key = `figure|${figure}|${sat ? "s" : frames === fig.work ? "w" : frames === fig.ride ? "r" : ""}|${h}|${f}|${scale}|${height}`;
+  const f = pose === "stand" && set === "walk" ? 0 : Math.round(p * n) % n;
+  const key = `figure|${figure}|${set}|${h}|${f}|${scale}|${height}`;
   if (key === was) return key;
-  const look = frames[sat ? h : h * P.strides + f], k = (scale / P.res) * height;
+  const look = frames[h * n + f], k = (scale / P.res) * height;
   look.tex.forEach((t, j) => { const sp = parts[j]; sp.texture = t; sp.anchor.set(look.anchor[j].x, look.anchor[j].y); sp.scale.set(k); });
   return key;
 }

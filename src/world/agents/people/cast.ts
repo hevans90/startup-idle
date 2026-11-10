@@ -15,9 +15,9 @@ const PICKS = Object.entries(FIGURE_WEIGHTS).flatMap(([id, w]) => Array<string>(
 const ofId = <T>(id: number, salt: number, list: readonly T[]) =>
   list[Math.abs(Math.imul(id ^ salt, 0x9e3779b1) >>> 7) % list.length];
 
-export function figureFor(m: Pick<Mover, "id" | "job">): string {
+export function figureFor(m: Pick<Mover, "id" | "job" | "look">): string {
   if (m.job && m.job.role !== "moving-in") return "builder";
-  return ofId(m.id, 0x9e0, PICKS);
+  return m.look ?? ofId(m.id, 0x9e0, PICKS);
 }
 
 /** Which figure rides a bike: one of those dressed for it. @see RIDERS */

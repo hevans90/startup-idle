@@ -4,7 +4,8 @@
  *     bun run bake:people
  *
  * Every figure in `src/world/agents/people/figures.ts`, at every heading and
- * every frame of its walk — and a builder's at work — rendered by the
+ * every frame of its walk — a builder's at work, a rider's on a bike, sat,
+ * stood, running, hand in hand — and the dogs, rendered by the
  * vehicles' rasteriser into layers, each cropped to what it covers, and
  * packed into 2048² pages with an index the game reads. @see bake-cars.ts
  */
@@ -12,9 +13,11 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { bakeTris } from "../src/world/agents/cars/raster.ts";
-import { FIGURES, figureTris, layerOfMat, PERSON_LAYERS, RIDERS } from "../src/world/agents/people/figures.ts";
+import type { Tri } from "../src/world/agents/cars/raster.ts";
+import { dogTris, FIGURES, figureTris, layerOfMat, PERSON_LAYERS } from "../src/world/agents/people/figures.ts";
 import {
-  PERSON_GAP, PERSON_HEADINGS, PERSON_RES, PERSON_SHADOW, PERSON_STRIDES, RIDER_SHADOW, SITTER_SHADOW, type PeopleSheet, type PersonFrame,
+  BREEDS, DOG_SHADOW, JOGGERS, KIDS, PARENTS, PERSON_GAP, PERSON_HEADINGS, PERSON_RES, PERSON_SHADOW, PERSON_STRIDES, RIDER_SHADOW, RIDERS,
+  RUN_STRIDES, SITTER_SHADOW, STAND_FRAMES, type FrameSet, type PeopleSheet, type PersonFrame,
 } from "../src/world/agents/people/people-format.ts";
 import { encodePng, type Image } from "./png-min.ts";
 
@@ -46,38 +49,45 @@ function crop(img: Image, ox: number, oy: number): { img: Image; ox: number; oy:
   return { img: { w, h, px }, ox: ox - x0, oy: oy - y0 };
 }
 
-type Baked = { id: string; set: "walk" | "work" | "sit" | "ride"; k: number; layers: ReturnType<typeof crop>[] };
-const rides = (id: string) => (RIDERS as readonly string[]).includes(id);
+type Baked = { id: string; set: FrameSet; k: number; layers: ReturnType<typeof crop>[] };
+const has = (list: readonly string[], id: string) => list.includes(id);
 const t0 = performance.now();
 const baked: Baked[] = [];
-for (const f of FIGURES) for (const set of f.hivis ? (["walk", "work"] as const) : (["walk"] as const)) {
-  for (let h = 0; h < PERSON_HEADINGS; h++) for (let s = 0; s < PERSON_STRIDES; s++) {
-    const heading = (h / PERSON_HEADINGS) * Math.PI * 2, phase = (s / PERSON_STRIDES) * Math.PI * 2;
-    // The arm nearer the camera, which looks down the +u +v diagonal, swings the hammer.
-    const near = -Math.sin(heading) + Math.cos(heading) >= 0 ? 1 : -1;
-    const b = bakeTris(figureTris(f, phase, set, near), heading, PERSON_RES,
-      { layers: PERSON_LAYERS.length, layerOf: layerOfMat, shadow: PERSON_SHADOW });
-    baked.push({ id: f.id, set, k: h * PERSON_STRIDES + s, layers: b.layers.map((img) => crop(img, b.ox, b.oy)) });
-  }
-  // ON A BIKE, those who ride: a turn of the pedals at every heading.
-  if (set === "walk" && rides(f.id)) {
-    for (let h = 0; h < PERSON_HEADINGS; h++) for (let s = 0; s < PERSON_STRIDES; s++) {
-      const heading = (h / PERSON_HEADINGS) * Math.PI * 2, phase = (s / PERSON_STRIDES) * Math.PI * 2;
-      const b = bakeTris(figureTris(f, phase, "ride", 1), heading, PERSON_RES, { layers: PERSON_LAYERS.length, layerOf: layerOfMat, shadow: RIDER_SHADOW });
-      baked.push({ id: f.id, set: "ride", k: h * PERSON_STRIDES + s, layers: b.layers.map((img) => crop(img, b.ox, b.oy)) });
-    }
-  }
-  // SAT DOWN: a frame a heading, still.
-  for (let h = 0; h < PERSON_HEADINGS; h++) {
+const opts = (shadow: typeof PERSON_SHADOW) => ({ layers: PERSON_LAYERS.length, layerOf: layerOfMat, shadow });
+/** A set of frames, `n` a heading, each heading's in turn: `tris` for heading and frame. */
+function bakeSet(id: string, set: FrameSet, n: number, shadow: typeof PERSON_SHADOW, tris: (heading: number, k: number) => Tri[]) {
+  for (let h = 0; h < PERSON_HEADINGS; h++) for (let s = 0; s < n; s++) {
     const heading = (h / PERSON_HEADINGS) * Math.PI * 2;
-    const b = bakeTris(figureTris(f, 0, "sit", 1), heading, PERSON_RES, { layers: PERSON_LAYERS.length, layerOf: layerOfMat, shadow: SITTER_SHADOW });
-    baked.push({ id: f.id, set: "sit", k: h, layers: b.layers.map((img) => crop(img, b.ox, b.oy)) });
+    const b = bakeTris(tris(heading, s), heading, PERSON_RES, opts(shadow));
+    baked.push({ id, set, k: h * n + s, layers: b.layers.map((img) => crop(img, b.ox, b.oy)) });
   }
 }
+const turn = (s: number, n: number) => (s / n) * Math.PI * 2;
+for (const f of FIGURES) {
+  bakeSet(f.id, "walk", PERSON_STRIDES, PERSON_SHADOW, (_, s) => figureTris(f, turn(s, PERSON_STRIDES), "walk", 1));
+  // At work, the arm nearer the camera — which looks down the +u +v diagonal — swinging the hammer.
+  if (f.hivis) bakeSet(f.id, "work", PERSON_STRIDES, PERSON_SHADOW, (heading, s) =>
+    figureTris(f, turn(s, PERSON_STRIDES), "work", -Math.sin(heading) + Math.cos(heading) >= 0 ? 1 : -1));
+  // ON A BIKE, those who ride: a turn of the pedals at every heading.
+  if (has(RIDERS, f.id)) bakeSet(f.id, "ride", PERSON_STRIDES, RIDER_SHADOW, (_, s) => figureTris(f, turn(s, PERSON_STRIDES), "ride", 1));
+  // SAT DOWN, still; and STOOD, swaying.
+  bakeSet(f.id, "sit", 1, SITTER_SHADOW, () => figureTris(f, 0, "sit", 1));
+  bakeSet(f.id, "stand", STAND_FRAMES, PERSON_SHADOW, (_, s) => figureTris(f, turn(s, STAND_FRAMES), "stand", 1));
+  // RUNNING, the joggers; HAND IN HAND, a grown-up's left in a child's right.
+  if (has(JOGGERS, f.id)) bakeSet(f.id, "run", RUN_STRIDES, PERSON_SHADOW, (_, s) => figureTris(f, turn(s, RUN_STRIDES), "run", 1));
+  if (has(PARENTS, f.id) || has(KIDS, f.id)) bakeSet(f.id, "hold", PERSON_STRIDES, PERSON_SHADOW, (_, s) =>
+    figureTris(f, turn(s, PERSON_STRIDES), "hold", has(KIDS, f.id) ? -1 : 1));
+}
+// THE DOGS, trotting and sniffing.
+for (const breed of BREEDS) {
+  bakeSet(`dog-${breed}`, "walk", PERSON_STRIDES, DOG_SHADOW, (_, s) => dogTris(breed, turn(s, PERSON_STRIDES), "walk"));
+  bakeSet(`dog-${breed}`, "sniff", 1, DOG_SHADOW, () => dogTris(breed, 0, "sniff"));
+}
+const ids = [...FIGURES.map((f) => f.id), ...BREEDS.map((b) => `dog-${b}`)];
 const sheet: PeopleSheet = {
-  res: PERSON_RES, headings: PERSON_HEADINGS, strides: PERSON_STRIDES, layers: PERSON_LAYERS.length, pages: [], figures: {},
+  res: PERSON_RES, headings: PERSON_HEADINGS, strides: PERSON_STRIDES, runStrides: RUN_STRIDES, standFrames: STAND_FRAMES,
+  layers: PERSON_LAYERS.length, pages: [], figures: Object.fromEntries(ids.map((id) => [id, { walk: [] }])),
 };
-for (const f of FIGURES) sheet.figures[f.id] = { walk: [], sit: [], ...(f.hivis ? { work: [] } : {}), ...(rides(f.id) ? { ride: [] } : {}) };
 const tall = (b: Baked) => Math.max(...b.layers.map((l) => l.img.h));
 for (const b of baked.sort((p, q) => tall(q) - tall(p))) {
   const w = b.layers.reduce((s, l) => s + l.img.w, 0) + GAP * (b.layers.length - 1);
@@ -89,7 +99,7 @@ for (const b of baked.sort((p, q) => tall(q) - tall(p))) {
     frame.push(l.img.w, l.img.h, l.ox, l.oy);
     lx += l.img.w + GAP;
   }
-  sheet.figures[b.id][b.set]![b.k] = frame;
+  (sheet.figures[b.id][b.set] ??= [])[b.k] = frame;
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
@@ -102,4 +112,4 @@ pages.forEach((p, k) => {
   sheet.pages.push(name);
 });
 writeFileSync(join(OUT_DIR, "people.json"), JSON.stringify(sheet));
-console.log(`${FIGURES.length} figures, ${baked.length} frames → ${pages.length} page(s) in ${Math.round(performance.now() - t0)} ms; last page to y=${used}`);
+console.log(`${ids.length} figures, ${baked.length} frames → ${pages.length} page(s) in ${Math.round(performance.now() - t0)} ms; last page to y=${used}`);

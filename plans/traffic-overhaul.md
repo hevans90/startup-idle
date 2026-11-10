@@ -176,7 +176,24 @@ step (`stepParked`), arrivals (`parkIn`, `toBay`, `fromBay`) and getting by them
 - Parked cars persist for their trip duration, and some are always parked (a share of
   residents), so streets look lived-in. Bays cap at ~1.5× cars. This isn't saved.
 
-## Phase 6 — Walker life
+## Phase 6 — Walker life ✅
+Done: `agents/walker-life.ts` (`stepWalkers`, `stepDogs`), company set off in `town.ts` (`companyFor`),
+poses and dogs in `people/figures.ts` and `dev/bake-people.ts`, dogs and leads in `town-render.ts`.
+Tests: `agents/walker-life.test.ts`. Notes:
+- Each walker keeps 0.03 right of its line; meeting someone, 0.05. A slower walker ahead in the way: out
+  to the left past them if nobody is coming on that side, else behind at their pace. Not leaders with
+  company beside them, nor dog walkers, nor on a crossing.
+- Company (5% threes, 16% pairs, 7% a child): followers share the leader's line, abreast or in file when
+  someone is coming; they mind the crossings themselves and the leader waits for them on the far kerb.
+  A child is always abreast, hand in hand (`hold` pose; `HOLD_GAP_M` sets the gap so the hands meet).
+- Joggers 6%, at 2.2× the pace (`run`, 8 frames). Dogs 8%: terrier, lab or dachshund, three coats each,
+  trotting a little ahead on the left, sniffing every 5–14 s for 1.5–4 s with the walker stopped at the
+  end of the lead; never on a crossing before their walker. The lead is a curve drawn hand to collar.
+- Chats: two lone walkers meeting, 12% a pair, 4–12 s facing each other; a lone walker passing a shop
+  door, 20%, stops at the window. Anyone stood still is drawn in the `stand` pose, swaying.
+- Groups, joggers and dog walkers don't sit on benches. The sheet grew from 2 to about 3.2 pages.
+- A car pulling out of a bay is held to 0.25 tiles/s until clear of the kerb (it had clipped the car in front).
+
 - **Pavement lanes**: two lanes per pavement (keep right). Walkers overtake by
   moving to the other lane when it's clear, and step aside for oncoming groups.
   This is a social force on a 1-D lane with side offset, not full 2-D crowds.

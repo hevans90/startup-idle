@@ -13,7 +13,7 @@
  */
 import type { Mat } from "../cars/models";
 import { cross, face, norm, sub, type Tri, type V3 } from "../cars/raster";
-import { STEP_M } from "./people-format";
+import { CHILD_HEIGHT, CHILD_STEP_M, HOLD_GAP_M, HOLD_REACH_M, HOLD_Z, STEP_M, type Breed } from "./people-format";
 
 export type Figure = {
   id: string;
@@ -27,6 +27,8 @@ export type Figure = {
   hivis?: boolean;
   /** A woman's figure: shorter, a waist, hips and a bust, narrower shoulders, slimmer limbs. */
   fem?: boolean;
+  /** A child: the figure scaled down whole, the head larger for it. @see CHILD_HEIGHT */
+  child?: boolean;
 };
 
 export const FIGURES: readonly Figure[] = [
@@ -42,6 +44,8 @@ export const FIGURES: readonly Figure[] = [
   { id: "skirtLong", build: 0.9, lower: "skirt", sleeves: "long", hair: "bun", fem: true },
   { id: "slim", build: 0.88, lower: "trousers", sleeves: "short", hair: "ponytail", carry: "bag", fem: true },
   { id: "builder", build: 1.1, lower: "trousers", sleeves: "long", hair: "hardhat", hivis: true },
+  { id: "kid", build: 1.05, lower: "shorts", sleeves: "short", hair: "short", child: true },
+  { id: "kidSkirt", build: 1, lower: "skirt", sleeves: "short", hair: "ponytail", child: true },
 ];
 export const figureById = new Map(FIGURES.map((f) => [f.id, f]));
 
@@ -64,7 +68,7 @@ const HEAD: V3 = [0.015, 0, 1.64];
  * skate. @see people-format STEP_M
  */
 export const STRIDE_M = STEP_M;
-const swingFor = (scale: number) => Math.asin(Math.min(0.95, STRIDE_M / scale / (2 * (THIGH + SHIN) * 0.97)));
+const swingFor = (scale: number, step = STRIDE_M) => Math.asin(Math.min(0.95, step / scale / (2 * (THIGH + SHIN) * 0.97)));
 const KNEE = 0.45;
 
 // ─── PRIMITIVES ──────────────────────────────────────────────────────────────
@@ -144,7 +148,11 @@ export function loft(rings: { z: number; l: number; rl: number; rw: number }[], 
 
 // ─── THE POSE ────────────────────────────────────────────────────────────────
 
-export type Pose = "walk" | "work" | "sit" | "ride";
+/**
+ * Walking; at work; sat down; on a bike; stood, swaying a little from foot to
+ * foot; running; or walking hand in hand. @see figureTris
+ */
+export type Pose = "walk" | "work" | "sit" | "ride" | "stand" | "run" | "hold";
 
 /**
  * A BICYCLE, metres, in the rider's own frame — the saddle over the origin:
@@ -246,13 +254,17 @@ export const SIT_HIP = 0.56;
 /**
  * A figure posed: walking at `phase` (π a step, as the town counts it); at
  * work — feet planted and the arm nearer the camera, `near` (+1 left, −1
- * right), swinging a hammer; or sitting, on a seat under the origin, facing
- * forward, hands in their lap.
+ * right), swinging a hammer; sitting, on a seat under the origin, facing
+ * forward, hands in their lap; stood, `phase` its sway; running; or walking
+ * with the hand on side `near` holding another's. @see HOLD_GAP_M
  */
 export function figureTris(f: Figure, phase: number, pose: Pose, near: number): Tri[] {
   const work = pose === "work", sit = pose === "sit", ride = pose === "ride";
+  const stand = pose === "stand", run = pose === "run", hold = pose === "hold";
   const out: Tri[] = [];
-  const b = f.build, fem = !!f.fem;
+  const b = f.build, fem = !!f.fem && !f.child;
+  /** How tall, as a share of a man: scaled to it whole, at the end. */
+  const tall = f.child ? CHILD_HEIGHT : fem ? FEM_HEIGHT : 1;
   const hipW = (fem ? 0.08 : 0.088) * b, shW = (fem ? 0.162 : 0.185) * b;
   /** Limbs a little slimmer on a woman. */
   const lr = fem ? 0.86 : 1;
@@ -280,8 +292,23 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
       const ankle: V3 = [side * 0.05, side * (hipW + 0.04), ANKLE_Z];
       return { hip, knee: [0.04, side * (hipW + 0.02), (HIP_Z + ANKLE_Z) / 2], ankle, foot: 0 };
     }
+    if (stand) {
+      // Feet a little apart, the weight on one and then the other.
+      const hip: V3 = [0, side * hipW, HIP_Z];
+      const ankle: V3 = [side * 0.01, side * (hipW + 0.025), ANKLE_Z];
+      return { hip, knee: [0.015, side * (hipW + 0.012), (HIP_Z + ANKLE_Z) / 2], ankle, foot: 0 };
+    }
     const p = phase + (side > 0 ? 0 : Math.PI);
-    const th = swingFor(fem ? FEM_HEIGHT : 1) * Math.sin(p), bend = KNEE * Math.max(0, Math.cos(p));
+    if (run) {
+      // RUNNING: a long swing, the heel kicked up behind as the leg comes through.
+      const th = 0.62 * Math.sin(p) + 0.08, bend = 0.35 + 1.25 * Math.max(0, Math.cos(p));
+      const hip: V3 = [0, side * hipW, HIP_Z];
+      const knee = add(hip, [Math.sin(th) * THIGH, 0, -Math.cos(th) * THIGH]);
+      const ankle = add(knee, [Math.sin(th - bend) * SHIN, 0, -Math.cos(th - bend) * SHIN]);
+      return { hip, knee, ankle, foot: Math.max(-0.6, Math.min(0.6, (th - bend) * 0.6)) };
+    }
+    const step = f.child ? CHILD_STEP_M : STRIDE_M;
+    const th = swingFor(tall, step) * Math.sin(p), bend = KNEE * Math.max(0, Math.cos(p));
     const hip: V3 = [0, side * hipW, HIP_Z];
     const knee = add(hip, [Math.sin(th) * THIGH, 0, -Math.cos(th) * THIGH]);
     const ankle = add(knee, [Math.sin(th - bend) * SHIN, 0, -Math.cos(th - bend) * SHIN]);
@@ -323,7 +350,7 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
   }
 
   // THE BODY, hips to shoulders, leaning into the walk; its lower part is the bottoms.
-  const lean = ride ? 0.2 : sit ? -0.03 : work ? 0.01 : 0.025;
+  const lean = ride ? 0.2 : run ? 0.09 : sit ? -0.03 : work || stand ? 0.01 : 0.025;
   const waist = 1.0 - drop;
   const top: Mat = "top";
   const vest = (p: V3): Mat => {
@@ -379,10 +406,20 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
     let up: number, fore: number;
     if (sit) { up = 0.3; fore = 1.35; }
     else if (work) { up = side === near ? 1.2 + 0.9 * Math.sin(phase) : 0.45; fore = up + 0.6; }
+    else if (stand) { up = 0.04; fore = 0.16; }
+    else if (run) { const th = Math.asin((g.knee[0] - g.hip[0]) / THIGH); up = -1.0 * th; fore = up + 1.5; }
     else { const th = Math.asin((g.knee[0] - g.hip[0]) / THIGH); up = -0.8 * th; fore = up + 0.35; }
     const out1 = side * 0.06;
     let elbow = add(shoulder, [Math.sin(up) * UPPER_ARM, out1 * 0.5, -Math.cos(up) * UPPER_ARM]);
     let wrist = add(elbow, [Math.sin(fore) * FOREARM, out1 * 0.3, -Math.cos(fore) * FOREARM]);
+    if (hold && side === near) {
+      // HAND IN HAND, out to the side and a little forward: where the other's
+      // hand is, a grown-up's down and out, a child's up, in this figure's
+      // own measure before it is scaled. @see HOLD_GAP_M
+      const reach = f.child ? HOLD_GAP_M - HOLD_REACH_M : HOLD_REACH_M;
+      wrist = at([0.03 / tall, side * (reach - 0.04) / tall, (HOLD_Z + 0.02) / tall]);
+      elbow = jointOf(shoulder, wrist, UPPER_ARM, FOREARM, [-0.2, side * 0.5, -1]);
+    }
     if (ride) {
       // HANDS ON THE BARS, the elbows a little bent, down and out.
       wrist = [BIKE.grip[0] - 0.045, side * BIKE.grip[1], BIKE.grip[2] + 0.025];
@@ -403,8 +440,9 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
 
   // THE HEAD on its neck, a nose to say which way it faces, and the hair.
   // On a bike, carried forward over the leaning shoulders and a little down, looking up the road.
-  const head = ride ? add(at(HEAD), [lean + 0.04, 0, -0.04]) : at(HEAD), hl = head[0], hz = head[2];
+  const head = ride ? add(at(HEAD), [lean + 0.04, 0, -0.04]) : run ? add(at(HEAD), [lean - 0.01, 0, -0.01]) : at(HEAD), hl = head[0], hz = head[2];
   limb([lean, 0, 1.47 - drop], [hl, 0, hz - 0.08], 0.05, 0.045, "skin", out, 8, false);
+  const headFrom = out.length;
   const hairline = (p: V3) => {
     const dl = (p[0] - hl) / 0.1, dz = p[2] - hz;
     return dz > 0.035 - 0.1 * Math.max(0, -dl) + 0.02 * Math.max(0, dl);
@@ -425,17 +463,35 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
     ball([hl + 0.02, 0, hz + 0.035], [0.15, 0.13, 0.012], "hardhat", out, undefined, 12, 3);
   }
 
+  // A CHILD'S HEAD larger, as children's are, for how small they are.
+  if (f.child) for (let j = headFrom; j < out.length; j++) {
+    const t = out[j], k = 1.3, c: V3 = [hl, 0, hz - 0.03];
+    t.p = t.p.map((q) => add(c, mul(sub(q, c), k))) as Tri["p"];
+    const paint = t.paint;
+    if (paint) t.paint = (q) => paint(add(c, mul(sub(q, c), 1 / k)));
+  }
   // WHAT THEY CARRY: a backpack on their back, or a bag at the hip on a strap.
-  if (f.carry === "backpack") ball([lean - 0.17, 0, 1.2 - drop], [0.07, 0.14, 0.17], "bag", out);
-  if (f.carry === "bag") {
+  const carry = run || f.child ? undefined : f.carry;
+  if (carry === "backpack") ball([lean - 0.17, 0, 1.2 - drop], [0.07, 0.14, 0.17], "bag", out);
+  if (carry === "bag") {
     ball([0.0, -0.21 * b, 0.98 - drop], [0.12, 0.04, 0.09], "bag", out);
     limb([lean, 0.17 * b, 1.42 - drop], [0.0, -0.2 * b, 1.06 - drop], 0.012, 0.012, "bag", out, 4, false);
   }
-  // A WOMAN a little shorter: 1.63 m to a man's 1.75, scaled whole about her feet.
-  if (fem) for (const t of out) {
-    t.p = t.p.map((q) => mul(q, FEM_HEIGHT)) as Tri["p"];
+  // STOOD, swaying a little from side to side about the feet.
+  if (stand) {
+    const sway = 0.018 * Math.sin(phase);
+    for (const t of out) {
+      t.p = t.p.map((q) => [q[0], q[1] + sway * q[2], q[2]]) as Tri["p"];
+      const paint = t.paint;
+      if (paint) t.paint = (q) => paint([q[0], q[1] - sway * q[2], q[2]]);
+    }
+  }
+  // A WOMAN a little shorter: 1.63 m to a man's 1.75, scaled whole about her
+  // feet; a child much shorter, their head larger for it.
+  if (tall !== 1) for (const t of out) {
+    t.p = t.p.map((q) => mul(q, tall)) as Tri["p"];
     const paint = t.paint;
-    if (paint) t.paint = (q) => paint(mul(q, 1 / FEM_HEIGHT));
+    if (paint) t.paint = (q) => paint(mul(q, 1 / tall));
   }
   if (ride) {
     // ON HER BIKE, or his: the bike under them, and the two moved back so the bike's middle is the point.
@@ -452,3 +508,75 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
 
 /** How tall a woman's figure is, as a share of a man's. */
 export const FEM_HEIGHT = 0.93;
+
+// ─── DOGS ────────────────────────────────────────────────────────────────────
+
+/**
+ * A breed's measures, metres: its body's length and depth, how high its back
+ * is, how long its legs, its head and muzzle, and its ears and tail.
+ */
+const BREED: Record<Breed, {
+  len: number; deep: number; wide: number; back: number; leg: number; head: number; muzzle: number;
+  ears: "up" | "flop"; tail: "up" | "out"; neck: number;
+}> = {
+  terrier: { len: 0.36, deep: 0.085, wide: 0.07, back: 0.27, leg: 0.17, head: 0.07, muzzle: 0.06, ears: "up", tail: "up", neck: 0.08 },
+  lab: { len: 0.6, deep: 0.13, wide: 0.11, back: 0.52, leg: 0.34, head: 0.1, muzzle: 0.1, ears: "flop", tail: "out", neck: 0.12 },
+  dachs: { len: 0.56, deep: 0.075, wide: 0.065, back: 0.22, leg: 0.1, head: 0.065, muzzle: 0.09, ears: "flop", tail: "out", neck: 0.08 },
+};
+
+/**
+ * A DOG, facing +x, its middle over the origin: trotting at `phase` (π a step,
+ * the legs in diagonal pairs), or stood with its nose to the ground, sniffing.
+ * Its coat is `top` and its markings — ears, tail's tip, a saddle — `hair`,
+ * both tinted in the game; the nose and eyes are dark, the collar red.
+ */
+export function dogTris(breed: Breed, phase: number, pose: "walk" | "sniff"): Tri[] {
+  const B = BREED[breed], out: Tri[] = [];
+  const sniff = pose === "sniff";
+  const half = B.len / 2, bob = sniff ? 0 : 0.008 * Math.abs(Math.cos(phase));
+  const back = B.back - bob;
+  // THE BODY: a loaf from the haunches to the chest, its back marked darker.
+  const saddle = (p: V3): Mat => (p[2] > back - 0.012 && Math.abs(p[0]) < half * 0.6 ? "hair" : "top");
+  ball([0, 0, back - B.deep], [half, B.wide, B.deep], "top", out, saddle, 14, 8);
+  ball([half * 0.7, 0, back - B.deep * 0.9], [B.deep * 1.1, B.wide * 1.1, B.deep * 1.1], "top", out, undefined, 10, 6);
+  ball([-half * 0.7, 0, back - B.deep], [B.deep, B.wide, B.deep], "top", out, undefined, 10, 6);
+  // THE LEGS in diagonal pairs, forward and back through the trot, a paw at each foot.
+  for (const [fx, side, off] of [[1, 1, 0], [-1, -1, 0], [1, -1, Math.PI], [-1, 1, Math.PI]] as const) {
+    const top: V3 = [fx * half * 0.72, side * B.wide * 0.7, back - B.deep * 1.2];
+    const p = phase + off, a = sniff ? 0 : 0.42 * Math.sin(p), lift = sniff ? 0 : 0.18 * B.leg * Math.max(0, Math.cos(p));
+    const L = top[2] - 0.015;
+    const paw: V3 = [top[0] + Math.sin(a) * L, top[1], top[2] - Math.cos(a) * L + lift];
+    const knee = lerp(top, paw, 0.5);
+    knee[0] += fx > 0 ? -0.01 : 0.02;
+    limb(top, knee, B.wide * 0.42, B.wide * 0.3, "top", out, 6);
+    limb(knee, paw, B.wide * 0.3, B.wide * 0.24, "top", out, 6, false);
+    ball([paw[0] + 0.012, paw[1], paw[2] + 0.005], [B.wide * 0.34, B.wide * 0.28, B.wide * 0.2], "top", out, undefined, 6, 4);
+  }
+  // THE NECK and HEAD: up and forward, or down to the ground, nose first.
+  const neckFoot: V3 = [half * 0.82, 0, back - B.deep * 0.4];
+  const headAt: V3 = sniff
+    ? [half + B.neck * 0.9, 0, B.head + B.muzzle * 0.4]
+    : [half + B.neck * 0.45, 0, back + B.neck * 0.75];
+  limb(neckFoot, headAt, B.wide * 0.7, B.wide * 0.6, "top", out, 8, false);
+  // The collar, red, round the neck by the head. @see COLLAR
+  const collar = lerp(neckFoot, headAt, 0.62);
+  ball(collar, [B.wide * 0.5, B.wide * 0.68, B.wide * 0.5], "tail", out, undefined, 8, 4);
+  ball(headAt, [B.head, B.head * 0.85, B.head * 0.9], "top", out, undefined, 10, 6);
+  // The muzzle, forward of the head — down at the ground, sniffing — its nose and eyes dark.
+  const dir: V3 = sniff ? norm([0.5, 0, -1]) : [1, 0, -0.15];
+  const muzzle = add(headAt, mul(dir, B.head * 0.7 + B.muzzle * 0.5));
+  ball(muzzle, [B.muzzle * 0.6, B.head * 0.5, B.head * 0.45], "top", out, undefined, 8, 5);
+  ball(add(muzzle, mul(dir, B.muzzle * 0.55)), [0.018, 0.02, 0.016], "shoe", out, undefined, 6, 4);
+  for (const side of [1, -1]) ball(add(headAt, [B.head * 0.55, side * B.head * 0.5, B.head * 0.35]), [0.012, 0.012, 0.012], "shoe", out, undefined, 5, 3);
+  // THE EARS, pricked up or hanging, and the TAIL, up and wagging or out behind.
+  for (const side of [1, -1]) {
+    if (B.ears === "up") limb(add(headAt, [-0.01, side * B.head * 0.55, B.head * 0.6]), add(headAt, [-0.02, side * B.head * 0.75, B.head * 1.35]), 0.022, 0.006, "hair", out, 5, false);
+    else ball(add(headAt, [-B.head * 0.2, side * B.head * 0.85, -B.head * 0.15]), [B.head * 0.45, B.head * 0.15, B.head * 0.7], "hair", out, undefined, 8, 5);
+  }
+  const wag = 0.05 * Math.sin(phase * 2) + (sniff ? 0.03 : 0);
+  const tail0: V3 = [-half * 0.95, 0, back - B.deep * 0.2];
+  const tail1: V3 = B.tail === "up" ? add(tail0, [-0.04, wag, B.len * 0.32]) : add(tail0, [-B.len * 0.4, wag, B.len * 0.08]);
+  limb(tail0, lerp(tail0, tail1, 0.6), B.wide * 0.28, B.wide * 0.2, "top", out, 6, false);
+  limb(lerp(tail0, tail1, 0.6), tail1, B.wide * 0.2, B.wide * 0.08, "hair", out, 6, false);
+  return out;
+}

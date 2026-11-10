@@ -30,7 +30,8 @@ import type { Grid } from "../grid";
 import { liveCommutes } from "./commute";
 import { AI_TRUCK_COLOUR, BUS_COLOUR, halfLength, SHUTTLE_COLOUR, VAN_COLOUR } from "./cars/fleet";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
-import { PEDAL_TURN_M, STEP_TILES } from "./people/people-format";
+import { BREEDS, CHILD_STEP_M, DOGS, JOGGERS, KIDS, PARENTS, PEDAL_TURN_M, RUN_STEP_M, STEP_TILES } from "./people/people-format";
+import { dogFor, HAND_GAP, KEEP, stepDogs, stepWalkers, type Dog } from "./walker-life";
 import { TILES_PER_M } from "./cars/models";
 import { isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
@@ -133,6 +134,27 @@ export type Mover = {
   pass?: { lane: number; a: number; b: number };
   /** Arrived short of the end of its way: a car parked on it. */
   there?: boolean;
+  /** Just out of a bay, still pulling out from the kerb. */
+  leaving?: boolean;
+  /**
+   * ON THE PAVEMENTS, walking with others: whose company they are in and
+   * their place in it; how many keep theirs; whose hand they hold; running;
+   * a dog on a lead; stood a while, facing which way; and whether they have
+   * stopped to talk, or looked in a window, this walk. @see walker-life
+   */
+  group?: { lead: number; k: number };
+  crew?: number;
+  hand?: number;
+  jog?: boolean;
+  dog?: Dog;
+  pause?: { left: number; face: number };
+  chatted?: boolean;
+  browsed?: boolean;
+  /** Which figure, when not by a hash of it: a parent, a child, a jogger. @see figureFor */
+  look?: string;
+  /** The fastest the pavement lets it go this step, and whether someone is coming the other way. */
+  cap?: number;
+  busy?: boolean;
 };
 
 /**
@@ -216,9 +238,26 @@ export const HALF_STEP_IN_TILES = HEIGHT_UNIT / Math.hypot(HW, HH);
 export const STRIDE = STEP_TILES;
 export const SWING = Math.asin(STRIDE / (2 * LEG * HALF_STEP_IN_TILES));
 
+/**
+ * COMPANY ON FOOT: the shares of walkers out for a run, with a dog, with a
+ * child by the hand, and with one or two others; and how much faster a
+ * jogger goes. @see companyFor, walker-life
+ */
+const JOG_SHARE = 0.06, DOG_SHARE = 0.08, KID_SHARE = 0.07, PAIR_SHARE = 0.16, THREE_SHARE = 0.05;
+const JOG_PACE = 2.2;
+const RUN_STEP_TILES = RUN_STEP_M * TILES_PER_M, CHILD_STEP_TILES = CHILD_STEP_M * TILES_PER_M;
+/**
+ * PULLING OUT from the kerb: no faster than this, tiles a second, while still
+ * further than `KERB_CLEAR` over toward it — so its nose does not clip the car
+ * parked in front of it.
+ */
+const PULL_OUT_SPEED = 0.25, KERB_CLEAR = 0.1;
+/** How fast a walker steps to the side, tiles a second. */
+const WALK_SIDE_RATE = 0.15;
+
 /** At most this many cars and people. */
 export const MAX_CARS = 80;
-export const MAX_PEOPLE = 50;
+export const MAX_PEOPLE = 120;
 /**
  * People living on the map to a car on its roads: cars follow the headcount,
  * not how many buildings it is spread over. People a building brings, and
@@ -350,7 +389,7 @@ function rand(t: Town): number {
 const pick = <T>(t: Town, list: readonly T[]) => list[Math.floor(rand(t) * list.length)];
 
 /** Where along a line a distance is, and which way the line goes there. */
-function along(m: Mover, s: number) {
+export function along(m: Mover, s: number) {
   const { line, at } = m;
   if (line.length === 1) return { x: line[0].x, y: line[0].y, dx: 1, dy: 0 };
   let k = 1;
@@ -1220,7 +1259,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     t.untilPerson = PERSON_EVERY / townCaps.every;
     const trip = (rand(t) < busy.commute ? commuteTrip(t, g, net, "person") : null) ?? tripFor(t, "person");
     const m = trip && setOff(t, g, "person", ...trip);
-    if (m) t.movers.push(m);
+    if (m) t.movers.push(m, ...companyFor(t, m, want.people - people - 1));
   }
 
   // MOVING, each vehicle minding the lanes it is on. @see driveLimit
@@ -1229,6 +1268,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   if (t.residentsFor !== T.G) residents(t, g, T);
   const now = trafficNow(T, cars, t.movers.filter((m) => m.walk), t.parked);
   stepParked(t, g, T, now, h);
+  stepWalkers(t, g, h);
   giveWayToBlues(T, cars, now);
   const taken = new Set<string>();
   for (const m of t.movers) if (m.sit) taken.add(m.sit.seat);
@@ -1262,6 +1302,11 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
       // Its end a little past the line's, so it rolls on up to it rather than creeping.
       follow(A, m.speed, m.at[m.at.length - 1] - m.s, 0, -0.05);
       if (m.drive && m.drive.graph === T.G) driveLimit(t, T, m, now, h, A);
+      // Out of a bay: slowly, till it is clear of the car parked in front.
+      if (m.leaving) {
+        if ((m.side ?? 0) > (m.sideTo ?? 0) + KERB_CLEAR) A.cap = Math.min(A.cap, PULL_OUT_SPEED);
+        else m.leaving = undefined;
+      }
       drive(m, A, h);
     } else {
       let limit = lineLimit(m);
@@ -1279,6 +1324,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
           }
         }
       }
+      if (m.cap !== undefined) limit = Math.min(limit, m.cap);
       if (m.speed < limit) m.speed = Math.min(limit, m.speed + ACCEL * h);
       else m.speed = Math.max(limit, m.speed - BRAKE * h);
     }
@@ -1290,7 +1336,8 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     const p = along(m, m.s);
     // Sideways, toward where it is going, off its line to its right.
     const to = m.sideTo ?? 0, side = m.side ?? 0;
-    if (side !== to) m.side = side < to ? Math.min(to, side + SIDE_RATE * h) : Math.max(to, side - SIDE_RATE * h);
+    const rate = m.kind === "person" ? WALK_SIDE_RATE : SIDE_RATE;
+    if (side !== to) m.side = side < to ? Math.min(to, side + rate * h) : Math.max(to, side - rate * h);
     const off = m.side ?? 0;
     m.x = p.x - p.dy * off;
     m.y = p.y + p.dx * off;
@@ -1304,17 +1351,20 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
       m.z = (zf + zb) / 2;
     }
     // Facing the way it goes, turned in over a moment, not snapped round.
-    const want2 = Math.atan2(p.dy, p.dx);
+    const want2 = m.pause ? m.pause.face : Math.atan2(p.dy, p.dx);
     let d = want2 - m.heading;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     m.heading += d * Math.min(1, h * (drives(m) ? 10 : 14));
     // Pedalling: a turn of the pedals, 2π, a gear's distance.
     if (m.kind === "bike") m.phase += (h * m.speed * 2 * Math.PI) / (PEDAL_TURN_M * TILES_PER_M);
     if (m.kind === "person") {
-      m.phase += (h * m.speed * Math.PI) / STRIDE;
-      if (!m.job && t.seats) sitDown(m, t.seats, taken, g);
+      // A runner's longer step, a child's shorter one.
+      m.phase += (h * m.speed * Math.PI) / (m.jog ? RUN_STEP_TILES : m.look && KIDS.includes(m.look as never) ? CHILD_STEP_TILES : STRIDE);
+      // (Alone: not with others, a dog, or out for a run.)
+      if (!m.job && t.seats && !m.group && !m.crew && !m.dog && !m.jog) sitDown(m, t.seats, taken, g);
     }
   }
+  stepDogs(t, h, (b) => DOGS[b].step * TILES_PER_M, (x, y) => roadHeightAt(g, x, y));
 
   // ARRIVING, and the road going from under somebody.
   t.movers = t.movers.filter((m) => {
@@ -1473,7 +1523,7 @@ function stepParked(t: Town, g: Grid, T: Traffic, now: ReturnType<typeof traffic
     c.path = way.path; c.line = way.line; c.drive = way.drive; c.bends = undefined;
     c.at = new Float32Array(c.line.length);
     for (let k = 1; k < c.line.length; k++) c.at[k] = c.at[k - 1] + Math.hypot(c.line[k].x - c.line[k - 1].x, c.line[k].y - c.line[k - 1].y);
-    c.s = 0; c.speed = 0; c.stuck = 0; c.park = undefined; c.pass = pass;
+    c.s = 0; c.speed = 0; c.stuck = 0; c.park = undefined; c.pass = pass; c.leaving = true;
     t.movers.push(c);
   }
 }
@@ -1574,6 +1624,36 @@ export function walkInto(t: Town, g: Grid, from: Cell, to: Cell, structure: numb
   };
   t.movers.push(m);
   return m;
+}
+
+/**
+ * WHO WALKS WITH A WALKER just set off: nobody, mostly; or they go for a run,
+ * or walk a dog; or a child walks with them, hand in hand; or one or two
+ * others, keeping their pace. At most `room` more. @see walker-life
+ */
+function companyFor(t: Town, m: Mover, room: number): Mover[] {
+  m.side = m.sideTo = KEEP;
+  const r = rand(t);
+  if (r < JOG_SHARE) { m.jog = true; m.cruise *= JOG_PACE; m.look = pick(t, JOGGERS); return []; }
+  if (r < JOG_SHARE + DOG_SHARE) { m.dog = dogFor(m, BREEDS, 3); return []; }
+  const n = r < JOG_SHARE + DOG_SHARE + KID_SHARE + PAIR_SHARE ? 1 : r < JOG_SHARE + DOG_SHARE + KID_SHARE + PAIR_SHARE + THREE_SHARE ? 2 : 0;
+  const kid = r < JOG_SHARE + DOG_SHARE + KID_SHARE;
+  const out: Mover[] = [];
+  for (let k = 1; k <= Math.min(n, room); k++) {
+    const f: Mover = {
+      id: t.next++, kind: "person", path: m.path, line: m.line, at: m.at, s: m.s, speed: 0,
+      // Quick enough to catch up; the leader's pace keeps them to it.
+      cruise: m.cruise * 1.4,
+      x: m.x, y: m.y, z: m.z, heading: m.heading, stuck: 0, colour: pick(t, SHIRTS), phase: rand(t) * Math.PI * 2,
+      walk: { ...m.walk!, k: 0, on: false, waited: 0 },
+      side: KEEP - (kid ? HAND_GAP : 0.065), sideTo: KEEP - (kid ? HAND_GAP : 0.065),
+      group: { lead: m.id, k },
+    };
+    if (kid) { f.look = pick(t, KIDS); f.hand = m.id; m.hand = f.id; m.look = pick(t, PARENTS); }
+    out.push(f);
+  }
+  if (out.length) m.crew = out.length;
+  return out;
 }
 
 /**
