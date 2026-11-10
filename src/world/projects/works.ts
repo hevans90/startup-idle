@@ -452,7 +452,7 @@ const SHIRTS = [0xd35454, 0x4a7fc1, 0xe6c35c, 0x5aa36b, 0x9b6bc2, 0xe08a3c];
 
 /** The person a builder already on site is drawn as: a passer-by with a job. */
 const placeholder: Partial<Mover> = {
-  kind: "person", cruise: 0.45, stuck: 0, pushing: 0, colour: 0xe08a3c, phase: 0,
+  kind: "person", cruise: 0.45, stuck: 0, colour: 0xe08a3c, phase: 0,
 };
 
 /** Stand an arrived builder somewhere on the site, at work. */

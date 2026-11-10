@@ -395,8 +395,8 @@ function giveWay(ctx: Ctx, s: Side, wide: boolean) {
 }
 
 /** STOP: a solid line across the lane coming in. */
-function stopLine(ctx: Ctx, s: Side) {
-  const [c0, c1] = inbound(true);
+function stopLine(ctx: Ctx, s: Side, wide: boolean) {
+  const [c0, c1] = inbound(wide);
   ctx.fillStyle = css(WHITE, 0.94);
   laneRect(ctx, s, 0.04, 0.085, c0 + 0.01, c1 - 0.005);
   ctx.fill();
@@ -495,7 +495,7 @@ function zebra(ctx: Ctx, L: Look) {
 
 /** A road's wear and fittings, one of four: a gully, a manhole, a patch, cracks and a stain. */
 function fittings(ctx: Ctx, L: Look, S: Shape) {
-  if (L.open === 0 || L.box || L.zeb) return;
+  if (L.open === 0 || L.box || L.zeb || L.rb) return;
   const v = L.vr;
   if (v > 3) return; // most of a road is just road
   if (v === 0 && S.bands.length) {
@@ -536,7 +536,7 @@ function fittings(ctx: Ctx, L: Look, S: Shape) {
  * straight road, the length of the tile so they run on into the next.
  */
 function wheelTracks(ctx: Ctx, L: Look) {
-  if (L.box || L.zeb) return;
+  if (L.box || L.zeb || L.rb) return;
   const c = L.ctr;
   // Lane middles, across the road, from the low edge of the across axis.
   let across: "u" | "v", mids: number[];
@@ -571,6 +571,7 @@ function paintGround(ctx: Ctx, L: Look) {
   alongKerb(ctx, S, WALK, WALK + 0.03, css(0x000000, 0.12));
   fittings(ctx, L, S);
   if (L.box) yellowBox(ctx, L);
+  if (L.rb) islandFoot(ctx, L);
   if (L.zeb) zebra(ctx, L);
   if (L.zz) zigzags(ctx, L);
   centreLine(ctx, L);
@@ -579,7 +580,7 @@ function paintGround(ctx: Ctx, L: Look) {
     alongKerb(ctx, S, WALK + 0.04, WALK + 0.052, css(YELLOW, 0.92));
   }
   for (const ch of L.gw) { const k = Number(ch); giveWay(ctx, (k & 3) as Side, k >= 4); }
-  for (const ch of L.stop) stopLine(ctx, Number(ch) as Side);
+  for (const ch of L.stop) { const k = Number(ch); stopLine(ctx, (k & 3) as Side, k >= 4); }
   if (L.arrow) arrow(ctx, L.arrow);
   for (const ch of L.slow) slow(ctx, Number(ch) as Side);
   // The kerb's face, where the raised pavement leaves it showing.
@@ -588,8 +589,48 @@ function paintGround(ctx: Ctx, L: Look) {
   ctx.fill();
 }
 
+/** A roundabout's island: where it is, in the cell's own (u, v). */
+const islandOf = (L: Look) => { const [u, v, r] = L.rb.split(",").map(Number); return { u, v, r }; };
+
+/**
+ * ON THE ROAD round a roundabout's island: a white line round the ring's
+ * inside, and the island's kerb face, where the raised island leaves it.
+ */
+function islandFoot(ctx: Ctx, L: Look) {
+  const { u, v, r } = islandOf(L);
+  ctx.strokeStyle = css(WHITE, 0.85);
+  ctx.lineWidth = 0.014;
+  ctx.setLineDash([0.05, 0.035]);
+  ctx.beginPath(); ctx.arc(u, v, r + 0.05, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = css(tone(KERB_OF[L.lvl], 0.55));
+  ctx.beginPath(); ctx.arc(u, v, r, 0, Math.PI * 2); ctx.fill();
+}
+
+/** A roundabout's island, a kerb's height up: a stone kerb round grass, planted. */
+function island(ctx: Ctx, L: Look) {
+  const { u, v, r } = islandOf(L);
+  ctx.fillStyle = css(KERB_OF[L.lvl]);
+  ctx.beginPath(); ctx.arc(u, v, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = css(0x6f9d45);
+  ctx.beginPath(); ctx.arc(u, v, r - 0.035, 0, Math.PI * 2); ctx.fill();
+  // A ring of low shrubs, and flowers inside it.
+  ctx.fillStyle = css(0x4f7f3a);
+  for (let k = 0; k < 14; k++) {
+    const a = (k / 14) * Math.PI * 2;
+    ctx.beginPath(); ctx.arc(u + Math.cos(a) * (r - 0.075), v + Math.sin(a) * (r - 0.075), 0.03, 0, Math.PI * 2); ctx.fill();
+  }
+  const BLOOM = [0xd8432f, 0xf2c230, 0xf27aa8, 0xa65ad6];
+  for (let k = 0; k < 9; k++) {
+    const a = k * 2.39996, d = (r - 0.13) * Math.sqrt((k + 0.5) / 9);
+    ctx.fillStyle = css(BLOOM[k % BLOOM.length]);
+    ctx.beginPath(); ctx.arc(u + Math.cos(a) * d, v + Math.sin(a) * d, 0.016, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
 /** The pavement and its kerb, a kerb's height up. */
 function paintRaised(ctx: Ctx, L: Look) {
+  if (L.rb) island(ctx, L);
   const S = shapeOf(L), lvl = L.lvl;
   // Under the pieces, what lies between them.
   ctx.fillStyle = css(JOINT[lvl]);

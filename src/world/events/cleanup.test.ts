@@ -30,7 +30,8 @@ describe("mopping up", () => {
     const net = createNetwork(g), town = createTown(), c = createCleanup();
     expect(wetTiles(field, g, [studio]).length).toBe(4);
     let mostAway = 0, sawMopping = false;
-    for (let k = 0; k < 30 * 120; k++) {
+    // Long enough however the moppers happen to be split between the spills.
+    for (let k = 0; k < 30 * 150; k++) {
       stepTown(town, g, net, 0, 1 / 30);
       const away = stepCleanup(c, town, g, net, field, [studio], 60, [studio.id], 1 / 30);
       mostAway = Math.max(mostAway, away);

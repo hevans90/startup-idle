@@ -31,7 +31,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "streets";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "streets" | "traffic";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -235,6 +235,34 @@ export function buildFirstRoad(g: Grid, material: number, _cx: number, cy: numbe
   clear(g, material);
   for (let x = 0; x < g.w; x++) { pave(g, x, cy); pave(g, x, cy + 1); }
   recomputeHeightRange(g);
+}
+
+/**
+ * ONE OF EACH JUNCTION, BUSY: two avenues crossing at a roundabout, a street
+ * across each avenue at lights, and two streets crossing where they give way,
+ * with houses along them all so the traffic has somewhere to go.
+ * @see agents/lanes/graph kindOf
+ */
+export function buildTraffic(g: Grid, material: number) {
+  clear(g, material);
+  const A = 14, B = 34;
+  for (let d = 0; d < g.w; d++) {
+    pave(g, d, A); pave(g, d, A + 1);   // the avenue across
+    pave(g, A, d); pave(g, A + 1, d);   // the avenue down
+    pave(g, d, B);                      // a street across
+    pave(g, B, d);                      // a street down
+  }
+  const history = createHistory();
+  const house = structureDef("kit:intern.t0");
+  if (!house) return;
+  const near = (k: number) => [A - 2, A - 1, A, A + 1, A + 2, A + 3, B - 2, B - 1, B, B + 1, B + 2].includes(k);
+  for (let k = 2; k < g.w - 2; k += 3) {
+    if (near(k)) continue;
+    for (const [x, y] of [[k, A - 1], [k, A + 2], [A - 1, k], [A + 2, k], [k, B - 1], [k, B + 1], [B - 1, k], [B + 1, k]]) {
+      const cmd = placeCommand(g, house, x, y);
+      if (cmd) commit(g, history, cmd);
+    }
+  }
 }
 
 /** A paved blob: interior fill, a rim of lanes, and four corners. */
@@ -1025,7 +1053,7 @@ export function buildCulvert(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, streets: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, streets: 48, traffic: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1037,7 +1065,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "streets",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "streets", "traffic",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1076,6 +1104,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "bigtown": buildBigTown(g, material); recomputeHeightRange(g); return;
     case "sewers": buildSewers(g, material); recomputeHeightRange(g); return;
     case "ports": buildPorts(g, material); recomputeHeightRange(g); return;
+    case "traffic": buildTraffic(g, material); recomputeHeightRange(g); return;
   }
 }
 

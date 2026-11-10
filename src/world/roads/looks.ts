@@ -21,6 +21,10 @@ import { hash } from "../structures/projects/model";
 import { DIAG, DIR, isPaved, maskAt } from "./mask";
 import { streetsOf } from "./streets";
 import { resolveRole, type RoadRole } from "./table";
+import { RING_OF } from "../agents/lanes/graph";
+
+/** Half a ring lane's width and a little: the island's edge inside the lane's middle. */
+const RING_LANE = 0.22;
 
 /** The side of the road traffic keeps to: +1 right, −1 left. @see rightOf in agents/roads */
 export const KEEP = 1;
@@ -66,7 +70,7 @@ export type Look = {
   ctr: string;
   /** Give way, across the lane coming in on each side listed: `0`–`3` on a one-cell road, `4`–`7` (side + 4) across a whole lane. */
   gw: string;
-  /** A stop line across the lane coming in on the side listed: before a box. */
+  /** A stop line across the lane coming in, before a box or at lights: encoded as `gw` is. */
   stop: string;
   /** An arrow in the lane, toward the side: its side, then `L`, `A`, `R` for each way it may go. */
   arrow: string;
@@ -80,11 +84,16 @@ export type Look = {
   zeb: string;
   /** SLOW, toward the side listed, in the lane coming in. */
   slow: string;
+  /**
+   * A ROUNDABOUT's island over this cell: its middle in the cell's own
+   * (u, v) and its radius, `u,v,r`; empty if none. @see agents/lanes/graph ring
+   */
+  rb: string;
 };
 
 /** A look as a key: every field, compact. */
 export const keyOf = (l: Look): string =>
-  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.slow}`;
+  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.slow}.${l.rb}`;
 
 /** What the town's beauty puts on a road cell: its level, and a zebra if it has one. @see roadDressOf */
 export const dressOf = (lvl: number, zebra: boolean) => (lvl & 3) | (zebra ? 4 : 0);
@@ -147,16 +156,17 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
   const streets = streetsOf(g);
   const n = g.w * g.h;
   const region = new Int32Array(n).fill(-1);
-  const regions: { arms: Map<number, Side[]>; major: "u" | "v" | ""; cells: number }[] = [];
+  const regions: { arms: Map<number, Side[]>; major: "u" | "v" | ""; cells: number; sx: number; sy: number }[] = [];
   for (let i0 = 0; i0 < n; i0++) {
     if (mask[i0] < 0 || streets.of[i0] >= 0 || region[i0] >= 0) continue;
-    const id = regions.length, R = { arms: new Map<number, Side[]>(), major: "" as "u" | "v" | "", cells: 0 };
+    const id = regions.length, R = { arms: new Map<number, Side[]>(), major: "" as "u" | "v" | "", cells: 0, sx: 0, sy: 0 };
     regions.push(R);
     const stack = [i0];
     region[i0] = id;
     while (stack.length) {
       const i = stack.pop()!, x = i % g.w, y = (i / g.w) | 0;
       R.cells++;
+      R.sx += x; R.sy += y;
       const o = openOf(mask[i]);
       for (const sd of SIDES) {
         if (!has(o, sd)) continue;
@@ -174,6 +184,10 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
     R.major = through.length === 1 ? through[0] : through.length === 2 ? (len("v") > len("u") ? "v" : "u") : "";
   }
   const regionAt = (x: number, y: number) => { const i = at(x, y); return i < 0 ? null : region[i] < 0 ? null : regions[region[i]]; };
+  // A ROUNDABOUT where four roads two cells wide or more meet, as the lanes have it. @see agents/lanes/graph kindOf
+  const roundabout = (R: (typeof regions)[number] | null) => !!R && R.arms.size === 4 && [...R.arms.values()].every((sd) => sd.length >= 2);
+  // LIGHTS where four roads or more meet and one is two cells wide or more, short of a roundabout.
+  const lights = (R: (typeof regions)[number] | null) => !!R && R.arms.size >= 4 && !roundabout(R) && [...R.arms.values()].some((sd) => sd.length >= 2);
   // A YELLOW BOX: where wider roads cross, the 2×2 of cells open every way at a junction of four.
   const boxAt = (x: number, y: number) => {
     const R = regionAt(x, y);
@@ -192,7 +206,7 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
     const L: Look = {
       open: o, diag: diagOf(mask[i]), ramp: g.ramp[i], lvl,
       vr: Math.floor(hash(x * 31.7 + y * 57.3 + 0.5) * VARIANTS),
-      ctr: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", slow: "",
+      ctr: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", slow: "", rb: "",
     };
     out[i] = L;
     const kerbed = o !== 15;
@@ -213,6 +227,13 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
     const R = regionAt(x, y);
     if (R) {
       // IN A JUNCTION OR ROUND A BEND.
+      if (roundabout(R)) {
+        // Its island, round the middle: inside the ring the lanes run on. @see RING_OF
+        const cx = R.sx / R.cells, cy = R.sy / R.cells;
+        const r = (Math.sqrt(R.cells) / 2) * RING_OF - RING_LANE;
+        L.rb = `${(cx - x + 0.5).toFixed(3)},${(cy - y + 0.5).toFixed(3)},${r.toFixed(3)}`;
+        continue;
+      }
       if (R.arms.size >= 3 && boxAt(x, y)) {
         let border = 0;
         for (const sd of SIDES) { const [dx, dy] = STEP[sd]; if (!boxAt(x + dx, y + dy)) border |= 1 << sd; }
@@ -237,13 +258,22 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
         if (straight && J.arms.size === 2) L.slow += sd;
         continue;
       }
+      // ONTO A ROUNDABOUT: everyone gives way, to the ring.
+      if (roundabout(J)) {
+        const [rx, ry] = rightOf(dx, dy);
+        if (straight) L.gw += sd;
+        else if (sideOf(rx, ry) === lane) L.gw += String(sd + 4);
+        continue;
+      }
+      // AT LIGHTS: a stop line on every way in.
+      const lit = lights(J);
       // A junction ahead: give way, unless this is the major road through it.
-      const minor = J.major === "" || J.major !== (sd < 2 ? "u" : "v");
-      if (straight) { if (minor) L.gw += sd; continue; }
+      const minor = !lit && (J.major === "" || J.major !== (sd < 2 ? "u" : "v"));
+      if (straight) { if (minor) L.gw += sd; else if (lit) L.stop += sd; continue; }
       // On a two-lane road, only the lane coming in: the one with its kerb on the right.
       const [rx, ry] = rightOf(dx, dy);
       if (sideOf(rx, ry) !== lane) continue;
-      if (J.arms.size >= 4 && boxAt(x + dx, y + dy)) L.stop += sd;
+      if (lit || (J.arms.size >= 4 && boxAt(x + dx, y + dy))) L.stop += String(sd + 4);
       else if (minor) L.gw += String(sd + 4);
       if (!minor && !L.stop) continue;
       const left = paved(x + 2 * dx - 2 * rx, y + 2 * dy - 2 * ry);

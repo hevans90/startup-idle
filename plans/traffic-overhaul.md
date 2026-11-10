@@ -58,7 +58,17 @@ offsets.
 - Pure data and fully unit-tested: lane counts, connector sets, conflict pairs, and
   pavement continuity round every block. Overlay buttons for `lanes` and `junctions`.
 
-## Phase 2 — Junctions
+## Phase 2 — Junctions ✅
+Done: `lanes/drive.ts` (routing, lights, who yields), driving in `town.ts`, `render/signals.ts`,
+roundabout island and stop/give-way paint in `roads/looks.ts`, `?fixture=traffic`, soak tests
+(`lanes/traffic.test.ts`: three minutes busy on four fixtures, no overlaps, nobody stuck for good). Notes:
+- Cars hold their junction's zones (shared by cars on the same curve), enter only with room on
+  the exit, and stop with the nose back from the box (`hold`, per lane). After 8 s waiting a car
+  stops yielding; after 45 s stuck it is lifted off (a safety net the soaks never hit).
+- Lights cycle 9 s green / 2 s amber / 1.5 s all-red per axis, offset per junction. Not yet scaled
+  by queue, nor put on busy junctions that the shape alone doesn't call for, and no walk phase yet (phase 4).
+- The poles are drawn, not baked; lamps are lit by alpha when the light changes.
+- Following is still the old speed-limit model; IDM is phase 3.
 - **Priority**: a stop line on each side road. A car crossing or joining the main road
   needs every conflict zone on its connector to be clear of priority traffic
   arriving within its time gap. A main-road car turning left yields to oncoming traffic.

@@ -196,12 +196,12 @@ export function stepArrivals(
     const next = ride.drops[0];
     const nextDoor = next && placeOf(next.structure);
     if (next && nextDoor) {
-      const on = sendOnJob(town, g, m.kind, here, nextDoor, { site: next.structure, role: "arrive" });
+      const on = sendOnJob(town, g, m.kind, here, nextDoor, { site: next.structure, role: "arrive" }, m);
       if (on) { on.wait = DWELL; on.colour = m.colour; a.rides.set(on.id, ride); }
     } else if (m.kind === "bus") {
       // Empty: back the way it came, or the nearest way off the map.
       const out = gatewayNear(places, here, here.net);
-      const on = out && sendOnJob(town, g, "bus", here, out, { site: m.job.site, role: "leave" });
+      const on = out && sendOnJob(town, g, "bus", here, out, { site: m.job.site, role: "leave" }, m);
       if (on) { on.wait = DWELL; on.colour = m.colour; }
     }
     // A car or a limousine parks, and is gone.

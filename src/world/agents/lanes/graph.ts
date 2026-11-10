@@ -41,8 +41,15 @@ import {
 export const WALK = 0.26;
 /** How far from a cell's middle a walker on its pavement is. */
 export const PAVE_AT = 0.5 - WALK / 2;
-/** Two curves nearer than this, tiles, are in each other's way. */
+/**
+ * Two curves nearer than this, tiles, are in each other's way; or nearer
+ * than {@link LANE_SWEEP} where they cross at an angle, since a car's body
+ * swings wide of its line on a turn. Lanes side by side, either way, are not.
+ */
 export const LANE_CLEAR = 0.22;
+export const LANE_SWEEP = 0.42;
+/** How clear of the junction's other curves a car waiting at its line keeps its nose. */
+export const HOLD_CLEAR = 0.3;
 
 const DIRS = ["N", "E", "S", "W"] as const;
 type Dir = (typeof DIRS)[number];
@@ -64,8 +71,9 @@ export type Lane = {
   street?: number;
   slot?: number;
   lanes?: number;
-  /** A curve's junction, the way it turns, and its tightest radius. */
+  /** A curve's junction, the arm it comes in from (an index into the junction's arms), the way it turns, and its tightest radius. */
   junction?: number;
+  arm?: number;
   turn?: Turn;
   radius?: number;
   /** Where it starts or ends at the edge of the map: trips from or to the world beyond. */
@@ -73,6 +81,11 @@ export type Lane = {
   sink?: boolean;
   /** Conflict zones along it, by id. */
   zones: number[];
+  /**
+   * Into a junction: how far short of its end a car waiting to go in keeps
+   * its nose, clear of every curve across the junction but its own. @see HOLD_CLEAR
+   */
+  hold?: number;
 };
 
 /** Where two curves of a junction come within {@link LANE_CLEAR}: `sa` along `a`, `sb` along `b`. */
@@ -266,6 +279,15 @@ export function buildLaneGraph(g: Grid): LaneGraph {
     const inner: Lane[] = J.kind === "roundabout" ? ring(J, lanes, mk) : throughJunction(g, J, lanes, mk, region);
     for (const l of inner) l.junction = J.id;
     findZones(J.id, inner, zones);
+    // WHERE TO WAIT on each lane in: back from the edge until clear of the
+    // curves of everyone else crossing the junction.
+    for (const A of J.arms) for (const id of A.inLanes) {
+      const l = lanes[id];
+      const others = inner.filter((c) => !l.next.includes(c.id));
+      let hold = 0.12;
+      while (hold < 0.6 && others.some((c) => distToLine(pointAt(l.pts, l.at, l.len - hold).p, c.pts) < HOLD_CLEAR)) hold += 0.04;
+      l.hold = hold;
+    }
   }
   for (const z of zones) { lanes[z.a].zones.push(z.id); lanes[z.b].zones.push(z.id); }
 
@@ -485,7 +507,7 @@ function throughJunction(g: Grid, J: Junction, lanes: Lane[], mk: (l: Omit<Lane,
       const p0 = li.pts[li.pts.length - 1], p1 = lo.pts[0];
       let pts = turnCurve(p0, h0, p1, h1, 10);
       if (!pts.every((p) => isPaved(g, Math.round(p.x), Math.round(p.y)))) pts = cellByCell(g, J, region, p0, p1) ?? pts;
-      const c = mk({ kind: "connector", pts, turn });
+      const c = mk({ kind: "connector", pts, turn, arm: J.arms.indexOf(A) });
       c.radius = minRadius(pts);
       li.next.push(c.id);
       c.next.push(lo.id);
@@ -561,7 +583,7 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
     if (p.kind === "on") {
       for (const id of p.arm.inLanes) {
         const li = lanes[id];
-        const e = mk({ kind: "entry", pts: turnCurve(li.pts[li.pts.length - 1], heading(li), at(p.a), tangent(p.a), 8), turn: "right" });
+        const e = mk({ kind: "entry", pts: turnCurve(li.pts[li.pts.length - 1], heading(li), at(p.a), tangent(p.a), 8), turn: "right", arm: J.arms.indexOf(p.arm) });
         e.radius = minRadius(e.pts);
         li.next.push(e.id);
         e.next.push(into.id);
@@ -588,7 +610,15 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
  */
 function findZones(junction: number, inner: readonly Lane[], zones: Zone[]) {
   const first = (a: Lane, b: Lane): number => {
-    for (let s = 0; s <= a.len; s += 0.04) if (distToLine(pointAt(a.pts, a.at, s).p, b.pts) < LANE_CLEAR) return s;
+    for (let s = 0; s <= a.len; s += 0.04) {
+      const { p, h } = pointAt(a.pts, a.at, s);
+      const d = distToLine(p, b.pts);
+      if (d < LANE_CLEAR) return s;
+      if (d < LANE_SWEEP) {
+        const nb = nearestPoint(p, b);
+        if (Math.abs(cross(h, nb.h)) > 0.5) return s;
+      }
+    }
     return -1;
   };
   const box = (l: Lane) => l.pts.reduce((b, p) => [Math.min(b[0], p.x), Math.min(b[1], p.y), Math.max(b[2], p.x), Math.max(b[3], p.y)], [Infinity, Infinity, -Infinity, -Infinity]);
@@ -604,6 +634,19 @@ function findZones(junction: number, inner: readonly Lane[], zones: Zone[]) {
     const merge = same(a.pts[a.pts.length - 1], b.pts[b.pts.length - 1]) || a.next.some((x) => b.next.includes(x));
     zones.push({ id: zones.length, junction, a: a.id, sa, b: b.id, sb, merge });
   }
+}
+
+/** The nearest point of a lane to a point, and the lane's heading there. */
+function nearestPoint(p: Pt, l: Lane): { s: number; h: Pt } {
+  let best = Infinity, bs = 0;
+  for (let k = 1; k < l.pts.length; k++) {
+    const a = l.pts[k - 1], b = l.pts[k];
+    const abx = b.x - a.x, aby = b.y - a.y, l2 = abx * abx + aby * aby;
+    const t = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / l2)) : 0;
+    const d = Math.hypot(a.x + abx * t - p.x, a.y + aby * t - p.y);
+    if (d < best) { best = d; bs = l.at[k - 1] + t * (l.at[k] - l.at[k - 1]); }
+  }
+  return { s: bs, h: pointAt(l.pts, l.at, bs).h };
 }
 
 /**

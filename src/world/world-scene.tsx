@@ -245,6 +245,7 @@ import { createCultureProps, type CultureProps } from "./render/culture-props";
 import { SHOP_LOOK, createShopfronts, type Shopfronts } from "./render/shopfronts";
 import { createStreetProps, type StreetProps } from "./render/street-props";
 import { createWoods, type Woods } from "./render/woods";
+import { createSignals, type Signals } from "./render/signals";
 import { shopName } from "./agents/shop-names";
 import { createLights, type Lights } from "./render/lights";
 import { keystone, notable } from "../game/machine";
@@ -423,6 +424,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const streetPropsRef = useRef<StreetProps | null>(null);
   /** The woods' trees, stood on shaded grass. @see createWoods */
   const woodsRef = useRef<Woods | null>(null);
+  /** The traffic lights at the lights junctions. @see createSignals */
+  const signalsRef = useRef<Signals | null>(null);
   /** The seats last given the town. */
   const seatsRef = useRef<Seat[] | null>(null);
   /** Seconds to Ship It Fridays' next release party. @see SHIP_EVERY */
@@ -1650,6 +1653,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         shopsRef.current = createShopfronts(bl);
         streetPropsRef.current = createStreetProps(bl);
         woodsRef.current = createWoods(bl);
+        signalsRef.current = createSignals(bl);
         const scan = new Graphics();
         scan.eventMode = "none";
         scan.zIndex = 1001;
@@ -1701,6 +1705,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       streetPropsRef.current = null;
       woodsRef.current?.destroy();
       woodsRef.current = null;
+      signalsRef.current?.destroy();
+      signalsRef.current = null;
       tileHoloRef.current?.clear();
       tileHoloRef.current = null;
       holoScanRef.current?.parent?.removeChild(holoScanRef.current);
@@ -3709,6 +3715,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         shopsRef.current.tick(now / 1000);
       }
       if (woodsRef.current) { const st = useWorldStore.getState(); woodsRef.current.sync(st.grid, st.palette, st.revision, scale); }
+      if (signalsRef.current) {
+        // The lanes the town last drove on: kept current by stepTown. @see trafficOf
+        const town = getTown(), T = town.traffic;
+        if (T) { signalsRef.current.sync(useWorldStore.getState().grid, T, scale); signalsRef.current.tick(T, town.t); }
+      }
       const streetNet = getNetwork();
       if (streetPropsRef.current && streetNet) {
         const st = useWorldStore.getState();

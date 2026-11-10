@@ -5,8 +5,8 @@ import { createGrid, fillTerrain, idx, setHeight, type Grid } from "../grid";
 import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
-import { carLine, placesOf, routeBetween, walkLine } from "./roads";
-import { createTown, nearGrid, stepTown, wanted, type Mover } from "./town";
+import { placesOf, routeBetween, walkLine } from "./roads";
+import { createTown, stepTown, wanted } from "./town";
 
 const pave = (g: Grid, x: number, y: number) => { g.paved[idx(g, x, y)] = 1; };
 
@@ -48,17 +48,12 @@ describe("routes", () => {
     expect(routeBetween(g, { x: 1, y: 2 }, { x: 10, y: 2 })).toBeNull();
   });
 
-  test("a car keeps right of a lone lane's middle; a person walks its kerb", () => {
+  test("a person walks its kerb", () => {
     const g = createGrid(12, 6);
     fillTerrain(g, 1);
     for (let x = 0; x < 12; x++) pave(g, x, 2);
-    const path = routeBetween(g, { x: 1, y: 2 }, { x: 10, y: 2 })!;
-    const car = carLine(g, path), walk = walkLine(g, path);
-    expect(car[4].y).toBeCloseTo(2.12, 6);            // right of +x is +y, in the painted lane
+    const walk = walkLine(g, routeBetween(g, { x: 1, y: 2 }, { x: 10, y: 2 })!);
     expect(Math.abs(walk[4].y - 2)).toBeCloseTo(0.38, 6);
-    // On the wide road the cell is the lane.
-    const a = avenue();
-    expect(carLine(a, routeBetween(a, { x: 1, y: 5 }, { x: 10, y: 5 })!)[4].y).toBe(5);
   });
 });
 
@@ -102,7 +97,7 @@ describe("the town", () => {
       // Two cars in one lane, one behind the other, never closer than nose to tail.
       for (const a of cars) {
         for (const b of cars) {
-          if (a === b || a.pushing > 0 || b.pushing > 0) continue;
+          if (a === b) continue;
           const same = Math.cos(a.heading - b.heading) > 0.9;
           if (same) closest = Math.min(closest, Math.hypot(a.x - b.x, a.y - b.y));
         }
@@ -125,27 +120,6 @@ describe("the town", () => {
     g.paved.fill(0);
     stepTown(t, g, net, 1, 1 / 30);
     expect(t.movers.length).toBe(0);
-  });
-});
-
-describe("the traffic's neighbours", () => {
-  test("every car that could hold another up is among its neighbours, with room for a step's movement", () => {
-    let seed = 7;
-    const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
-    const cars = Array.from({ length: 600 }, (_, id) => ({ id, x: rnd() * 60, y: rnd() * 60 }) as unknown as Mover);
-    const near = nearGrid(cars);
-    const reach = 2 * 1.2 + 0.4;
-    for (const m of cars) {
-      const got = new Set(near(m));
-      for (const o of cars) if (Math.hypot(o.x - m.x, o.y - m.y) <= reach) expect(got.has(o)).toBe(true);
-    }
-  });
-
-  test("and only those nearby: a crowd is not every car asking every other", () => {
-    const cars = Array.from({ length: 900 }, (_, id) => ({ id, x: (id % 30) * 2, y: Math.floor(id / 30) * 2 }) as unknown as Mover);
-    const near = nearGrid(cars);
-    const mean = cars.reduce((n, m) => n + near(m).length, 0) / cars.length;
-    expect(mean).toBeLessThan(40);
   });
 });
 

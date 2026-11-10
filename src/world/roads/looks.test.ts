@@ -92,31 +92,55 @@ describe("a road into a square", () => {
   });
 });
 
-describe("two-lane roads crossing", () => {
+describe("two-lane roads crossing: a roundabout", () => {
   // Lanes along rows 5 and 6, and down columns 15 and 16.
   const g = grid(32, 22, [
     ...row(5, 0, 31), ...row(6, 0, 31),
     ...col(15, 0, 21).filter(([, y]) => y !== 5 && y !== 6), ...col(16, 0, 21).filter(([, y]) => y !== 5 && y !== 6),
   ]);
 
-  test("a yellow box over the crossing, its border on the outside edges", () => {
-    for (const [x, y] of [[15, 5], [16, 5], [15, 6], [16, 6]] as const) expect(look(g, x, y).box & 1).toBe(1);
-    // (15, 5) borders the box's x−1 (side 0) and y−1 (side 2) edges.
-    expect(look(g, 15, 5).box >> 1).toBe(0b0101);
+  test("its island over the crossing, round its middle, and no yellow box", () => {
+    for (const [x, y] of [[15, 5], [16, 5], [15, 6], [16, 6]] as const) {
+      const L = look(g, x, y);
+      expect(L.box).toBe(0);
+      // The middle is the crossing's: (15.5, 5.5), in each cell's own (u, v).
+      const [u, v, r] = L.rb.split(",").map(Number);
+      expect(u).toBeCloseTo(15.5 - x + 0.5, 3);
+      expect(v).toBeCloseTo(5.5 - y + 0.5, 3);
+      expect(r).toBeGreaterThan(0.2);
+    }
   });
 
-  test("a stop line and an arrow across the lane coming in, the one with its kerb on the right", () => {
+  test("give way onto it, across the lane coming in, the one with its kerb on the right", () => {
     // Coming from x−1, heading +x: the kerb on the right is at y+1, so row 6.
     const inbound = look(g, 14, 6), outbound = look(g, 14, 5);
-    expect(inbound.stop).toBe("1");
-    expect(inbound.arrow.startsWith("1")).toBe(true);
-    expect(outbound.stop).toBe("");
-    expect(outbound.arrow).toBe("");
+    expect(inbound.gw).toBe("5");
+    expect(inbound.stop + inbound.arrow).toBe("");
+    expect(outbound.gw + outbound.stop + outbound.arrow).toBe("");
   });
 
   test("a centre line on the edge the two lanes share", () => {
     expect(look(g, 5, 5).ctr).toBe("h3");
     expect(look(g, 5, 6).ctr).toBe("h2");
+  });
+});
+
+describe("a two-lane road crossed by a one-lane one: lights", () => {
+  const g = grid(32, 22, [...row(5, 0, 31), ...row(6, 0, 31), ...col(15, 0, 21).filter(([, y]) => y !== 5 && y !== 6)]);
+
+  test("a stop line and an arrow across the wide road's lane coming in", () => {
+    const inbound = look(g, 14, 6), outbound = look(g, 14, 5);
+    expect(inbound.stop).toBe("5");
+    expect(inbound.arrow.startsWith("1")).toBe(true);
+    expect(inbound.gw).toBe("");
+    expect(outbound.stop).toBe("");
+  });
+
+  test("and across the narrow road's, no give way", () => {
+    // Coming down from y−1 toward +y: the junction is on side 3.
+    expect(look(g, 15, 4).stop).toBe("3");
+    expect(look(g, 15, 4).gw).toBe("");
+    expect(look(g, 15, 7).stop).toBe("2");
   });
 });
 

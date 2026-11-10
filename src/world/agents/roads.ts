@@ -161,12 +161,6 @@ export function routeBetween(g: Grid, from: Cell, to: Cell, keepRight = true): C
   return out.reverse();
 }
 
-/**
- * How far right of a lone lane's middle a car keeps, tiles: the middle of the
- * painted lane, half of the carriageway's half (0.5 less the pavement and kerb,
- * `WALK` in render/road-paint.ts) either side of the centre line.
- */
-export const CAR_KEEP_RIGHT = 0.12;
 /** How far from a cell's middle the kerb a person walks is, tiles. */
 export const KERB = 0.38;
 
@@ -177,28 +171,6 @@ function legs(path: readonly Cell[]) {
     const into = k > 0 ? { x: c.x - a.x, y: c.y - a.y } : { x: b.x - c.x, y: b.y - c.y };
     const out = k < path.length - 1 ? { x: b.x - c.x, y: b.y - c.y } : into;
     return { into, out };
-  });
-}
-
-/**
- * Where a CAR is in each cell of its route. Right of the middle on a lone
- * lane — right of the way in and the way out together at a corner, so it cuts
- * the inside of a right turn and swings round a left — and the middle of the
- * cell on a wider road, where the cell is the lane.
- */
-export function carLine(g: Grid, path: readonly Cell[]): Cell[] {
-  return legs(path).map(({ into, out }, k) => {
-    const c = path[k];
-    const ri = rightOf(into.x, into.y), ro = rightOf(out.x, out.y);
-    const wide = isPaved(g, c.x + ri.x, c.y + ri.y) || isPaved(g, c.x - ri.x, c.y - ri.y)
-      || isPaved(g, c.x + ro.x, c.y + ro.y) || isPaved(g, c.x - ro.x, c.y - ro.y);
-    if (wide) return { x: c.x, y: c.y };
-    const sx = ri.x + ro.x, sy = ri.y + ro.y;
-    const m = Math.hypot(sx, sy) || 1;
-    // Straight: right by the keep. At a corner: out along the diagonal, by as
-    // much on each axis as a straight would be.
-    const along = into.x === out.x && into.y === out.y ? 1 : Math.SQRT2;
-    return { x: c.x + (sx / m) * CAR_KEEP_RIGHT * along, y: c.y + (sy / m) * CAR_KEEP_RIGHT * along };
   });
 }
 
