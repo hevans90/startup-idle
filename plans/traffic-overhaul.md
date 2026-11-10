@@ -239,7 +239,20 @@ Tests: `agents/buses.test.ts`. Notes:
   walk to a stop, queue, board (vanish into the bus), ride, and alight at the stop
   nearest their destination. The shuttle bus card keeps its share as a route bus.
 
-## Phase 8 — Lights & signals on the cars
+## Phase 8 — Lights & signals on the cars ✅
+Done: lamp masks in the car bake (`raster.ts` `LAMPS`, `marks`), lit in `town-render.ts` by
+`agents/lamps.ts` (`signalOf`, `lampsOf`, `braking`); night pools and glows in `render/car-glow.ts`.
+Tests: `agents/lamps.test.ts`. Notes:
+- Four white masks a frame — head, tail, right, left — of only what is seen at that heading, with a
+  2-texel halo; the rear indicators are the tail lamps on that side. Packed apart from the paint and
+  trim (an indicator's box runs the car's length): the sheet went from 4 pages to 4 and a bit.
+- Drawn in normal blend over the trim, lit by alpha only (no draw-list rebuilds, no batch breaks).
+- Indicators 1.5 Hz: 2.5 tiles before a turning junction lane or a lane change, pulling in to a bay or a
+  stop (right), out of a bay or a stop (left), out past parked cars and back. Hazards: a bus stood at a
+  stop in its lane. Brake: slowing faster than 0.35 tiles/s², or stood; held till 0.3 tiles/s.
+- At night (`darkness`): head lamps on, tails dim; over the night sheet, a pool on the road ahead
+  (1.7 tiles, additive) and glows at the head and tail lamps; cyclists' smaller.
+
 - New sprite layer in the car bake: **lamps** (front, rear, indicators), as a
   separate white layer per frame, tinted at runtime: rear red low/high (brake), amber
   blink L/R, front warm white. This means a rebake of `cars` with one more layer, and

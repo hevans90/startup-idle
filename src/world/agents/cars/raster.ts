@@ -22,7 +22,21 @@ import { HALF_STEPS_PER_M, TILES_PER_M, type Disc, type Hull, type Mat, type Mod
 
 export type Image = { w: number; h: number; px: Uint8Array };
 /** A baked frame: its paint and trim layers, and where the vehicle's middle at road level is in them. */
-export type Baked = { paint: Image; trim: Image; ox: number; oy: number };
+export type Baked = { paint: Image; trim: Image; lamps: Image[]; ox: number; oy: number };
+
+/**
+ * THE LAMPS, as masks the game lights: the headlamps, the tail lamps, and the
+ * indicators on the right and on the left — at the back, the tail lamps on
+ * that side. (A model's +y is the game's right.) @see lamps
+ */
+export const LAMPS = ["head", "tail", "right", "left"] as const;
+export type Lamp = (typeof LAMPS)[number];
+const lampOf = (mat: Mat, p: V3): number => {
+  if (mat === "lamp") return p[0] > 0 ? 1 : 0;
+  if (mat === "tail") return 2 | (p[1] > 0 ? 4 : 8);
+  if (mat === "indicator") return p[1] > 0 ? 4 : 8;
+  return 0;
+};
 
 const SS = 4;
 
@@ -253,8 +267,9 @@ export function bakeFrame(m: Model, heading: number, res: number): Baked {
   const b = bakeTris(modelTris(m), heading, res, {
     layers: 2, layerOf: (mat) => (PAINTED.has(mat) ? 0 : 1),
     shadow: { hl: m.length / 2 - 0.25, hw: m.width / 2 - 0.25, edge: 0.08, soft: 0.4, strength: 0.42, reach: 0.35 },
+    marks: { n: LAMPS.length, of: lampOf },
   });
-  return { paint: b.layers[0], trim: b.layers[1], ox: b.ox, oy: b.oy };
+  return { paint: b.layers[0], trim: b.layers[1], lamps: b.marks, ox: b.ox, oy: b.oy };
 }
 
 /**
@@ -267,6 +282,13 @@ export type BakeOpts = {
   layers: number;
   layerOf: (mat: Mat) => number;
   shadow: { hl: number; hw: number; edge: number; soft: number; strength: number; reach: number };
+  /**
+   * MARKS: `n` masks more, white, of where what is seen is one thing or
+   * another — a lamp, lit in the game — each texel's alpha its share of the
+   * samples, with a soft halo round it. `of` answers a bit a mask for a
+   * material at a point of the model (metres).
+   */
+  marks?: { n: number; of: (mat: Mat, p: V3) => number };
 };
 
 /**
@@ -274,7 +296,7 @@ export type BakeOpts = {
  * layer is drawn over the one before; where a texel is shared, each layer's
  * alpha is set so the stack gives the texel's true coverage.
  */
-export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpts): { layers: Image[]; ox: number; oy: number } {
+export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpts): { layers: Image[]; marks: Image[]; ox: number; oy: number } {
   const ch = Math.cos(heading), sh = Math.sin(heading);
   // Model metres → ground (u, v tiles; up half steps), as town-render's `at`.
   const ground = (p: V3) => {
@@ -298,6 +320,7 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
   const depth = new Float32Array(n).fill(-Infinity);
   const col = new Float32Array(n * 3);
   const layer = new Uint8Array(n);
+  const mark = opt.marks ? new Uint8Array(n) : null;
 
   for (const t of tris) {
     const g = t.p.map(ground);
@@ -345,7 +368,9 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
         if (z <= depth[i]) continue;
         depth[i] = z;
         const zAt = w0 * zm[0] + w1 * zm[1] + w2 * zm[2];
-        const mat = t.paint ? t.paint([w0 * P[0][0] + w1 * P[1][0] + w2 * P[2][0], w0 * P[0][1] + w1 * P[1][1] + w2 * P[2][1], zAt]) : t.mat;
+        const at = (): V3 => [w0 * P[0][0] + w1 * P[1][0] + w2 * P[2][0], w0 * P[0][1] + w1 * P[1][1] + w2 * P[2][1], zAt];
+        const mat = t.paint ? t.paint(at()) : t.mat;
+        if (mark) mark[i] = opt.marks!.of(mat, at());
         // Darker low down, toward the shade under the car.
         const ao = mat !== "glass" && !GLOWS.has(mat) ? 0.78 + 0.22 * Math.min(1, zAt / 0.9) : 1;
         const c = flat ?? shade(t.ns ? norm([
@@ -396,5 +421,34 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
       above += cnt[k];
     }
   }
-  return { layers, ox: -x0, oy: -y0 };
+  // THE MARKS: each its samples' share, and a halo of half that blurred round it.
+  const marks: Image[] = [];
+  for (let k = 0; k < (opt.marks?.n ?? 0); k++) {
+    const a = new Float32Array(W * H), bit = 1 << k;
+    for (let ty = 0; ty < H; ty++) for (let tx = 0; tx < W; tx++) {
+      let c = 0;
+      for (let sy = 0; sy < SS; sy++) for (let sx = 0; sx < SS; sx++) if (mark![(ty * SS + sy) * SW + tx * SS + sx] & bit) c++;
+      a[ty * W + tx] = c / N;
+    }
+    const img: Image = { w: W, h: H, px: new Uint8Array(W * H * 4) };
+    const R = HALO;
+    for (let ty = 0; ty < H; ty++) for (let tx = 0; tx < W; tx++) {
+      let sum = 0, cnt = 0;
+      for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+        const X = tx + dx, Y = ty + dy;
+        cnt++;
+        if (X >= 0 && Y >= 0 && X < W && Y < H) sum += a[Y * W + X];
+      }
+      const v = Math.max(a[ty * W + tx], 0.5 * Math.min(1, (2 * sum) / cnt));
+      if (v <= 0) continue;
+      const o = (ty * W + tx) * 4;
+      img.px[o] = img.px[o + 1] = img.px[o + 2] = 255;
+      img.px[o + 3] = to8(v);
+    }
+    marks.push(img);
+  }
+  return { layers, marks, ox: -x0, oy: -y0 };
 }
+
+/** How far a mark's halo reaches, texels. */
+const HALO = 2;

@@ -25,6 +25,8 @@ export type CarLook = {
   /** Each heading's anchor in each layer: the vehicle's middle at the road, as a share of the layer. */
   paintAnchor: { x: number; y: number }[];
   trimAnchor: { x: number; y: number }[];
+  /** Each heading's lamps' masks, in `LAMPS` order, and their anchors; an empty texture where there is none. @see raster LAMPS */
+  lamps: { tex: Texture; anchor: { x: number; y: number } }[][];
 };
 export type CarSprites = { res: number; headings: number; looks: Map<string, CarLook> };
 
@@ -40,7 +42,14 @@ export async function loadCarSprites(): Promise<CarSprites> {
   const looks = new Map<string, CarLook>();
   for (const [id, m] of Object.entries(sheet.models)) {
     const paint: Texture[] = [], trim: Texture[] = [], paintAnchor: { x: number; y: number }[] = [], trimAnchor: typeof paintAnchor = [];
-    for (const [page, x, y, pw, ph, pox, poy, tw, th, tox, toy] of m.frames) {
+    const lamps: CarLook["lamps"] = [];
+    for (const [page, x, y, pw, ph, pox, poy, tw, th, tox, toy, ...ls] of m.frames) {
+      const mine: CarLook["lamps"][number] = [];
+      for (let k = 0; k + 6 < ls.length; k += 7) {
+        const [lp, lx, ly, lw, lh, lox, loy] = ls.slice(k, k + 7);
+        mine.push(lw ? { tex: new Texture({ source: pages[lp].source, frame: new Rectangle(lx, ly, lw, lh) }), anchor: { x: lox / lw, y: loy / lh } } : { tex: Texture.EMPTY, anchor: { x: 0, y: 0 } });
+      }
+      lamps.push(mine);
       const source = pages[page].source;
       // A livery has no paint: an empty texture, so the paint sprite draws nothing.
       paint.push(pw ? new Texture({ source, frame: new Rectangle(x, y, pw, ph) }) : Texture.EMPTY);
@@ -48,7 +57,7 @@ export async function loadCarSprites(): Promise<CarSprites> {
       paintAnchor.push(pw ? { x: pox / pw, y: poy / ph } : { x: 0, y: 0 });
       trimAnchor.push({ x: tox / tw, y: toy / th });
     }
-    looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, paint, trim, paintAnchor, trimAnchor });
+    looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, paint, trim, paintAnchor, trimAnchor, lamps });
   }
   return { res: sheet.res, headings: sheet.headings, looks };
 }

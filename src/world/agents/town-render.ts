@@ -16,6 +16,7 @@
  * band by how far into it it is, so the ground in front of it covers it and
  * two cars side by side overlap the right way round. @see BandLayer.dynamicOf
  */
+import { braking, lampsOf, signalOf } from "./lamps";
 import { Container, Graphics, Matrix, Rectangle, RenderTexture, Sprite, Texture, type Renderer } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
@@ -84,7 +85,8 @@ const ofId = <T>(id: number, salt: number, list: readonly T[]) =>
 const shade = (c: number, k: number) =>
   (Math.round(((c >> 16) & 255) * k) << 16) | (Math.round(((c >> 8) & 255) * k) << 8) | Math.round((c & 255) * k);
 
-export type TownLayer = { draw: (town: Town, scale: number) => void; destroy: () => void };
+/** `night`, how dark it is, 0–1: the vehicles' head and tail lamps on. */
+export type TownLayer = { draw: (town: Town, scale: number, night?: number) => void; destroy: () => void };
 
 /**
  * MOVERS AS SPRITES, from one atlas. Each look is drawn ONCE, by the drawing
@@ -223,7 +225,14 @@ function createAtlas(renderer: Renderer) {
 const PERSON_BASE = [{ u: 0.02, v: 0.02 }, { u: -0.02, v: 0.02 }, { u: 0.02, v: -0.02 }, { u: -0.02, v: -0.02 }];
 
 /** One mover on the map: a container of its sprites — one for a vehicle, a part each for a person. */
-type Shown = { c: Container; parts: Sprite[]; band: number; key: string; baked: boolean; tilted: boolean; flash?: Sprite[]; lead?: Graphics };
+type Shown = {
+  c: Container; parts: Sprite[]; band: number; key: string; baked: boolean; tilted: boolean; flash?: Sprite[]; lead?: Graphics;
+  /** A baked vehicle's lamps, in `LAMPS` order; and its speed when last drawn, for its brake lights. */
+  lamps?: Sprite[]; was?: { speed: number; t: number; brakes: boolean };
+};
+
+/** The lamps lit: headlamps warm white, tail lamps and brake lights red, indicators amber. @see raster LAMPS */
+const LAMP_TINT = [0xfff1cc, 0xff2414, 0xffa015, 0xffa015] as const;
 
 /** A walker's pose: stood still, running, hand in hand, or walking. @see posePerson */
 export function walkerPose(m: Mover): PoseSet {
@@ -351,7 +360,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
   };
 
   let live = new Set<number>();
-  const draw = (town: Town, scale: number) => {
+  const draw = (town: Town, scale: number, night = 0) => {
     // A new scale is every look baked again.
     if (scale !== atScale) {
       atlas.destroy(); atlas = createAtlas(renderer); looks.clear(); atScale = scale;
@@ -385,6 +394,10 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         }
         d = { c, parts, band: -1, key: "", baked: !!car || !!fig, tilted: false };
         if (car) parts[0].tint = m.colour;
+        // ITS LAMPS, over the trim, each lit by its alpha alone: nothing in the band's draw list changes.
+        if (car && car.lamps[0]?.length) {
+          d.lamps = LAMP_TINT.map((t) => { const sp = new Sprite(); sp.tint = t; sp.alpha = 0; c.addChild(sp); return sp; });
+        }
         // BLUE LIGHTS on the roof of an emergency vehicle, over everything of it.
         if (car && m.siren) {
           d.flash = [0, 1].map(() => {
@@ -408,6 +421,19 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
           d.parts[0].anchor.set(car.paintAnchor[h].x, car.paintAnchor[h].y);
           d.parts[1].anchor.set(car.trimAnchor[h].x, car.trimAnchor[h].y);
           for (const sp of d.parts) sp.scale.set(scale / sheet!.res);
+          d.lamps?.forEach((sp, k) => {
+            const l = car.lamps[h][k];
+            sp.texture = l.tex; sp.anchor.set(l.anchor.x, l.anchor.y); sp.scale.set(scale / sheet!.res);
+          });
+        }
+        if (d.lamps) {
+          // Braking: slowing hard, or stood; held a moment, so it does not flicker as it creeps up a queue.
+          const w = d.was, dt = w ? town.t - w.t : 0;
+          const now = braking(m, w?.speed ?? m.speed, dt);
+          const brakes = now || (!!w?.brakes && m.speed < 0.3);
+          if (!w || dt > 0) d.was = { speed: m.speed, t: town.t, brakes };
+          const lit = lampsOf(m, signalOf(town.traffic?.G ?? null, m), brakes, night, town.t);
+          d.lamps.forEach((sp, k) => { if (sp.alpha !== lit[k]) sp.alpha = lit[k]; });
         }
         // Tilted on a ramp; set straight again off it.
         const tilt = pitchMatrix((h / sheet!.headings) * Math.PI * 2, m.pitch ?? 0);

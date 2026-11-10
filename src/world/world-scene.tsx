@@ -248,6 +248,7 @@ import { createStreetProps, type StreetProps } from "./render/street-props";
 import { createWoods, type Woods } from "./render/woods";
 import { createSignals, type Signals } from "./render/signals";
 import { createBusStops, type BusStops } from "./render/bus-stops";
+import { createCarGlow, type CarGlow } from "./render/car-glow";
 import { shopName } from "./agents/shop-names";
 import { createLights, type Lights } from "./render/lights";
 import { keystone, notable } from "../game/machine";
@@ -549,8 +550,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // NIGHT over the map in the game: one translucent sheet the size of the
   // screen, darker as the day turns. @see world/daylight
   const night = useRef<Graphics | null>(null);
+  /** How dark it was last frame, 0–1: for the vehicles' lamps. */
+  const nightNowRef = useRef(0);
   const nightKey = useRef("");
   const lightsRef = useRef<Lights | null>(null);
+  const carGlowRef = useRef<CarGlow | null>(null);
   const lightsAt = useRef<{ grid: unknown; rev: number; crunch: boolean }>({ grid: null, rev: -1, crunch: false });
   // AND RAIN over it while a flood is coming or here. @see drawRain
   const rain = useRef<Graphics | null>(null);
@@ -568,11 +572,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     rain.current = r;
     // THE TOWN'S LIGHTS, over the night and under the rain. @see createLights
     lightsRef.current = createLights(app.stage, 1e9 + 0.5);
+    // THE VEHICLES' HEADLIGHTS, over the night too, under the town's lights. @see createCarGlow
+    carGlowRef.current = createCarGlow(app.stage, 1e9 + 0.4);
     return () => {
       for (const x of [g, r]) { x.parent?.removeChild(x); x.destroy(); }
       night.current = null;
       lightsRef.current?.destroy();
       lightsRef.current = null;
+      carGlowRef.current?.destroy();
+      carGlowRef.current = null;
       rain.current = null;
     };
   }, [app]);
@@ -3565,7 +3573,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           useWorldStore.setState({ projectRev: st.projectRev + 1 });
         }
         sWorks();
-        { const e = section("tick: town draw"); townRef.current?.draw(getTown(), scale); e(); }
+        { const e = section("tick: town draw"); townRef.current?.draw(getTown(), scale, nightNowRef.current); e(); }
       }
       const t2 = performance.now();
       // THE DEVICE'S OWN TALLY when it is the one holding the water, and the
@@ -3697,6 +3705,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       const ascension = playing ? sequenceIntensity(now) : 0;
       const nightNow = on ? darkness(phase) / NIGHT_DARK : 0;
+      nightNowRef.current = nightNow;
       if (g) {
         // THE SKY TURNS as the AI rises: a violet cast from the Manager on, and at the Ascension.
         // By the stage, so Hard Takeoff's early Overseer brings it with it. @see stagesNow
@@ -3759,6 +3768,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
         lightsRef.current.tick(nightNow, blNow.root.worldTransform, now / 1000);
       }
+      if (carGlowRef.current && blNow) carGlowRef.current.tick(getTown(), nightNow, blNow.root.worldTransform, scale);
       // THE AI ON THE MAP. @see createAiLayer
       const ai = aiLayerRef.current;
       // In development, `__aiPreview` shows it in the editor at any stage.

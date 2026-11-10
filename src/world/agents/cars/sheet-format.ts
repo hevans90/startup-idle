@@ -11,12 +11,17 @@ export const CAR_RES = 2;
 /**
  * A frame: its page and where it starts, then each layer cropped to what it
  * covers — its width, height and the origin in it. The trim sits right of the
- * paint, `GAP` on. A livery's paint is empty: 0 wide.
+ * paint, `GAP` on. Then each lamp's mask, packed apart: its page, where it
+ * starts, and its size and origin — seven numbers. A livery's paint is
+ * empty: 0 wide; so is a lamp a vehicle has none of, or none seen at that
+ * heading.
+ * @see raster LAMPS
  */
 export type CarFrame = [
   page: number, x: number, y: number,
   pw: number, ph: number, pox: number, poy: number,
   tw: number, th: number, tox: number, toy: number,
+  ...lamps: number[],
 ];
 
 export type CarSheet = {

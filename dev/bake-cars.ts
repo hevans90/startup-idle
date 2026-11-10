@@ -14,7 +14,9 @@
  *
  * EACH FRAME IS TWO LAYERS side by side in the page: the paint, white with
  * its light, which the game tints; and the trim, in its own colours, drawn
- * over it. Both share a size and an origin: the vehicle's middle at the road.
+ * over it. Both share an origin: the vehicle's middle at the road. And the
+ * lamps' masks, white, packed apart, which the game lights as it brakes,
+ * turns or it is night. @see raster LAMPS
  */
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -66,7 +68,7 @@ const t0 = performance.now();
 // Baked first and packed tallest first, so a shelf wastes little over its frames.
 const baked = MODELS.flatMap((m) => Array.from({ length: CAR_HEADINGS }, (_, h) => {
   const b = bakeFrame(m, (h / CAR_HEADINGS) * Math.PI * 2, CAR_RES);
-  return { m, h, paint: crop(b.paint, b.ox, b.oy), trim: crop(b.trim, b.ox, b.oy) };
+  return { m, h, paint: crop(b.paint, b.ox, b.oy), trim: crop(b.trim, b.ox, b.oy), lamps: b.lamps.map((l) => crop(l, b.ox, b.oy)) };
 }));
 for (const m of MODELS) sheet.models[m.id] = { length: m.length, width: m.width, frames: [] };
 for (const { m, h, paint: p, trim: t } of baked.sort((a, b) => Math.max(b.paint.img.h, b.trim.img.h) - Math.max(a.paint.img.h, a.trim.img.h))) {
@@ -74,6 +76,18 @@ for (const { m, h, paint: p, trim: t } of baked.sort((a, b) => Math.max(b.paint.
   blit(pages[at.page], p.img, at.x, at.y);
   blit(pages[at.page], t.img, at.x + p.img.w + GAP, at.y);
   sheet.models[m.id].frames[h] = [at.page, at.x, at.y, p.img.w, p.img.h, p.ox, p.oy, t.img.w, t.img.h, t.ox, t.oy];
+}
+// THE LAMPS after them, each packed by itself: an indicator's runs the car's length, mostly clear.
+const lamps = baked.flatMap((b) => b.lamps.map((l, k) => ({ b, k, l }))).sort((a, b) => b.l.img.h - a.l.img.h);
+const spots = new Map<string, number[]>();
+for (const { b, k, l } of lamps) {
+  const at = l.img.w ? place(l.img.w, l.img.h) : { page: 0, x: 0, y: 0 };
+  if (l.img.w) blit(pages[at.page], l.img, at.x, at.y);
+  spots.set(`${b.m.id}|${b.h}|${k}`, [at.page, at.x, at.y, l.img.w, l.img.h, l.ox, l.oy]);
+}
+for (const b of baked) {
+  const frame = sheet.models[b.m.id].frames[b.h];
+  b.lamps.forEach((_, k) => frame.push(...spots.get(`${b.m.id}|${b.h}|${k}`)!));
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
