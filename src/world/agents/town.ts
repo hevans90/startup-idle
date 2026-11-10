@@ -32,6 +32,7 @@ import { AI_TRUCK_COLOUR, BUS_COLOUR, halfLength, SHUTTLE_COLOUR, VAN_COLOUR } f
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { BREEDS, CHILD_STEP_M, DOGS, JOGGERS, KIDS, PARENTS, PEDAL_TURN_M, RUN_STEP_M, STEP_TILES } from "./people/people-format";
 import { dogFor, HAND_GAP, KEEP, stepDogs, stepWalkers, type Dog } from "./walker-life";
+import { BUS_TAKE, busArrives, busesOf, busTrip, kerbAt, queueAt, stepBuses, type BusLeg, type Buses, type Ride } from "./buses";
 import { TILES_PER_M } from "./cars/models";
 import { isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
@@ -134,8 +135,12 @@ export type Mover = {
   pass?: { lane: number; a: number; b: number };
   /** Arrived short of the end of its way: a car parked on it. */
   there?: boolean;
-  /** Just out of a bay, still pulling out from the kerb. */
+  /** Just out of a bay, or a stop, still pulling out from the kerb. */
   leaving?: boolean;
+  /** A ROUTE BUS on a leg of its route; somebody going by bus; and waiting at the stop for it. @see buses */
+  bus?: BusLeg;
+  ride?: Ride;
+  atStop?: boolean;
   /**
    * ON THE PAVEMENTS, walking with others: whose company they are in and
    * their place in it; how many keep theirs; whose hand they hold; running;
@@ -207,6 +212,8 @@ export type Town = {
   movers: Mover[];
   /** The cars parked in the bays, each with `park`: off the roads, and drawn with the rest. @see agents/parking */
   parked: Mover[];
+  /** The bus routes. @see buses busesOf */
+  buses?: Buses;
   /** The lanes the residents' cars were last parked for. */
   residentsFor?: LaneGraph;
   /** Movers on a job that arrived since the last look. @see stepWorks */
@@ -248,10 +255,12 @@ const JOG_PACE = 2.2;
 const RUN_STEP_TILES = RUN_STEP_M * TILES_PER_M, CHILD_STEP_TILES = CHILD_STEP_M * TILES_PER_M;
 /**
  * PULLING OUT from the kerb: no faster than this, tiles a second, while still
- * further than `KERB_CLEAR` over toward it — so its nose does not clip the car
+ * further than `KERB_CLEAR` to the right of its lane — so its nose does not clip the car
  * parked in front of it.
  */
 const PULL_OUT_SPEED = 0.25, KERB_CLEAR = 0.1;
+/** How far short of its stop a bus starts to pull in, tiles. */
+const STOP_IN = 1.1;
 /** How fast a walker steps to the side, tiles a second. */
 const WALK_SIDE_RATE = 0.15;
 
@@ -404,7 +413,7 @@ export function along(m: Mover, s: number) {
 /** Cars and trucks: they drive, keep right and keep their distance. */
 const drives = (m: { kind: Mover["kind"] }) => m.kind !== "person";
 
-function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place | Kerbside, to: Place | Kerbside, colour?: number, after?: Mover, spots?: { start?: Spot; goal?: Spot }): Mover | null {
+export function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place | Kerbside, to: Place | Kerbside, colour?: number, after?: Mover, spots?: { start?: Spot; goal?: Spot }): Mover | null {
   let path: Cell[], line: Cell[], drive: Drive | undefined, walk: Mover["walk"];
   if (kind !== "person") {
     if (from.kind === "kerb" || to.kind === "kerb") return null;
@@ -694,7 +703,11 @@ function runsOf(T: Traffic, on: ReadonlyMap<number, Onto[]>, parked: ReadonlyMap
       let first: Onto | undefined;
       for (const o of on.get(lane) ?? []) {
         const P = o.m.pass, d = o.m.drive!;
-        if (P && P.lane === lane && P.b - d.start[d.k] > r.z0 && P.a - d.start[d.k] < r.z1) r.out = true;
+        if (P && P.lane === lane && P.b - d.start[d.k] > r.z0 && P.a - d.start[d.k] < r.z1) {
+          r.out = true;
+          // (A long one — a bus — further: to its nose, back in.)
+          r.z1 = Math.max(r.z1, P.b - d.start[d.k] + halfLength(o.m) + 0.05);
+        }
         else if (o.s < r.p0 && (!first || o.s > first.s)) first = o;
       }
       if (first && r.p0 - first.s < 1.5 && first.m.stuck > PATIENT) r.asked = true;
@@ -906,6 +919,9 @@ function passParked(T: Traffic, m: Mover, now: ReturnType<typeof trafficNow>, A:
   const L = d.lanes[d.k];
   // (Done with it once back in its own lane.)
   if (m.pass && (m.pass.lane !== L || (m.s > m.pass.b && (m.side ?? 0) > -0.03))) m.pass = undefined;
+  // (Or the cars it was getting by gone from beside and ahead of it: back in where it is.)
+  const P0 = m.pass, s0 = d.start[d.k];
+  if (P0 && !(now.runs.get(L) ?? []).some((r) => s0 + r.p1 > m.s - half && s0 + r.p0 < P0.b)) m.pass = undefined;
   const out = (m.side ?? 0) <= -(passSide(m) - 0.03);
   for (let j = d.k; j < d.lanes.length && d.start[j] - m.s < FOLLOW + 1; j++) {
     const X = d.lanes[j], lenX = G.lanes[X].len;
@@ -942,8 +958,9 @@ function passParked(T: Traffic, m: Mover, now: ReturnType<typeof trafficNow>, A:
       if (m.pass && at - ph < m.pass.b + half) { if (out) continue; }
       else if (j === d.k && gap < Math.max(1.2, v * 1.5 + 0.8)) {
         const r = runAt(G, now, p.m);
-        if (r && mayPass(now, m, r, m.s - d.start[j])) {
-          m.pass = { lane: L, a: d.start[j] + r.p0 - half - 0.4, b: passEnd(G, m, r, d.start[j]) };
+        const b = r && passEnd(G, m, r, d.start[j]);
+        if (r && mayPass(G, now, m, r, m.s - d.start[j], b! - d.start[j])) {
+          m.pass = { lane: L, a: d.start[j] + r.p0 - half - 0.4, b: b! };
           continue;
         }
       }
@@ -979,17 +996,26 @@ function passEnd(G: Traffic["G"], m: Mover, r: Run, start: number): number {
 
 /**
  * Whether a vehicle may go out to get by a run of parked cars, from `from`
- * along its lane: nobody coming the other way on it, too near to stop short
+ * along its lane, back in at `to`: nobody coming the other way on it, too near to stop short
  * or waiting at its end; nobody ahead of it in its own lane still to get by;
  * and room to be back in after them.
  */
-function mayPass(now: ReturnType<typeof trafficNow>, m: Mover, r: Run, from: number): boolean {
+function mayPass(G: Traffic["G"], now: ReturnType<typeof trafficNow>, m: Mover, r: Run, from: number, to: number): boolean {
   if (r.facing || r.waiting) return false;
   const half = halfLength(m);
+  // (Nobody coming the other way, stood short of the run, within its reach back in: a bus's further than a car's.)
+  const len = G.lanes[r.opp].len;
+  for (const o of now.on.get(r.opp) ?? []) {
+    const sL = len - o.s, ho = halfLength(o.m);
+    if (sL + ho > from && sL - ho < to + half + 0.05) return false;
+  }
+  // (Room after them past those getting by ahead of it too: each back in in front of it.)
+  let room = r.p1 + 2 * half + 0.8;
+  for (const o of now.on.get(r.lane) ?? []) if (o.m !== m && o.s > from && o.m.pass && o.s < r.p1 + half) room += spacing(m, o.m) + GAP;
   for (const o of now.on.get(r.lane) ?? []) {
     if (o.m === m || o.s <= from || o.m.pass) continue;
     if (o.s < r.p1 + half) return false;
-    if (o.s - halfLength(o.m) < r.p1 + 2 * half + 0.8 && o.m.speed < 0.5) return false;
+    if (o.s - halfLength(o.m) < room && o.m.speed < 0.5) return false;
   }
   return true;
 }
@@ -1008,6 +1034,11 @@ function restSide(T: Traffic, now: ReturnType<typeof trafficNow>, m: Mover): num
       const behind = T.G.bays.some((o) => o.lane === b.lane && o.s < b.s && b.s - o.s < 0.8 && now.taken.has(o.id));
       if (!behind || left < 0.05) return b.side;
     }
+  }
+  // A BUS in at its stop, standing there; and pulling in as it comes to the next.
+  if (m.bus) {
+    if (m.bus.from !== undefined && standing(m)) return m.bus.from;
+    if (m.at[m.at.length - 1] - m.s < STOP_IN) return m.bus.to;
   }
   if (m.pass && m.s >= m.pass.a && m.s <= m.pass.b) return -passSide(m);
   return m.kind === "bike" && l?.kind === "street" ? BIKE_SIDE : 0;
@@ -1231,7 +1262,9 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   // Everything that drives keeps its distance from everything else that does;
   // only the town's own trips count towards how many trips it has.
   const cars = t.movers.filter(drives);
-  const tripCars = cars.filter((m) => !m.job).length + t.parked.filter((c) => c.park!.trip).length;
+  const tripCars = cars.filter((m) => !m.job && !m.bus).length + t.parked.filter((c) => c.park!.trip).length;
+  // Shuttle Bus's share, on the routes where the town has them. @see stepBuses
+  const routed = culture.shuttle && !!t.buses?.routes.length;
   const people = t.movers.filter((m) => m.kind === "person" && !m.job).length;
   t.untilCar -= h;
   if (t.untilCar <= 0 && tripCars < want.cars) {
@@ -1240,11 +1273,12 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     // A car's trip taken by a shuttle bus, or a moving van, as the cards say.
     // Rolled only with one of them in force: the town's sequence as it was without.
     const r = culture.shuttle || culture.vans ? rand(t) : 0.5;
-    const [kind, colour] = culture.shuttle && r < SHUTTLE_SHARE ? ["bus", SHUTTLE_COLOUR] as const
+    const [kind, colour] = culture.shuttle && r < SHUTTLE_SHARE ? (routed ? [null, undefined] as const : ["bus", SHUTTLE_COLOUR] as const)
       : culture.vans && r > 1 - VAN_SHARE ? ["truck", VAN_COLOUR] as const
       : rand(t) < BIKE_SHARE ? ["bike", undefined] as const : ["car", undefined] as const;
     // From a door, in a car parked near it if there is one: its people walk out to it first.
-    if (trip && kind === "car" && trip[0].kind === "door" && fromBay(t, g, trip[0], trip[1])) { /* on its way */ }
+    if (!kind) { /* a shuttle bus's trip, on the routes */ }
+    else if (trip && kind === "car" && trip[0].kind === "door" && fromBay(t, g, trip[0], trip[1])) { /* on its way */ }
     else {
       const m = trip && setOff(t, g, kind, ...trip, colour);
       if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR) && !amongParked(t, g, m)) {
@@ -1258,8 +1292,13 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   if (t.untilPerson <= 0 && people < want.people) {
     t.untilPerson = PERSON_EVERY / townCaps.every;
     const trip = (rand(t) < busy.commute ? commuteTrip(t, g, net, "person") : null) ?? tripFor(t, "person");
-    const m = trip && setOff(t, g, "person", ...trip);
-    if (m) t.movers.push(m, ...companyFor(t, m, want.people - people - 1));
+    // A LONG WAY: by bus, now and then, where a route goes near both ends.
+    const T0 = trafficOf(t, g);
+    const by = trip && busTrip(t, T0.G, trip[0], trip[1]);
+    const stop = by && rand(t) < BUS_TAKE ? T0.G.stops[t.buses!.routes[by.route].stops[by.on]] : undefined;
+    const m = trip && (stop ? setOff(t, g, "person", trip[0], kerbAt(g, stop)) : setOff(t, g, "person", ...trip));
+    if (m && stop) { m.ride = { ...by!, waited: 0 }; m.side = m.sideTo = KEEP; t.movers.push(m); }
+    else if (m) t.movers.push(m, ...companyFor(t, m, want.people - people - 1));
   }
 
   // MOVING, each vehicle minding the lanes it is on. @see driveLimit
@@ -1268,6 +1307,10 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   if (t.residentsFor !== T.G) residents(t, g, T);
   const now = trafficNow(T, cars, t.movers.filter((m) => m.walk), t.parked);
   stepParked(t, g, T, now, h);
+  // THE BUSES: onto their routes, and people on at the stops. @see buses
+  busesOf(t, T.G);
+  const gotOn = stepBuses(t, g, T.G, h, culture.shuttle ? { n: 1, colour: SHUTTLE_COLOUR } : null);
+  if (gotOn.size) t.movers = t.movers.filter((m) => !gotOn.has(m));
   stepWalkers(t, g, h);
   giveWayToBlues(T, cars, now);
   const taken = new Set<string>();
@@ -1283,6 +1326,8 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     }
     // AT WORK on a site: standing, swinging a hammer. @see town-render
     if (atWork(m)) { m.phase += h * WORK_RATE; continue; }
+    // AT A BUS STOP, waiting. @see buses
+    if (m.atStop) continue;
     // AT A STOP: standing, then on its way — out from the kerb when the lane is clear behind.
     if (m.wait && m.wait > 0) {
       m.wait -= h;
@@ -1304,7 +1349,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
       if (m.drive && m.drive.graph === T.G) driveLimit(t, T, m, now, h, A);
       // Out of a bay: slowly, till it is clear of the car parked in front.
       if (m.leaving) {
-        if ((m.side ?? 0) > (m.sideTo ?? 0) + KERB_CLEAR) A.cap = Math.min(A.cap, PULL_OUT_SPEED);
+        if ((m.side ?? 0) > KERB_CLEAR) A.cap = Math.min(A.cap, PULL_OUT_SPEED);
         else m.leaving = undefined;
       }
       drive(m, A, h);
@@ -1366,8 +1411,10 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   }
   stepDogs(t, h, (b) => DOGS[b].step * TILES_PER_M, (x, y) => roadHeightAt(g, x, y));
 
-  // ARRIVING, and the road going from under somebody.
-  t.movers = t.movers.filter((m) => {
+  // ARRIVING, and the road going from under somebody. (Whoever sets off as
+  // somebody arrives — people out of a parked car, off a bus — is kept too.)
+  const all = t.movers, n0 = all.length;
+  const kept = all.filter((m) => {
     if (atWork(m)) return true;     // the site lets them go. @see stepWorks, stepCleanup
     if (m.gone) { letGo(T, m, true); return false; }
     // (Into a bay: once in at the kerb.)
@@ -1377,6 +1424,10 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
       if (m.job) t.arrived.push(m);
       // INTO ITS BAY, and its people out and off to the door.
       if (m.bayTo) parkIn(t, g, T, m);
+      // A BUS AT A STOP: people off, and on to the next.
+      if (m.bus) { const on = busArrives(t, g, T.G, m); if (on) t.movers.push(on); }
+      // AT THE STOP, to wait for the bus.
+      if (m.ride && !m.atStop) { queueAt(t, g, T.G, m); return true; }
       // AT THE CAR, and in.
       if (m.toCar !== undefined) boarded(t, m.toCar);
       return false;
@@ -1388,6 +1439,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     if (m.toCar !== undefined) boarded(t, m.toCar);
     return false;
   });
+  t.movers = [...kept, ...all.slice(n0)];
 }
 
 /**
@@ -1513,10 +1565,10 @@ function stepParked(t: Town, g: Grid, T: Traffic, now: ReturnType<typeof traffic
     const ahead = r && (now.parked.get(b.lane) ?? []).some((p) => p.m !== c && p.s > b.s && p.s < r.s1);
     let pass: Mover["pass"];
     if (r && ahead) {
-      if (!mayPass(now, c, r, b.s)) continue;
       // (Already among them, out from the first.)
-      const d0 = way.drive.start[0];
-      pass = { lane: b.lane, a: d0 + b.s - 1, b: passEnd(T.G, c, r, d0) };
+      const d0 = way.drive.start[0], end = passEnd(T.G, c, r, d0);
+      if (!mayPass(T.G, now, c, r, b.s, end - d0)) continue;
+      pass = { lane: b.lane, a: d0 + b.s - 1, b: end };
     }
     t.parked.splice(t.parked.indexOf(c), 1);
     // Off: on its way, out from the kerb.

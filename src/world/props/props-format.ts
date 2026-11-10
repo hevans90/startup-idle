@@ -12,7 +12,7 @@ export const PROP_GAP = 3;
 
 /** Each prop's tinted layer, as it most often is: leaves in leaf, a parasol's cloth. */
 export const PROP_TINT: Readonly<Record<string, number>> = {
-  oak: 0x5f8f3e, lime: 0x6f9d45, hornbeam: 0x4f8a3e, cherry: 0xf2b3cb, birch: 0x8fb552, pine: 0x2f5e3a, cafe: 0xd8432f,
+  oak: 0x5f8f3e, lime: 0x6f9d45, hornbeam: 0x4f8a3e, cherry: 0xf2b3cb, birch: 0x8fb552, pine: 0x2f5e3a, cafe: 0xd8432f, shelter: 0xd8322b,
 };
 
 /**

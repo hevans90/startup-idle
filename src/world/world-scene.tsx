@@ -247,6 +247,7 @@ import { SHOP_LOOK, createShopfronts, type Shopfronts } from "./render/shopfront
 import { createStreetProps, type StreetProps } from "./render/street-props";
 import { createWoods, type Woods } from "./render/woods";
 import { createSignals, type Signals } from "./render/signals";
+import { createBusStops, type BusStops } from "./render/bus-stops";
 import { shopName } from "./agents/shop-names";
 import { createLights, type Lights } from "./render/lights";
 import { keystone, notable } from "../game/machine";
@@ -427,6 +428,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const woodsRef = useRef<Woods | null>(null);
   /** The traffic lights at the lights junctions. @see createSignals */
   const signalsRef = useRef<Signals | null>(null);
+  /** The bus shelters at the routes' stops. @see createBusStops */
+  const busStopsRef = useRef<BusStops | null>(null);
   /** The seats last given the town. */
   const seatsRef = useRef<Seat[] | null>(null);
   /** Seconds to Ship It Fridays' next release party. @see SHIP_EVERY */
@@ -1655,6 +1658,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         streetPropsRef.current = createStreetProps(bl);
         woodsRef.current = createWoods(bl);
         signalsRef.current = createSignals(bl);
+        busStopsRef.current = createBusStops(bl);
         const scan = new Graphics();
         scan.eventMode = "none";
         scan.zIndex = 1001;
@@ -1708,6 +1712,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       woodsRef.current = null;
       signalsRef.current?.destroy();
       signalsRef.current = null;
+      busStopsRef.current?.destroy();
+      busStopsRef.current = null;
       tileHoloRef.current?.clear();
       tileHoloRef.current = null;
       holoScanRef.current?.parent?.removeChild(holoScanRef.current);
@@ -3722,6 +3728,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // The lanes the town last drove on: kept current by stepTown. @see trafficOf
         const town = getTown(), T = town.traffic;
         if (T) { signalsRef.current.sync(useWorldStore.getState().grid, T, scale); signalsRef.current.tick(T, town.t); }
+        if (T && busStopsRef.current) busStopsRef.current.sync(useWorldStore.getState().grid, T, town.buses?.G === T.G ? town.buses.routes : [], scale);
       }
       const streetNet = getNetwork();
       if (streetPropsRef.current && streetNet) {

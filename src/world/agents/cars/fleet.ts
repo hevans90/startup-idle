@@ -32,11 +32,11 @@ const BUS_PICKS = picks(BUS_WEIGHTS), MINIBUS_PICKS = picks(MINIBUS_WEIGHTS);
 const SIREN_MODEL = { police: "police", ambulance: "ambulance", fire: "fireEngine" } as const;
 
 /** Which model a mover is, or null for one on foot. */
-export function modelFor(m: Pick<Mover, "id" | "kind" | "colour" | "siren">): string | null {
+export function modelFor(m: Pick<Mover, "id" | "kind" | "colour" | "siren" | "bus">): string | null {
   if (m.siren) return SIREN_MODEL[m.siren];
   if (m.kind === "car") return ofId(m.id, 0x51ed, CAR_PICKS);
   if (m.kind === "limo") return "limo";
-  if (m.kind === "bus") return ofId(m.id, 0xb05, m.colour === SHUTTLE_COLOUR ? BUS_PICKS : MINIBUS_PICKS);
+  if (m.kind === "bus") return ofId(m.id, 0xb05, m.colour === SHUTTLE_COLOUR || m.bus ? BUS_PICKS : MINIBUS_PICKS);
   if (m.kind === "truck") {
     if (m.colour === AI_TRUCK_COLOUR) return "machineLorry";
     return ofId(m.id, 0x7a11, m.colour === VAN_COLOUR ? VAN_PICKS : LORRY_PICKS);
@@ -45,7 +45,7 @@ export function modelFor(m: Pick<Mover, "id" | "kind" | "colour" | "siren">): st
 }
 
 /** Half a mover's length, tiles: nose or tail from its middle. 0 for one on foot. */
-export function halfLength(m: Pick<Mover, "id" | "kind" | "colour" | "siren">): number {
+export function halfLength(m: Pick<Mover, "id" | "kind" | "colour" | "siren" | "bus">): number {
   if (m.kind === "bike") return (BIKE_LENGTH * TILES_PER_M) / 2;
   const id = modelFor(m);
   const model = id ? modelById.get(id) : undefined;

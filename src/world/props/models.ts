@@ -1,6 +1,6 @@
 /**
  * World v2 — THE PROPS, as models: trees, a bench, a café's table and
- * parasol, a fountain. In metres, `x` forward, `y` to the left, `z` up, the
+ * parasol, a bus shelter, a fountain. In metres, `x` forward, `y` to the left, `z` up, the
  * foot of the thing at the origin; baked by the vehicles' rasteriser into a
  * sheet at four turns, as the cars and people are. @see dev/bake-props.ts
  *
@@ -218,9 +218,37 @@ function fountainTris(): Tri[] {
   return out;
 }
 
+/**
+ * A BUS SHELTER facing +x: a glass back and ends on iron posts, a roof with
+ * a band in its route's colour (the tinted layer), a bench in it; and the
+ * stop's pole beside it, its sign up top. 3 m long.
+ */
+function shelterTris(): Tri[] {
+  const out: Tri[] = [];
+  const L = 1.5, B = -0.55, F = 0.6, H = 2.35;
+  // The posts: four at the back, two at the front corners.
+  for (const y of [-L, -0.5, 0.5, L]) box(B - 0.04, B + 0.04, y - 0.04, y + 0.04, 0, H, "iron", out);
+  for (const y of [-L, L]) box(F - 0.08, F, y - 0.04, y + 0.04, 0, H, "iron", out);
+  // The glass: the back, and an end each side, short of the front.
+  box(B - 0.015, B + 0.015, -L, L, 0.12, H - 0.08, "glass", out);
+  for (const y of [-L, L]) box(B, F - 0.3, y - 0.015, y + 0.015, 0.12, H - 0.08, "glass", out);
+  // The roof, falling to the back; the band along its front edge.
+  box(B - 0.12, F + 0.12, -L - 0.1, L + 0.1, H, H + 0.08, "roof", out);
+  box(F + 0.06, F + 0.14, -L - 0.1, L + 0.1, H - 0.18, H + 0.1, "canvas", out);
+  // A bench along the back.
+  box(B + 0.05, B + 0.45, -1.1, 1.1, 0.45, 0.5, "wood", out);
+  for (const y of [-1, 1]) box(B + 0.2, B + 0.28, y - 0.03, y + 0.03, 0, 0.45, "iron", out);
+  // THE STOP'S POLE, beside it toward the road, and its sign: a band in the route's colour over a white plate.
+  limb([F + 0.2, L + 0.45, 0], [F + 0.2, L + 0.45, 2.9], 0.04, 0.035, "iron", out, 8, false);
+  box(F + 0.17, F + 0.23, L + 0.2, L + 0.7, 2.55, 2.95, "linen", out);
+  box(F + 0.16, F + 0.24, L + 0.2, L + 0.7, 2.83, 2.95, "canvas", out);
+  return out;
+}
+
 export const FURNITURE: readonly Prop[] = [
   { id: "bench", tris: benchTris, shadow: { hl: 0.2, hw: 0.85, edge: 0.06, soft: 0.2, strength: 0.32, reach: 0.25 } },
   { id: "cafe", tris: cafeTris, shadow: { hl: 0.9, hw: 0.9, edge: 0.2, soft: 0.5, strength: 0.28, reach: 0.6 } },
+  { id: "shelter", tris: shelterTris, shadow: { hl: 0.7, hw: 1.6, edge: 0.1, soft: 0.25, strength: 0.28, reach: 0.5 } },
   { id: "fountain", tris: fountainTris, shadow: { hl: 1.5, hw: 1.5, edge: 0.15, soft: 0.25, strength: 0.25, reach: 0.4 } },
 ];
 

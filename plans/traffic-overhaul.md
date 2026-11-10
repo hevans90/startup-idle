@@ -209,7 +209,28 @@ Tests: `agents/walker-life.test.ts`. Notes:
   drawn hand to collar), wandering ± a little with sniff stops.
 - People cap goes to 120. Benches and cafés as now (cafés: sit at the café set).
 
-## Phase 7 — Buses
+## Phase 7 — Buses ✅
+Done: stop sites in `lanes/graph.ts` (`stopsOf`), routes in `agents/bus-routes.ts`, buses and riders in
+`agents/buses.ts` (hooked into `stepTown`), shelters in `render/bus-stops.ts` (a `shelter` prop).
+Tests: `agents/buses.test.ts`. Notes:
+- A stop every 7 cells on each kerb (the kerbs staggered), off crossings, ramps and side roads; the kerb a
+  cell either side is kept clear of bays. Streets one cell wide have them too: the bus stands only a
+  little in (0.08), so it is not "pulled in" and traffic waits behind it. Most towns' streets are 1 wide.
+- Routes: one a 40 doors (from 15; at most 4), seeded on the stops with the most doors near them, ordered
+  by lane-graph distance from whichever start calls at the most. A route loops if its last stop has a way
+  back to the first; otherwise it is a line, in from the nearest gateway and out at one. With no gateway
+  that reaches it, a bus starts stood at the first stop.
+- Each route runs 1 bus (2 with 6+ stops), plus one in the shuttle livery under the Shuttle Bus card,
+  which then takes no car trips. Route buses are full-size (`BUS_PICKS`); a bus keeps its id leg to leg.
+- Trips of 12+ tiles with both ends within 6 tiles of one route's stops (the first before the last, on a
+  line) go by bus 60% of the time: walk to the stop, queue facing the road, board one per 0.45 s while
+  the bus waits (up to 9 s), and get off at their stop (or the stop before one the bus can't reach).
+  Patience at a stop: 120 s.
+- Traffic fixes found by the bus soaks: a car only goes out past parked cars if there's room to get back
+  in counting those already out ahead; a run's zone grows to a long passer's nose while it's out, and an
+  oncoming car within that reach blocks going out; a pass ends when the parked cars it was passing leave;
+  junction conflict zones also come from car bodies touching (`findZones`), not just lane lines.
+
 - **Auto routes**: a loop over the busiest door-dense streets (the longest cycle
   through the top-k streets by doors). There's one route a ~40 buildings, rebuilt when roads change.
 - **Stops**: a baked shelter prop with a pole every ~6–8 tiles on the route, at

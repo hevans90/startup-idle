@@ -150,6 +150,17 @@ export type Bay = { id: number; lane: number; s: number; side: number; x: number
  * oncoming lane, one way at a time. @see town passParked
  */
 export type BayRun = { id: number; lane: number; s0: number; s1: number };
+/**
+ * A BUS STOP's site, at the kerb: the lane a bus stops in and where along it,
+ * how far to the lane's right it stands, in at the kerb, where that is and
+ * which way it faces; the
+ * cell and its kerb; and on the pavement, where people wait for it.
+ * @see agents/bus-routes
+ */
+export type Stop = {
+  id: number; lane: number; s: number; side: number; x: number; y: number; heading: number;
+  cell: number; kerb: Dir; wait: Pt; street: number;
+};
 
 export type WalkEdge = { a: number; b: number; len: number; crossing?: number };
 /**
@@ -171,6 +182,8 @@ export type LaneGraph = {
   crossings: Crossing[];
   bays: Bay[];
   runs: BayRun[];
+  /** Where a bus may stop: a site every few cells along each kerb of a long enough street. @see agents/bus-routes */
+  stops: Stop[];
   /** Road cells left out of any street or junction: joined to nothing. */
   loose: number;
 };
@@ -350,8 +363,9 @@ export function buildLaneGraph(g: Grid): LaneGraph {
 
   let loose = 0;
   for (let i = 0; i < n; i++) if (isPaved(g, i % g.w, (i / g.w) | 0) && streetOf[i] < 0 && region[i] < 0) loose++;
-  const { bays, runs } = baysOf(g, streets, lanes, crossings);
-  return { lanes, zones, junctions, streets, walk, crossings, bays, runs, loose };
+  const { stops, kept } = stopsOf(g, streets, lanes, crossings);
+  const { bays, runs } = baysOf(g, streets, lanes, crossings, kept);
+  return { lanes, zones, junctions, streets, walk, crossings, bays, runs, stops, loose };
 }
 
 /** A parked car's half width and the gap it keeps from the kerb, tiles. */
@@ -367,7 +381,60 @@ const RUN_CELLS = 3, RUN_GAP = 2;
  * one side only, the side more of them front; on a wider one, both, beside
  * its outer lanes.
  */
-function baysOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], crossings: readonly Crossing[]): { bays: Bay[]; runs: BayRun[] } {
+/**
+ * BUS STOP SITES: on each kerb of a street at
+ * least `STOP_STREET` long, one every `STOP_EVERY` cells, the two kerbs
+ * staggered; where the kerb has no road off it, clear of ramps, crossings and
+ * the junctions. Each keeps the kerb a cell either side of it clear of
+ * parking. `kept`, those cells.
+ */
+const STOP_STREET = 6, STOP_EVERY = 7, STOP_CLEAR = 2;
+/** A bus's half width, tiles, and how far in from the kerb it stands. */
+const BUS_HALF = 0.11, BUS_KERB = 0.015;
+/** How far in a bus stands at a stop on a street a cell wide, at most: not pulled in (& so not passed). @see town pulled */
+const BUS_NARROW = 0.08;
+function stopsOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], crossings: readonly Crossing[]): { stops: Stop[]; kept: Set<string> } {
+  const stops: Stop[] = [], kept = new Set<string>();
+  const crossed = new Set<string>();
+  for (const c of crossings) {
+    const st = streets[c.street], cell = { x: c.cells[0] % g.w, y: (c.cells[0] / g.w) | 0 };
+    const a = st.axis === "x" ? cell.x : cell.y;
+    for (let k = -1; k <= 1; k++) crossed.add(`${st.id},${a + k}`);
+  }
+  for (const st of streets) {
+    if (st.a1 - st.a0 + 1 < STOP_STREET || st.ends.some((e) => e.kind === "dead")) continue;
+    const outer = st.lanes.map((id) => lanes[id]).filter((l) => l.slot === (l.lanes ?? 1) - 1);
+    for (const l of outer) {
+      const r0 = right(pointAt(l.pts, l.at, l.len / 2).h);
+      const sign = st.axis === "x" ? Math.sign(r0.y) : Math.sign(r0.x);
+      const kerb = dirOf(st.axis === "x" ? { x: 0, y: sign } : { x: sign, y: 0 });
+      const v = V(kerb), clear = STOP_CLEAR;
+      for (let a = st.a0 + clear; a <= st.a1 - clear; a++) {
+        if ((a - st.a0 + (sign > 0 ? 0 : 3)) % STOP_EVERY !== 3 || crossed.has(`${st.id},${a}`)) continue;
+        const [b0, b1] = st.span[a - st.a0];
+        const b = sign > 0 ? b1 : b0;
+        const x = st.axis === "x" ? a : b, y = st.axis === "x" ? b : a;
+        if (g.ramp[idx(g, x, y)] || connects(g, x, y, kerb) || !inBounds(g, x + v.x, y + v.y)) continue;
+        // In at the kerb, out of the lane.
+        const edge = (st.axis === "x" ? y : x) + sign * (0.5 - WALK);
+        const p = st.axis === "x" ? { x: a, y: edge } : { x: edge, y: a };
+        const { s, h } = nearestPoint(p, l);
+        const on = pointAt(l.pts, l.at, s).p, r = right(h);
+        // (On a street a cell wide, only a little: still in its lane, those behind wait for it.)
+        const side = Math.min(dot({ x: p.x - on.x, y: p.y - on.y }, r) - BUS_HALF - BUS_KERB, st.width < 2 ? BUS_NARROW : Infinity);
+        if (s < 1 || s > l.len - 1) continue;
+        stops.push({
+          id: stops.length, lane: l.id, s, side, x: on.x + r.x * side, y: on.y + r.y * side, heading: Math.atan2(h.y, h.x),
+          cell: idx(g, x, y), kerb, wait: { x: x + v.x * PAVE_AT, y: y + v.y * PAVE_AT }, street: st.id,
+        });
+        for (let k = -1; k <= 1; k++) kept.add(`${st.id},${a + k},${sign}`);
+      }
+    }
+  }
+  return { stops, kept };
+}
+
+function baysOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], crossings: readonly Crossing[], kept: ReadonlySet<string> = new Set()): { bays: Bay[]; runs: BayRun[] } {
   const bays: Bay[] = [], runs: BayRun[] = [];
   const crossed = new Set<string>();
   for (const c of crossings) {
@@ -386,7 +453,7 @@ function baysOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], cro
       // (Further on a street one cell wide, for the queue at the junction to wait short of them.)
       const clear = BAY_CLEAR + (st.width === 1 ? 1 : 0);
       for (let a = st.a0 + clear; a <= st.a1 - clear; a++) {
-        if (crossed.has(`${st.id},${a}`)) continue;
+        if (crossed.has(`${st.id},${a}`) || kept.has(`${st.id},${a},${sign}`)) continue;
         const [b0, b1] = st.span[a - st.a0];
         const b = sign > 0 ? b1 : b0;
         const x = st.axis === "x" ? a : b, y = st.axis === "x" ? b : a;
@@ -782,10 +849,17 @@ function findZones(junction: number, inner: readonly Lane[], zones: Zone[]) {
   const same = (p: Pt, q: Pt) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
   for (let i = 0; i < inner.length; i++) for (let j = i + 1; j < inner.length; j++) {
     const a = inner[i], b = inner[j], A = boxes[i], B = boxes[j];
-    if (A[0] > B[2] + LANE_CLEAR || B[0] > A[2] + LANE_CLEAR || A[1] > B[3] + LANE_CLEAR || B[1] > A[3] + LANE_CLEAR) continue;
+    // (Near enough for two cars' bodies to touch, a car's length.)
+    const M = 2 * BODY_HALF[0] + 0.05;
+    if (A[0] > B[2] + M || B[0] > A[2] + M || A[1] > B[3] + M || B[1] > A[3] + M) continue;
     if (same(a.pts[0], b.pts[0])) continue;
     if (a.next.includes(b.id) || b.next.includes(a.id)) continue;
-    const sa = first(a, b), sb = first(b, a);
+    let sa = first(a, b), sb = first(b, a);
+    // WHERE THE BODIES MEET, which the lines alone can miss: two cars on a
+    // turn swing wide of their lines, and come together though the lines
+    // keep apart. The zone runs over both.
+    const bx = bodies(a, b);
+    if (bx && (sa < 0 || sb < 0)) { zones.push({ id: zones.length, junction, a: a.id, sa: bx.sa, ea: bx.ea, b: b.id, sb: bx.sb, eb: bx.eb, merge: false }); continue; }
     if (sa < 0 || sb < 0) {
       // A left and a right round the same corner, one just inside the other: side by side only
       // where they are level, the corners of a car on one swing into the other. In each other's way.
@@ -796,8 +870,42 @@ function findZones(junction: number, inner: readonly Lane[], zones: Zone[]) {
       continue;
     }
     const merge = same(a.pts[a.pts.length - 1], b.pts[b.pts.length - 1]) || a.next.some((x) => b.next.includes(x));
-    zones.push({ id: zones.length, junction, a: a.id, sa, ea: last(a, b), b: b.id, sb, eb: last(b, a), merge });
+    let ea = last(a, b), eb = last(b, a);
+    if (bx && !merge) { sa = Math.min(sa, bx.sa); ea = Math.max(ea, bx.ea); sb = Math.min(sb, bx.sb); eb = Math.max(eb, bx.eb); }
+    zones.push({ id: zones.length, junction, a: a.id, sa, ea, b: b.id, sb, eb, merge });
   }
+}
+
+/** A car's half length and half width, tiles, with a little to spare: for where two on curves would touch. */
+const BODY_HALF = [0.21, 0.085] as const;
+const BODY_STEP = 0.04;
+
+/** Whether two cars, at `p` facing `h` and at `q` facing `k`, touch: their outlines overlap. */
+function touch(p: Pt, h: Pt, q: Pt, k: Pt): boolean {
+  const [L, W] = BODY_HALF;
+  for (const [ux, uy] of [[h.x, h.y], [-h.y, h.x], [k.x, k.y], [-k.y, k.x]]) {
+    const c = (p.x - q.x) * ux + (p.y - q.y) * uy;
+    const r = L * Math.abs(h.x * ux + h.y * uy) + W * Math.abs(-h.y * ux + h.x * uy)
+      + L * Math.abs(k.x * ux + k.y * uy) + W * Math.abs(-k.y * ux + k.x * uy);
+    if (Math.abs(c) > r) return false;
+  }
+  return true;
+}
+
+/** Where along each of two curves a car would touch one on the other: the first and last of it on each, or null if never. */
+function bodies(a: Lane, b: Lane): { sa: number; ea: number; sb: number; eb: number } | null {
+  const along = (l: Lane) => {
+    const out: { s: number; p: Pt; h: Pt }[] = [];
+    for (let s = 0; s <= l.len + 1e-6; s += BODY_STEP) { const q = pointAt(l.pts, l.at, Math.min(s, l.len)); out.push({ s, p: q.p, h: q.h }); }
+    return out;
+  };
+  const A = along(a), B = along(b);
+  let sa = Infinity, ea = -1, sb = Infinity, eb = -1;
+  for (const x of A) for (const y of B) {
+    if (Math.abs(x.p.x - y.p.x) > 0.5 || Math.abs(x.p.y - y.p.y) > 0.5 || !touch(x.p, x.h, y.p, y.h)) continue;
+    sa = Math.min(sa, x.s); ea = Math.max(ea, x.s); sb = Math.min(sb, y.s); eb = Math.max(eb, y.s);
+  }
+  return ea < 0 ? null : { sa, ea, sb, eb };
 }
 
 /** The nearest point of a lane to a point, and the lane's heading there. */
