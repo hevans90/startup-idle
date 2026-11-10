@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { createGrid, type Grid } from "../../grid";
+import { createGrid, edited, idx, type Grid } from "../../grid";
 import { FIXTURE_SIZE, applyFixture, type FixtureId } from "../../debug/fixtures";
 import { createNetwork } from "../../roads/network";
 import { createTown, setTownCaps, stepTown, townCaps, trafficOf } from "../town";
@@ -108,6 +108,40 @@ describe("traffic on the lanes", () => {
     for (let s = 60; s < 80 && at < 0; s += 0.25) { stepSignals(T, s, (_, k) => k !== was); if (S.group !== was && S.stage === "green") at = s; }
     expect(at).toBeGreaterThan(0);
     expect(at - 60).toBeLessThan(5);
+  });
+
+  test("a roundabout made under the traffic: those on it go on round it, from where they are", () => {
+    busy();
+    // Lights where a wide road crosses a narrow one; then the narrow one widened, and it is a roundabout.
+    const g = crossroads(2, 2), at = g.w / 2 - 1;
+    const cut = (on: 0 | 1) => { for (let y = 0; y < g.h; y++) if (y !== at && y !== at + 1) g.paved[idx(g, at + 1, y)] = on; edited(g); };
+    cut(0);
+    const net = createNetwork(g), t = createTown();
+    for (let k = 0; k < 60 * 20; k++) stepTown(t, g, net, 0, 1 / 20);
+    expect(trafficOf(t, g).G.junctions.map((j) => j.kind)).toContain("signals");
+    cut(1);
+    const net2 = createNetwork(g);
+    const C = { x: at + 0.5, y: at + 0.5 };
+    let jumps = 0, island = 0, spins = 0, overlaps = 0;
+    const was = new Map(t.movers.map((m) => [m.id, { x: m.x, y: m.y, h: m.heading }]));
+    for (let k = 0; k < 30 * 20; k++) {
+      stepTown(t, g, net2, 1, 1 / 20);
+      const cars = t.movers.filter((m) => m.kind !== "person");
+      for (const m of cars) {
+        const w = was.get(m.id);
+        if (w) {
+          if (Math.hypot(m.x - w.x, m.y - w.y) > 0.25) jumps++;
+          if (Math.abs(Math.atan2(Math.sin(m.heading - w.h), Math.cos(m.heading - w.h))) > 0.9) { spins++; if (process.env.DBG) console.log("SPIN", k, m.id, m.kind, m.x.toFixed(2), m.y.toFixed(2), w.h.toFixed(2), m.heading.toFixed(2), m.s.toFixed(2), m.speed.toFixed(2), m.drive?.lanes.slice(0, 3).map((l) => trafficOf(t, g).G.lanes[l].kind).join(">"), JSON.stringify(m.line.slice(0, 4).map((p) => [+p.x.toFixed(2), +p.y.toFixed(2)]))); }
+        }
+        was.set(m.id, { x: m.x, y: m.y, h: m.heading });
+        // Over the island: well inside the ring.
+        if (Math.hypot(m.x - C.x, m.y - C.y) < 0.3) island++;
+      }
+      for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) if (Math.hypot(cars[i].x - cars[j].x, cars[i].y - cars[j].y) < 0.6 && overlap(cars[i], cars[j])) overlaps++;
+    }
+    done();
+    expect(trafficOf(t, g).G.junctions.map((j) => j.kind)).toEqual(["roundabout"]);
+    expect({ jumps, island, spins, overlaps }).toEqual({ jumps: 0, island: 0, spins: 0, overlaps: 0 });
   });
 
   test("give way: a crossroads of narrow streets keeps going", () => {

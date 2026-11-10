@@ -196,6 +196,31 @@ export function spotsAt(T: Traffic, g: Grid, c: Pt, rim: "start" | "end" | null)
 }
 
 /**
+ * WHERE A VEHICLE ALREADY UNDER WAY GOES ON FROM, the roads changed under
+ * it: the lanes right by it — round a new roundabout's ring, or on a curve
+ * through a junction, as much as along a street — running the way it faces,
+ * nearest first. Never one across the junction or behind it: it would have
+ * to cut over the island, or turn on the spot, to get to it.
+ */
+export function spotsUnderWay(T: Traffic, at: { x: number; y: number; heading: number }): Spot[] {
+  const hx = Math.cos(at.heading), hy = Math.sin(at.heading);
+  const found: { lane: number; s: number; score: number }[] = [];
+  for (const l of T.G.lanes) {
+    const { s, d } = nearestOn(l, at);
+    if (d > UNDER_WAY_NEAR) continue;
+    const { p, h } = pointAt(l.pts, l.at, s);
+    const along = h.x * hx + h.y * hy;
+    if (along < UNDER_WAY_FACING || (p.x - at.x) * hx + (p.y - at.y) * hy < -0.15 || l.len - s < 0.1) continue;
+    // (Onto it a little ahead, the further off it the further: across gently, not sideways.)
+    found.push({ lane: l.id, s: Math.min(l.len - 0.1, s + 0.5 + 1.5 * d), score: d + (1 - along) * 0.5 });
+  }
+  const best = Math.min(...found.map((f) => f.score));
+  return found.filter((f) => f.score < best + 0.15).map(({ lane, s }) => ({ lane, s }));
+}
+/** How near a lane has to be, tiles, and how much the way it runs the way a vehicle faces, to go on from. */
+const UNDER_WAY_NEAR = 0.9, UNDER_WAY_FACING = 0.4;
+
+/**
  * CHANGING LANE: what it costs a route, the clear road it needs from where it
  * starts on the lane it leaves, and how long the move across takes, tiles.
  */

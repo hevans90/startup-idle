@@ -40,7 +40,7 @@ import {
   outward, placesOf, roadHeightAt, routeBetween, walkLine, type Cell, type Place,
 } from "./roads";
 import {
-  buildTraffic, CHANGE_LEN, groupOf, inside, isChange, lightOf, lineOf, LANE_CLEAR, PATIENT, roadKey, roundTo, routeLanes, spotsAt, stepSignals, walkOn, yieldsTo, zoneOn,
+  buildTraffic, CHANGE_LEN, groupOf, inside, isChange, lightOf, lineOf, LANE_CLEAR, PATIENT, roadKey, roundTo, routeLanes, spotsAt, spotsUnderWay, stepSignals, walkOn, yieldsTo, zoneOn,
   type Spot, type Traffic,
 } from "./lanes/drive";
 import { walkBetween, type Kerbside, type Walk } from "./lanes/walk";
@@ -525,8 +525,9 @@ export function trafficOf(t: Town, g: Grid): Traffic {
 function driveWay(t: Town, g: Grid, from: Place, to: Place, after?: Mover, at?: { x: number; y: number; heading: number }, spots?: { start?: Spot; goal?: Spot }) {
   const T = trafficOf(t, g);
   const prior = spots?.start ? [spots.start] : after?.drive && after.drive.graph === T.G ? [after.drive.end] : null;
-  let starts = prior ?? spotsAt(T, g, at ?? from, !at && from.kind === "gateway" ? "start" : null);
-  if (at) {
+  const under = at && !prior ? spotsUnderWay(T, at) : [];
+  let starts = prior ?? (under.length ? under : spotsAt(T, g, at ?? from, !at && from.kind === "gateway" ? "start" : null));
+  if (at && !under.length) {
     // Planned again under way: the lanes going the way it is facing.
     const ahead = starts.filter((sp) => {
       const l = T.G.lanes[sp.lane], k = Math.min(l.pts.length - 1, 1);
@@ -549,6 +550,23 @@ function driveWay(t: Town, g: Grid, from: Place, to: Place, after?: Mover, at?: 
     const h = norm2(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
     line.unshift({ x: pts[0].x - h.x * OFF_MAP, y: pts[0].y - h.y * OFF_MAP });
     shift = OFF_MAP;
+  }
+  // UNDER WAY: from where it is, eased onto the lane it goes on along — not
+  // put down on it, wherever it is.
+  if (at) {
+    const d = Math.hypot(pts[0].x - at.x, pts[0].y - at.y);
+    if (d > 0.02) {
+      // An S across: out along the way it faces, in along the lane.
+      const h1 = norm2(pts[1].x - pts[0].x, pts[1].y - pts[0].y), k = d / 3;
+      const c0 = { x: at.x + Math.cos(at.heading) * k, y: at.y + Math.sin(at.heading) * k }, c1 = { x: pts[0].x - h1.x * k, y: pts[0].y - h1.y * k };
+      const join: Cell[] = [];
+      for (let i = 0; i < 6; i++) {
+        const f = i / 6, u = 1 - f;
+        join.push({ x: u * u * u * at.x + 3 * u * u * f * c0.x + 3 * u * f * f * c1.x + f * f * f * pts[0].x, y: u * u * u * at.y + 3 * u * u * f * c0.y + 3 * u * f * f * c1.y + f * f * f * pts[0].y });
+      }
+      line.unshift(...join);
+      for (let i = 0; i < join.length; i++) { const b = join[i + 1] ?? pts[0]; shift += Math.hypot(b.x - join[i].x, b.y - join[i].y); }
+    }
   }
   if (to.kind === "gateway") {
     const n = pts.length, h = norm2(pts[n - 1].x - pts[n - 2].x, pts[n - 1].y - pts[n - 2].y);
