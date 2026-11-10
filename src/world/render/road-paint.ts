@@ -47,6 +47,9 @@ const KERB_PX = 1.6;
 export const LOD_RES = [2, 4, 7] as const;
 /** An atlas page, texels square, by level of detail. */
 const PAGE_OF = [2048, 4096, 4096] as const;
+/** Pages a level keeps spare to paint again, at most; and how long between destroying those over. */
+const SPARE = 4;
+const DOOM_EVERY_MS = 1000;
 
 /**
  * The level of detail for a screen showing `pxPerFrame` screen pixels to a
@@ -762,18 +765,36 @@ export type RoadPainter = {
    * a frame has drawn with batches that no longer list them.
    */
   reap(): void;
-  /** Upload what was painted since the last flush. */
+  /**
+   * Upload what was painted since the last flush. Called before each frame
+   * is drawn — not left to a microtask, which runs after it: a sprite moved
+   * onto a newly painted texture drew the page as it was for a frame.
+   */
   flush(): void;
   stats(): { keys: number; pages: number; tiers: { keys: number; pages: number; old: number }[] };
   destroy(): void;
 };
 
 export function createRoadPainter(): RoadPainter {
-  type Set_ = { pages: Page[]; cache: Map<string, Texture> };
+  type Set_ = { lod: number; pages: Page[]; cache: Map<string, Texture> };
   const tiers = LOD_RES.map(() => ({ pages: [] as Page[], cache: new Map<string, Texture>(), old: null as Set_ | null }));
   let flushing = false;
+  // SPARE PAGES, a level's, let go and kept to paint again: destroying a
+  // page is the GPU letting go of a texture of up to 4096², and a level let
+  // go destroyed them all in one frame — zooming out of a big town, most of
+  // a second. Those over `SPARE` are destroyed one a while. @see reap
+  const spare = LOD_RES.map(() => [] as Page[]), surplus: Page[] = [];
+  let lastDoomed = 0;
 
   const newPage = (lod: number): Page => {
+    const again = spare[lod].pop();
+    if (again) {
+      again.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      again.ctx.clearRect(0, 0, again.canvas.width, again.canvas.height);
+      Object.assign(again, { x: 0, y: 0, row: 0, dirty: true });
+      tiers[lod].pages.push(again);
+      return again;
+    }
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = PAGE_OF[lod];
     const ctx = canvas.getContext("2d", { willReadFrequently: false })!;
@@ -802,11 +823,11 @@ export function createRoadPainter(): RoadPainter {
   let letGo: Set_[] = [], dying: Set_[] = [];
   const destroy = (t: Set_) => {
     for (const tex of t.cache.values()) tex.destroy(false);
-    for (const p of t.pages) p.source.destroy();
+    for (const p of t.pages) (spare[t.lod].length < SPARE ? spare[t.lod] : surplus).push(p);
   };
   const free = (t: Set_) => {
     if (!t.pages.length && !t.cache.size) return false;
-    letGo.push({ pages: [...t.pages], cache: new Map(t.cache) });
+    letGo.push({ lod: t.lod, pages: [...t.pages], cache: new Map(t.cache) });
     t.cache.clear();
     t.pages.length = 0;
     return true;
@@ -818,7 +839,7 @@ export function createRoadPainter(): RoadPainter {
     t.old = null;
     return true;
   };
-  const drop = (lod: number) => { const a = dropOld(lod); return free(tiers[lod]) || a; };
+  const drop = (lod: number) => { const a = dropOld(lod); return free({ lod, ...tiers[lod] }) || a; };
 
   const painter: RoadPainter = {
     textureFor(key, cells, ramp, lod = 0) {
@@ -871,7 +892,7 @@ export function createRoadPainter(): RoadPainter {
     rotate(lod) {
       const t = tiers[lod];
       if (t.old) return;
-      t.old = { pages: t.pages, cache: t.cache };
+      t.old = { lod, pages: t.pages, cache: t.cache };
       t.pages = [];
       t.cache = new Map();
     },
@@ -881,6 +902,9 @@ export function createRoadPainter(): RoadPainter {
       for (const t of dying) destroy(t);
       dying = letGo;
       letGo = [];
+      // One spare too many destroyed at a time, a while apart.
+      const now = performance.now();
+      if (surplus.length && now - lastDoomed > DOOM_EVERY_MS) { surplus.pop()!.source.destroy(); lastDoomed = now; }
     },
     flush,
     stats: () => ({
@@ -892,6 +916,9 @@ export function createRoadPainter(): RoadPainter {
       for (let l = 0; l < tiers.length; l++) drop(l);
       for (const t of [...dying, ...letGo]) destroy(t);
       dying = letGo = [];
+      for (const p of [...spare.flat(), ...surplus]) p.source.destroy();
+      for (const s of spare) s.length = 0;
+      surplus.length = 0;
     },
   };
   // How many looks, how many pages: for the console. @see stats

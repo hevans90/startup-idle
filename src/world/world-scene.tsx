@@ -55,7 +55,7 @@ import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/
 import { buildTerrain, createTerrainLayer, flushTerrain, meshDraws, type TerrainLayer } from "./render/terrain";
 import { destroyGroundMesh } from "./render/ground-mesh";
 import { buildCliffs, createCliffLayer, syncCliff, type CliffLayer } from "./render/cliffs";
-import { buildPaved, createPavedLayer, dressPaved, lodPaved, recountInexact, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
+import { buildPaved, createPavedLayer, dressPaved, evictUnused, lodPaved, recountInexact, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
 import { lodFor } from "./render/road-paint";
 import { lookDirtyCells } from "./roads/looks";
 import {
@@ -4001,6 +4001,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const pl = plRef.current, vp = useWorldStore.getState().viewport;
     if (!pl?.painter || !vp) return;
     pl.painter.reap();
+    evictUnused(pl);
     const want = lodFor(scale * vp.scale.x * app.renderer.resolution, pl.lodWant);
     const keys = pl.painter.stats().keys;
     const L = lodView.current, step = 66 * scale;
@@ -4011,6 +4012,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     e();
     Object.assign(L, { pl, want, x, y, w, keys: pl.painter.stats().keys });
   });
+
+  // ROADS PAINTED THIS FRAME, uploaded before it is drawn — laid, or a closer
+  // level — not after: a sprite on a fresh texture drew its page as it was. @see RoadPainter.flush
+  useEffect(() => {
+    const up = () => plRef.current?.painter?.flush();
+    app.ticker.add(up, null, UPDATE_PRIORITY.LOW + 1);
+    return () => { app.ticker.remove(up, null); };
+  }, [app]);
 
   void app;
   return (

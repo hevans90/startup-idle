@@ -48,6 +48,8 @@ export type PavedLayer = {
   lodWant: number;
   /** The view it was wanted for, so a cell laid in it is painted at that level straight away. */
   lodView: View | null;
+  /** Since when each closer level has had nothing drawing it, ms; undefined while it is drawn. @see evictUnused */
+  lodIdle: (number | undefined)[];
 };
 
 type View = { left: number; top: number; right: number; bottom: number };
@@ -71,6 +73,7 @@ export function createPavedLayer(grid: Grid, table: RoadTable, scale = 1, painte
     lod: new Uint8Array(n),
     lodWant: 0,
     lodView: null,
+    lodIdle: [],
   };
 }
 
@@ -256,18 +259,47 @@ export function lodPaved(pl: PavedLayer, grid: Grid, want: number, view: View, b
     if (s.texture !== tex) s.texture = tex;
     pl.lod[i] = lod;
   }
-  // Every cell has what it should: the levels and pages nothing draws now can
-  // go — once the render groups that bound them have rebuilt. @see RoadPainter.reap
+  // Every cell has what it should: the old pages nothing draws now can go —
+  // once the render groups that bound them have rebuilt. @see RoadPainter.reap
+  // A LEVEL left behind is kept a while, though: zoomed out and back in, it is
+  // there still, not painted all over again. @see evictUnused
   if (done) {
     let freed = false;
-    for (let l = 1; l < tiers.length; l++) { freed = P.dropOld(l) || freed; if (l !== want) freed = P.evict(l) || freed; }
-    if (freed) {
-      const groups = new Set<RenderGroup>();
-      for (const s of pl.sprites) if (s?.parentRenderGroup) groups.add(s.parentRenderGroup);
-      for (const g of groups) g.structureDidChange = true;
+    for (let l = 1; l < tiers.length; l++) {
+      freed = P.dropOld(l) || freed;
+      if (l === want) pl.lodIdle[l] = undefined;
+      else pl.lodIdle[l] ??= performance.now();
     }
-  }
+    if (freed) rebind(pl);
+  } else pl.lodIdle[want] = undefined;
+  // Painted this frame, shown this frame. @see RoadPainter.flush
+  P.flush();
   return done;
+}
+
+/** How long a closer level is kept with nothing drawing it, ms. */
+const LOD_KEEP_MS = 30_000;
+
+/**
+ * A closer level unused for `LOD_KEEP_MS` let go: its pages kept spare to
+ * paint again, not destroyed. Call once a frame.
+ */
+export function evictUnused(pl: PavedLayer, now = performance.now()): void {
+  const P = pl.painter;
+  if (!P) return;
+  for (let l = 1; l < pl.lodIdle.length; l++) {
+    const since = pl.lodIdle[l];
+    if (since === undefined || now - since < LOD_KEEP_MS || l === pl.lodWant || pl.lod.includes(l)) continue;
+    pl.lodIdle[l] = undefined;
+    if (P.evict(l)) rebind(pl);
+  }
+}
+
+/** The paved sprites' render groups, to rebuild: they may list a page let go. @see RoadPainter.reap */
+function rebind(pl: PavedLayer) {
+  const groups = new Set<RenderGroup>();
+  for (const s of pl.sprites) if (s?.parentRenderGroup) groups.add(s.parentRenderGroup);
+  for (const g of groups) g.structureDidChange = true;
 }
 
 /** Build every paved cell. Only for first paint or a full reload. */
