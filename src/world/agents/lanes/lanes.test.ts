@@ -74,13 +74,14 @@ describe("the lane graph", () => {
     expect(east.source && east.sink && west.source && west.sink).toBe(true);
   });
 
-  test("a road two cells wide: a lane a cell, in the middle of its carriageway", () => {
+  test("a road two cells wide: two lanes each way, inside a parking strip along each kerb", () => {
     const g = blank(20, 8);
     for (let x = 0; x < 20; x++) { pave(g, x, 3); pave(g, x, 4); }
     const G = buildLaneGraph(g);
     const ys = G.streets[0].lanes.map((i) => G.lanes[i].pts[0].y).sort();
-    expect(ys[0]).toBeCloseTo(3.13, 5);
-    expect(ys[1]).toBeCloseTo(4 - 0.13, 5);
+    // The carriageway 0.74 each side of the middle, less 0.2 to park in: two lanes of 0.27.
+    expect(ys.length).toBe(4);
+    for (const [k, y] of [3.5 - 0.405, 3.5 - 0.135, 3.5 + 0.135, 3.5 + 0.405].entries()) expect(ys[k]).toBeCloseTo(y, 5);
   });
 
   test("a crossroads of one-cell roads gives way, with every turn and no U-turn", () => {
@@ -120,7 +121,8 @@ describe("the lane graph", () => {
     expect(G.junctions[0].kind).toBe("roundabout");
     const ring = G.lanes.filter((l) => l.kind === "ring");
     expect(ring.length).toBe(8);
-    expect(G.lanes.filter((l) => l.kind === "entry").length).toBe(4);
+    // Both lanes in onto it, and off it into the outer lane.
+    expect(G.lanes.filter((l) => l.kind === "entry").length).toBe(8);
     expect(G.lanes.filter((l) => l.kind === "exit").length).toBe(4);
     // Each car coming on gives way to the ring where it joins.
     expect(G.zones.filter((z) => z.merge).length).toBeGreaterThanOrEqual(4);

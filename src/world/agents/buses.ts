@@ -97,6 +97,9 @@ function gatewaysBy(t: Town, p: { x: number; y: number }): Place[] {
   return t.places.filter((q) => q.kind === "gateway").sort((a, b) => d(a) - d(b));
 }
 
+/** How clear of other vehicles a bus starting out stood at its stop has to be, tiles. */
+const CLEAR_STOOD = 3;
+
 /**
  * A STEP OF THE BUSES, before anybody moves: buses set off onto routes short
  * of theirs — in from the nearest edge of the map to the first stop, or with
@@ -134,7 +137,8 @@ export function stepBuses(t: Town, g: Grid, G: LaneGraph, h: number, extra: { n:
         m.side = m.sideTo = first.side;
         m.x = p.x - p.dy * first.side; m.y = p.y + p.dx * first.side;
       }
-      if (t.movers.some((o) => o.kind !== "person" && Math.hypot(o.x - m!.x, o.y - m!.y) < 1)) continue;
+      // (Not into anybody — nor, stood at a stop, in front of one already out getting by parked cars toward it.)
+      if (t.movers.some((o) => o.kind !== "person" && Math.hypot(o.x - m!.x, o.y - m!.y) < (m!.wait ? CLEAR_STOOD : 1))) continue;
       t.movers.push(m);
       B.until = BUS_EVERY;
       break;

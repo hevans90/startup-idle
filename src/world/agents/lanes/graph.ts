@@ -188,9 +188,24 @@ export type LaneGraph = {
   loose: number;
 };
 
-/** How many lanes each way a road `k` cells wide has, and where slot `i` is, right of its middle. */
-export const lanesFor = (k: number) => Math.max(1, Math.floor(k / 2));
-export const laneOffset = (k: number, i: number) => ((i + 0.5) * (k / 2 - WALK)) / lanesFor(k);
+/**
+ * THE LANES OF A ROAD `k` cells wide: a lane each way a cell, up to four —
+ * each about as wide as a one-cell street's — between the middle and a
+ * parking strip along each kerb (a one-cell street parks in its lane).
+ * `laneSpan`, how wide they are together, each way, tiles; `laneOffset`,
+ * where slot `i` runs, right of the middle, slot 0 innermost; `laneLines`,
+ * where the paint divides them, right of the middle: the centre line first.
+ * @see roads/looks Look.ln, render/road-paint laneLines
+ */
+export const PARK_STRIP = 0.2;
+export const lanesFor = (k: number) => (k <= 1 ? 1 : Math.min(4, k));
+export const laneSpan = (k: number) => k / 2 - WALK - (k > 1 ? PARK_STRIP : 0);
+export const laneOffset = (k: number, i: number) => ((i + 0.5) * laneSpan(k)) / lanesFor(k);
+export const laneLines = (k: number): number[] => {
+  const n = lanesFor(k), out = [0];
+  for (let i = 1; i < n; i++) out.push((i * laneSpan(k)) / n, (-i * laneSpan(k)) / n);
+  return out;
+};
 
 export function buildLaneGraph(g: Grid): LaneGraph {
   const n = g.w * g.h;
@@ -723,6 +738,17 @@ function throughJunction(g: Grid, J: Junction, lanes: Lane[], mk: (l: Omit<Lane,
     if (turn === "right") pairs.push([ni - 1, no - 1]);
     else if (turn === "left" || turn === "uturn") pairs.push([0, 0]);
     else for (let s = 0; s < ni; s++) pairs.push([s, Math.min(s, no - 1)]);
+    // EVERY LANE IN GOES SOMEWHERE: one with no way on — round a bend, or
+    // the middle of three at a T — the way the lanes beside it go, in its
+    // place across the road. (Straight on if it can; else the turn.)
+    const ways = J.arms.filter((X) => X !== A).map((X) => turnOf(h0, X.out));
+    const fallback = ways.includes("straight") ? "straight" : ways.includes("left") ? "left" : "right";
+    if (turn === fallback && turn !== "straight") {
+      for (let s = 0; s < ni; s++) {
+        if (pairs.some(([si]) => si === s)) continue;
+        pairs.push([s, turn === "right" ? Math.max(0, no - ni + s) : Math.min(s, no - 1)]);
+      }
+    }
     for (const [si, so] of pairs) {
       const li = lanes[A.inLanes[si]], lo = lanes[B.outLanes[so]];
       if (!li || !lo) continue;
@@ -780,7 +806,7 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
   const ports: Port[] = [];
   for (const A of J.arms) {
     const th = Math.atan2(A.out.y, A.out.x);
-    const lin = lanes[A.inLanes[0]];
+    const lin = lanes[A.inLanes[A.inLanes.length - 1]];
     const side = lin ? Math.min(0.95, distToLine(lin.pts[lin.pts.length - 1], [C, add(C, A.out, 10)]) / R) : 0.5;
     const delta = Math.asin(side);
     ports.push({ a: th - delta, arm: A, kind: "on" }, { a: th + delta, arm: A, kind: "off" });
@@ -803,6 +829,7 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
     const into = pieces[k], from = pieces[(k - 1 + ports.length) % ports.length];
     from.next.push(into.id);
     if (p.kind === "on") {
+      // (Every lane on, at the port the outer lane turns right onto it at: their curves meet, and the zones take them one at a time.)
       for (const id of p.arm.inLanes) {
         const li = lanes[id];
         const e = mk({ kind: "entry", pts: turnCurve(li.pts[li.pts.length - 1], heading(li), at(p.a), tangent(p.a), 8), turn: "right", arm: J.arms.indexOf(p.arm) });
@@ -812,7 +839,7 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
         out.push(e);
       }
     } else {
-      for (const id of p.arm.outLanes.slice(0, 1)) {
+      for (const id of p.arm.outLanes.slice(-1)) {
         const lo = lanes[id];
         const x = mk({ kind: "exit", pts: turnCurve(at(p.a), tangent(p.a), lo.pts[0], p.arm.out, 8), turn: "right" });
         x.radius = minRadius(x.pts);

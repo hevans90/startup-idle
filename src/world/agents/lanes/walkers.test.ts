@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { createNetwork } from "../../roads/network";
 import { halfLength } from "../cars/fleet";
 import { createTown, setTownCaps, stepTown, townCaps, trafficOf, type Mover } from "../town";
-import { walkLeft } from "./drive";
+import { walkOn } from "./drive";
 import { crossroads } from "./traffic.test-kit";
 import type { Grid } from "../../grid";
 
@@ -41,7 +41,7 @@ function walkers(g: Grid, secs: number, zebras = false) {
       if (x && w.on && was.get(m.id) === false) {
         out.crossed++;
         const C = T.G.crossings[x.c];
-        if (C.junction >= 0 && T.G.junctions[C.junction].kind === "signals" && walkLeft(T, C.junction, t.t) <= 0) out.steppedOnRed++;
+        if (C.junction >= 0 && T.G.junctions[C.junction].kind === "signals" && !walkOn(T, C.junction, T.G.junctions[C.junction].arms.findIndex((a) => a.crossing === x.c), t.t)) out.steppedOnRed++;
       }
       if (x && !w.on && w.waited > 0) out.waited += dt;
       // OFF THE KERB only on a crossing: anywhere else, at the side of the cell.

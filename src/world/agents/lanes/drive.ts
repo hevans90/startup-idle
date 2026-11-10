@@ -31,10 +31,22 @@ import { dot, pointAt, sub, type Pt } from "./geometry";
 export type Spot = { lane: number; s: number };
 export type Route = { lanes: number[]; s0: number; s1: number };
 
-/** Lights: green, amber, and the all-red between, seconds; then, all red, the walk, and its clearance. */
-export const GREEN = 9, AMBER = 2, CLEARANCE = 1.5, WALK_TIME = 6;
-const PHASES = 2 * (GREEN + AMBER + CLEARANCE);
-export const CYCLE = PHASES + WALK_TIME + CLEARANCE;
+/**
+ * LIGHTS, as real ones are: a green held while traffic keeps coming on it and
+ * given up once it stops and somebody waits the other way — no sooner than
+ * `MIN_GREEN`, no later than `MAX_GREEN` while they do; amber, then all red.
+ * People cross a road while its traffic is held, the cars turning into it
+ * giving way to them: no walk of its own to stop everybody for. Seconds.
+ * @see stepSignals, walkOn
+ */
+export const MIN_GREEN = 4, MAX_GREEN = 8, AMBER = 2, CLEARANCE = 1.5;
+/** How long into a green people may step out over the roads it holds: after it, those turning get their turn. */
+export const WALK_FOR = 4;
+/** The longest round: both ways at their longest. */
+export const CYCLE = 2 * (MAX_GREEN + AMBER + CLEARANCE);
+
+/** A lights junction now: the way that has (or last had) the green, what it shows, and since when. */
+export type Signal = { group: 0 | 1; stage: "green" | "amber" | "clear"; since: number };
 
 export type Traffic = {
   G: LaneGraph;
@@ -44,8 +56,8 @@ export type Traffic = {
   byCell: Map<number, number[]>;
   /** Each held zone: the curve whose cars hold it, and which cars. */
   claims: Map<number, { lane: number; cars: Set<number> }>;
-  /** Each lights junction's offset into the cycle, so no two change together. */
-  offset: Map<number, number>;
+  /** Each lights junction's controller. @see stepSignals */
+  signals: Map<number, Signal>;
   /** The lanes leading into each lane. */
   into: Map<number, number[]>;
   /**
@@ -90,8 +102,8 @@ export function buildTraffic(g: Grid, key = roadKey(g)): Traffic {
       else if (!list.includes(l.id)) list.push(l.id);
     }
   }
-  const offset = new Map<number, number>();
-  for (const J of G.junctions) if (J.kind === "signals") offset.set(J.id, ((J.id * 7.31) % 1) * CYCLE);
+  const signals = new Map<number, Signal>();
+  for (const J of G.junctions) if (J.kind === "signals") signals.set(J.id, { group: (J.id % 2) as 0 | 1, stage: "green", since: -((J.id * 7.31) % 1) * MIN_GREEN });
   const into = new Map<number, number[]>();
   for (const l of G.lanes) for (const n of l.next) { const p = into.get(n); if (p) p.push(l.id); else into.set(n, [l.id]); }
   const split = new Map<string, number>();
@@ -128,7 +140,7 @@ export function buildTraffic(g: Grid, key = roadKey(g)): Traffic {
       }
     }
   }
-  return { G, key, byCell, claims: new Map(), offset, into, split, hungry: new Map(), over, lanesOver };
+  return { G, key, byCell, claims: new Map(), signals, into, split, hungry: new Map(), over, lanesOver };
 }
 
 /** Where along p0→p1 it crosses q0→q1, 0–1, or null. */
@@ -237,14 +249,18 @@ export function routeLanes(G: LaneGraph, starts: readonly Spot[], goals: readonl
     const c = l.len - st.s;
     if (c < (cost.get(st.lane) ?? Infinity)) { cost.set(st.lane, c); startS.set(st.lane, st.s); prev.set(st.lane, -1); push(c, st.lane); }
   }
+  // How many lanes across a lane was come to by, one after another.
+  const changesBefore = (id: number) => { let n = 0; for (let at = id, p = prev.get(at) ?? -1; p >= 0 && isChange(G, p, at); at = p, p = prev.get(at) ?? -1) n++; return n; };
   while (heap.length) {
     const [c, id] = pop();
     if (c > (cost.get(id) ?? Infinity)) continue;
     if (best && c >= best.c) break;
-    // ACROSS to a lane beside it, if there is the road to do it in — once a street.
+    // ACROSS to a lane beside it, if there is the road to do it in — and on
+    // across the next, one after another, as far as the turn wants. (Never back.)
     const here = G.lanes[id], before = prev.get(id) ?? -1;
-    if (here.beside && !(before >= 0 && isChange(G, before, id)) && here.len - (startS.get(id) ?? 0) >= CHANGE_ROOM) {
+    if (here.beside && here.len - (startS.get(id) ?? 0) >= CHANGE_ROOM * (1 + changesBefore(id))) {
       for (const n of here.beside) {
+        if (n === before) continue;
         const nc = c + CHANGE_COST;
         if (nc < (cost.get(n) ?? Infinity)) { cost.set(n, nc); prev.set(n, id); startS.delete(n); push(nc, n); }
       }
@@ -328,24 +344,41 @@ function slice(l: Lane, a: number, b: number): Pt[] {
 /** A lane inside a junction: a car must be let onto it. */
 export const inside = (l: Lane) => l.junction !== undefined;
 
-/** The light an arm of a lights junction shows, at a time. */
-export function lightOf(T: Traffic, junction: number, arm: number, t: number): "green" | "amber" | "red" {
-  const J = T.G.junctions[junction];
-  const a = J.arms[arm];
-  if (!a) return "green";
-  const group = Math.abs(a.out.x) > 0.5 ? 0 : 1;
-  const tau = (((t + (T.offset.get(junction) ?? 0)) % CYCLE) + CYCLE) % CYCLE;
-  const into = tau - group * (GREEN + AMBER + CLEARANCE);
-  if (into >= 0 && into < GREEN) return "green";
-  if (into >= GREEN && into < GREEN + AMBER) return "amber";
-  return "red";
+/** Which way an arm of a lights junction is: across (0) or up and down (1). */
+export const groupOf = (T: Traffic, junction: number, arm: number): 0 | 1 => {
+  const a = T.G.junctions[junction].arms[arm];
+  return a && Math.abs(a.out.x) > 0.5 ? 0 : 1;
+};
+
+/** The light an arm of a lights junction shows now. @see stepSignals */
+export function lightOf(T: Traffic, junction: number, arm: number, _t?: number): "green" | "amber" | "red" {
+  const S = T.signals.get(junction);
+  if (!S || !T.G.junctions[junction].arms[arm]) return "green";
+  if (groupOf(T, junction, arm) !== S.group) return "red";
+  return S.stage === "green" ? "green" : S.stage === "amber" ? "amber" : "red";
 }
 
-/** Seconds of the walk left at a lights junction, at a time: 0 when walkers wait. */
-export function walkLeft(T: Traffic, junction: number, t: number): number {
-  const tau = (((t + (T.offset.get(junction) ?? 0)) % CYCLE) + CYCLE) % CYCLE;
-  const into = tau - PHASES;
-  return into >= 0 && into < WALK_TIME ? WALK_TIME - into : 0;
+/** Whether the walk is lit over an arm's crossing at `t`: its traffic held, early in the other way's green. */
+export function walkOn(T: Traffic, junction: number, arm: number, t: number): boolean {
+  const S = T.signals.get(junction);
+  return !!S && S.stage === "green" && t - S.since < WALK_FOR && groupOf(T, junction, arm) !== S.group;
+}
+
+/**
+ * THE LIGHTS, a step on, at `t`: `wants(j, group)`, whether traffic is coming
+ * to junction `j` that way — or people waiting to cross the other. A green
+ * stays while it is wanted and nobody waits the other way; once they do, it
+ * goes when its traffic stops coming, or at its longest.
+ */
+export function stepSignals(T: Traffic, t: number, wants: (j: number, group: 0 | 1) => boolean): void {
+  for (const [j, S] of T.signals) {
+    const e = t - S.since, go = (stage: Signal["stage"]) => { S.stage = stage; S.since = t; };
+    if (S.stage === "green") {
+      if (e >= MIN_GREEN && wants(j, (1 - S.group) as 0 | 1) && (!wants(j, S.group) || e >= MAX_GREEN)) go("amber");
+    } else if (S.stage === "amber") {
+      if (e >= AMBER) go("clear");
+    } else if (e >= CLEARANCE) { S.group = (1 - S.group) as 0 | 1; go("green"); }
+  }
 }
 
 /** Where a zone is along one of its two lanes, and the other lane. */

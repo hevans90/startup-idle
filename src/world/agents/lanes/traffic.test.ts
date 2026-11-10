@@ -10,7 +10,7 @@ import { FIXTURE_SIZE, applyFixture, type FixtureId } from "../../debug/fixtures
 import { createNetwork } from "../../roads/network";
 import { createTown, setTownCaps, stepTown, townCaps, trafficOf } from "../town";
 import { crossroads, overlap } from "./traffic.test-kit";
-import { CYCLE, isChange, lightOf, lineOf, routeLanes } from "./drive";
+import { isChange, lightOf, lineOf, routeLanes, stepSignals } from "./drive";
 import { buildLaneGraph } from "./graph";
 import { isPaved } from "../../roads/mask";
 
@@ -84,12 +84,30 @@ describe("traffic on the lanes", () => {
     const J = T.G.junctions[0];
     const ew = J.arms.findIndex((a) => Math.abs(a.out.x) > 0.5), ns = J.arms.findIndex((a) => Math.abs(a.out.x) < 0.5);
     const seen = new Set<string>();
+    // Traffic waiting both ways: round and round, at its longest.
     for (let s = 0; s < 30; s += 0.25) {
-      const a = lightOf(T, J.id, ew, s), b = lightOf(T, J.id, ns, s);
+      stepSignals(T, s, () => true);
+      const a = lightOf(T, J.id, ew), b = lightOf(T, J.id, ns);
       expect(a === "red" || b === "red").toBe(true);
       seen.add(a); seen.add(b);
     }
     expect([...seen].sort()).toEqual(["amber", "green", "red"]);
+  });
+
+  test("the lights: green held while it is wanted, given up to whoever waits the other way", () => {
+    const g = crossroads(2, 1);
+    const T = trafficOf(createTown(), g);
+    const J = T.G.junctions[0], S = T.signals.get(J.id)!;
+    const was = S.group;
+    // Nobody the other way: it stays.
+    for (let s = 0; s < 60; s += 0.25) stepSignals(T, s, (_, k) => k === was);
+    expect(S.group).toBe(was);
+    expect(S.stage).toBe("green");
+    // Somebody waits the other way, and its own traffic has stopped coming: it changes soon.
+    let at = -1;
+    for (let s = 60; s < 80 && at < 0; s += 0.25) { stepSignals(T, s, (_, k) => k !== was); if (S.group !== was && S.stage === "green") at = s; }
+    expect(at).toBeGreaterThan(0);
+    expect(at - 60).toBeLessThan(5);
   });
 
   test("give way: a crossroads of narrow streets keeps going", () => {
@@ -101,15 +119,15 @@ describe("traffic on the lanes", () => {
     expect(r.arrived).toBeGreaterThan(40);
   });
 
-  test("a road four cells wide: two lanes each way, side by side, and a change across to turn", () => {
+  test("a road four cells wide: four lanes each way, side by side, and a change across to turn", () => {
     const g = crossroads(4, 1);
     const G = buildLaneGraph(g);
-    const wide = G.lanes.filter((l) => l.kind === "street" && l.lanes === 2);
+    const wide = G.lanes.filter((l) => l.kind === "street" && l.lanes === 4);
     expect(wide.length).toBeGreaterThan(0);
-    for (const l of wide) expect(l.beside?.length).toBe(1);
+    for (const l of wide) expect(l.beside?.length).toBe(l.slot === 0 || l.slot === 3 ? 1 : 2);
     // From the inner lane of the wide road, a right turn off it changes to the outer lane first.
     const inner = wide.find((l) => l.slot === 0 && l.source)!;
-    const right = G.lanes.find((l) => l.kind === "connector" && l.turn === "right" && G.lanes.some((p) => p.next.includes(l.id) && p.street === inner.street && p.slot === 1))!;
+    const right = G.lanes.find((l) => l.kind === "connector" && l.turn === "right" && G.lanes.some((p) => p.next.includes(l.id) && p.street === inner.street && p.slot === 3))!;
     const after = G.lanes[right.next[0]];
     const r = routeLanes(G, [{ lane: inner.id, s: 0.5 }], [{ lane: after.id, s: Math.min(3, after.len) }])!;
     expect(r.lanes.some((l, k) => k > 0 && isChange(G, r.lanes[k - 1], l))).toBe(true);
@@ -153,8 +171,8 @@ describe("traffic on the lanes", () => {
     done();
     expect(r.overlaps).toBe(0);
     expect(r.gone).toBe(0);
-    // (Nobody waits much more than once round the lights.)
-    expect(r.longest).toBeLessThan(CYCLE + 5);
+    // (Nobody waits much more than once round the lights at their longest, queued.)
+    expect(r.longest).toBeLessThan(40);
     expect(r.arrived).toBeGreaterThan(100);
   });
 });

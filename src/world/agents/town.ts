@@ -40,7 +40,7 @@ import {
   outward, placesOf, roadHeightAt, routeBetween, walkLine, type Cell, type Place,
 } from "./roads";
 import {
-  buildTraffic, CHANGE_LEN, inside, isChange, lightOf, lineOf, LANE_CLEAR, PATIENT, roadKey, roundTo, routeLanes, spotsAt, walkLeft, yieldsTo, zoneOn,
+  buildTraffic, CHANGE_LEN, groupOf, inside, isChange, lightOf, lineOf, LANE_CLEAR, PATIENT, roadKey, roundTo, routeLanes, spotsAt, stepSignals, walkOn, yieldsTo, zoneOn,
   type Spot, type Traffic,
 } from "./lanes/drive";
 import { walkBetween, type Kerbside, type Walk } from "./lanes/walk";
@@ -207,6 +207,11 @@ export type Town = {
   seats?: Map<number, Seat[]>;
   /** The lanes, and who holds which junction's zones. Built as the roads change. @see trafficOf */
   traffic?: Traffic;
+  /** The grid's revision the lanes were last checked against: unchanged, they stand. @see trafficOf */
+  trafficRev?: number;
+  trafficGrid?: Grid;
+  /** How many the town wants, and when it was worked out: once a second, not a step. @see wanted */
+  want?: { cars: number; people: number; at: number; places: number };
   /** The emergency services: who has been called out to what. @see stepEmergency */
   emergency?: Emergency;
   movers: Mover[];
@@ -337,6 +342,27 @@ const spacing = (m: Mover, o: Mover) => halfLength(m) + halfLength(o) + GAP;
  * anybody to undo it.
  */
 const STALLED = 45;
+/** Longer than this, half a length, tiles, a vehicle swings wide turning into a street a cell wide; and how far back, in its half lengths, it swings. */
+const LONG = 0.3;
+const TURN_SWING = 2.2;
+
+/**
+ * HELD BACK FROM THE END of a street a cell wide while a long vehicle turns
+ * into the other way of it, or just in: it swings over the end of this one.
+ * Where along lane `L` to stop, or null.
+ */
+function swingOf(T: Traffic, now: ReturnType<typeof trafficNow>, L: number): number | null {
+  const G = T.G, opp = G.lanes[L].opposite;
+  if (opp === undefined) return null;
+  let back = 0;
+  for (const P of T.into.get(opp) ?? []) {
+    if (!inside(G.lanes[P])) continue;
+    for (const o of now.on.get(P) ?? []) back = Math.max(back, halfLength(o.m) > LONG ? TURN_SWING * halfLength(o.m) : 0);
+  }
+  for (const o of now.on.get(opp) ?? []) if (halfLength(o.m) > LONG && o.s < 2 * halfLength(o.m) && o.m.speed > 0.1) back = Math.max(back, TURN_SWING * halfLength(o.m));
+  return back ? G.lanes[L].len - back : null;
+}
+
 /** How far short of a junction's edge a car waiting there stops, nose to edge, tiles. */
 const STOP_BACK = 0.12;
 /** How far along its way a driver looks for the car in front, tiles. */
@@ -480,8 +506,12 @@ export function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place | Kerb
 
 /** The lanes, built for the roads as they are now. */
 export function trafficOf(t: Town, g: Grid): Traffic {
+  // Nothing edited, nothing to hash: a step asks a few times. @see Grid.rev
+  if (t.traffic && t.trafficRev === g.rev && t.trafficGrid === g) return t.traffic;
   const key = roadKey(g);
   if (!t.traffic || t.traffic.key !== key) t.traffic = buildTraffic(g, key);
+  t.trafficRev = g.rev;
+  t.trafficGrid = g;
   return t.traffic;
 }
 
@@ -586,6 +616,8 @@ function commuteTrip(t: Town, g: Grid, net: Network, kind: Mover["kind"]): [Plac
 }
 /** Of the town's trips, the share that are people going to work or home; and the farthest anyone walks there, tiles. */
 const COMMUTE_SHARE = 0.6;
+/** Seconds between counting how many the town wants. */
+const WANT_EVERY = 1;
 const WALK_TO_WORK = 12;
 
 /** How many cars and people a town this size has: cars by who lives at its doors. @see RESIDENTS_PER_CAR */
@@ -635,7 +667,7 @@ function trafficNow(T: Traffic, cars: readonly Mover[], walkers: readonly Mover[
   }
   for (const list of parked.values()) list.sort((a, b) => a.s - b.s);
   // ON FOOT AT THE CROSSINGS: who is out on one, who waits at its kerb.
-  const foot = { on: new Set<number>(), waiting: new Set<number>() };
+  const foot = { on: new Set<number>(), waiting: new Set<number>(), patient: new Set<number>() };
   for (const m of walkers) {
     const w = m.walk;
     if (!w || w.graph !== T.G || m.sit) continue;
@@ -643,7 +675,7 @@ function trafficNow(T: Traffic, cars: readonly Mover[], walkers: readonly Mover[
     if (!x) continue;
     // (Out on it from when they make up their mind to go: the last steps to the kerb too.)
     if (w.on) foot.on.add(x.c);
-    else if (x.s0 - m.s < KERB_LOOK) foot.waiting.add(x.c);
+    else if (x.s0 - m.s < KERB_LOOK) { foot.waiting.add(x.c); if (w.waited > WALK_PATIENT && !T.signals.has(T.G.crossings[x.c].junction)) foot.patient.add(x.c); }
   }
   const on = new Map<number, Onto[]>();
   const coming = new Map<number, { m: Mover; d: number }[]>();
@@ -809,6 +841,14 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
   // PULLED IN for an emergency vehicle: to a stop at the kerb.
   if (m.pullAt !== undefined) follow(A, v, m.pullAt - m.s, 0, 0);
   passParked(T, m, now, A);
+  // GOING ACROSS to the lane beside: still behind whoever is ahead in the one it is leaving, till clear of it.
+  if (d.k > 0 && isChange(G, d.lanes[d.k - 1], d.lanes[d.k]) && m.s < d.enter[d.k] + CHANGE_LEN + half) {
+    for (const o of now.on.get(d.lanes[d.k - 1]) ?? []) {
+      if (o.m === m || passes(m, o.m)) continue;
+      const gap = d.start[d.k - 1] + o.s - m.s;
+      if (gap > 0 && gap < FOLLOW + 1) follow(A, v, gap - spacing(m, o.m) + GAP, o.m.speed, GAP);
+    }
+  }
   // FOLLOWING: the nearest thing ahead on its own lanes, or one just gone
   // off the same lane onto another curve, still in the way.
   for (let j = d.k; j < d.lanes.length && d.start[j] - m.s < FOLLOW; j++) {
@@ -829,12 +869,14 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
         }
       }
     }
-    // A CROSSING ahead with somebody out on it — or, a zebra, at its kerb:
-    // stopped short of it. (Not one it is already over.)
+    // A CROSSING ahead with somebody out on it — or at its kerb, on a zebra
+    // or waited a while: stopped short of it. (Not one it is already over.)
     for (const x of T.over.get(d.lanes[j]) ?? []) {
       const front = d.start[j] + x.s - m.s - half;
       if (front < CROSS_STOP || front > FOLLOW) continue;
-      if (now.foot.on.has(x.c) || (now.foot.waiting.has(x.c) && zebraAt(t, T, x.c))) follow(A, v, front - CROSS_STOP, 0, 0.02);
+      // (One who has waited, only if it can stop for them gently: too near, it goes on, and they after it.)
+      const patient = now.foot.patient.has(x.c) && front - CROSS_STOP > (v * v) / (2 * IDM_B) + 0.05;
+      if (now.foot.on.has(x.c) || patient || (now.foot.waiting.has(x.c) && zebraAt(t, T, x.c))) follow(A, v, front - CROSS_STOP, 0, 0.02);
     }
     // LETTING IN one waiting beside to change onto this lane, a little ahead.
     for (const b of G.lanes[d.lanes[j]].beside ?? []) {
@@ -870,6 +912,14 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
         d.wants = d.lanes[c];
         follow(A, v, toMove, 0, 0.02);
       }
+    }
+  }
+  // CLEAR OF A LONG ONE swinging in: back from the end of a street a cell wide. (Only if it can stop gently.)
+  {
+    const at = swingOf(T, now, d.lanes[d.k]);
+    if (at !== null) {
+      const free = d.start[d.k] + at - m.s - half;
+      if (free > -0.02 && free > (v * v) / (2 * IDM_B) - 0.1) follow(A, v, free, 0, 0.02);
     }
   }
   // AT A JUNCTION: wait at the line until let in. Round a roundabout,
@@ -948,6 +998,7 @@ function passParked(T: Traffic, m: Mover, now: ReturnType<typeof trafficNow>, A:
       const at = d.start[j] + p.s, ph = halfLength(p.m), gap = at - m.s;
       // Behind it already, or beyond where it is going.
       // (Into a bay: up to the next one's car, bumper to bumper.)
+      // (Alongside it already, its middle behind ours: stopping would not get it out of the way.)
       if (gap + ph + half < 0 || gap > FOLLOW + 1 || at - ph > end + (m.bayTo ? 0 : half + GAP)) continue;
       // Parked where it is going: it stops short, there.
       if (!m.bayTo && at - ph < end + half + GAP && at > end - 1) {
@@ -1029,10 +1080,12 @@ function restSide(T: Traffic, now: ReturnType<typeof trafficNow>, m: Mover): num
   const d = m.drive, l = d && d.graph === T.G ? T.G.lanes[d.lanes[d.k]] : undefined;
   if (m.bayTo) {
     // In along the kerb from behind, or — the bay behind taken — from alongside it.
+    // (Only once its tail is past the car parked behind the bay: in sooner, it would be in over it.)
     const b = T.G.bays[m.bayTo.bay], left = m.at[m.at.length - 1] - m.s;
     if (b && left < 0.9) {
-      const behind = T.G.bays.some((o) => o.lane === b.lane && o.s < b.s && b.s - o.s < 0.8 && now.taken.has(o.id));
-      if (!behind || left < 0.05) return b.side;
+      const half = halfLength(m);
+      const clear = (now.parked.get(b.lane) ?? []).every((p) => p.m === m || p.s >= b.s || b.s - left - half > p.s + halfLength(p.m) + 0.02);
+      if (clear || left < 0.05) return b.side;
     }
   }
   // A BUS in at its stop, standing there; and pulling in as it comes to the next.
@@ -1135,13 +1188,34 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
   return true;
 }
 
+/** Traffic this near a lights junction, tiles, wants its green. */
+const WANTS_GREEN = 4;
+/** THE LIGHTS, a step on: green where traffic is coming, and the other way where people wait to cross. @see stepSignals */
+function lights(t: Town, T: Traffic, now: ReturnType<typeof trafficNow>) {
+  if (!T.signals.size) return;
+  const G = T.G, wants = new Set<number>();
+  for (const [lane, list] of now.coming) {
+    const y = G.lanes[lane];
+    if (y.junction === undefined || y.arm === undefined || !T.signals.has(y.junction)) continue;
+    if (list.some((c) => c.d < WANTS_GREEN)) wants.add(y.junction * 2 + groupOf(T, y.junction, y.arm));
+  }
+  for (const c of now.foot.waiting) {
+    const j = G.crossings[c].junction, arm = j >= 0 && T.signals.has(j) ? armOver(T, c) : -1;
+    if (arm >= 0) wants.add(j * 2 + 1 - groupOf(T, j, arm));
+  }
+  stepSignals(T, t.t, (j, group) => wants.has(j * 2 + group));
+}
+
+/** The arm of its junction a crossing is over, or −1. */
+const armOver = (T: Traffic, c: number) => { const j = T.G.crossings[c].junction; return j < 0 ? -1 : T.G.junctions[j].arms.findIndex((a) => a.crossing === c); };
+
 /** How far short of a crossing's kerb a walker looks to cross, tiles. */
 const KERB_LOOK = 0.35;
 /** How far a car's nose stops short of a crossing's middle, tiles: half its width and a little. */
 const CROSS_STOP = 0.2;
-/** A gap a walker crosses a plain road in, seconds; and how long they wait before trusting the cars to stop for them. */
+/** A gap a walker crosses a plain road in, seconds; and how long they wait before the cars stop for them. */
 const CROSS_GAP = 2.5;
-const WALK_PATIENT = 10;
+const WALK_PATIENT = 4;
 
 /** Whether a crossing is a zebra, as the road is painted. */
 const zebraAt = (t: Town, T: Traffic, c: number) => !!t.dress && (t.dress[T.G.crossings[c].cells[0]] & 4) !== 0;
@@ -1161,16 +1235,19 @@ function comingTo(T: Traffic, now: ReturnType<typeof trafficNow>, c: number): { 
 }
 
 /**
- * WHETHER A WALKER MAY STEP OUT over a crossing now. At lights, on the walk,
- * with time to get over. On a zebra, unless a car is too near to stop for
- * them; elsewhere, in a gap in the traffic — or, waited long enough, as on a
- * zebra. Never with a car over it.
+ * WHETHER A WALKER MAY STEP OUT over a crossing now. At lights, on the walk
+ * (those turning in wait for them). On a zebra, unless a car is too near to
+ * stop for them; elsewhere, in a gap in the traffic — or, waited a few
+ * seconds, as on a zebra: the cars stop for them. Never with a car over it.
  */
 function mayCross(t: Town, T: Traffic, now: ReturnType<typeof trafficNow>, m: Mover, x: Walk["crossings"][number]): boolean {
   const C = T.G.crossings[x.c];
   const lit = C.junction >= 0 && T.G.junctions[C.junction].kind === "signals";
-  if (lit && walkLeft(T, C.junction, t.t) < (x.s1 - x.s0) / m.cruise + 0.5) return false;
-  const yielded = lit || zebraAt(t, T, x.c) || m.walk!.waited > WALK_PATIENT;
+  // (In company: over with whoever leads, once they are out on it.)
+  const lead = m.group && t.movers.find((o) => o.id === m.group!.lead);
+  const led = !!lead?.walk?.on && lead.walk.crossings[lead.walk.k]?.c === x.c;
+  if (lit && !led) { const arm = armOver(T, x.c); if (arm >= 0 && !walkOn(T, C.junction, arm, t.t)) return false; }
+  const yielded = led || lit || zebraAt(t, T, x.c) || m.walk!.waited > WALK_PATIENT;
   for (const { m: o, f } of comingTo(T, now, x.c)) {
     if (f < -2 * halfLength(o) - CROSS_STOP) continue;
     if (f < CROSS_STOP) return false;
@@ -1253,7 +1330,10 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   }
 
   // SETTING OFF, one at a time, while the town is short.
-  const base = wanted(t.places.filter((p) => !p.building), g);
+  // (Who lives where changes as they move in, at the pace of the economy:
+  // a second behind is soon enough, and it adds up every house.)
+  if (!t.want || t.want.places !== t.placesAt || t.t - t.want.at >= WANT_EVERY) t.want = { ...wanted(t.places.filter((p) => !p.building), g), at: t.t, places: t.placesAt };
+  const base = t.want;
   const busy = t.busy ?? { traffic: 1, commute: COMMUTE_SHARE };
   const culture = t.culture ?? { remote: 0, shuttle: false, vans: false };
   // Those at home are off the roads: fewer cars, the same people on foot.
@@ -1306,6 +1386,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   if (t.parked.some((c) => c.park!.graph !== T.G)) refile(t, T.G);
   if (t.residentsFor !== T.G) residents(t, g, T);
   const now = trafficNow(T, cars, t.movers.filter((m) => m.walk), t.parked);
+  lights(t, T, now);
   stepParked(t, g, T, now, h);
   // THE BUSES: onto their routes, and people on at the stops. @see buses
   busesOf(t, T.G);
@@ -1416,7 +1497,9 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   const all = t.movers, n0 = all.length;
   const kept = all.filter((m) => {
     if (atWork(m)) return true;     // the site lets them go. @see stepWorks, stepCleanup
-    if (m.gone) { letGo(T, m, true); return false; }
+    // (Lifted off, or the road gone from under it, one on a job counts as
+    // there: a load is paid for, and a site waits on it. @see stepWorks)
+    if (m.gone) { letGo(T, m, true); if (m.job) t.arrived.push(m); return false; }
     // (Into a bay: once in at the kerb.)
     const inBay = !m.bayTo || Math.abs((m.side ?? 0) - (T.G.bays[m.bayTo.bay]?.side ?? 0)) < 0.02;
     if ((m.s >= m.at[m.at.length - 1] - 0.01 && inBay) || m.there) {

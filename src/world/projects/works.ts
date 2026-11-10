@@ -73,7 +73,7 @@ export type Crew = {
 
 export type Works = {
   crews: Map<number, Crew>;
-  /** Loads on their way, per site. */
+  /** Loads on their way, per site: counted afresh each frame from the trucks out. */
   trucks: Map<number, number>;
   /** Seconds each site has stood waiting for materials it cannot afford. */
   stalled: Map<number, number>;
@@ -259,6 +259,14 @@ export function stepWorks(
   const live = new Set(sites.map((s) => s.id));
   for (const id of w.crews.keys()) if (!live.has(id)) w.crews.delete(id);
 
+  // LOADS ON THE WAY, counted from the trucks on the road and in the air,
+  // not kept: one that never got there would hold its site's next load back
+  // for good. @see Works.trucks
+  const onWay = new Map<number, number>();
+  for (const m of town.movers) if (m.job?.role === "truck" && !town.arrived.includes(m)) onWay.set(m.job.site, (onWay.get(m.job.site) ?? 0) + 1);
+  for (const a of w.airlifts) onWay.set(a.site, (onWay.get(a.site) ?? 0) + 1);
+  w.trucks = onWay;
+
   // WHO HAS ARRIVED, since the last frame: builders, and loads.
   for (const m of town.arrived) {
     const job = m.job;
@@ -266,7 +274,6 @@ export function stepWorks(
     const s = g.structures.get(job.site);
     const crew = w.crews.get(job.site);
     if (job.role === "truck") {
-      w.trucks.set(job.site, Math.max(0, (w.trucks.get(job.site) ?? 0) - 1));
       if (s?.build) { s.build.delivered = Math.min(s.build.deliveries, s.build.delivered + 1); w.rev++; }
     } else if (job.role === "builder" && crew) {
       crew.walking = Math.max(0, crew.walking - 1);

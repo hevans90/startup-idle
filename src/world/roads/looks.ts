@@ -68,6 +68,13 @@ export type Look = {
    * road's line, on that side, the lane across drawing the other half.
    */
   ctr: string;
+  /**
+   * THE LANE LINES of a road two cells wide or more: `u`/`v`, the way it
+   * runs; `!` before a junction (the centre line its warning line); then its
+   * width in cells and which this is across it, from the low side: `u!3.1`.
+   * Empty elsewhere. @see agents/lanes/graph laneLines
+   */
+  ln: string;
   /** Give way, across the lane coming in on each side listed: `0`–`3` on a one-cell road, `4`–`7` (side + 4) across a whole lane; set back behind a crossing, `a`–`h`. */
   gw: string;
   /** A stop line across the lane coming in, before a box or at lights: encoded as `gw` is. */
@@ -95,7 +102,7 @@ export type Look = {
 
 /** A look as a key: every field, compact. */
 export const keyOf = (l: Look): string =>
-  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.xing}.${l.slow}.${l.rb}`;
+  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.ln}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.xing}.${l.slow}.${l.rb}`;
 
 /** What the town's beauty puts on a road cell: its level, and a zebra if it has one. @see roadDressOf */
 export const dressOf = (lvl: number, zebra: boolean) => (lvl & 3) | (zebra ? 4 : 0);
@@ -185,6 +192,21 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
     const len = (ax: "u" | "v") => [...R.arms].reduce((t, [st, sd]) => t + (sd.some((q) => (q < 2) === (ax === "u")) ? streets.tiles[st].length : 0), 0);
     R.major = through.length === 1 ? through[0] : through.length === 2 ? (len("v") > len("u") ? "v" : "u") : "";
   }
+  // ACROSS A WIDE STREET: the way it runs, how wide it is, and where each of its cells is across it.
+  const across = new Map<number, { ax: "u" | "v"; k: number; c: number }>();
+  for (const cells of streets.tiles) {
+    if (cells.length < 2) continue;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const i of cells) { const x = i % g.w, y = (i / g.w) | 0; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    const ax: "u" | "v" = x1 - x0 >= y1 - y0 ? "u" : "v";
+    const slices = new Map<number, number[]>();
+    for (const i of cells) { const x = i % g.w, y = (i / g.w) | 0, a = ax === "u" ? x : y; const s = slices.get(a); if (s) s.push(ax === "u" ? y : x); else slices.set(a, [ax === "u" ? y : x]); }
+    for (const [a, bs] of slices) {
+      if (bs.length < 2) continue;
+      const lo = Math.min(...bs);
+      for (const b of bs) across.set(ax === "u" ? idx(g, a, b) : idx(g, b, a), { ax, k: bs.length, c: b - lo });
+    }
+  }
   const regionAt = (x: number, y: number) => { const i = at(x, y); return i < 0 ? null : region[i] < 0 ? null : regions[region[i]]; };
   // A ROUNDABOUT where four roads two cells wide or more meet, as the lanes have it. @see agents/lanes/graph kindOf
   const roundabout = (R: (typeof regions)[number] | null) => !!R && R.arms.size === 4 && [...R.arms.values()].every((sd) => sd.length >= 2);
@@ -208,7 +230,7 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
     const L: Look = {
       open: o, diag: diagOf(mask[i]), ramp: g.ramp[i], lvl,
       vr: Math.floor(hash(x * 31.7 + y * 57.3 + 0.5) * VARIANTS),
-      ctr: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", xing: "", slow: "", rb: "",
+      ctr: "", ln: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", xing: "", slow: "", rb: "",
     };
     out[i] = L;
     const kerbed = o !== 15;
@@ -248,7 +270,8 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
     }
 
     // ON A STREET: its centre line, and what it says before the end of it.
-    const along = (straight ? (ax === "u" ? [0, 1] : [2, 3]) : lane >= 0 ? (opposite(lane as Side) < 2 ? [2, 3] : [0, 1]) : []) as Side[];
+    const wide = across.get(i);
+    const along = (straight ? (ax === "u" ? [0, 1] : [2, 3]) : lane >= 0 ? (opposite(lane as Side) < 2 ? [2, 3] : [0, 1]) : wide ? (wide.ax === "u" ? [0, 1] : [2, 3]) : []) as Side[];
     let warn = false;
     for (const sd of along) {
       const [dx, dy] = STEP[sd], J = regionAt(x + dx, y + dy);
@@ -297,6 +320,7 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
       if (left || ahead || right) L.arrow = `${sd}${left ? "L" : ""}${ahead ? "A" : ""}${right ? "R" : ""}`;
     }
     if (straight) L.ctr = warn ? ax.toUpperCase() : ax;
+    else if (wide) L.ln = `${wide.ax}${warn ? "!" : ""}${wide.k}.${wide.c}`;
     else if (lane >= 0) L.ctr = (warn ? "H" : "h") + opposite(lane as Side);
     else if (r === "thick-curve") { L.ctr = "b"; L.yl = true; }
     if (kerbed && nub) L.yl = true;

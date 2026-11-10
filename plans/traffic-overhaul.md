@@ -261,6 +261,18 @@ Tests: `agents/lamps.test.ts`. Notes:
   `daylight`. Hazards are both indicators blinking.
 - People need nothing; cyclists get a small front/rear lamp at night.
 
+## Flow fixes (after phase 8) ✅
+- Lights by demand (`stepSignals`): green held 4–8 s while traffic comes, given up to whoever waits.
+  No walk phase: people cross a road while it is held, in the first 4 s of the other green
+  (`walkOn`, `WALK_FOR`); turners wait for them. Followers cross with their leader.
+- Elsewhere, after 4 s at the kerb the cars stop for them (`foot.patient`), if they can do it gently.
+- Knots undone: pulling in to a bay over the car behind it; a bus spawned stood at its stop in front
+  of a car out passing (`CLEAR_STOOD`); a long vehicle swinging into a one-cell street over the car
+  at its end (`swingOf`); a car changing lane into the one ahead in the lane it left.
+- Wider roads: a lane each way a cell (up to four) inside a 0.2 parking strip, lane lines painted
+  (`laneLines`, `Look.ln`); chained lane changes; every lane in leads on; both lanes onto a roundabout.
+- Works count loads on the road from the trucks there; a job vehicle lifted off counts as arrived.
+
 ## Cross-cutting
 - **Perf**: budget ≤1.0 ms js for 80 + 120 movers. Off-screen movers step at
   ¼ rate with no pose work. Bench with `?crowd=` in the `bigtown` fixture.

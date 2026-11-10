@@ -33,7 +33,7 @@ import { HEIGHT_UNIT, rampDir, rampRise, RAMP } from "../iso";
 import { hash } from "../structures/projects/model";
 import { mix, tone } from "../structures/projects/pen";
 import { opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
-import { CROSS_HOLD } from "../agents/lanes/graph";
+import { CROSS_HOLD, laneLines, laneOffset, lanesFor } from "../agents/lanes/graph";
 
 /** How far in from the tile's edge the pavement runs, its kerb, and both. */
 export const PAVE = 0.22, KERB = 0.04, WALK = PAVE + KERB;
@@ -381,6 +381,36 @@ function centreLine(ctx: Ctx, L: Look) {
   }
 }
 
+/** A lane line's dashes on a tile: shorter than the centre line's. */
+const LANE_DASH: [number, number][] = [[0.4, 0.6]];
+
+/** A WIDE ROAD's own Look.ln, read: the way it runs, warned of a junction, how wide, and which cell across. */
+function wideOf(ln: string): { ax: "u" | "v"; warn: boolean; k: number; c: number } | null {
+  const m = /^([uv])(!?)(\d+)\.(\d+)$/.exec(ln);
+  return m ? { ax: m[1] as "u" | "v", warn: !!m[2], k: Number(m[3]), c: Number(m[4]) } : null;
+}
+
+/**
+ * THE LINES OF A WIDE ROAD where they cross this cell: the centre line down
+ * its middle (its warning line before a junction) and a broken line between
+ * each of its lanes — where the lanes run. @see agents/lanes/graph laneLines
+ */
+function wideLines(ctx: Ctx, L: Look) {
+  const W = wideOf(L.ln);
+  if (!W) return;
+  const w = 0.011;
+  ctx.fillStyle = css(WHITE, 0.92);
+  for (const off of laneLines(W.k)) {
+    // Across this cell, from its low side.
+    const q = W.k / 2 + off - W.c;
+    if (q < -w || q > 1 + w) continue;
+    for (const [a0, a1] of off === 0 ? (W.warn ? WARNING : CENTRE) : LANE_DASH) {
+      poly(ctx, W.ax === "u" ? [[a0, q - w], [a1, q - w], [a1, q + w], [a0, q + w]] : [[q - w, a0], [q + w, a0], [q + w, a1], [q - w, a1]]);
+      ctx.fill();
+    }
+  }
+}
+
 /** The lane coming in toward side `s`, across: a one-cell road's right half, or a whole lane of a wider one. */
 const inbound = (wide: boolean): [number, number] => (wide ? [-0.5, 0.5 - WALK] : [0, 0.5 - WALK]);
 
@@ -566,6 +596,13 @@ function wheelTracks(ctx: Ctx, L: Look) {
     const s = Number(c[1]) as Side, lane = (1 - WALK) / 2;
     across = s < 2 ? "u" : "v";
     mids = [s & 1 ? 1 - lane : lane];
+  } else if (wideOf(L.ln)) {
+    // A wide road's lanes, where they run across this cell.
+    const W = wideOf(L.ln)!;
+    across = W.ax === "u" ? "v" : "u";
+    mids = [];
+    for (let i = 0; i < lanesFor(W.k); i++) for (const sg of [1, -1]) mids.push(W.k / 2 + sg * laneOffset(W.k, i) - W.c);
+    mids = mids.filter((m) => m > -0.2 && m < 1.2);
   } else return;
   ctx.fillStyle = css(0x1f2023, 0.09);
   for (const m of mids) for (const o of [-0.055, 0.055]) {
@@ -594,6 +631,7 @@ function paintGround(ctx: Ctx, L: Look) {
   else if (L.xing) signalCrossing(ctx, L);
   if (L.zz) zigzags(ctx, L);
   centreLine(ctx, L);
+  wideLines(ctx, L);
   if (L.yl) {
     alongKerb(ctx, S, WALK + 0.018, WALK + 0.03, css(YELLOW, 0.92));
     alongKerb(ctx, S, WALK + 0.04, WALK + 0.052, css(YELLOW, 0.92));

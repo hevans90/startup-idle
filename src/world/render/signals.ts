@@ -9,7 +9,7 @@
 import { Container, Graphics } from "pixi.js";
 
 import { roadHeightAt } from "../agents/roads";
-import { lightOf, walkLeft, type Traffic } from "../agents/lanes/drive";
+import { lightOf, walkOn, type Traffic } from "../agents/lanes/drive";
 import { right, sub, dot, type Pt } from "../agents/lanes/geometry";
 import type { Grid } from "../grid";
 import { bandOf } from "../iso";
@@ -133,7 +133,7 @@ export function createSignals(bands: BandLayer): Signals {
         P.on = s;
       }
       for (const P of poles) {
-        const w = walkLeft(T, P.j, t) > 0;
+        const w = walkOn(T, P.j, P.arm, t);
         if (w === P.walk) continue;
         if (P.man.walk) P.man.walk.alpha = w ? 1 : 0;
         if (P.man.stop) P.man.stop.alpha = w ? 0 : 1;

@@ -52,6 +52,27 @@ describe("a project", () => {
     expect(builtProjects(g).has("studio")).toBe(false);
   });
 
+  test("a truck that never gets there — lifted off a gridlock — still delivers, and the next loads come", () => {
+    const { g, history } = town();
+    commit(g, history, startSiteCommand(g, STUDIO, 12, 6, { needsRoad: true }, 0)!);
+    const site = siteOf(g, STUDIO)!;
+    const wallet = { money: 10_000 };
+    // Every truck lifted off the road as soon as it is out on it.
+    let lifted = 0;
+    const holder: { t?: ReturnType<typeof createTown> } = {};
+    const net = createNetwork(g), t = createTown(), w = createWorks();
+    holder.t = t;
+    const spend = (n: number) => (wallet.money >= n ? ((wallet.money -= n), true) : false);
+    for (let k = 0; k < 240 * 30; k++) {
+      stepTown(t, g, net, 0, 1 / 30);
+      stepWorks(w, g, net, t, { intern: 10 }, spend, 1 / 30, k * 1000 / 30);
+      for (const m of t.movers) if (m.job?.role === "truck" && !m.gone) { m.gone = true; lifted++; }
+    }
+    expect(lifted).toBeGreaterThan(1);
+    expect(site.build?.delivered ?? site.build === undefined).toBeTruthy();
+    expect(builtProjects(g).has("studio")).toBe(true);
+  });
+
   test("is built by its crew walking there, with loads trucked in and paid for, and then opens", () => {
     const { g, history } = town();
     commit(g, history, startSiteCommand(g, STUDIO, 12, 6, { needsRoad: true }, 0)!);

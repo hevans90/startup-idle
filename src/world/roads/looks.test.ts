@@ -119,9 +119,10 @@ describe("two-lane roads crossing: a roundabout", () => {
     expect(outbound.gw + outbound.stop + outbound.arrow).toBe("");
   });
 
-  test("a centre line on the edge the two lanes share", () => {
-    expect(look(g, 5, 5).ctr).toBe("h3");
-    expect(look(g, 5, 6).ctr).toBe("h2");
+  test("lane lines: the centre on the edge the two halves share, a lane line down each", () => {
+    // Along x, two cells wide; this the low cell across, and the high.
+    expect(look(g, 5, 5)).toMatchObject({ ctr: "", ln: "u2.0" });
+    expect(look(g, 5, 6)).toMatchObject({ ctr: "", ln: "u2.1" });
   });
 });
 
