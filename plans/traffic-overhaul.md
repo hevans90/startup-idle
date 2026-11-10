@@ -138,7 +138,32 @@ in `render/signals.ts`. Tests: `lanes/walkers.test.ts`. Notes:
 - **Signal crossings** use the walk phase, with a walk/don't-walk lamp on the pole.
 - Plain junction corners with no zebra or signal: the walker waits for a gap.
 
-## Phase 5 — Parking & arrivals
+## Phase 5 — Parking & arrivals ✅
+Done: bays in `lanes/graph.ts` (`baysOf`), `agents/parking.ts`, and in `town.ts` the parked cars'
+step (`stepParked`), arrivals (`parkIn`, `toBay`, `fromBay`) and getting by them (`passParked`,
+`mayPass`). Tests: `lanes/parking.test.ts`. Notes:
+- Bays, two to a cell, wherever a building fronts the road, clear of ramps, crossings and 2 cells of a
+  junction (3 on a one-cell street, so a queue at the junction never backs into them). On a one-cell
+  street they go on the side with more frontage and stand in its lane, in fixed runs of at most 3
+  cells with at least 2 cells between runs; on wider roads they are at the kerb, out of the lane.
+- On a one-cell street a run is a **single-lane stretch**: the others get by out in the oncoming lane,
+  past the whole run in one go, first in the queue only, when nothing coming is in the stretch or
+  can't stop short of it and there is room to pull back in after it. Oncoming cars stop at the
+  stretch's end while someone is out in it, or when a car behind the run has waited 8 s and nobody
+  coming has waited that long (turns, so neither side starves).
+- Arriving at a door: the nearest free bay within 5 tiles, held for it on the way; it pulls in along the
+  kerb (or from alongside, the bay behind taken) and 1–3 people walk to the door. No bay free, or at
+  the cap (1.5× the car cap): it drives to the door and is gone, as before. No circling or double
+  parking. A car whose door spot has a parked car on it stops short and is gone there.
+- Leaving from a door: if a car is parked near it, its people walk out to it first, then it pulls out
+  when nothing is coming on its lane behind. Visitors stay 40–150 s, then go somewhere else.
+- Residents' cars: 35% of the bays outside homes, by a hash of the bay (not the town's sequence). They
+  drive off when someone leaves that door, and the bays fill with visitors.
+- Wide roads: an emergency vehicle's traffic pulls in only where the kerb is clear; elsewhere it stops
+  out in the lane and the emergency vehicle goes by it.
+- Not done: painted bay markings, indicators (phase 8).
+- Not saved; the parked cars are filed onto new lanes when the roads change.
+
 - **Kerbside bays** along roads where buildings front them: painted bays on
   the road's edge lane of 1-wide roads (one side) or the outer lane of wide roads.
   These are part of the lane graph, and a parked car blocks nothing.

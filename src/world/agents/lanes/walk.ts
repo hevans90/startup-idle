@@ -11,7 +11,7 @@
 import { NEIGHBOUR } from "../../../iso/dir";
 import { structureAt, type Grid } from "../../grid";
 import type { Place } from "../roads";
-import { PAVE_AT, type LaneGraph } from "./graph";
+import { PAVE_AT, type Dir, type LaneGraph } from "./graph";
 import type { Pt } from "./geometry";
 
 /** What a crossing costs a walker over its length, tiles: enough not to cross and cross back for nothing. */
@@ -22,19 +22,25 @@ type End = { at: Pt; nodes: { n: number; d: number }[] };
 
 const DIRS = ["N", "E", "S", "W"] as const;
 
+/** A car at the kerb, to walk to or from: its cell, the kerb's side of it, and where by the car a walker gets in or out. */
+export type Kerbside = { kind: "kerb"; x: number; y: number; d: Dir; by: Pt };
+
 /**
  * A place's end on the pavements. A door: the middle of the kerb its building
  * stands behind. A gateway: the kerb corners at the map's edge, either side of
- * the road.
+ * the road. A car at the kerb: the kerb beside it, from its side.
  */
-function endOf(G: LaneGraph, g: Grid, p: Place): End | null {
+function endOf(G: LaneGraph, g: Grid, p: Place | Kerbside): End | null {
   const at = G.walk.at, nodes = G.walk.nodes;
   const corner = (sx: number, sy: number) => at.get(`${p.x},${p.y},${sx},${sy}`);
-  if (p.kind === "door") {
-    const d = DIRS.find((d) => structureAt(g, p.x + NEIGHBOUR[d][0], p.y + NEIGHBOUR[d][1]) === p.structure);
+  if (p.kind === "door" || p.kind === "kerb") {
+    const d = p.kind === "kerb" ? p.d : DIRS.find((d) => structureAt(g, p.x + NEIGHBOUR[d][0], p.y + NEIGHBOUR[d][1]) === p.structure);
     if (!d) return null;
     const [dx, dy] = NEIGHBOUR[d];
-    const door = { x: p.x + dx * PAVE_AT, y: p.y + dy * PAVE_AT };
+    // (By a car, level with it on the kerb.)
+    const door = p.kind === "kerb"
+      ? (dx ? { x: p.x + dx * PAVE_AT, y: p.by.y } : { x: p.by.x, y: p.y + dy * PAVE_AT })
+      : { x: p.x + dx * PAVE_AT, y: p.y + dy * PAVE_AT };
     const ns: number[] = [];
     const m = at.get(`${p.x},${p.y},m,${d}`);
     if (m !== undefined) ns.push(m);
@@ -62,7 +68,7 @@ export type Walk = {
 };
 
 /** The way on foot from one place to another, or null if the pavements do not join them. */
-export function walkBetween(G: LaneGraph, g: Grid, from: Place, to: Place): Walk | null {
+export function walkBetween(G: LaneGraph, g: Grid, from: Place | Kerbside, to: Place | Kerbside): Walk | null {
   const a = endOf(G, g, from), b = endOf(G, g, to);
   if (!a || !b) return null;
   const { nodes, edges, adj } = G.walk;
@@ -108,14 +114,15 @@ export function walkBetween(G: LaneGraph, g: Grid, from: Place, to: Place): Walk
   const order: number[] = [end], steps: number[] = [];
   for (let n = end; via[n] >= 0;) { const e = edges[via[n]]; steps.push(via[n]); n = e.a === n ? e.b : e.a; order.push(n); }
   order.reverse(); steps.reverse();
-  const pts: Pt[] = [a.at, ...order.map((n) => nodes[n]), b.at];
+  const pts: Pt[] = [...(from.kind === "kerb" ? [from.by] : []), a.at, ...order.map((n) => nodes[n]), b.at, ...(to.kind === "kerb" ? [to.by] : [])];
   const at = [0];
   for (let k = 1; k < pts.length; k++) at.push(at[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y));
   const crossings: Walk["crossings"] = [];
   steps.forEach((k, i) => {
     const c = edges[k].crossing;
-    // Step i runs from order[i] to order[i + 1]: points i + 1 and i + 2 of the line.
-    if (c !== undefined) crossings.push({ c, s0: at[i + 1], s1: at[i + 2] });
+    // Step i runs from order[i] to order[i + 1]: after the point (or two) the line starts with.
+    const o = from.kind === "kerb" ? 2 : 1;
+    if (c !== undefined) crossings.push({ c, s0: at[i + o], s1: at[i + o + 1] });
   });
   return { pts, crossings };
 }

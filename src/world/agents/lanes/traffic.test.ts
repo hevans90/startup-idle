@@ -10,7 +10,7 @@ import { FIXTURE_SIZE, applyFixture, type FixtureId } from "../../debug/fixtures
 import { createNetwork } from "../../roads/network";
 import { createTown, setTownCaps, stepTown, townCaps, trafficOf } from "../town";
 import { crossroads, overlap } from "./traffic.test-kit";
-import { isChange, lightOf, lineOf, routeLanes } from "./drive";
+import { CYCLE, isChange, lightOf, lineOf, routeLanes } from "./drive";
 import { buildLaneGraph } from "./graph";
 import { isPaved } from "../../roads/mask";
 
@@ -153,7 +153,8 @@ describe("traffic on the lanes", () => {
     done();
     expect(r.overlaps).toBe(0);
     expect(r.gone).toBe(0);
-    expect(r.longest).toBeLessThan(30);
+    // (Nobody waits much more than once round the lights.)
+    expect(r.longest).toBeLessThan(CYCLE + 5);
     expect(r.arrived).toBeGreaterThan(100);
   });
 });

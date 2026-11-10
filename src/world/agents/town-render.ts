@@ -297,7 +297,8 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       for (const d of drawn.values()) d.key = "";
     }
     const live = new Set<number>();
-    for (const m of town.movers) {
+    // (The parked cars too, in their bays.)
+    for (const m of town.parked.length ? [...town.movers, ...town.parked] : town.movers) {
       // A BUILDER AT WORK is drawn by the site, where the work is: on the
       // frame, on the scaffold, in the yard. Here they would only be stood
       // wherever they were put down. @see projects/crew

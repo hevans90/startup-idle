@@ -48,7 +48,9 @@ function walkers(g: Grid, secs: number, zebras = false) {
       const onCrossing = w.crossings.some((c) => m.s > c.s0 - 0.02 && m.s < c.s1 + 0.02);
       const edge = Math.max(Math.abs(m.x - Math.round(m.x)), Math.abs(m.y - Math.round(m.y)));
       const onMap = m.x > -0.5 && m.y > -0.5 && m.x < g.w - 0.5 && m.y < g.h - 0.5;
-      if (onMap && !onCrossing && !m.sit && edge < 0.3) out.offKerb++;
+      // (Out of a car at the kerb, or into one: the first steps or the last.)
+      const atCar = m.s < 0.3 || m.at[m.at.length - 1] - m.s < 0.3;
+      if (onMap && !onCrossing && !m.sit && !atCar && edge < 0.3) out.offKerb++;
       // UNDER A CAR, out on a crossing.
       if (onCrossing) {
         for (const c of cars) {
