@@ -81,6 +81,12 @@ describe("slop through the sewers", () => {
     expect(pollutionOf(field.columns).mass.reduce((n, m) => n + m, 0)).toBeGreaterThan(0);
     expect([...sewerReportsFor(g).values()][0].state).toBe("flowing");
     expect(mainReportAt(g, 12, 5)?.state).toBe("flowing");
+    // ONE REPORT TYPE: the trunk says what a main does — what it carries, could carry, its length and bore — and its own beside. @see PipeReport
+    const r = [...sewerReportsFor(g).values()][0];
+    expect(r.flow).toBe(r.trunk.delivered);
+    expect(r.flow).toBeGreaterThan(0);
+    expect(r.capacity).toBeGreaterThanOrEqual(r.flow);
+    expect([r.length, r.bore]).toEqual([solveSewers(g).nets[0].cells.length, 1]);
   });
 
   test("a sewer beside a port no longer joins it by itself: without a lateral the tank fills and spills", () => {
@@ -104,7 +110,7 @@ describe("slop through the sewers", () => {
     stepSewers(g, new Map([[a.id, { level: 100 }]]), 1, h);
     const r = [...sewerReportsFor(g).values()][0];
     expect(r.state).toBe("surcharged");
-    expect(r.spilled).toBeGreaterThan(0.5);
+    expect(r.trunk.spilled).toBeGreaterThan(0.5);
     // At a manhole, not mid-pipe.
     const s = solveSewers(g);
     expect(s.nets[0].nodes.some((n) => h.out.has(((n / g.w) | 0) * 100 + (n % g.w)))).toBe(true);
@@ -128,7 +134,7 @@ describe("slop through the sewers", () => {
     lateral(g);
     const paid = hooks({ room: () => 0 });
     stepSewers(g, new Map([[a.id, { level: 100 }]]), 1, paid);
-    expect([...sewerReportsFor(g).values()][0].lifts.length).toBe(1);
+    expect([...sewerReportsFor(g).values()][0].trunk.lifts.length).toBe(1);
     expect([...sewerReportsFor(g).values()][0].state).toBe("flowing");
     const unpaid = hooks({ pay: () => false });
     stepSewers(g, new Map([[a.id, { level: 100 }]]), 1, unpaid);

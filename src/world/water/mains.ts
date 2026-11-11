@@ -23,6 +23,8 @@ import { COLUMNS_PER_TILE, columnOf, tileOf, type WaterField } from "./field";
 import { pollutionAt } from "./pollution";
 import { nearestPort, portsAt, portsOf, wallAt } from "./ports";
 import type { Port } from "../structures/def";
+import { pipeGraph, type MainNet } from "../pipes/graph";
+import type { MainReport, MainState } from "../pipes/report";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 const OPPOSITE = { N: "S", S: "N", E: "W", W: "E" } as const;
@@ -41,50 +43,12 @@ export const hasMain = (g: Grid, i: number) => g.main[i] !== 0 || g.mainEnd[i] !
 /** Whether the main on a cell is a sewer. */
 export const isSewer = (g: Grid, i: number) => (g.main[i] & MAIN_SEWER) !== 0;
 
-/**
- * One network of mains: its cells, its intakes and outlets by cell; its BORE
- * — 2 once every tile of it is widened, else 1 — whether the AI laid it, and
- * whether it is a SEWER, with its outfalls into water by cell.
- */
-export type MainNet = { id: number; cells: number[]; intakes: number[]; outlets: number[]; outfalls: number[]; bore: number; ai: boolean; sewer: boolean };
+export type { MainNet } from "../pipes/graph";
 
-const nets = new WeakMap<Grid, { rev: number; list: MainNet[]; of: Int32Array }>();
-
-/** Every network on the map, and which each cell is in (−1 for none): flooded over the joins, kept till the map changes. */
+/** Every network on the map, and which each cell is in (−1 for none): read off the one pipe graph, kept till the map changes. @see pipeGraph */
 export function findMains(g: Grid): { list: MainNet[]; of: Int32Array } {
-  const seen = nets.get(g);
-  if (seen && seen.rev === g.rev) return seen;
-  const of = new Int32Array(g.w * g.h).fill(-1);
-  const list: MainNet[] = [];
-  for (let start = 0; start < of.length; start++) {
-    if (!hasMain(g, start) || of[start] >= 0) continue;
-    const id = list.length, net: MainNet = { id, cells: [], intakes: [], outlets: [], outfalls: [], bore: 2, ai: false, sewer: false };
-    const queue = [start];
-    of[start] = id;
-    for (let q = 0; q < queue.length; q++) {
-      const i = queue[q], x = i % g.w, y = (i / g.w) | 0;
-      net.cells.push(i);
-      if (!(g.main[i] & MAIN_BORE)) net.bore = 1;
-      if (g.main[i] & MAIN_AI) net.ai = true;
-      if (g.main[i] & MAIN_SEWER) net.sewer = true;
-      const end = g.mainEnd[i];
-      if (end === MAIN_END.intake || end === MAIN_END.pump) net.intakes.push(i);
-      else if (end === MAIN_END.outlet) net.outlets.push(i);
-      else if (end === MAIN_END.outfall) net.outfalls.push(i);
-      for (const side of SIDES) {
-        if (!joined(g, x, y, side)) continue;
-        const [dx, dy] = NEIGHBOUR[side];
-        const j = idx(g, x + dx, y + dy);
-        if (of[j] >= 0) continue;
-        of[j] = id;
-        queue.push(j);
-      }
-    }
-    list.push(net);
-  }
-  const out = { rev: g.rev, list, of };
-  nets.set(g, out);
-  return out;
+  const graph = pipeGraph(g);
+  return { list: graph.mains, of: graph.mainOf };
 }
 
 /** The water an intake draws from: the deepest of its own tile and the four beside it, as a column; or −1 with none. */
@@ -124,16 +88,7 @@ export function outletBuilding(g: Grid, i: number): number {
 /** A building that drinks, standing. */
 const drinker = (s: { def: string; build?: unknown }) => !s.build && isDrinker(s.def);
 
-/**
- * WHAT A NETWORK IS DOING, and why, for the game to say:
- *  - `flowing`: carrying water into its buildings;
- *  - `full`: it could, and every tank it feeds is full;
- *  - `dry`: every intake's water has gone;
- *  - `no-head`: the water stands too low to reach the building — it needs a pump;
- *  - `unpaid`: its pump wants paying and the company cannot;
- *  - `no-source` / `no-outlet`: it has no intake, or feeds nothing.
- */
-export type MainState = "flowing" | "full" | "dry" | "no-head" | "unpaid" | "no-source" | "no-outlet" | "burst" | "backed-up";
+export type { MainReport, MainState } from "../pipes/report";
 
 /**
  * A MAIN BURST AT A JOINT, and a SEWER BACKED UP AT A MANHOLE: by cell, the
@@ -163,24 +118,6 @@ export function breakableCell(g: Grid, sewer: boolean): number | null {
   const mid = best.cells.filter((i) => !g.mainEnd[i]);
   return mid.length ? mid[Math.floor(mid.length / 2)] : null;
 }
-export type MainReport = {
-  state: MainState;
-  /** Half steps of head to its best-placed outlet; units a second it could carry, and carried this frame. */
-  head: number;
-  capacity: number;
-  flow: number;
-  /** Tiles long; its bore, 1 or 2. */
-  length: number;
-  bore: number;
-  /** Each outlet's building, what it could take a second, and whether a pump is doing the lifting. */
-  outlets: { cell: number; building: number; capacity: number; pumped: boolean }[];
-  /** Each intake's water surface, or null if dry, how deep it stands there, and how fouled (nought to one); whether it is a pump. */
-  intakes: { cell: number; surface: number | null; depth: number; pump: boolean; fouled: number }[];
-  /** A SEWER's: the workplaces it takes slop from, by id, and its outfalls by cell. Empty for a water main. */
-  /** A lateral's manhole, if it reaches one. @see stepSewers */
-  sewer?: { sources: number[]; outfalls: number[]; node?: number };
-};
-
 /**
  * A NETWORK SOLVED, from the water as it stands: for each outlet, the head
  * from the best intake — a pump's lifted by its lift — over the building's

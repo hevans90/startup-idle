@@ -17,35 +17,22 @@
  * @see solveSewers, stepSlop, plans/underground-sewers.md §7
  */
 import { sewerFlow } from "../../game/mains";
-import { MAIN_BORE, SEWER_FIT, type Grid } from "../grid";
-import { findMains, sewerSources, type MainNet } from "../water/mains";
+import { SEWER_BORE, SEWER_FIT, type Grid } from "../grid";
+import { pipeGraph } from "../pipes/graph";
+import type { SewerReport } from "../pipes/report";
+import { sewerSources, type MainNet } from "../water/mains";
 import { portsAt } from "../water/ports";
 import { SEWER_KIND, solveSewers } from "./solve";
 
 /** A lateral: an above-ground sewer from workplaces' slop ports to a manhole. */
 export type Lateral = { net: MainNet; sources: number[]; node: number | null; capacity: number };
 
-/** What a network did in the last frame. */
-export type SewerState = "flowing" | "idle" | "no-exit" | "surcharged" | "backed-up" | "unpaid";
-export type SewerReport = {
-  state: SewerState;
-  /** Slop a second it took in, put somewhere, and brought up in the street. */
-  inflow: number;
-  delivered: number;
-  spilled: number;
-  /** Its lift stations, by cell. */
-  lifts: number[];
-};
+export type { SewerReport, SewerState } from "../pipes/report";
 
 /** The laterals on a map: each above-ground sewer that reaches a manhole, or none. */
 export function lateralsOf(g: Grid): Lateral[] {
-  const out: Lateral[] = [];
-  for (const net of findMains(g).list) {
-    if (!net.sewer) continue;
-    const node = net.cells.find((i) => g.sewerFit[i] === SEWER_FIT.node) ?? null;
-    out.push({ net, sources: sewerSources(g, net), node, capacity: sewerFlow(net.cells.some((i) => g.main[i] & MAIN_BORE) ? 2 : 1) });
-  }
-  return out;
+  // Which they are and where each comes down is the graph's; what feeds each is asked of the buildings as they stand.
+  return pipeGraph(g).laterals.map((l) => ({ net: l.net, sources: sewerSources(g, l.net), node: l.node, capacity: sewerFlow(l.bore) }));
 }
 
 /** What the frame needs from the world round it. */
@@ -78,7 +65,19 @@ export function stepSewers(g: Grid, tanks: ReadonlyMap<number, { level: number }
   const s = solveSewers(g);
   const out = new Map<number, SewerReport>();
   const into = new Map<number, number>();
-  for (const net of s.nets) out.set(net.id, { state: net.exits.length ? "idle" : "no-exit", inflow: 0, delivered: 0, spilled: 0, lifts: net.cells.filter((i) => s.kind[i] === SEWER_KIND.lift) });
+  for (const net of s.nets) {
+    // What it could carry is what its narrowest tile on the way down does; its bore, wide only if all of it is.
+    let least = Infinity, wide = true;
+    for (const i of net.cells) {
+      if (s.drains[i] && s.down[i] >= 0) least = Math.min(least, s.capacity[i]);
+      if (!(g.sewer[i] & SEWER_BORE)) wide = false;
+    }
+    out.set(net.id, {
+      state: net.exits.length ? "idle" : "no-exit", head: 0, capacity: Number.isFinite(least) ? least : 0, flow: 0,
+      length: net.cells.length, bore: wide ? 2 : 1, outlets: [], intakes: [],
+      trunk: { inflow: 0, delivered: 0, spilled: 0, lifts: net.cells.filter((i) => s.kind[i] === SEWER_KIND.lift) },
+    });
+  }
   reports = out;
   reportGrid = g;
   intake = into;
@@ -99,11 +98,11 @@ export function stepSewers(g: Grid, tanks: ReadonlyMap<number, { level: number }
     const r = out.get(net.id)!;
     let inflow = 0;
     for (const i of net.nodes) inflow += into.get(i) ?? 0;
-    r.inflow = inflow / dt;
+    r.trunk.inflow = inflow / dt;
     if (!net.exits.length || inflow <= 0) continue;
     // ITS LIFTS, paid for while slop comes to them; one unpaid stops them all.
     let lifting = true;
-    for (let k = 0; k < r.lifts.length && lifting; k++) lifting = hooks.pay(dt);
+    for (let k = 0; k < r.trunk.lifts.length && lifting; k++) lifting = hooks.pay(dt);
     // FROM THE TOP DOWN: each tile what comes into it and from above, passing
     // on what it carries, the rest up at the nearest manhole above it.
     const dist = new Map<number, number>();
@@ -146,13 +145,13 @@ export function stepSewers(g: Grid, tanks: ReadonlyMap<number, { level: number }
       let a = amount;
       if (g.sewerFit[e] === SEWER_FIT.inlet) {
         const p = portsAt(g, e, "slop", "in")[0];
-        if (p) { const t = Math.min(a, hooks.room(p.building)); hooks.take(p.building, t); a -= t; r.delivered += t / dt; }
+        if (p) { const t = Math.min(a, hooks.room(p.building)); hooks.take(p.building, t); a -= t; r.trunk.delivered += t / dt; }
       }
       left += a;
     }
     if (left > 0 && outfalls.length) {
       for (const e of outfalls) hooks.release(e % g.w, (e / g.w) | 0, left / outfalls.length);
-      r.delivered += left / dt;
+      r.trunk.delivered += left / dt;
       left = 0;
     }
     if (left > 0) {
@@ -163,7 +162,8 @@ export function stepSewers(g: Grid, tanks: ReadonlyMap<number, { level: number }
     }
     let spilt = 0;
     for (const [i, amount] of spill) { hooks.release(i % g.w, (i / g.w) | 0, amount); spilt += amount; }
-    r.spilled = spilt / dt;
+    r.trunk.spilled = spilt / dt;
+    r.flow = r.trunk.delivered;
     r.state = hooks.backedUp !== null && net.cells.includes(hooks.backedUp) ? "backed-up"
       : !lifting ? "unpaid"
       : spilt > 0 ? "surcharged"

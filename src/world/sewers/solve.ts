@@ -19,7 +19,8 @@
  * the map changes. Pure: nothing here moves slop or draws. @see plans/underground-sewers.md
  */
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { SEWER_BORE, SEWER_AI, SEWER_FIT, idx, inBounds, type Grid } from "../grid";
+import { SEWER_BORE, SEWER_FIT, idx, inBounds, type Grid } from "../grid";
+import { pipeGraph, type SewerNet } from "../pipes/graph";
 
 /** Height units a sewer falls a tile, at least. */
 export const GRADE = 0.1;
@@ -47,8 +48,7 @@ const OPPOSITE = { N: "S", S: "N", E: "W", W: "E" } as const;
 /** What a sewer is on a tile: under the ground, across a span, or a lift station. */
 export const SEWER_KIND = { buried: 0, span: 1, lift: 2 } as const;
 
-/** One sewer network: its cells, its exits and nodes by cell, and whether the AI laid it. */
-export type SewerNet = { id: number; cells: number[]; exits: number[]; nodes: number[]; ai: boolean };
+export type { SewerNet } from "../pipes/graph";
 
 export type SewerSolve = {
   rev: number;
@@ -105,32 +105,17 @@ export function solveSewers(g: Grid): SewerSolve {
 
 function solve(g: Grid): SewerSolve {
   const n = g.w * g.h;
-  const of = new Int32Array(n).fill(-1);
   const level = new Float32Array(n).fill(NaN);
   const down = new Int32Array(n).fill(-1);
   const kind = new Uint8Array(n);
   const capacity = new Float32Array(n);
   const drains = new Uint8Array(n);
   const problems: { cell: number; reason: string }[] = [];
-  const nets: SewerNet[] = [];
   const ground = (i: number) => g.height[i];
 
-  // THE NETWORKS: flooded over the joins.
-  for (let start = 0; start < n; start++) {
-    if (!hasSewer(g, start) || of[start] >= 0) continue;
-    const net: SewerNet = { id: nets.length, cells: [], exits: [], nodes: [], ai: false };
-    const queue = [start];
-    of[start] = net.id;
-    for (let q = 0; q < queue.length; q++) {
-      const i = queue[q];
-      net.cells.push(i);
-      if (g.sewer[i] & SEWER_AI) net.ai = true;
-      if (isExit(g, i)) net.exits.push(i);
-      else if (g.sewerFit[i] === SEWER_FIT.node) net.nodes.push(i);
-      for (const j of joinsOf(g, i)) if (of[j] < 0) { of[j] = net.id; queue.push(j); }
-    }
-    nets.push(net);
-  }
+  // THE NETWORKS, off the one pipe graph. @see pipeGraph
+  const graph = pipeGraph(g);
+  const nets = graph.sewers, of = graph.sewerOf;
 
   for (const net of nets) {
     // THE WAY DOWN: from every exit at once, out along the joins, so each

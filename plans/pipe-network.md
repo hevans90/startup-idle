@@ -345,3 +345,10 @@ None. All were decided on 2026-11-11; each decision is written where it applies:
 - **Item 2 confirmed.** Eight tiles of capped stub off the middle of a 20-tile run cut its one outlet's flow by more than a tenth; an outlet 20 tiles from the lake and one 30 tiles from it are given the same.
 - The tests state each fault as it stands. Phase 2 turns them round and they are rewritten then.
 - `runPipes` returns as soon as a map has no spouts (after sweeping what a lifted run left standing). It no longer walks every building for pump houses each frame.
+
+**Phase 1 — one graph** (2026-11-11). `world/pipes/graph.ts`, `world/pipes/report.ts`; tests in `pipes/graph.test.ts`.
+- `pipeGraph(g)`: nodes, links, drops and systems off the two layers, kept by `grid.rev`. A node at every fitting, dead end, bend and junction, where a connection stands on a manhole, and every 4 tiles of a straight (`NODE_SPACING`). A link has its own bore, so a widened stretch is its own link (phase 17 stands on this).
+- The networks the game reads are the graph's: `findMains` and `solveSewers` take their `MainNet`s and `SewerNet`s from it, flooded in the order they always were, and `lateralsOf` takes which connections there are and where each comes down. What feeds a connection is still asked of the buildings each frame.
+- One report type, `PipeReport`: a main, a connection and a trunk say the same things, and a trunk adds its own (`trunk`: inflow, delivered, spilled, lifts). A trunk's `capacity` is its narrowest tile's on the way down and its `flow` what it delivered. `MainReport` and `SewerReport` are that type narrowed by state.
+- No behaviour change: every mains, sewer and slop test passed untouched but two lines of `flow.test` that read a trunk's own fields.
+- **Not yet:** nodes carry no invert level or storage. A trunk's level is `solveSewers`' and a main's is the ground's; phase 2 reads them when it needs them. Nothing draws from the graph, and the two renderers and report maps are still separate (phase 5).
