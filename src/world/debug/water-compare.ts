@@ -588,7 +588,7 @@ export async function checkWaterOverPaving(
   // THE WHOLE PICTURE, not just the water. The roads are the point.
   const tl = createTerrainLayer(grid, palette, 1);
   const cl = createCliffLayer(grid, palette, 1);
-  const pl = createPavedLayer(grid, ROAD_TABLE, 1);
+  const pl = createPavedLayer(grid, ROAD_TABLE, 1, renderer);
   buildTerrain(tl, bands, grid, textures);
   buildCliffs(cl, bands, grid, textures);
   buildPaved(pl, bands, grid, textures);

@@ -12,11 +12,11 @@
  * middle of a network is worse than a slightly wrong family. The count is what
  * the debug overlay reports.
  */
-import { Sprite, type RenderGroup, type Texture } from "pixi.js";
+import { Sprite, type RenderGroup, type Renderer, type Texture } from "pixi.js";
 
 import { GROUND_FRAME_H, bandOf, cellToWorld, spriteY } from "../iso";
 import { keyOf, looksOf, type Look } from "../roads/looks";
-import { createRoadPainter, planeOf, type CellPaint, type RoadPainter } from "./road-paint";
+import { createRoadPainter, LOD_RES, planeOf, type CellPaint, type RoadPainter } from "./road-paint";
 import { RAMP, idx, inBounds, rampDir, rampRise, surfaceHeightAt, VOID, type Grid } from "../grid";
 import { maskAt } from "../roads/mask";
 import { pavedRampFrame } from "../ramp-art";
@@ -61,7 +61,7 @@ export const paintsRoads = () =>
   typeof document !== "undefined" && !!document.createElement("canvas").getContext?.("2d")
   && !(typeof location !== "undefined" && /[?&]roads=sprite\b/.test(location.search));
 
-export function createPavedLayer(grid: Grid, table: RoadTable, scale = 1, painter: RoadPainter | null = paintsRoads() ? createRoadPainter() : null): PavedLayer {
+export function createPavedLayer(grid: Grid, table: RoadTable, scale = 1, renderer?: Renderer, painter: RoadPainter | null = renderer && paintsRoads() ? createRoadPainter(renderer) : null): PavedLayer {
   const n = grid.w * grid.h;
   return {
     sprites: new Array(n).fill(null),
@@ -225,9 +225,6 @@ export function syncPaved(
   s.scale.set(pl.scale * TILE_BLEED);
 }
 
-/** How many closer pages a level may fill before it is dropped and painted again for what is on screen. */
-const LOD_PAGES = 2;
-
 /** Whether a sprite at `(x, y)` shows in `view`: its frame reaches a tile and a bit either side of its anchor, and up a ramp's pad. */
 function inView(pl: PavedLayer, x: number, y: number, view: View) {
   const mx = 80 * pl.scale, up = 150 * pl.scale, down = 20 * pl.scale;
@@ -242,15 +239,13 @@ function inView(pl: PavedLayer, x: number, y: number, view: View) {
  *
  * NOTHING ON SCREEN FLICKERS. A cell waiting for its texture keeps the one it
  * has, whatever level that is. A level is let go only once nothing draws it,
- * and one that fills its pages starts new ones beside them, the old ones kept
- * until every cell on screen has moved over. @see RoadPainter.rotate
+ * and one that has filled its pages paints a new look over one no cell draws
+ * any more. @see RoadPainter.keep
  */
 export function lodPaved(pl: PavedLayer, grid: Grid, want: number, view: View, budgetMs: number): boolean {
   const P = pl.painter;
   if (!P) return true;
   if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
-  const tiers = P.stats().tiers;
-  if (want > 0 && tiers[want].pages > LOD_PAGES && tiers[want].old === 0) P.rotate(want);
   pl.lodWant = want;
   pl.lodView = view;
   const t0 = performance.now();
@@ -270,18 +265,26 @@ export function lodPaved(pl: PavedLayer, grid: Grid, want: number, view: View, b
     if (s.texture !== tex) s.texture = tex;
     pl.lod[i] = lod;
   }
-  // Every cell has what it should: the old pages nothing draws now can go —
-  // once the render groups that bound them have rebuilt. @see RoadPainter.reap
+  // Every cell has what it should: the looks of this level that no cell draws
+  // now may be painted over. @see RoadPainter.keep
   // A LEVEL left behind is kept a while, though: zoomed out and back in, it is
   // there still, not painted all over again. @see evictUnused
   if (done) {
-    let freed = false;
-    for (let l = 1; l < tiers.length; l++) {
-      freed = P.dropOld(l) || freed;
+    // The map's own level too: a look the streets have since changed out of
+    // was kept for good, a page of them every few times the town was dressed.
+    const own = new Set<string>(), close = new Set<string>();
+    for (let i = 0; i < pl.sprites.length; i++) {
+      const key = pl.frames[i];
+      if (!key || !pl.sprites[i]) continue;
+      if (pl.lod[i] === 0) own.add(key);
+      else if (pl.lod[i] === want) close.add(key);
+    }
+    P.keep(0, own);
+    if (want > 0) P.keep(want, close);
+    for (let l = 1; l < LOD_RES.length; l++) {
       if (l === want) pl.lodIdle[l] = undefined;
       else pl.lodIdle[l] ??= performance.now();
     }
-    if (freed) rebind(pl);
   } else pl.lodIdle[want] = undefined;
   // Painted this frame, shown this frame. @see RoadPainter.flush
   P.flush();

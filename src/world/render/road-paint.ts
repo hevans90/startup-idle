@@ -27,7 +27,7 @@
  * only shows there: the stone in the asphalt, tyre-polished lanes, the bevel
  * of each flag, brick and kerb. @see lodFor
  */
-import { CanvasSource, Rectangle, Texture } from "pixi.js";
+import { CanvasSource, Container, Rectangle, RenderTexture, Sprite, Texture, type Renderer } from "pixi.js";
 
 import { HEIGHT_UNIT, rampDir, rampRise, RAMP } from "../iso";
 import { hash } from "../structures/projects/model";
@@ -44,12 +44,25 @@ const KERB_PX = 1.6;
  * A level is used once the screen shows a frame pixel bigger than its
  * resolution, so a texture is never magnified past about 1.2×.
  */
-export const LOD_RES = [2, 4, 7] as const;
-/** An atlas page, texels square, by level of detail. */
-const PAGE_OF = [2048, 4096, 4096] as const;
-/** Pages a level keeps spare to paint again, at most; and how long between destroying those over. */
-const SPARE = 4;
-const DOOM_EVERY_MS = 1000;
+export const LOD_RES = [2, 3, 5] as const;
+/**
+ * An atlas page, texels square, by level of detail. SMALL, because a page
+ * costs its texture whether it holds one tile or is full, and the closer
+ * levels come and go by the page: at 4096², with a canvas of its own each, a
+ * page was 150 MB, and a minute's zooming about left over a gigabyte of them.
+ * A whole number of frame pixels each; the closest is three tiles across
+ * exactly (3 × 140 frame pixels × 5).
+ */
+const PAGE_OF = [2048, 2040, 2100] as const;
+/** Tiles painted side by side before they are copied to their pages, by level of detail. @see createRoadPainter */
+const STRIP = [16, 8, 4] as const;
+/**
+ * Pages a level fills before a look no cell draws gives up its place
+ * to a new one, and how long between destroying the pages of a level let go.
+ * @see RoadPainter.keep
+ */
+const ROOM = 4;
+const DOOM_EVERY_MS = 250;
 
 /**
  * The level of detail for a screen showing `pxPerFrame` screen pixels to a
@@ -838,7 +851,9 @@ function paintRaised(ctx: Ctx, L: Look) {
 
 // ─── THE ATLAS ───────────────────────────────────────────────────────────────
 
-type Page = { canvas: HTMLCanvasElement; ctx: Ctx; source: CanvasSource; x: number; y: number; row: number; dirty: boolean };
+type Page = { lod: number; rt: RenderTexture; x: number; y: number; row: number };
+/** A look's place on a page, in frame pixels, and the texture over it: both outlive the look. */
+type Slot = { p: Page; x: number; y: number; ramp: boolean; tex: Texture };
 
 export type RoadPainter = {
   /**
@@ -847,17 +862,22 @@ export type RoadPainter = {
    * frame pixels, so a sprite can swap between them and not move.
    */
   textureFor(key: string, cells: CellPaint[], ramp: boolean, lod?: number): Texture;
-  /** A key's texture at a level, if painted yet. */
+  /** A key's texture at a level, if painted yet. Asking is drawing it: it is no longer idle. @see keep */
   peek(key: string, lod: number): Texture | undefined;
   /**
-   * Start a level afresh: new pages for what is painted from now on, the old
-   * ones kept, still drawn, until {@link dropOld}. So a level that has filled
-   * its pages is replaced without anything on screen losing its texture.
+   * Which of a level's looks are drawn now: `used`, every key a sprite shows
+   * at that level. The rest are IDLE — kept, and handed back by
+   * {@link peek} if their cell comes on screen again, but the first to give
+   * their place and their texture to a new look once the level has filled
+   * `ROOM` pages. So a level grows to what a screen shows at once and stays
+   * there however far the map is panned, with nothing repainted that is
+   * still on screen. Call only when every sprite has the texture it should.
    */
-  rotate(lod: number): void;
-  /** Let go of a level's old pages. Nothing may still draw them. Whether there were any. */
-  dropOld(lod: number): boolean;
-  /** Drop a closer level's pages and textures, old and new. Nothing may still draw them. Whether there were any. */
+  keep(lod: number, used: Set<string>): void;
+  /**
+   * Drop a closer level's pages and textures: destroyed, a few a second.
+   * Nothing may still draw them. Whether there were any.
+   */
   evict(lod: number): boolean;
   /**
    * Destroy what was let go two calls ago: call once a frame. NOT AT ONCE,
@@ -870,91 +890,160 @@ export type RoadPainter = {
    */
   reap(): void;
   /**
-   * Upload what was painted since the last flush. Called before each frame
-   * is drawn — not left to a microtask, which runs after it: a sprite moved
-   * onto a newly painted texture drew the page as it was for a frame.
+   * Copy what was painted since the last flush to its pages. Called before
+   * each frame is drawn — not left to a microtask, which runs after it: a
+   * sprite moved onto a newly painted texture drew the page as it was for a frame.
    */
   flush(): void;
-  stats(): { keys: number; pages: number; tiers: { keys: number; pages: number; old: number }[] };
+  stats(): { keys: number; pages: number; tiers: { keys: number; pages: number; idle: number }[] };
   destroy(): void;
 };
 
-export function createRoadPainter(): RoadPainter {
-  type Set_ = { lod: number; pages: Page[]; cache: Map<string, Texture> };
-  const tiers = LOD_RES.map(() => ({ pages: [] as Page[], cache: new Map<string, Texture>(), old: null as Set_ | null }));
+/** A tile's room on a strip, frame pixels: a ramp's, the taller. */
+const CELL_W = 132 + 2 * PAD, CELL_H = RAMP_PAD + 99 + PAD;
+
+export function createRoadPainter(renderer: Renderer): RoadPainter {
+  type Set_ = { pages: Page[]; cache: Map<string, Slot> };
+  const tiers = LOD_RES.map(() => ({ pages: [] as Page[], cache: new Map<string, Slot>(), idle: new Set<string>() }));
   let flushing = false;
-  // SPARE PAGES, a level's, let go and kept to paint again: destroying a
-  // page is the GPU letting go of a texture of up to 4096², and a level let
-  // go destroyed them all in one frame — zooming out of a big town, most of
-  // a second. Those over `SPARE` are destroyed one a while. @see reap
-  const spare = LOD_RES.map(() => [] as Page[]), surplus: Page[] = [];
+  // PAGES LET GO, destroyed one a while: destroying a page is the GPU letting
+  // go of a texture, and a level let go destroyed them all in one frame —
+  // zooming out of a big town, most of a second. One still waiting is painted
+  // again if its level comes back first. @see reap
+  const surplus: Page[] = [];
   let lastDoomed = 0;
 
+  // PAINTED ON A STRIP, COPIED TO A PAGE. A page is a texture and nothing
+  // else: a canvas each to paint on was as big again, and uploaded whole for
+  // one new tile. So a level has one small canvas, a few tiles long; a look is
+  // painted in the next cell along, and at the flush each cell is drawn into
+  // its place on its page — the place rubbed out first, since a look painted
+  // over an idle one must not show through its own clear pixels.
+  type Strip = { ctx: Ctx; source: CanvasSource; cells: Texture[][]; waiting: Slot[] };
+  const strips: (Strip | undefined)[] = [];
+  const stripOf = (lod: number): Strip => {
+    let st = strips[lod];
+    if (st) return st;
+    const RES = LOD_RES[lod], canvas = document.createElement("canvas");
+    canvas.width = STRIP[lod] * CELL_W * RES;
+    canvas.height = CELL_H * RES;
+    const ctx = canvas.getContext("2d", { willReadFrequently: false })!;
+    // Copied texel for texel: `nearest`, so a cell never takes from the next.
+    const source = new CanvasSource({ resource: canvas, resolution: RES, scaleMode: "nearest" });
+    const cells = Array.from({ length: STRIP[lod] }, (_, i) => [PAD, RAMP_PAD].map((top) =>
+      new Texture({ source, frame: new Rectangle(i * CELL_W, 0, CELL_W, top + 99 + PAD) })));
+    st = strips[lod] = { ctx, source, cells, waiting: [] };
+    return st;
+  };
+  const stage = new Container(), rubbers: Sprite[] = [], stamps: Sprite[] = [];
+  let dead = false;
+
   const newPage = (lod: number): Page => {
-    const again = spare[lod].pop();
-    if (again) {
-      again.ctx.setTransform(1, 0, 0, 1, 0, 0);
-      again.ctx.clearRect(0, 0, again.canvas.width, again.canvas.height);
-      Object.assign(again, { x: 0, y: 0, row: 0, dirty: true });
+    const at = surplus.findIndex((p) => p.lod === lod);
+    if (at >= 0) {
+      const [again] = surplus.splice(at, 1);
+      Object.assign(again, { x: 0, y: 0, row: 0 });
       tiers[lod].pages.push(again);
       return again;
     }
-    const canvas = document.createElement("canvas");
-    canvas.width = canvas.height = PAGE_OF[lod];
-    const ctx = canvas.getContext("2d", { willReadFrequently: false })!;
-    const source = new CanvasSource({ resource: canvas, resolution: LOD_RES[lod], autoGenerateMipmaps: true, scaleMode: "linear" });
-    const p = { canvas, ctx, source, x: 0, y: 0, row: 0, dirty: false };
+    const size = PAGE_OF[lod] / LOD_RES[lod];
+    // MIPMAPS ONLY FOR THE MAP'S OWN LEVEL, the one drawn zoomed out. A closer
+    // one is on screen cells only, at no less than half its size, where plain
+    // linear filtering reads every texel — and a mip chain is a third again.
+    const rt = RenderTexture.create({ width: size, height: size, resolution: LOD_RES[lod], antialias: false, autoGenerateMipmaps: lod === 0, scaleMode: "linear" });
+    const p = { lod, rt, x: 0, y: 0, row: 0 };
     tiers[lod].pages.push(p);
     return p;
   };
-  /** A slot of `w × h` frame pixels on a level's pages. */
-  const slot = (lod: number, w: number, h: number) => {
-    const size = PAGE_OF[lod] / LOD_RES[lod], pages = tiers[lod].pages;
-    let p = pages[pages.length - 1] ?? newPage(lod);
+  /** Room for `w × h` frame pixels on a page's shelves, if it has any left. */
+  const shelve = (p: Page, w: number, h: number) => {
+    const size = PAGE_OF[p.lod] / LOD_RES[p.lod];
     if (p.x + w > size) { p.x = 0; p.y += p.row; p.row = 0; }
-    if (p.y + h > size) { p = newPage(lod); }
-    const at = { p, x: p.x, y: p.y };
+    if (p.y + h > size) return null;
+    const at = { x: p.x, y: p.y };
     p.x += w;
     p.row = Math.max(p.row, h);
     return at;
   };
+  /** A place for a look of `w × h` frame pixels: unused room, an idle look's, or a new page. */
+  const place = (lod: number, ramp: boolean, w: number, h: number, top: number): Slot => {
+    const tier = tiers[lod], last = tier.pages[tier.pages.length - 1];
+    let p = last, at = last ? shelve(last, w, h) : null;
+    if (!at && tier.pages.length >= ROOM) {
+      // The longest idle of its shape: a ramp's place is taller. @see RAMP_PAD
+      for (const k of tier.idle) {
+        const s = tier.cache.get(k)!;
+        if (s.ramp !== ramp) continue;
+        tier.idle.delete(k);
+        tier.cache.delete(k);
+        return s;
+      }
+    }
+    if (!at) { p = newPage(lod); at = shelve(p, w, h)!; }
+    const tex = new Texture({ source: p.rt.source, frame: new Rectangle(at.x, at.y, w, h), defaultAnchor: { x: 0.5, y: (top + 99) / h } });
+    return { p, x: at.x, y: at.y, ramp, tex };
+  };
 
   const flush = () => {
     flushing = false;
-    for (const t of tiers) for (const p of t.pages) if (p.dirty) { p.dirty = false; p.source.update(); }
+    if (dead) return;
+    for (const st of strips) {
+      if (!st?.waiting.length) continue;
+      st.source.update();
+      const pages = new Set(st.waiting.map((s) => s.p));
+      for (const p of pages) {
+        stage.removeChildren();
+        let n = 0;
+        // Every place rubbed out, then every look drawn: two batches a page.
+        for (let i = 0; i < st.waiting.length; i++) {
+          const s = st.waiting[i];
+          if (s.p !== p) continue;
+          const rub = rubbers[n] ??= Object.assign(new Sprite(Texture.WHITE), { blendMode: "erase" as const });
+          rub.position.set(s.x, s.y);
+          rub.setSize(s.tex.frame.width, s.tex.frame.height);
+          const stamp = stamps[n] ??= new Sprite();
+          stamp.texture = st.cells[i][s.ramp ? 1 : 0];
+          stamp.position.set(s.x, s.y);
+          n++;
+        }
+        for (let i = 0; i < n; i++) stage.addChild(rubbers[i]);
+        for (let i = 0; i < n; i++) stage.addChild(stamps[i]);
+        renderer.render({ container: stage, target: p.rt, clear: false });
+        if (p.lod === 0) p.rt.source.updateMipmaps();
+      }
+      stage.removeChildren();
+      st.waiting.length = 0;
+    }
   };
   // Let go, then destroyed two reaps later. @see RoadPainter.reap
   let letGo: Set_[] = [], dying: Set_[] = [];
   const destroy = (t: Set_) => {
-    for (const tex of t.cache.values()) tex.destroy(false);
-    for (const p of t.pages) (spare[t.lod].length < SPARE ? spare[t.lod] : surplus).push(p);
+    for (const s of t.cache.values()) s.tex.destroy(false);
+    surplus.push(...t.pages);
   };
-  const free = (t: Set_) => {
+  const drop = (lod: number) => {
+    const t = tiers[lod];
     if (!t.pages.length && !t.cache.size) return false;
-    letGo.push({ lod: t.lod, pages: [...t.pages], cache: new Map(t.cache) });
+    letGo.push({ pages: [...t.pages], cache: new Map(t.cache) });
     t.cache.clear();
+    t.idle.clear();
     t.pages.length = 0;
     return true;
   };
-  const dropOld = (lod: number) => {
-    const t = tiers[lod];
-    if (!t.old) return false;
-    free(t.old);
-    t.old = null;
-    return true;
-  };
-  const drop = (lod: number) => { const a = dropOld(lod); return free({ lod, ...tiers[lod] }) || a; };
 
   const painter: RoadPainter = {
     textureFor(key, cells, ramp, lod = 0) {
       const tier = tiers[lod];
       const hit = tier.cache.get(key);
-      if (hit) return hit;
+      if (hit) { tier.idle.delete(key); return hit.tex; }
       const RES = LOD_RES[lod];
       const top = ramp ? RAMP_PAD : PAD;
       const w = 132 + 2 * PAD, h = top + 99 + PAD;
-      const { p, x, y } = slot(lod, w, h);
-      const ctx = p.ctx;
+      const slot = place(lod, ramp, w, h, top);
+      const st = stripOf(lod);
+      if (st.waiting.length === STRIP[lod]) flush();
+      const ctx = st.ctx, x = st.waiting.length * CELL_W, y = 0;
+      st.waiting.push(slot);
       DETAIL = lod;
       ctx.save();
       ctx.setTransform(RES, 0, 0, RES, 0, 0);
@@ -986,43 +1075,47 @@ export function createRoadPainter(): RoadPainter {
       }
       ctx.restore();
       DETAIL = 0;
-      p.dirty = true;
       if (!flushing) { flushing = true; queueMicrotask(flush); }
-      const tex = new Texture({ source: p.source, frame: new Rectangle(x, y, w, h), defaultAnchor: { x: 0.5, y: (top + 99) / h } });
-      tier.cache.set(key, tex);
-      return tex;
+      tier.cache.set(key, slot);
+      return slot.tex;
     },
-    peek: (key, lod) => tiers[lod].cache.get(key),
-    rotate(lod) {
+    peek(key, lod) {
+      const hit = tiers[lod].cache.get(key);
+      if (hit) tiers[lod].idle.delete(key);
+      return hit?.tex;
+    },
+    keep(lod, used) {
       const t = tiers[lod];
-      if (t.old) return;
-      t.old = { lod, pages: t.pages, cache: t.cache };
-      t.pages = [];
-      t.cache = new Map();
+      for (const k of t.idle) if (used.has(k)) t.idle.delete(k);
+      // Added after those idle already: the longest idle stays first.
+      for (const k of t.cache.keys()) if (!used.has(k)) t.idle.add(k);
     },
-    dropOld,
     evict: (lod) => lod > 0 && drop(lod),
     reap() {
       for (const t of dying) destroy(t);
       dying = letGo;
       letGo = [];
-      // One spare too many destroyed at a time, a while apart.
+      // One page let go destroyed at a time, a while apart.
       const now = performance.now();
-      if (surplus.length && now - lastDoomed > DOOM_EVERY_MS) { surplus.pop()!.source.destroy(); lastDoomed = now; }
+      if (surplus.length && now - lastDoomed > DOOM_EVERY_MS) { surplus.pop()!.rt.destroy(true); lastDoomed = now; }
     },
     flush,
     stats: () => ({
       keys: tiers.reduce((n, t) => n + t.cache.size, 0),
       pages: tiers.reduce((n, t) => n + t.pages.length, 0),
-      tiers: tiers.map((t) => ({ keys: t.cache.size, pages: t.pages.length, old: t.old?.pages.length ?? 0 })),
+      tiers: tiers.map((t) => ({ keys: t.cache.size, pages: t.pages.length, idle: t.idle.size })),
     }),
     destroy() {
       for (let l = 0; l < tiers.length; l++) drop(l);
       for (const t of [...dying, ...letGo]) destroy(t);
       dying = letGo = [];
-      for (const p of [...spare.flat(), ...surplus]) p.source.destroy();
-      for (const s of spare) s.length = 0;
+      for (const p of surplus) p.rt.destroy(true);
       surplus.length = 0;
+      dead = true;
+      stage.removeChildren();
+      for (const s of [...rubbers, ...stamps]) s.destroy();
+      for (const st of strips) if (st) { for (const c of st.cells.flat()) c.destroy(false); st.source.destroy(); }
+      stage.destroy();
     },
   };
   // How many looks, how many pages: for the console. @see stats

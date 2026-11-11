@@ -599,7 +599,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const cl = createCliffLayer(grid, useWorldStore.getState().palette, scale);
       // The shaded ground draws its own walls.
       cl.skip = (g, x, y) => meshDraws(tl, g, x, y);
-      const pl = createPavedLayer(grid, ROAD_TABLE, scale);
+      const pl = createPavedLayer(grid, ROAD_TABLE, scale, app.renderer);
       pl.bays = (g) => bayMarksOf(trafficOf(getTown(), g).G, g);
       const sl = createStructureLayer();
       const water = useWorldStore.getState().getWaterField();

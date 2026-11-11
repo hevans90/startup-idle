@@ -198,6 +198,11 @@ type Look = { frames: Frame[]; front: { u: number; v: number }[] };
 function createAtlas(renderer: Renderer) {
   const pages: RenderTexture[] = [];
   let x = PAGE, y = 0, shelf = 0;
+  // ANTIALIASED IN A SCRATCH, THEN COPIED TO ITS PAGE texel for texel. A page
+  // antialiased itself keeps a multisampled twin four times its size for as
+  // long as it lives (64 MB beside its 16), to smooth a bake that happens once.
+  let scratch: RenderTexture | null = null;
+  const stamp = new Sprite();
   return {
     /** Bake `g` into a free slot; its frame, anchored at the drawing's origin. */
     add(g: Container): Frame {
@@ -205,19 +210,34 @@ function createAtlas(renderer: Renderer) {
       const w = Math.max(1, Math.ceil(b.width * BAKE)) + 2 * PAD, h = Math.max(1, Math.ceil(b.height * BAKE)) + 2 * PAD;
       if (x + w > PAGE) { x = 0; y += shelf; shelf = 0; }
       if (!pages.length || y + h > PAGE) {
-        pages.push(RenderTexture.create({ width: PAGE, height: PAGE, antialias: true }));
+        pages.push(RenderTexture.create({ width: PAGE, height: PAGE, antialias: false }));
         x = 0; y = 0; shelf = 0;
       }
       const page = pages[pages.length - 1];
       const sx = x, sy = y;
+      if (!scratch || scratch.width < w || scratch.height < h) {
+        const was = scratch;
+        scratch = RenderTexture.create({ width: Math.max(256, was?.width ?? 0, w), height: Math.max(256, was?.height ?? 0, h), antialias: true });
+        was?.destroy(true);
+      }
+      renderer.render({ container: g, target: scratch, clear: true, transform: new Matrix(BAKE, 0, 0, BAKE, PAD - b.x * BAKE, PAD - b.y * BAKE) });
+      const copy = new Texture({ source: scratch.source, frame: new Rectangle(0, 0, w, h) });
+      stamp.texture = copy;
+      renderer.render({ container: stamp, target: page, clear: false, transform: new Matrix(1, 0, 0, 1, sx, sy) });
+      stamp.texture = Texture.EMPTY;
+      copy.destroy(false);
       // The drawing's origin — the mover's foot — lands here in the page.
       const ox = sx + PAD - b.x * BAKE, oy = sy + PAD - b.y * BAKE;
-      renderer.render({ container: g, target: page, clear: false, transform: new Matrix(BAKE, 0, 0, BAKE, ox, oy) });
       const tex = new Texture({ source: page.source, frame: new Rectangle(sx, sy, w, h) });
       x += w; shelf = Math.max(shelf, h);
       return { tex, ax: (ox - sx) / w, ay: (oy - sy) / h };
     },
-    destroy() { for (const p of pages) p.destroy(true); pages.length = 0; },
+    destroy() {
+      for (const p of pages) p.destroy(true);
+      pages.length = 0;
+      scratch?.destroy(true); scratch = null;
+      stamp.destroy();
+    },
   };
 }
 
