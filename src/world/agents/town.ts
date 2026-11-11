@@ -405,6 +405,8 @@ const MIN_TRIP = 3;
  * lane too fast to stop for it.
  */
 const START_CLEAR = 1;
+/** How far short of a street lane's end a trip to there stops, tiles: clear of the junction. */
+const GOAL_BACK = 0.5;
 /** How far beyond the rim a car going off the map drives before it is gone. */
 const OFF_MAP = 0.7;
 
@@ -541,7 +543,11 @@ function driveWay(t: Town, g: Grid, from: Place, to: Place, after?: Mover, at?: 
   // Not from the very end of a lane: already at a junction's line, with no room to stop at it.
   const roomy = starts.filter((sp) => T.G.lanes[sp.lane].len - sp.s > 0.6);
   if (roomy.length) starts = roomy;
-  const goals = spots?.goal ? [spots.goal] : spotsAt(T, g, to, to.kind === "gateway" ? "end" : null);
+  // (Not to the very end of a street's lane either: stopped there, its nose would be out in the junction.)
+  const goals = spots?.goal ? [spots.goal] : spotsAt(T, g, to, to.kind === "gateway" ? "end" : null).map((sp) => {
+    const l = T.G.lanes[sp.lane];
+    return l.kind === "street" && !l.sink ? { lane: sp.lane, s: Math.min(sp.s, Math.max(l.len / 2, l.len - GOAL_BACK)) } : sp;
+  });
   const r = routeLanes(T.G, starts, goals);
   if (!r) return null;
   const { pts, start, enter } = lineOf(T.G, r);
@@ -675,6 +681,8 @@ type Run = { lane: number; opp: number; s0: number; s1: number; z0: number; z1: 
 const PARKED_HALF = 0.2;
 /** How far either side of a run of parked cars a car getting by them is out, tiles. */
 const RUN_IN = 1, RUN_OUT = 0.9;
+/** How far past where it should wait for a run one coming the other way, stood, still waits, tiles. */
+const HOLD_PAST = 1;
 function trafficNow(T: Traffic, cars: readonly Mover[], walkers: readonly Mover[] = [], parkedCars: readonly Mover[] = []) {
   // PARKED, in the bays: each lane's, in order along it.
   const parked = new Map<number, { m: Mover; s: number; blocks: boolean }[]>(), taken = new Set<number>();
@@ -763,6 +771,9 @@ function runsOf(T: Traffic, on: ReadonlyMap<number, Onto[]>, parked: ReadonlyMap
         else if (o.s < r.p0 && (!first || o.s > first.s)) first = o;
       }
       if (first && r.p0 - first.s < 1.5 && first.m.stuck > PATIENT) r.asked = true;
+      // (Room past its last bay, or the end of the car in it, for the first in the queue to be back in, all of it — a bus's more than a car's: those coming the other way wait beyond that.
+      // Not while one is out getting by: grown under those coming then, they would be in it already.)
+      if (first && !r.out && 2 * halfLength(first.m) > CAR_LONG) r.z1 = Math.max(r.z1, Math.max(r.s1, r.p1) + 2 * halfLength(first.m) + 0.25);
       // Coming the other way: on it, too near to stop short, or at its end; or long stood there.
       const facing = (o: Mover, sL: number) => {
         const ho = halfLength(o);
@@ -1005,6 +1016,8 @@ function passParked(T: Traffic, m: Mover, now: ReturnType<typeof trafficNow>, A:
         if (!r.out && !(r.asked && !r.waiting)) continue;
         const e = d.start[j] + lenX - r.z1, nose = m.s + half;
         if (nose < e + 0.02 && e - nose < FOLLOW) follow(A, v, e - nose - 0.05, 0, 0.02);
+        // (Stood just past where to wait as the run's room grew — one more parked in it, a bus to get by: stood there still, not on into those getting by.)
+        else if (nose >= e + 0.02 && nose < e + HOLD_PAST && v < 0.1) follow(A, v, 0, 0, 0);
       }
       // HEAD ON: short of anybody out getting by, coming this way.
       for (const o of now.on.get(other) ?? []) {
@@ -1022,8 +1035,8 @@ function passParked(T: Traffic, m: Mover, now: ReturnType<typeof trafficNow>, A:
       // Behind it already, or beyond where it is going.
       // (Into a bay: up to the next one's car, bumper to bumper.)
       // (Alongside it already, its middle behind ours: stopping would not get it out of the way.
-      // Into a bay, not even one just behind, its nose over our tail, bumper to bumper.)
-      if (gap + ph + half < 0 || (m.bayTo && gap < 0) || gap > FOLLOW + 1 || at - ph > end + (m.bayTo ? 0 : half + GAP)) continue;
+      // Into a bay, or getting by them, not even one just behind, its nose over our tail, bumper to bumper.)
+      if (gap + ph + half < 0 || ((m.bayTo || m.pass) && gap < 0) || gap > FOLLOW + 1 || at - ph > end + (m.bayTo ? 0 : half + GAP)) continue;
       // Parked where it is going: it stops short, there.
       if (!m.bayTo && at - ph < end + half + GAP && at > end - 1) {
         follow(A, v, gap - spacing(m, p.m) + GAP, 0, GAP);
@@ -1044,16 +1057,30 @@ function passParked(T: Traffic, m: Mover, now: ReturnType<typeof trafficNow>, A:
   }
   const P = m.pass;
   if (!P) return;
-  // (One just parked further along the run, by one of those getting by ahead of it: by that one too.)
-  for (const r of now.runs.get(L) ?? []) if (r.z0 < P.b - d.start[d.k] && r.z1 > P.a - d.start[d.k] && m.s < P.b - 0.3) P.b = Math.max(P.b, passEnd(G, m, r, d.start[d.k]));
+  // (One just parked further along the run, by one of those getting by ahead of it: by that one too.
+  // Only as far as there is room, short of one stood coming the other way: in a touch early rather than out for good.)
+  const opp = G.lanes[L].opposite!, len = G.lanes[opp].len, mine = m.s - d.start[d.k];
+  let room = Infinity;
+  for (const o of now.on.get(opp) ?? []) {
+    const back = len - o.s - halfLength(o.m);
+    if (o.m.speed < 0.1 && back >= P.b - d.start[d.k] + half) room = Math.min(room, d.start[d.k] + back - half - 0.12);
+  }
+  for (const r of now.runs.get(L) ?? []) if (r.z0 < P.b - d.start[d.k] && r.z1 > P.a - d.start[d.k] && m.s < P.b - 0.3) P.b = Math.max(P.b, Math.min(room, passEnd(G, m, r, d.start[d.k])));
   if (m.s > P.a - 0.5) A.cap = Math.min(A.cap, PASS_SPEED);
   // HEAD ON: short of one already coming the other way, into where it is getting by.
-  const opp = G.lanes[L].opposite!, len = G.lanes[opp].len, mine = m.s - d.start[d.k];
+  // (From where it goes out — not yet out, one beside it now is none of its business.)
+  const from = (m.side ?? 0) < -0.02 ? mine : Math.max(mine, P.a - d.start[d.k]);
   for (const o of now.on.get(opp) ?? []) {
     const sL = len - o.s, ho = halfLength(o.m);
-    if (sL + ho < mine - half || sL - ho > P.b - d.start[d.k] + half + 0.1) continue;
+    if (sL + ho < from - half || sL - ho > P.b - d.start[d.k] + half + 0.1) continue;
     follow(A, v, sL - ho - mine - half - 0.05, 0, 0.05);
   }
+}
+
+/** How far round a roundabout's ring from a port to another, tiles: none for the same one. */
+function portTo(T: Traffic, J: { id: number; centre: { x: number; y: number } }, from: { x: number; y: number }, port: number): number {
+  const d = roundTo(T, J.id, from, port);
+  return d > 2 * Math.PI * Math.hypot(from.x - J.centre.x, from.y - J.centre.y) - 0.1 ? 0 : d;
 }
 
 /** The run a parked car's bay is one of, as it is now. */
@@ -1185,17 +1212,32 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
     // (On a short street between two junctions, anybody there at all: about to stop at the next one's line.)
     const need = 2 * halfLength(m) + GAP, short = G.lanes[d.lanes[r]].len < SHORT_BLOCK;
     for (const o of now.on.get(d.lanes[r]) ?? []) if (o.m !== m && o.s - halfLength(o.m) < need && (short || o.m.speed < 0.5)) return false;
+    // (Nor onto a short one while another, let in from elsewhere, is still on its way through the junction into it.)
+    if (short) for (const P of T.into.get(d.lanes[r]) ?? []) for (const o of now.on.get(P) ?? []) if (o.m !== m && o.m.drive?.lanes[o.m.drive.k + 1] === d.lanes[r]) return false;
+    // (Nor ahead of one long waiting at another way into it: its turn.)
+    if (short) {
+      for (const P of T.into.get(d.lanes[r]) ?? []) {
+        if (P === d.lanes[q]) continue;
+        for (const F of T.into.get(P) ?? []) for (const o of now.on.get(F) ?? []) {
+          const e = o.m.drive;
+          if (o.m === m || !e || e.lanes[e.k + 1] !== P || e.let > e.k) continue;
+          if (e.waited >= PATIENT && e.waited > d.waited) return false;
+        }
+      }
+    }
   }
   const J = G.junctions[y.junction!];
   // ONTO A ROUNDABOUT: nobody on the ring near its port, nor coming round to it soon.
   if (J.kind === "roundabout") {
-    const port = Math.atan2(y.pts[y.pts.length - 1].y - J.centre.y, y.pts[y.pts.length - 1].x - J.centre.x);
+    const port = Math.atan2(y.pts[y.pts.length - 1].y - J.centre.y, y.pts[y.pts.length - 1].x - J.centre.x), long = 2 * halfLength(m) > CAR_LONG;
     for (const [lane, list] of now.on) {
       const l = G.lanes[lane];
       if (l.junction !== J.id || (l.kind !== "ring" && l.kind !== "entry")) continue;
       for (const o of list) {
         if (o.m === m || lane === y.id) continue;
-        const dist = l.kind === "entry" ? l.len - o.s : roundTo(T, J.id, o.m, port);
+        // (One coming onto it at another port: as far round as that port is, past the rest of its way in —
+        // though a bus, slow to be in, waits for anybody coming onto it anywhere.)
+        const dist = l.kind === "entry" ? l.len - o.s + (long ? 0 : portTo(T, J, l.pts[l.pts.length - 1], port)) : roundTo(T, J.id, o.m, port);
         const back = 2 * Math.PI * Math.hypot(o.m.x - J.centre.x, o.m.y - J.centre.y) - dist;
         // (A long one — a bus — takes longer to be in: as much more room as it is longer than a car.)
         if (back < spacing(m, o.m) + 0.15 || dist < Math.max(1.4, o.m.speed * 2.5) + Math.max(0, 2 * halfLength(m) - CAR_LONG)) return false;
