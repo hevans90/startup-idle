@@ -33,7 +33,7 @@ import { HEIGHT_UNIT, rampDir, rampRise, RAMP } from "../iso";
 import { hash } from "../structures/projects/model";
 import { mix, tone } from "../structures/projects/pen";
 import { opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
-import { CROSS_HOLD, laneLines, laneOffset, lanesFor } from "../agents/lanes/graph";
+import { CROSS_HOLD, LAYBY, laneLines, laneOffset, lanesFor, PARK_STRIP } from "../agents/lanes/graph";
 
 /** How far in from the tile's edge the pavement runs, its kerb, and both. */
 export const PAVE = 0.22, KERB = 0.04, WALK = PAVE + KERB;
@@ -100,8 +100,27 @@ export function planeOf(ramp: number, z: number): { z0: number; zu: number; zv: 
 
 // ─── THE SHAPE OF THE PAVEMENT ───────────────────────────────────────────────
 
-/** A run of pavement along a kerbed side, from `a0` to `a1` along it. */
-type Band = { s: Side; a0: number; a1: number };
+/**
+ * A run of pavement along a kerbed side, from `a0` to `a1` along it, its
+ * kerb's road edge `w0` in from the tile's edge at `a0` and `w1` at `a1`:
+ * `WALK`, but less beside a lay-by, and sloping where one tapers in.
+ */
+type Band = { s: Side; a0: number; a1: number; w0: number; w1: number };
+/** How far in from the tile's edge a lay-by's kerb is; and how far along a tile it tapers in over. */
+const LAY_W = WALK - LAYBY, TAPER = 0.45;
+/** A band's kerb edge `a` along it. */
+const wAt = (B: Band, a: number) => (B.a1 === B.a0 ? B.w0 : B.w0 + ((B.w1 - B.w0) * (a - B.a0)) / (B.a1 - B.a0));
+/** A kerbed side's edge along it, as its parking has it: points `[a, w]` from one end to the other. */
+function profileOf(L: Look, s: Side): [number, number][] {
+  const m = L.bay.match(new RegExp(`([LT])${s}(\\d?)`));
+  if (!m) return [[0, WALK], [1, WALK]];
+  if (m[1] === "L") return [[0, LAY_W], [1, LAY_W]];
+  const e = Number(m[2]), pts: [number, number][] = [[0, e & 1 ? LAY_W : WALK]];
+  if (e & 1) pts.push([TAPER, WALK]);
+  if (e & 2) pts.push([1 - TAPER, WALK]);
+  pts.push([1, e & 2 ? LAY_W : WALK]);
+  return pts;
+}
 /** A rounded corner where two kerbs meet: the carriageway's corner, radius `rc`. */
 type Round = { c: number; rc: number };
 type Shape = { bands: Band[]; rounds: Round[]; nubs: number[]; full: boolean };
@@ -139,7 +158,15 @@ function shapeOf(L: Look): Shape {
     const [c0, c1] = ends[s];
     const a0 = rcOf[c0] !== null ? WALK + rcOf[c0]! : 0;
     const a1 = rcOf[c1] !== null ? 1 - WALK - rcOf[c1]! : 1;
-    if (a1 > a0) bands.push({ s, a0, a1 });
+    // A band for each straight of its kerb's edge.
+    const pts = profileOf(L, s);
+    for (let k = 1; k < pts.length; k++) {
+      const [p0, q0] = pts[k - 1], [p1, q1] = pts[k];
+      const b0 = Math.max(a0, p0), b1 = Math.min(a1, p1);
+      if (b1 <= b0) continue;
+      const w = (a: number) => q0 + ((q1 - q0) * (a - p0)) / (p1 - p0);
+      bands.push({ s, a0: b0, a1: b1, w0: w(b0), w1: w(b1) });
+    }
   }
   return { bands, rounds, nubs, full: false };
 }
@@ -184,6 +211,11 @@ function sector(ctx: Ctx, pt: (t: number, r: number) => [number, number], t0: nu
 function bandRect(ctx: Ctx, s: Side, a0: number, a1: number, d0: number, d1: number) {
   poly(ctx, [bandPt(s, a0, d0), bandPt(s, a1, d0), bandPt(s, a1, d1), bandPt(s, a0, d1)]);
 }
+/** A band's strip from `a0` to `a1`, between depths as at a plain kerb (its road edge at `WALK`), moved in or out with its own. */
+function bandQuad(ctx: Ctx, B: Band, a0: number, a1: number, d0: number, d1: number) {
+  const k0 = wAt(B, a0) - WALK, k1 = wAt(B, a1) - WALK;
+  poly(ctx, [bandPt(B.s, a0, d0 + k0), bandPt(B.s, a1, d0 + k1), bandPt(B.s, a1, d1 + k1), bandPt(B.s, a0, d1 + k0)]);
+}
 
 /**
  * Fill a strip along the whole line of the kerb, between depths `o0` and
@@ -193,7 +225,7 @@ function bandRect(ctx: Ctx, s: Side, a0: number, a1: number, d0: number, d1: num
  */
 function alongKerb(ctx: Ctx, S: Shape, o0: number, o1: number, colour: string | CanvasPattern) {
   ctx.fillStyle = colour;
-  for (const B of S.bands) { bandRect(ctx, B.s, B.a0, B.a1, o0, o1); ctx.fill(); }
+  for (const B of S.bands) { bandQuad(ctx, B, B.a0, B.a1, o0, o1); ctx.fill(); }
   for (const R of S.rounds) {
     // A depth `d` from the houses' side is radius `WALK + rc − d` from the curve's centre.
     sector(ctx, (t, r) => roundPt(R, t, r), 0, Math.PI / 2, WALK + R.rc - o0, WALK + R.rc - o1);
@@ -207,7 +239,7 @@ function footprint(ctx: Ctx, S: Shape) {
   ctx.beginPath();
   if (S.full) { ctx.rect(0, 0, 1, 1); return; }
   const add = (pts: [number, number][]) => { ctx.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]); ctx.closePath(); };
-  for (const B of S.bands) add([bandPt(B.s, B.a0, 0), bandPt(B.s, B.a1, 0), bandPt(B.s, B.a1, WALK), bandPt(B.s, B.a0, WALK)]);
+  for (const B of S.bands) add([bandPt(B.s, B.a0, 0), bandPt(B.s, B.a1, 0), bandPt(B.s, B.a1, B.w1), bandPt(B.s, B.a0, B.w0)]);
   for (const R of S.rounds) {
     const { cu, cv, du, dv } = cornerOf(R.c), k = WALK + R.rc;
     const pts: [number, number][] = [[cu, cv], [cu + du * k, cv]];
@@ -546,13 +578,15 @@ function fittings(ctx: Ctx, L: Look, S: Shape) {
   if (L.open === 0 || L.box || L.zeb || L.xing || L.rb) return;
   const v = L.vr;
   if (v > 3) return; // most of a road is just road
+  const gutter = S.bands.length ? S.bands.find((B) => B.s === S.bands[0].s && B.a0 <= 0.42 && B.a1 >= 0.56) : undefined;
   if (v === 0 && S.bands.length) {
     // A GULLY in the gutter: an iron grate, its slots.
-    const B = S.bands[0];
+    if (!gutter) return;
+    const B = gutter;
     ctx.fillStyle = css(IRON);
-    bandRect(ctx, B.s, 0.42, 0.56, WALK + 0.004, WALK + 0.06); ctx.fill();
+    bandQuad(ctx, B, 0.42, 0.56, WALK + 0.004, WALK + 0.06); ctx.fill();
     ctx.fillStyle = css(0x1a1c1f);
-    for (let k = 0; k < 5; k++) { bandRect(ctx, B.s, 0.432 + k * 0.025, 0.442 + k * 0.025, WALK + 0.012, WALK + 0.052); ctx.fill(); }
+    for (let k = 0; k < 5; k++) { bandQuad(ctx, B, 0.432 + k * 0.025, 0.442 + k * 0.025, WALK + 0.012, WALK + 0.052); ctx.fill(); }
   } else if (v === 1) {
     // A MANHOLE COVER, round, its ring and its tread.
     const cu = 0.44, cv = 0.56;
@@ -611,6 +645,22 @@ function wheelTracks(ctx: Ctx, L: Look) {
   }
 }
 
+/**
+ * PARKING BAYS, in white: in a lay-by, a line along its mouth where the kerb
+ * would be and one across between each bay and the next; in a wide road's
+ * parking strip, a line along its edge with the lane and the same across.
+ */
+function bayLines(ctx: Ctx, L: Look) {
+  const W = 0.012;
+  ctx.fillStyle = css(WHITE, 0.85);
+  for (const m of L.bay.matchAll(/([LM])(\d)/g)) {
+    const s = Number(m[2]) as Side;
+    const [d0, d1] = m[1] === "L" ? [LAY_W + 0.012, WALK] : [WALK + 0.012, WALK + PARK_STRIP];
+    bandRect(ctx, s, 0, 1, d1 - W / 2, d1 + W / 2); ctx.fill();
+    for (const a of [0, 0.5, 1]) { bandRect(ctx, s, a - W / 2, a + W / 2, d0, d1); ctx.fill(); }
+  }
+}
+
 /** Everything on the ground of one cell, in its own (u, v). */
 function paintGround(ctx: Ctx, L: Look) {
   const S = shapeOf(L);
@@ -632,6 +682,7 @@ function paintGround(ctx: Ctx, L: Look) {
   if (L.zz) zigzags(ctx, L);
   centreLine(ctx, L);
   wideLines(ctx, L);
+  if (L.bay) bayLines(ctx, L);
   if (L.yl) {
     alongKerb(ctx, S, WALK + 0.018, WALK + 0.03, css(YELLOW, 0.92));
     alongKerb(ctx, S, WALK + 0.04, WALK + 0.052, css(YELLOW, 0.92));
@@ -721,9 +772,24 @@ function paintRaised(ctx: Ctx, L: Look) {
     for (const q of piecesOf(lvl, L.vr, 9, PAVE - 1, PAVE)) piece(q, (a0, a1, d0, d1) => bandRect(ctx, 2, a0, a1, d0 + 1 - PAVE, d1 + 1 - PAVE));
     return;
   }
-  for (const B of S.bands) for (const q of piecesOf(lvl, L.vr, B.s, 0, PAVE)) {
-    const a0 = Math.max(B.a0, q.a0), a1 = Math.min(B.a1, q.a1);
-    if (a1 > a0) piece(q, (_a, _b, d0, d1) => bandRect(ctx, B.s, a0, a1, d0, d1));
+  for (const B of S.bands) {
+    if (B.w0 === WALK && B.w1 === WALK) {
+      for (const q of piecesOf(lvl, L.vr, B.s, 0, PAVE)) {
+        const a0 = Math.max(B.a0, q.a0), a1 = Math.min(B.a1, q.a1);
+        if (a1 > a0) piece(q, (_a, _b, d0, d1) => bandRect(ctx, B.s, a0, a1, d0, d1));
+      }
+      continue;
+    }
+    // BESIDE A LAY-BY, narrower: the paving's kerb side, all of it there is room for; cut along a taper.
+    const cut = WALK - Math.max(B.w0, B.w1);
+    ctx.save();
+    poly(ctx, [bandPt(B.s, B.a0, 0), bandPt(B.s, B.a1, 0), bandPt(B.s, B.a1, B.w1 - KERB), bandPt(B.s, B.a0, B.w0 - KERB)]);
+    ctx.clip();
+    for (const q of piecesOf(lvl, L.vr, B.s, cut, PAVE)) {
+      const a0 = Math.max(B.a0, q.a0), a1 = Math.min(B.a1, q.a1);
+      if (a1 > a0) piece(q, (_a, _b, d0, d1) => bandRect(ctx, B.s, a0, a1, Math.max(0, d0 - cut), d1 - cut));
+    }
+    ctx.restore();
   }
   for (const R of S.rounds) {
     const k = WALK + R.rc;
@@ -756,7 +822,7 @@ function paintRaised(ctx: Ctx, L: Look) {
       const a0 = Math.max(B.a0, k / 6), a1 = Math.min(B.a1, (k + 1) / 6);
       if (a1 <= a0) continue;
       ctx.fillStyle = css(tone(kc, 0.94 + hash(B.s * 7.3 + k * 1.7 + L.vr) * 0.1));
-      bandRect(ctx, B.s, a0, a1, PAVE + 0.007, WALK - 0.006); ctx.fill();
+      bandQuad(ctx, B, a0, a1, PAVE + 0.007, WALK - 0.006); ctx.fill();
     }
     const pat = grainFill(ctx);
     if (pat) { ctx.globalAlpha = 0.5; alongKerb(ctx, S, PAVE, WALK, pat); ctx.globalAlpha = 1; }
@@ -765,7 +831,7 @@ function paintRaised(ctx: Ctx, L: Look) {
   ctx.fillStyle = css(tone(kc, 0.78));
   for (const B of S.bands) for (let k = 1; k < 6; k++) {
     const a = k / 6;
-    if (a > B.a0 && a < B.a1) { bandRect(ctx, B.s, a - 0.0025, a + 0.0025, PAVE, WALK); ctx.fill(); }
+    if (a > B.a0 && a < B.a1) { bandQuad(ctx, B, a - 0.0025, a + 0.0025, PAVE, WALK); ctx.fill(); }
   }
   if (L.zeb) for (const s of acrossOf(L.zeb)) if (!has(L.open, s)) { ctx.fillStyle = css(mix(kc, 0xffffff, 0.2)); bandRect(ctx, s, 0.3, 0.7, PAVE, WALK); ctx.fill(); }
 }

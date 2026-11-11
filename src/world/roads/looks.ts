@@ -98,11 +98,18 @@ export type Look = {
    * (u, v) and its radius, `u,v,r`; empty if none. @see agents/lanes/graph ring
    */
   rb: string;
+  /**
+   * PARKING BAYS along its kerbs, a token a side: `L` and the side, a lay-by,
+   * the kerb set back; `M`, bays marked in a wide road's parking strip; `T`, a
+   * lay-by beside tapering in, then which ends of this kerb it is beyond (1,
+   * the low end along it; 2, the high; 3, both). @see agents/lanes/graph baysOf, bayMarksOf
+   */
+  bay: string;
 };
 
 /** A look as a key: every field, compact. */
 export const keyOf = (l: Look): string =>
-  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.ln}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.xing}.${l.slow}.${l.rb}`;
+  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.ln}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.xing}.${l.slow}.${l.rb}.${l.bay}`;
 
 /** What the town's beauty puts on a road cell: its level, and a zebra if it has one. @see roadDressOf */
 export const dressOf = (lvl: number, zebra: boolean) => (lvl & 3) | (zebra ? 4 : 0);
@@ -131,9 +138,11 @@ const axisOf = (open: number): "u" | "v" | "" => (has(open, 0) && has(open, 1) ?
 
 /**
  * Every paved cell's look. `dress` is {@link dressOf} per cell, or none: a
- * street with no level yet, tarmac and no zebras.
+ * street with no level yet, tarmac and no zebras. `bays` per cell, its kerbs
+ * with parking bays, as the lanes have them: lay-bys a bit a side, a wide
+ * road's marked bays a bit a side shifted up four. @see bayMarksOf
  */
-export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
+export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array): (Look | null)[] {
   const out: (Look | null)[] = new Array(g.w * g.h).fill(null);
   const mask = new Int32Array(g.w * g.h).fill(-1);
   const role: (RoadRole | null)[] = new Array(g.w * g.h).fill(null);
@@ -230,9 +239,22 @@ export function looksOf(g: Grid, dress?: Uint8Array): (Look | null)[] {
     const L: Look = {
       open: o, diag: diagOf(mask[i]), ramp: g.ramp[i], lvl,
       vr: Math.floor(hash(x * 31.7 + y * 57.3 + 0.5) * VARIANTS),
-      ctr: "", ln: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", xing: "", slow: "", rb: "",
+      ctr: "", ln: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", xing: "", slow: "", rb: "", bay: "",
     };
     out[i] = L;
+    // PARKING BAYS at its kerbs, and a lay-by's taper in beside them.
+    if (bays) for (const sd of SIDES) {
+      if (has(o, sd)) continue;
+      const bit = 1 << sd;
+      if (bays[i] & bit) { L.bay += `L${sd}`; continue; }
+      if (bays[i] & (bit << 4)) { L.bay += `M${sd}`; continue; }
+      // (Along a straight kerb only: open both ways along it.)
+      const [lo, hi] = (sd < 2 ? [2, 3] : [0, 1]) as [Side, Side];
+      if (!has(o, lo) || !has(o, hi)) continue;
+      const near = (e: Side) => { const [dx, dy] = STEP[e], j = at(x + dx, y + dy); return j >= 0 && (bays[j] & bit) !== 0; };
+      const ends = (near(lo) ? 1 : 0) | (near(hi) ? 2 : 0);
+      if (ends) L.bay += `T${sd}${ends}`;
+    }
     const kerbed = o !== 15;
     const nub = [0, 1, 2, 3].some((c) => {
       const su = c & 1, sv = c >> 1;

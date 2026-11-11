@@ -39,11 +39,6 @@ export function signalOf(G: LaneGraph | null, m: Mover): Signal {
   const end = m.at[m.at.length - 1] - m.s;
   // IN TO THE KERB: a bay, or a bus to its stop.
   if ((m.bayTo || (m.bus && m.bus.k >= 0 && (m.bus.to ?? 0) >= PULLED)) && end < PULL_LOOK) return 1;
-  // OUT PAST PARKED CARS, and back in.
-  if (m.pass) {
-    if (m.s < m.pass.a + 0.3) return -1;
-    if (m.s > m.pass.b - 0.8) return 1;
-  }
   if (!G || d.graph !== G) return 0;
   // A LANE CHANGE OR A TURN, soon: whichever comes first.
   for (let j = d.k; j < d.lanes.length && d.start[j] - m.s < LOOK; j++) {

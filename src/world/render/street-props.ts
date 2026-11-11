@@ -25,7 +25,8 @@ import { makePen, mix, tone, type Pen } from "../structures/projects/pen";
 import { tree } from "../structures/projects/looks";
 import type { BandLayer } from "./bands";
 import type { Seat } from "../agents/town";
-import type { Crossing } from "../agents/lanes/graph";
+import { NEIGHBOUR } from "../../iso/dir";
+import type { Bay, Crossing } from "../agents/lanes/graph";
 import { TILES_PER_M } from "../agents/cars/models";
 import { SEATS_M } from "../props/models";
 import { PROP_TINT } from "../props/props-format";
@@ -91,9 +92,11 @@ export function roadDressOf(g: Grid, streets: Streets, b: Beauty, crossings: rea
  * each kerb — a side with no road beyond it — the tile's place along the
  * street, `(x + y)`, saying which. Pure, for tests.
  */
-export function streetPropsOf(g: Grid, streets: Streets, b: Beauty, crossings: readonly Crossing[] = []): { props: StreetProp[]; murals: Mural[] } {
+export function streetPropsOf(g: Grid, streets: Streets, b: Beauty, crossings: readonly Crossing[] = [], bays: readonly Bay[] = []): { props: StreetProp[]; murals: Mural[] } {
   const props: StreetProp[] = [];
   const along = zebrasAlong(crossings);
+  // (Nothing on the narrow pavement beside a lay-by.)
+  const layby = new Set(bays.filter((q) => q.layby).map((q) => `${q.cell},${NEIGHBOUR[q.kerb].join(",")}`));
   const paved = (x: number, y: number) => inBounds(g, x, y) && isPaved(g, x, y);
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
@@ -117,7 +120,7 @@ export function streetPropsOf(g: Grid, streets: Streets, b: Beauty, crossings: r
       }
       for (const side of Object.keys(SIDES) as StreetProp["side"][]) {
         const [dx, dy] = SIDES[side];
-        if (isPaved(g, x + dx, y + dy)) continue;
+        if (isPaved(g, x + dx, y + dy) || layby.has(`${i},${dx},${dy}`)) continue;
         // Each kerb its own beat, so the two sides of a street do not match.
         const n = k + (side === "S" || side === "E" ? 2 : 0);
         if (end) continue;
@@ -371,7 +374,7 @@ function drawMural(p: Pen, m: Mural) {
 
 export type StreetProps = {
   /** Put the streets' props where their levels say, if those or the map have changed. */
-  sync: (g: Grid, b: Beauty, rev: number, scale: number, crossings?: readonly Crossing[]) => void;
+  sync: (g: Grid, b: Beauty, rev: number, scale: number, crossings?: readonly Crossing[], bays?: readonly Bay[]) => void;
   /** What the road wears, as of the last sync that changed anything: a new array each time. @see roadDressOf */
   dress: () => Uint8Array | null;
   /** The benches' seats, as last laid out. @see seatsOf */
@@ -441,7 +444,7 @@ export function createStreetProps(bands: BandLayer): StreetProps {
     drawn = [];
   };
   return {
-    sync(g, b, rev, scale, crossings) {
+    sync(g, b, rev, scale, crossings, bays) {
       // The sheet once it is in; drawn as before until then, and drawn again when it comes.
       const P = bakedProps() ? propsLoaded() : null;
       if (bakedProps() && !P) void propSprites();
@@ -468,7 +471,7 @@ export function createStreetProps(bands: BandLayer): StreetProps {
       };
       const streets = streetsOf(g);
       dress = roadDressOf(g, streets, b, crossings);
-      const { props, murals } = streetPropsOf(g, streets, b, crossings);
+      const { props, murals } = streetPropsOf(g, streets, b, crossings, bays);
       seats = seatsOf(props);
       for (const pr of props) {
         const tier = pr.side === "N" || pr.side === "W" ? "back" : "front";

@@ -32,7 +32,8 @@ function call(kx: number, ky: number, cause: "fire" | "quake", secs: number) {
         if (flashing(m)) out.flashed++;
         if ((m.wait ?? 0) > 0) out.atScene++;
         if (m.job?.role === "emergency-back" && (m.wait ?? 0) <= 0 && m.speed > 0.5) out.home++;
-      } else if ((m.side ?? 0) > 0.12) out.pulled++;
+      // (Pulled in for it: not into a lay-by, nor out of one.)
+      } else if ((m.side ?? 0) > 0.12 && !m.bayTo && !m.leaving) out.pulled++;
     }
     const cars = t.movers.filter((m) => m.kind !== "person");
     const on = (m: Mover) => m.x >= 0 && m.y >= 0 && m.x <= g.w - 1 && m.y <= g.h - 1;

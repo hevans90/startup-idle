@@ -94,7 +94,7 @@ import {
   drawOrigin, drawPickCrosshair, drawRoadGaps, drawRoadMask,
 } from "./render/overlays";
 import { drawLaneGraph } from "./render/lane-overlay";
-import { buildLaneGraph, type LaneGraph } from "./agents/lanes/graph";
+import { bayMarksOf, buildLaneGraph, type LaneGraph } from "./agents/lanes/graph";
 
 /**
  * How solid the ground stays in x-ray.
@@ -600,6 +600,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // The shaded ground draws its own walls.
       cl.skip = (g, x, y) => meshDraws(tl, g, x, y);
       const pl = createPavedLayer(grid, ROAD_TABLE, scale);
+      pl.bays = (g) => bayMarksOf(trafficOf(getTown(), g).G, g);
       const sl = createStructureLayer();
       const water = useWorldStore.getState().getWaterField();
       sceneField.current = water?.columns ?? null;
@@ -2276,7 +2277,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // behind — and its texture its neighbours' looks: wider again.
     const pavedDirty = new Set<number>();
     const dirtyOf = pl.painter ? lookDirtyCells : maskDirtyCells;
-    if (pl.painter && touched.length) refreshLooks(pl, grid);
+    if (pl.painter && touched.length) {
+      // (And wherever the parking bays moved, with the neighbours that paint them in their margins.)
+      for (const i of refreshLooks(pl, grid)) {
+        const x = i % grid.w, y = (i / grid.w) | 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(grid, x + dx, y + dy)) pavedDirty.add(i + dy * grid.w + dx);
+      }
+    }
     for (const c of touched) {
       for (const n of dirtyOf(grid, c.x, c.y)) pavedDirty.add(n.y * grid.w + n.x);
     }
@@ -3742,7 +3749,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const streetNet = getNetwork();
       if (streetPropsRef.current && streetNet) {
         const st = useWorldStore.getState();
-        streetPropsRef.current.sync(st.grid, liveBeauty(st.grid, streetNet), st.revision, scale, trafficOf(getTown(), st.grid).G.crossings);
+        streetPropsRef.current.sync(st.grid, liveBeauty(st.grid, streetNet), st.revision, scale, trafficOf(getTown(), st.grid).G.crossings, trafficOf(getTown(), st.grid).G.bays);
         // THE BENCHES' SEATS, for the town's walkers to sit on. @see Town.seats
         const seats = streetPropsRef.current.seats();
         if (seats !== seatsRef.current) { seatsRef.current = seats; getTown().seats = seatsByCell(st.grid, seats); }

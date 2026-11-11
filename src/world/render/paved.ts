@@ -42,6 +42,8 @@ export type PavedLayer = {
   looks: (Look | null)[];
   /** The street's level and its zebras, per cell. @see dressPaved */
   dress: Uint8Array | undefined;
+  /** Where the parking bays are, per cell, as the lanes have them: set by the scene. @see agents/lanes/graph bayMarksOf */
+  bays?: (grid: Grid) => Uint8Array | undefined;
   /** Each cell's level of detail, as its sprite draws it now. @see lodPaved */
   lod: Uint8Array;
   /** The level wanted on screen, as last asked for. */
@@ -77,9 +79,18 @@ export function createPavedLayer(grid: Grid, table: RoadTable, scale = 1, painte
   };
 }
 
-/** Work out every cell's look again: before syncing cells after an edit. */
-export function refreshLooks(pl: PavedLayer, grid: Grid): void {
-  if (pl.painter) pl.looks = looksOf(grid, pl.dress);
+/**
+ * Work out every cell's look again: before syncing cells after an edit. The
+ * cells whose parking bays changed — a street's lay-bys can move along it, out
+ * of an edit's reach — to sync too.
+ */
+export function refreshLooks(pl: PavedLayer, grid: Grid): number[] {
+  if (!pl.painter) return [];
+  const old = pl.looks;
+  pl.looks = looksOf(grid, pl.dress, pl.bays?.(grid));
+  const changed: number[] = [];
+  if (old.length === pl.looks.length) for (let i = 0; i < old.length; i++) if ((old[i]?.bay ?? "") !== (pl.looks[i]?.bay ?? "")) changed.push(i);
+  return changed;
 }
 
 /**

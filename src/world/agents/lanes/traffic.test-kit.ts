@@ -27,11 +27,14 @@ export function crossroads(kx: number, ky: number, n = 40) {
   return g;
 }
 
+/** A vehicle's half width, tiles: a car's, or a bike's and its rider's. */
+const halfWidth = (m: Mover) => (m.kind === "bike" ? 0.03 : 0.08);
+
 /** Whether two vehicles' outlines overlap, a little inside their real size. */
 export function overlap(a: Mover, b: Mover) {
   const box = (m: Mover) => {
     const c = Math.cos(m.heading), s = Math.sin(m.heading);
-    return { x: m.x, y: m.y, ax: [[c, s], [-s, c]], h: [halfLength(m) * 0.92, 0.08 * 0.92] };
+    return { x: m.x, y: m.y, ax: [[c, s], [-s, c]], h: [halfLength(m) * 0.92, halfWidth(m) * 0.92] };
   };
   const A = box(a), B = box(b);
   for (const P of [A, B]) for (const [ux, uy] of P.ax) {

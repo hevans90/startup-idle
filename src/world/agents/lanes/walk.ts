@@ -37,10 +37,11 @@ function endOf(G: LaneGraph, g: Grid, p: Place | Kerbside): End | null {
     const d = p.kind === "kerb" ? p.d : DIRS.find((d) => structureAt(g, p.x + NEIGHBOUR[d][0], p.y + NEIGHBOUR[d][1]) === p.structure);
     if (!d) return null;
     const [dx, dy] = NEIGHBOUR[d];
+    // (As far in as the pavement's points either side: further, beside a lay-by.)
+    const c = corner(dx || -1, dy || -1) ?? corner(dx || 1, dy || 1);
+    const x = dx ? (c !== undefined ? nodes[c].x : p.x + dx * PAVE_AT) : p.x, y = dy ? (c !== undefined ? nodes[c].y : p.y + dy * PAVE_AT) : p.y;
     // (By a car, level with it on the kerb.)
-    const door = p.kind === "kerb"
-      ? (dx ? { x: p.x + dx * PAVE_AT, y: p.by.y } : { x: p.by.x, y: p.y + dy * PAVE_AT })
-      : { x: p.x + dx * PAVE_AT, y: p.y + dy * PAVE_AT };
+    const door = p.kind === "kerb" ? (dx ? { x, y: p.by.y } : { x: p.by.x, y }) : { x, y };
     const ns: number[] = [];
     const m = at.get(`${p.x},${p.y},m,${d}`);
     if (m !== undefined) ns.push(m);

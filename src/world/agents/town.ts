@@ -131,10 +131,6 @@ export type Mover = {
   bayTo?: { bay: number; door: Place };
   /** Walking out to a parked car to go in it: the car. */
   toCar?: number;
-  /** GETTING BY parked cars on a street one cell wide: from where along its line it goes out into the other lane, and till where. */
-  pass?: { lane: number; a: number; b: number };
-  /** Arrived short of the end of its way: a car parked on it. */
-  there?: boolean;
   /** Just out of a bay, or a stop, still pulling out from the kerb. */
   leaving?: boolean;
   /** A ROUTE BUS on a leg of its route; somebody going by bus; and waiting at the stop for it. @see buses */
@@ -377,7 +373,7 @@ const PULL_AHEAD = 4;
 const PULL_IN = 0.26;
 const PASS_OUT = -0.2;
 const SIDE_RATE = 0.5;
-/** How fast a vehicle moves back in from the oncoming lane once done getting by, tiles a second. */
+/** How fast a vehicle moves back in from toward the middle once done getting by, tiles a second. */
 const BACK_IN_RATE = 1.2;
 /** Pulled in this far, a car is out of an emergency vehicle's way. */
 const PULLED = 0.12;
@@ -667,30 +663,14 @@ export function wanted(places: readonly Place[], g: Grid): { cars: number; peopl
  * to be let onto which junction lane, and the zones let go by those past them.
  */
 type Onto = { m: Mover; s: number };
-/**
- * A RUN of bays in a lane, on a street one cell wide, now: its bays' stretch
- * (`s0`–`s1`), where along it a car getting by them is out in the oncoming
- * lane (`z0`–`z1`), and the stretch of it parked in (`p0`–`p1`, if any). Like
- * a bridge one car wide, one way at a time: `out`, somebody is getting by;
- * `facing`, somebody coming the other way is on it, or too near to stop
- * short; `waiting`, somebody coming the other way has waited long for
- * it; `asked`, somebody behind the parked cars has. @see passParked
- */
-type Run = { lane: number; opp: number; s0: number; s1: number; z0: number; z1: number; p0: number; p1: number; out: boolean; facing: boolean; waiting: boolean; asked: boolean };
-/** A parked car's half length, for its bay's room, tiles. */
-const PARKED_HALF = 0.2;
-/** How far either side of a run of parked cars a car getting by them is out, tiles. */
-const RUN_IN = 1, RUN_OUT = 0.9;
-/** How far past where it should wait for a run one coming the other way, stood, still waits, tiles. */
-const HOLD_PAST = 1;
 function trafficNow(T: Traffic, cars: readonly Mover[], walkers: readonly Mover[] = [], parkedCars: readonly Mover[] = []) {
   // PARKED, in the bays: each lane's, in order along it.
-  const parked = new Map<number, { m: Mover; s: number; blocks: boolean }[]>(), taken = new Set<number>();
+  const parked = new Map<number, { m: Mover; s: number }[]>(), taken = new Set<number>();
   for (const c of parkedCars) {
     const b = c.park && c.park.graph === T.G ? T.G.bays[c.park.bay] : undefined;
     if (!b) continue;
     taken.add(b.id);
-    const list = parked.get(b.lane), e = { m: c, s: b.s, blocks: b.blocks };
+    const list = parked.get(b.lane), e = { m: c, s: b.s };
     if (list) list.push(e); else parked.set(b.lane, [e]);
   }
   for (const list of parked.values()) list.sort((a, b) => a.s - b.s);
@@ -734,59 +714,7 @@ function trafficNow(T: Traffic, cars: readonly Mover[], walkers: readonly Mover[
     }
     letGo(T, m, false);
   }
-  return { on, coming, blues, foot, parked, taken, runs: runsOf(T, on, parked) };
-}
-
-/** The runs of bays in the lanes of streets one cell wide, with cars parked in them, and who is by each now. @see Run */
-function runsOf(T: Traffic, on: ReadonlyMap<number, Onto[]>, parked: ReadonlyMap<number, { m: Mover; s: number; blocks: boolean }[]>): Map<number, Run[]> {
-  const G = T.G, out = new Map<number, Run[]>(), byId = new Map<number, Run>();
-  for (const [lane, list] of parked) {
-    for (const p of list) {
-      const id = p.m.park && G.bays[p.m.park.bay]?.run;
-      if (id === undefined) continue;
-      let r = byId.get(id);
-      if (!r) {
-        const R = G.runs[id], opp = G.lanes[R.lane].opposite!;
-        const s0 = R.s0 - PARKED_HALF, s1 = R.s1 + PARKED_HALF;
-        r = { lane, opp, s0, s1, z0: s0 - RUN_IN, z1: s1 + RUN_OUT, p0: Infinity, p1: -Infinity, out: false, facing: false, waiting: false, asked: false };
-        byId.set(id, r);
-        const rs = out.get(lane);
-        if (rs) rs.push(r); else out.set(lane, [r]);
-      }
-      r.p0 = Math.min(r.p0, p.s - halfLength(p.m)); r.p1 = Math.max(r.p1, p.s + halfLength(p.m));
-    }
-  }
-  for (const [lane, runs] of out) {
-    const len = G.lanes[runs[0].opp].len;
-    for (const r of runs) {
-      // Getting by them: anybody whose way out covers any of it. Waited long behind them: the first in the queue.
-      let first: Onto | undefined;
-      for (const o of on.get(lane) ?? []) {
-        const P = o.m.pass, d = o.m.drive!;
-        if (P && P.lane === lane && P.b - d.start[d.k] > r.z0 && P.a - d.start[d.k] < r.z1) {
-          r.out = true;
-          // (A long one — a bus — further: to its nose, back in.)
-          r.z1 = Math.max(r.z1, P.b - d.start[d.k] + halfLength(o.m) + 0.05);
-        }
-        else if (o.s < r.p0 && (!first || o.s > first.s)) first = o;
-      }
-      if (first && r.p0 - first.s < 1.5 && first.m.stuck > PATIENT) r.asked = true;
-      // (Room past its last bay, or the end of the car in it, for the first in the queue to be back in, all of it — a bus's more than a car's: those coming the other way wait beyond that.
-      // Not while one is out getting by: grown under those coming then, they would be in it already.)
-      if (first && !r.out && 2 * halfLength(first.m) > CAR_LONG) r.z1 = Math.max(r.z1, Math.max(r.s1, r.p1) + 2 * halfLength(first.m) + 0.25);
-      // Coming the other way: on it, too near to stop short, or at its end; or long stood there.
-      const facing = (o: Mover, sL: number) => {
-        const ho = halfLength(o);
-        if (sL - ho < r.z1 && sL + ho > r.z0) return true;
-        const to = sL - ho - r.z1;
-        if (to > -0.05 && to < 0.6 && o.stuck > PATIENT) r.waiting = true;
-        return to > 0 && o.speed > 0.1 && to < (o.speed * o.speed) / (2 * IDM_B) + 0.2;
-      };
-      for (const o of on.get(r.opp) ?? []) if (facing(o.m, len - o.s)) r.facing = true;
-      for (const P of T.into.get(r.opp) ?? []) for (const o of on.get(P) ?? []) if (facing(o.m, len + G.lanes[P].len - o.s)) r.facing = true;
-    }
-  }
-  return out;
+  return { on, coming, blues, foot, parked, taken };
 }
 
 /**
@@ -871,7 +799,6 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
   const v = m.speed, half = halfLength(m);
   // PULLED IN for an emergency vehicle: to a stop at the kerb.
   if (m.pullAt !== undefined) follow(A, v, m.pullAt - m.s, 0, 0);
-  passParked(T, m, now, A);
   // GOING ACROSS to the lane beside: still behind whoever is ahead in the one it is leaving, till clear of it.
   if (d.k > 0 && isChange(G, d.lanes[d.k - 1], d.lanes[d.k]) && m.s < d.enter[d.k] + CHANGE_LEN + half) {
     for (const o of now.on.get(d.lanes[d.k - 1]) ?? []) {
@@ -984,148 +911,16 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
   }
 }
 
-/** How far out from its lane a vehicle goes to get by a car parked in it, tiles. */
-const PASS_SIDE = { car: 0.17, truck: 0.2, bus: 0.2, bike: 0.17 } as Record<string, number>;
-const passSide = (m: Mover) => PASS_SIDE[m.kind] ?? 0.17;
-/** The fastest it goes by, tiles a second. */
-const PASS_SPEED = 0.9;
-
-/**
- * BY A PARKED CAR in its lane, on a street one cell wide: out into the
- * oncoming lane to get by all those parked in its run of bays, when it is its
- * way's turn, it is first in the queue for them and there is room to be back
- * in after; and back in. Till then, stopped behind them. Coming the other way,
- * short of a run while somebody is getting by it, or has long waited to.
- * (Bays on wider roads are out of the lane.) @see Run
- */
-function passParked(T: Traffic, m: Mover, now: ReturnType<typeof trafficNow>, A: Ahead) {
-  const d = m.drive!, G = T.G, v = m.speed, half = halfLength(m), end = m.at[m.at.length - 1];
-  const L = d.lanes[d.k];
-  // (Done with it once back in its own lane.)
-  if (m.pass && (m.pass.lane !== L || (m.s > m.pass.b && (m.side ?? 0) > -0.03))) m.pass = undefined;
-  // (Or the cars it was getting by gone from beside and ahead of it: back in where it is.)
-  const P0 = m.pass, s0 = d.start[d.k];
-  if (P0 && !(now.runs.get(L) ?? []).some((r) => s0 + r.p1 > m.s - half && s0 + r.p0 < P0.b)) m.pass = undefined;
-  const out = (m.side ?? 0) <= -(passSide(m) - 0.03);
-  for (let j = d.k; j < d.lanes.length && d.start[j] - m.s < FOLLOW + 1; j++) {
-    const X = d.lanes[j], lenX = G.lanes[X].len;
-    // COMING THE OTHER WAY: short of a run somebody is getting by, or asks to.
-    const other = G.lanes[X].opposite;
-    if (other !== undefined) {
-      for (const r of now.runs.get(other) ?? []) {
-        if (!r.out && !(r.asked && !r.waiting)) continue;
-        const e = d.start[j] + lenX - r.z1, nose = m.s + half;
-        if (nose < e + 0.02 && e - nose < FOLLOW) follow(A, v, e - nose - 0.05, 0, 0.02);
-        // (Stood just past where to wait as the run's room grew — one more parked in it, a bus to get by: stood there still, not on into those getting by.)
-        else if (nose >= e + 0.02 && nose < e + HOLD_PAST && v < 0.1) follow(A, v, 0, 0, 0);
-      }
-      // HEAD ON: short of anybody out getting by, coming this way.
-      for (const o of now.on.get(other) ?? []) {
-        if (!o.m.pass || (o.m.side ?? 0) > -0.05) continue;
-        const at = d.start[j] + lenX - o.s, ho = halfLength(o.m);
-        if (at > m.s && at - ho - m.s - half < FOLLOW) follow(A, v, at - ho - m.s - half - 0.05, 0, 0.05);
-      }
-    }
-    const list = now.parked.get(X);
-    if (!list) continue;
-    for (const p of list) {
-      // (Not itself, just out of its bay.)
-      if (!p.blocks || p.m === m) continue;
-      const at = d.start[j] + p.s, ph = halfLength(p.m), gap = at - m.s;
-      // Behind it already, or beyond where it is going.
-      // (Into a bay: up to the next one's car, bumper to bumper.)
-      // (Alongside it already, its middle behind ours: stopping would not get it out of the way.
-      // Into a bay, or getting by them, not even one just behind, its nose over our tail, bumper to bumper.)
-      if (gap + ph + half < 0 || ((m.bayTo || m.pass) && gap < 0) || gap > FOLLOW + 1 || at - ph > end + (m.bayTo ? 0 : half + GAP)) continue;
-      // Parked where it is going: it stops short, there.
-      if (!m.bayTo && at - ph < end + half + GAP && at > end - 1) {
-        follow(A, v, gap - spacing(m, p.m) + GAP, 0, GAP);
-        if (gap - spacing(m, p.m) < 0.15 && v < 0.1) m.there = true;
-        continue;
-      }
-      if (m.pass && at - ph < m.pass.b + half) { if (out) continue; }
-      else if (j === d.k && gap < Math.max(1.2, v * 1.5 + 0.8)) {
-        const r = runAt(G, now, p.m);
-        const b = r && passEnd(G, m, r, d.start[j]);
-        if (r && mayPass(G, now, m, r, m.s - d.start[j], b! - d.start[j])) {
-          m.pass = { lane: L, a: d.start[j] + r.p0 - half - 0.4, b: b! };
-          continue;
-        }
-      }
-      follow(A, v, gap - spacing(m, p.m) + GAP, 0, GAP);
-    }
-  }
-  const P = m.pass;
-  if (!P) return;
-  // (One just parked further along the run, by one of those getting by ahead of it: by that one too.
-  // Only as far as there is room, short of one stood coming the other way: in a touch early rather than out for good.)
-  const opp = G.lanes[L].opposite!, len = G.lanes[opp].len, mine = m.s - d.start[d.k];
-  let room = Infinity;
-  for (const o of now.on.get(opp) ?? []) {
-    const back = len - o.s - halfLength(o.m);
-    if (o.m.speed < 0.1 && back >= P.b - d.start[d.k] + half) room = Math.min(room, d.start[d.k] + back - half - 0.12);
-  }
-  for (const r of now.runs.get(L) ?? []) if (r.z0 < P.b - d.start[d.k] && r.z1 > P.a - d.start[d.k] && m.s < P.b - 0.3) P.b = Math.max(P.b, Math.min(room, passEnd(G, m, r, d.start[d.k])));
-  if (m.s > P.a - 0.5) A.cap = Math.min(A.cap, PASS_SPEED);
-  // HEAD ON: short of one already coming the other way, into where it is getting by.
-  // (From where it goes out — not yet out, one beside it now is none of its business.)
-  const from = (m.side ?? 0) < -0.02 ? mine : Math.max(mine, P.a - d.start[d.k]);
-  for (const o of now.on.get(opp) ?? []) {
-    const sL = len - o.s, ho = halfLength(o.m);
-    if (sL + ho < from - half || sL - ho > P.b - d.start[d.k] + half + 0.1) continue;
-    follow(A, v, sL - ho - mine - half - 0.05, 0, 0.05);
-  }
-}
-
 /** How far round a roundabout's ring from a port to another, tiles: none for the same one. */
 function portTo(T: Traffic, J: { id: number; centre: { x: number; y: number } }, from: { x: number; y: number }, port: number): number {
   const d = roundTo(T, J.id, from, port);
   return d > 2 * Math.PI * Math.hypot(from.x - J.centre.x, from.y - J.centre.y) - 0.1 ? 0 : d;
 }
 
-/** The run a parked car's bay is one of, as it is now. */
-function runAt(G: Traffic["G"], now: ReturnType<typeof trafficNow>, c: Mover): Run | undefined {
-  const b = c.park && G.bays[c.park.bay];
-  if (!b || b.run === undefined) return undefined;
-  const R = G.runs[b.run];
-  return (now.runs.get(R.lane) ?? []).find((r) => r.s0 <= b.s && b.s <= r.s1);
-}
-
-/** Where along its line a vehicle getting by a run of parked cars is back in: past the last of them, or at its bay among them. */
-function passEnd(G: Traffic["G"], m: Mover, r: Run, start: number): number {
-  return Math.min(start + r.p1 + halfLength(m) + 0.1, start + G.lanes[r.lane].len - 0.05, m.bayTo ? m.at[m.at.length - 1] : Infinity);
-}
-
-/**
- * Whether a vehicle may go out to get by a run of parked cars, from `from`
- * along its lane, back in at `to`: nobody coming the other way on it, too near to stop short
- * or waiting at its end; nobody ahead of it in its own lane still to get by;
- * and room to be back in after them.
- */
-function mayPass(G: Traffic["G"], now: ReturnType<typeof trafficNow>, m: Mover, r: Run, from: number, to: number): boolean {
-  if (r.facing || r.waiting) return false;
-  const half = halfLength(m);
-  // (Nobody coming the other way, stood short of the run, within its reach back in: a bus's further than a car's.)
-  const len = G.lanes[r.opp].len;
-  for (const o of now.on.get(r.opp) ?? []) {
-    const sL = len - o.s, ho = halfLength(o.m);
-    if (sL + ho > from && sL - ho < to + half + 0.05) return false;
-  }
-  // (Room after them past those getting by ahead of it too: each back in in front of it.)
-  let room = r.p1 + 2 * half + 0.8;
-  for (const o of now.on.get(r.lane) ?? []) if (o.m !== m && o.s > from && o.m.pass && o.s < r.p1 + half) room += spacing(m, o.m) + GAP;
-  for (const o of now.on.get(r.lane) ?? []) {
-    if (o.m === m || o.s <= from || o.m.pass) continue;
-    if (o.s < r.p1 + half) return false;
-    if (o.s - halfLength(o.m) < room && o.m.speed < 0.5) return false;
-  }
-  return true;
-}
-
 /**
  * Where across its lane a vehicle would be: in at its bay's kerb at the end of
- * the way to it, out in the oncoming lane getting by a parked car, a cyclist
- * toward the kerb along a street; otherwise on the lane's line.
+ * the way to it, a cyclist toward the kerb along a street; otherwise on the
+ * lane's line.
  */
 function restSide(T: Traffic, now: ReturnType<typeof trafficNow>, m: Mover): number {
   const d = m.drive, l = d && d.graph === T.G ? T.G.lanes[d.lanes[d.k]] : undefined;
@@ -1144,7 +939,6 @@ function restSide(T: Traffic, now: ReturnType<typeof trafficNow>, m: Mover): num
     if (m.bus.from !== undefined && standing(m)) return m.bus.from;
     if (m.at[m.at.length - 1] - m.s < STOP_IN) return m.bus.to;
   }
-  if (m.pass && m.s >= m.pass.a && m.s <= m.pass.b) return -passSide(m);
   // A CYCLIST at the kerb, out in the lane to get by one pulled in there — a bus at its stop — just ahead or alongside.
   if (m.kind === "bike" && l?.kind === "street") {
     const mine = m.s - d!.start[d!.k], half = halfLength(m);
@@ -1214,13 +1008,15 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
     for (const o of now.on.get(d.lanes[r]) ?? []) if (o.m !== m && o.s - halfLength(o.m) < need && (short || o.m.speed < 0.5)) return false;
     // (Nor onto a short one while another, let in from elsewhere, is still on its way through the junction into it.)
     if (short) for (const P of T.into.get(d.lanes[r]) ?? []) for (const o of now.on.get(P) ?? []) if (o.m !== m && o.m.drive?.lanes[o.m.drive.k + 1] === d.lanes[r]) return false;
-    // (Nor ahead of one long waiting at another way into it: its turn.)
+    // (Nor ahead of one long waiting at another way into it, first at its line: its turn.)
     if (short) {
       for (const P of T.into.get(d.lanes[r]) ?? []) {
         if (P === d.lanes[q]) continue;
-        for (const F of T.into.get(P) ?? []) for (const o of now.on.get(F) ?? []) {
-          const e = o.m.drive;
-          if (o.m === m || !e || e.lanes[e.k + 1] !== P || e.let > e.k) continue;
+        for (const F of T.into.get(P) ?? []) {
+          let o: Onto | undefined;
+          for (const p of now.on.get(F) ?? []) if (!o || p.s > o.s) o = p;
+          const e = o?.m.drive;
+          if (!o || o.m === m || !e || e.lanes[e.k + 1] !== P || e.let > e.k) continue;
           if (e.waited >= PATIENT && e.waited > d.waited) return false;
         }
       }
@@ -1454,8 +1250,8 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   const busy = t.busy ?? { traffic: 1, commute: COMMUTE_SHARE };
   const culture = t.culture ?? { remote: 0, shuttle: false, vans: false };
   // Those at home are off the roads: fewer cars, the same people on foot.
-  // The cap holds at the rush too.
-  const want = { cars: Math.min(townCaps.cars, Math.round(base.cars * busy.traffic * (1 - culture.remote))), people: Math.min(townCaps.people, Math.round((base.people + (t.strollers ?? 0)) * busy.traffic)) };
+  // The cap holds at the rush too; and no more than the streets have room for. @see Traffic.room
+  const want = { cars: Math.min(townCaps.cars, trafficOf(t, g).room, Math.round(base.cars * busy.traffic * (1 - culture.remote))), people: Math.min(townCaps.people, Math.round((base.people + (t.strollers ?? 0)) * busy.traffic)) };
   // Everything that drives keeps its distance from everything else that does;
   // only the town's own trips count towards how many trips it has.
   const cars = t.movers.filter(drives);
@@ -1480,7 +1276,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
       const m = trip && setOff(t, g, kind, ...trip, colour);
       // To a door: to park near it, if there is a bay free. (Its way, and where it sets off, as it will be: then room there.)
       if (m && kind === "car" && trip![1].kind === "door") toBay(t, g, m, trip![0], trip![1]);
-      if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR) && !amongParked(t, g, m)) t.movers.push(m);
+      if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR) && !amongParked(t, m)) t.movers.push(m);
     }
   }
   t.untilPerson -= h;
@@ -1586,8 +1382,8 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     }
     // Sideways, toward where it is going, off its line to its right.
     const to = m.sideTo ?? 0, side = m.side ?? 0;
-    // (Out in the oncoming lane and done getting by: back in briskly, out of the way of what comes.)
-    const rate = m.kind === "person" ? WALK_SIDE_RATE : side < 0 && to > side && !m.pass ? BACK_IN_RATE : SIDE_RATE;
+    // (Out toward the middle and done getting by: back in briskly, out of the way of what comes.)
+    const rate = m.kind === "person" ? WALK_SIDE_RATE : side < 0 && to > side ? BACK_IN_RATE : SIDE_RATE;
     if (side !== to) m.side = side < to ? Math.min(to, side + rate * h) : Math.max(to, side - rate * h);
     const off = m.side ?? 0;
     m.x = p.x - p.dy * off;
@@ -1627,7 +1423,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     if (m.gone) { letGo(T, m, true); if (m.job) t.arrived.push(m); return false; }
     // (Into a bay: once in at the kerb.)
     const inBay = !m.bayTo || Math.abs((m.side ?? 0) - (T.G.bays[m.bayTo.bay]?.side ?? 0)) < 0.02;
-    if ((m.s >= m.at[m.at.length - 1] - 0.01 && inBay) || m.there) {
+    if ((m.s >= m.at[m.at.length - 1] - 0.01 && inBay)) {
       letGo(T, m, true);
       if (m.job) t.arrived.push(m);
       // INTO ITS BAY, and its people out and off to the door.
@@ -1650,19 +1446,9 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   t.movers = [...kept, ...all.slice(n0)];
 }
 
-/**
- * Whether a vehicle setting off would start among parked cars: near one, or,
- * on a street one cell wide, alongside where the traffic gets by them.
- */
-function amongParked(t: Town, g: Grid, m: Mover): boolean {
-  if (t.parked.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR)) return true;
-  const d = m.drive, T = trafficOf(t, g);
-  if (!d || d.graph !== T.G) return false;
-  const L = T.G.lanes[d.lanes[0]], at = -d.start[0], opp = L.opposite;
-  if (opp === undefined) return false;
-  const len = T.G.lanes[opp].len;
-  // (Not on, or across from, a run of bays: where cars get by them.)
-  return T.G.runs.some((R) => (R.lane === L.id && at > R.s0 - RUN_IN - 1 && at < R.s1 + 1) || (R.lane === opp && len - at > R.s0 - RUN_IN - 0.5 && len - at < R.s1 + RUN_OUT + 1.5));
+/** Whether a vehicle setting off would start among parked cars: near one. */
+function amongParked(t: Town, m: Mover): boolean {
+  return t.parked.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR);
 }
 
 /** A walker reached their car, or will not: one fewer to wait for. */
@@ -1718,7 +1504,7 @@ function parkIn(t: Town, g: Grid, T: Traffic, m: Mover) {
   m.bayTo = undefined;
   if (!b || m.drive?.graph !== T.G) return;
   m.park = { bay: b.id, graph: T.G, stay: STAY[0] + rand(t) * (STAY[1] - STAY[0]), door, boarding: 0 };
-  m.x = b.x; m.y = b.y; m.heading = b.heading; m.speed = 0; m.side = m.sideTo = b.side; m.pass = undefined;
+  m.x = b.x; m.y = b.y; m.heading = b.heading; m.speed = 0; m.side = m.sideTo = b.side;
   t.parked.push(m);
   walkers(t, g, T, m, door, false);
 }
@@ -1769,36 +1555,21 @@ function stepParked(t: Town, g: Grid, T: Traffic, now: ReturnType<typeof traffic
     if (!clearBehind(T, now, c, b)) continue;
     const way = driveWay(t, g, P.trip, P.trip, undefined, undefined, { start: { lane: b.lane, s: b.s } });
     if (!way) { t.parked.splice(t.parked.indexOf(c), 1); continue; }
-    // One of a run of them: out only when it can get by the rest of them straight away.
-    const r = runAt(T.G, now, c);
-    const ahead = r && (now.parked.get(b.lane) ?? []).some((p) => p.m !== c && p.s > b.s && p.s < r.s1);
-    let pass: Mover["pass"];
-    if (r && ahead) {
-      // (Already among them, out from the first.)
-      const d0 = way.drive.start[0], end = passEnd(T.G, c, r, d0);
-      if (!mayPass(T.G, now, c, r, b.s, end - d0)) continue;
-      pass = { lane: b.lane, a: d0 + b.s - 1, b: end };
-    }
     t.parked.splice(t.parked.indexOf(c), 1);
     // Off: on its way, out from the kerb.
     c.path = way.path; c.line = way.line; c.drive = way.drive; c.bends = undefined;
     c.at = new Float32Array(c.line.length);
     for (let k = 1; k < c.line.length; k++) c.at[k] = c.at[k - 1] + Math.hypot(c.line[k].x - c.line[k - 1].x, c.line[k].y - c.line[k - 1].y);
-    c.s = 0; c.speed = 0; c.stuck = 0; c.park = undefined; c.pass = pass; c.leaving = true;
+    c.s = 0; c.speed = 0; c.stuck = 0; c.park = undefined; c.leaving = true;
     t.movers.push(c);
   }
 }
 
-/** Whether a car in a bay may pull out: nothing on its lane, or coming onto it, near behind it or beside it, nor getting by it. */
+/** Whether a car in a bay may pull out: nothing on its lane, or coming onto it, near behind it or beside it. */
 function clearBehind(T: Traffic, now: ReturnType<typeof trafficNow>, c: Mover, b: { lane: number; s: number }): boolean {
   const half = halfLength(c);
   const ok = (o: Mover, back: number) => back < -2 * half - 0.1 || back > Math.max(0.9, o.speed * 1.8) + 2 * half;
-  for (const o of now.on.get(b.lane) ?? []) {
-    if (!ok(o.m, b.s - o.s)) return false;
-    // (Nor into the way of one getting by the parked cars it is one of.)
-    const P = o.m.pass, d = o.m.drive;
-    if (P && d && P.lane === b.lane && o.s < b.s && P.b - d.start[d.k] > b.s - 2 * half) return false;
-  }
+  for (const o of now.on.get(b.lane) ?? []) if (!ok(o.m, b.s - o.s)) return false;
   for (const P of T.into.get(b.lane) ?? []) for (const o of now.on.get(P) ?? []) if (!ok(o.m, b.s + T.G.lanes[P].len - o.s)) return false;
   return true;
 }

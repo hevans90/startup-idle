@@ -43,6 +43,10 @@ export const CROSS_HOLD = 0.3;
 export const WALK = 0.26;
 /** How far from a cell's middle a walker on its pavement is. */
 export const PAVE_AT = 0.5 - WALK / 2;
+/** How far a lay-by sets the kerb back into the pavement, tiles: a parked car out of the lane. */
+export const LAYBY = 0.175;
+/** How far from a cell's middle a walker on the pavement beside a lay-by is. */
+export const LAYBY_AT = 0.5 - (WALK - LAYBY) / 2;
 /**
  * Two curves nearer than this, tiles, are in each other's way; or nearer
  * than {@link LANE_SWEEP} where they cross at an angle, since a car's body
@@ -75,7 +79,7 @@ export type Lane = {
   lanes?: number;
   /** A street lane's neighbours going the same way, a slot either side: where a car may change lane to. */
   beside?: number[];
-  /** On a street one cell wide, the lane the other way: where a car swings out to get by a parked one. */
+  /** On a street one cell wide, the lane the other way: what a long vehicle turning in swings over. */
   opposite?: number;
   /** A curve's junction, the arm it comes in from (an index into the junction's arms), the way it turns, and its tightest radius. */
   junction?: number;
@@ -137,19 +141,13 @@ export type Street = {
 export type StreetEnd = { kind: "junction"; junction: number } | { kind: "rim" } | { kind: "dead" };
 
 /**
- * A PARKING BAY at the kerb: the lane it is beside and where along it, how far
- * to the lane's right a car in it stands, where that is and which way it
- * faces, its cell and the kerb's side of it. One `blocks` its lane — on a
- * street one cell wide, a parked car is in the way, and is got by on the
- * other side of the road. @see agents/parking
+ * A PARKING BAY at the kerb, out of the lanes: the lane it is beside and where
+ * along it, how far to the lane's right a car in it stands, where that is and
+ * which way it faces, its cell and the kerb's side of it. On a street one cell
+ * wide it is in a `layby`, the kerb set back into the pavement; on a wider
+ * one, in the parking strip. Painted as bays. @see agents/parking, render/road-paint
  */
-export type Bay = { id: number; lane: number; s: number; side: number; x: number; y: number; heading: number; cell: number; kerb: Dir; blocks: boolean; run?: number };
-/**
- * A RUN of bays in the lane of a street one cell wide, from the first's
- * middle to the last's: the stretch a car gets by them along out in the
- * oncoming lane, one way at a time. @see town passParked
- */
-export type BayRun = { id: number; lane: number; s0: number; s1: number };
+export type Bay = { id: number; lane: number; s: number; side: number; x: number; y: number; heading: number; cell: number; kerb: Dir; layby: boolean };
 /**
  * A BUS STOP's site, at the kerb: the lane a bus stops in and where along it,
  * how far to the lane's right it stands, in at the kerb, where that is and
@@ -181,7 +179,6 @@ export type LaneGraph = {
   walk: { nodes: Pt[]; edges: WalkEdge[]; adj: number[][]; at: Map<string, number> };
   crossings: Crossing[];
   bays: Bay[];
-  runs: BayRun[];
   /** Where a bus may stop: a site every few cells along each kerb of a long enough street. @see agents/bus-routes */
   stops: Stop[];
   /** Road cells left out of any street or junction: joined to nothing. */
@@ -306,7 +303,7 @@ export function buildLaneGraph(g: Grid): LaneGraph {
         (way[s].beside ??= []).push(way[s - 1].id);
       }
     }
-    // One cell wide: each way the other's opposite, to get by a parked car on.
+    // One cell wide: each way the other's opposite, swung over by a long vehicle turning in.
     if (k === 1 && st.lanes.length === 2) {
       lanes[st.lanes[0]].opposite = st.lanes[1];
       lanes[st.lanes[1]].opposite = st.lanes[0];
@@ -379,23 +376,19 @@ export function buildLaneGraph(g: Grid): LaneGraph {
   let loose = 0;
   for (let i = 0; i < n; i++) if (isPaved(g, i % g.w, (i / g.w) | 0) && streetOf[i] < 0 && region[i] < 0) loose++;
   const { stops, kept } = stopsOf(g, streets, lanes, crossings);
-  const { bays, runs } = baysOf(g, streets, lanes, crossings, kept);
-  return { lanes, zones, junctions, streets, walk, crossings, bays, runs, stops, loose };
+  const bays = baysOf(g, streets, lanes, crossings, kept);
+  layBack(g, walk, bays);
+  return { lanes, zones, junctions, streets, walk, crossings, bays, stops, loose };
 }
 
 /** A parked car's half width and the gap it keeps from the kerb, tiles. */
-const BAY_HALF = 0.085, BAY_KERB = 0.015;
+const BAY_HALF = 0.085, BAY_KERB = 0.005;
 /** Bays a cell, along the kerb; and slices clear of a street's end, or of a crossing, before the first. */
-const BAYS_A_CELL = 2, BAY_CLEAR = 2;
-/** On a street one cell wide, at most this many cells of bays together, and this many clear between: room to wait in. */
+export const BAYS_A_CELL = 2;
+const BAY_CLEAR = 2;
+/** On a street one cell wide, at most this many cells of lay-by together, and this many clear between. */
 const RUN_CELLS = 3, RUN_GAP = 2;
 
-/**
- * THE PARKING BAYS. Along the kerbs of a street where buildings front it, two
- * a cell, clear of its ends and its crossings: on a street one cell wide on
- * one side only, the side more of them front; on a wider one, both, beside
- * its outer lanes.
- */
 /**
  * BUS STOP SITES: on each kerb of a street at
  * least `STOP_STREET` long, one every `STOP_EVERY` cells, the two kerbs
@@ -449,8 +442,15 @@ function stopsOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], cr
   return { stops, kept };
 }
 
-function baysOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], crossings: readonly Crossing[], kept: ReadonlySet<string> = new Set()): { bays: Bay[]; runs: BayRun[] } {
-  const bays: Bay[] = [], runs: BayRun[] = [];
+/**
+ * THE PARKING BAYS. Along the kerbs of a street where buildings front it, two
+ * a cell, clear of its ends and its crossings: on a street one cell wide in
+ * lay-bys on one side only, the side more of them front, each run of them
+ * with a plain kerb either end for the lay-by to taper in along; on a wider
+ * one, both, in the parking strip beside its outer lanes.
+ */
+function baysOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], crossings: readonly Crossing[], kept: ReadonlySet<string> = new Set()): Bay[] {
+  const bays: Bay[] = [];
   const crossed = new Set<string>();
   for (const c of crossings) {
     const st = streets[c.street], cell = { x: c.cells[0] % g.w, y: (c.cells[0] / g.w) | 0 };
@@ -459,48 +459,63 @@ function baysOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], cro
   }
   for (const st of streets) {
     const outer = st.lanes.map((id) => lanes[id]).filter((l) => l.slot === (l.lanes ?? 1) - 1);
+    const narrow = st.width === 1;
     // Each outer lane: its kerb's side across, and its cells along that kerb fronted by a building.
     const sides = outer.map((l) => {
       const r = right(pointAt(l.pts, l.at, l.len / 2).h);
       const sign = st.axis === "x" ? Math.sign(r.y) : Math.sign(r.x);
       const kerb = dirOf(st.axis === "x" ? { x: 0, y: sign } : { x: sign, y: 0 });
-      const cells: { a: number; x: number; y: number }[] = [];
-      // (Further on a street one cell wide, for the queue at the junction to wait short of them.)
-      const clear = BAY_CLEAR + (st.width === 1 ? 1 : 0);
-      for (let a = st.a0 + clear; a <= st.a1 - clear; a++) {
-        if (crossed.has(`${st.id},${a}`) || kept.has(`${st.id},${a},${sign}`)) continue;
+      const v = V(kerb);
+      const cellAt = (a: number) => {
         const [b0, b1] = st.span[a - st.a0];
         const b = sign > 0 ? b1 : b0;
-        const x = st.axis === "x" ? a : b, y = st.axis === "x" ? b : a;
-        const v = V(kerb);
+        return st.axis === "x" ? { a, x: a, y: b } : { a, x: b, y: a };
+      };
+      // A plain kerb there: for a lay-by beside it to taper in along.
+      const plain = (a: number) => {
+        if (a < st.a0 || a > st.a1 || crossed.has(`${st.id},${a}`)) return false;
+        const { x, y } = cellAt(a);
+        return !connects(g, x, y, kerb) && inBounds(g, x + v.x, y + v.y);
+      };
+      let cells: { a: number; x: number; y: number }[] = [];
+      for (let a = st.a0 + BAY_CLEAR; a <= st.a1 - BAY_CLEAR; a++) {
+        if (crossed.has(`${st.id},${a}`) || kept.has(`${st.id},${a},${sign}`)) continue;
+        const c = cellAt(a), { x, y } = c;
         if (g.ramp[idx(g, x, y)] || connects(g, x, y, kerb) || !inBounds(g, x + v.x, y + v.y)) continue;
         if (structureAt(g, x + v.x, y + v.y) < 0) continue;
-        cells.push({ a, x, y });
+        cells.push(c);
+      }
+      // A lay-by's runs, a few cells at most, each with a plain kerb beyond either end.
+      if (narrow) {
+        const runs: typeof cells = [];
+        let n = 0, last = -Infinity;
+        for (const c of cells) {
+          if (n > 0 && n < RUN_CELLS && c.a === last + 1) n++;
+          else if (c.a - last - 1 >= RUN_GAP) n = 1;
+          else continue;
+          runs.push(c);
+          last = c.a;
+        }
+        cells = runs;
+        const set = new Set(cells.map((c) => c.a));
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const a of [...set]) {
+            const end0 = !set.has(a - 1) && !plain(a - 1), end1 = !set.has(a + 1) && !plain(a + 1);
+            if (end0 || end1) { set.delete(a); changed = true; }
+          }
+        }
+        cells = cells.filter((c) => set.has(c.a));
       }
       return { l, sign, kerb, cells };
     });
     // One cell wide: the side more buildings front.
-    const use = st.width === 1 ? sides.sort((p, q) => q.cells.length - p.cells.length || p.l.id - q.l.id).slice(0, 1) : sides;
-    for (const { l, sign, kerb, cells: all } of use) {
-      // In the lane: in runs of a few cells, a cell clear between.
-      let cells = all, run: BayRun | undefined;
-      if (st.width === 1) {
-        cells = [];
-        let n = 0, last = -Infinity;
-        for (const c of all) {
-          if (n > 0 && n < RUN_CELLS && c.a === last + 1) n++;
-          else if (c.a - last - 1 >= RUN_GAP) n = 1;
-          else continue;
-          cells.push(c);
-          last = c.a;
-        }
-      }
-      let prev = -Infinity;
+    const use = narrow ? sides.sort((p, q) => q.cells.length - p.cells.length || p.l.id - q.l.id).slice(0, 1) : sides;
+    for (const { l, sign, kerb, cells } of use) {
       for (const c of cells) {
-        if (st.width === 1 && c.a !== prev + 1) run = undefined;
-        prev = c.a;
-        // The carriageway's edge across, and the bay just in from it.
-        const edge = (st.axis === "x" ? c.y : c.x) + sign * (0.5 - WALK);
+        // The kerb's line across — set back, by a lay-by — and the bay just in from it.
+        const edge = (st.axis === "x" ? c.y : c.x) + sign * (0.5 - WALK + (narrow ? LAYBY : 0));
         for (let k = 0; k < BAYS_A_CELL; k++) {
           const along = c.a - 0.5 + (k + 0.5) / BAYS_A_CELL;
           const p = st.axis === "x" ? { x: along, y: edge } : { x: edge, y: along };
@@ -508,20 +523,45 @@ function baysOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], cro
           const on = pointAt(l.pts, l.at, s).p;
           const r = right(h);
           const side = dot({ x: p.x - on.x, y: p.y - on.y }, r) - BAY_HALF - BAY_KERB;
-          const at = { x: on.x + r.x * side, y: on.y + r.y * side };
-          if (st.width === 1) {
-            if (!run) { run = { id: runs.length, lane: l.id, s0: s, s1: s }; runs.push(run); }
-            run.s0 = Math.min(run.s0, s); run.s1 = Math.max(run.s1, s);
-          }
           bays.push({
-            id: bays.length, lane: l.id, s, side, x: at.x, y: at.y, heading: Math.atan2(h.y, h.x),
-            cell: idx(g, c.x, c.y), kerb, blocks: st.width === 1, run: run?.id,
+            id: bays.length, lane: l.id, s, side, x: on.x + r.x * side, y: on.y + r.y * side, heading: Math.atan2(h.y, h.x),
+            cell: idx(g, c.x, c.y), kerb, layby: narrow,
           });
         }
       }
     }
   }
-  return { bays, runs };
+  return bays;
+}
+
+/**
+ * THE BAYS AS THE PAINT HAS THEM: per cell, its kerbs with bays — a lay-by's
+ * a bit a side, a wide road's marked bays a bit a side shifted up four — the
+ * sides as roads/looks numbers them. @see roads/looks Look.bay
+ */
+export function bayMarksOf(G: LaneGraph, g: Grid): Uint8Array {
+  const out = new Uint8Array(g.w * g.h);
+  for (const b of G.bays) {
+    const [dx, dy] = NEIGHBOUR[b.kerb], side = dx < 0 ? 0 : dx > 0 ? 1 : dy < 0 ? 2 : 3;
+    out[b.cell] |= (1 << side) << (b.layby ? 0 : 4);
+  }
+  return out;
+}
+
+/** The pavement beside a lay-by: its points set back with the kerb, the stretches to them measured again. */
+function layBack(g: Grid, walk: LaneGraph["walk"], bays: readonly Bay[]) {
+  const done = new Set<string>();
+  for (const b of bays) {
+    if (!b.layby || done.has(`${b.cell},${b.kerb}`)) continue;
+    done.add(`${b.cell},${b.kerb}`);
+    const x = b.cell % g.w, y = (b.cell / g.w) | 0, v = V(b.kerb);
+    for (const e of [-1, 1]) {
+      const n = walk.at.get(`${x},${y},${v.x || e},${v.y || e}`);
+      if (n === undefined) continue;
+      if (v.x) walk.nodes[n].x = x + v.x * LAYBY_AT; else walk.nodes[n].y = y + v.y * LAYBY_AT;
+    }
+  }
+  for (const E of walk.edges) E.len = Math.hypot(walk.nodes[E.a].x - walk.nodes[E.b].x, walk.nodes[E.a].y - walk.nodes[E.b].y);
 }
 
 /** Cells between crossings along a street, about. */

@@ -70,7 +70,18 @@ export type Traffic = {
   /** Each lane's crossings, where along it, in order; and each crossing's lanes. */
   over: Map<number, { c: number; s: number }[]>;
   lanesOver: Map<number, number[]>;
+  /** How many cars the streets hold on the move: their lanes clear of the junctions' mouths, {@link CAR_ROOM} a car. */
+  room: number;
 };
+
+/**
+ * ROOM ON THE ROADS. A street lane holds a car a {@link CAR_ROOM} of it, but
+ * only clear of its ends, `MOUTH` back from each: what is left of a block
+ * between junctions close together is queue, not road. So a grid of short
+ * blocks holds fewer than a few long streets the same length, and the town
+ * sets off no more than that. @see town stepTown
+ */
+const CAR_ROOM = 6, MOUTH = 1.5;
 
 /** Curves this far apart, middle to middle, keep their cars clear of each other, tiles. */
 const APART = 0.34;
@@ -140,7 +151,9 @@ export function buildTraffic(g: Grid, key = roadKey(g)): Traffic {
       }
     }
   }
-  return { G, key, byCell, claims: new Map(), signals, into, split, hungry: new Map(), over, lanesOver };
+  let clear = 0;
+  for (const l of G.lanes) if (l.kind === "street") clear += Math.max(0, l.len - 2 * MOUTH);
+  return { G, key, byCell, claims: new Map(), signals, into, split, hungry: new Map(), over, lanesOver, room: Math.round(clear / CAR_ROOM) };
 }
 
 /** Where along p0→p1 it crosses q0→q1, 0–1, or null. */
