@@ -98,7 +98,9 @@ describe("the town", () => {
       for (const a of cars) {
         for (const b of cars) {
           if (a === b) continue;
-          const same = Math.cos(a.heading - b.heading) > 0.9;
+          // (In one lane: not two side by side in a wide road's lanes going the same way.)
+          const across = Math.abs(-Math.sin(a.heading) * (b.x - a.x) + Math.cos(a.heading) * (b.y - a.y));
+          const same = Math.cos(a.heading - b.heading) > 0.9 && across < 0.1;
           if (same) closest = Math.min(closest, Math.hypot(a.x - b.x, a.y - b.y));
         }
       }

@@ -377,6 +377,8 @@ const PULL_AHEAD = 4;
 const PULL_IN = 0.26;
 const PASS_OUT = -0.2;
 const SIDE_RATE = 0.5;
+/** How fast a vehicle moves back in from the oncoming lane once done getting by, tiles a second. */
+const BACK_IN_RATE = 1.2;
 /** Pulled in this far, a car is out of an emergency vehicle's way. */
 const PULLED = 0.12;
 const pulled = (m: Mover) => (m.side ?? 0) > PULLED;
@@ -1116,7 +1118,17 @@ function restSide(T: Traffic, now: ReturnType<typeof trafficNow>, m: Mover): num
     if (m.at[m.at.length - 1] - m.s < STOP_IN) return m.bus.to;
   }
   if (m.pass && m.s >= m.pass.a && m.s <= m.pass.b) return -passSide(m);
-  return m.kind === "bike" && l?.kind === "street" ? BIKE_SIDE : 0;
+  // A CYCLIST at the kerb, out in the lane to get by one pulled in there — a bus at its stop — just ahead or alongside.
+  if (m.kind === "bike" && l?.kind === "street") {
+    const mine = m.s - d!.start[d!.k], half = halfLength(m);
+    for (const o of now.on.get(d!.lanes[d!.k]) ?? []) {
+      if (o.m === m || (o.m.side ?? 0) < BIKE_SIDE + 0.05) continue;
+      const gap = o.s - mine, ho = halfLength(o.m);
+      if (gap > -(ho + half + 0.1) && gap < ho + half + BIKE_OUT_LOOK) return 0;
+    }
+    return BIKE_SIDE;
+  }
+  return 0;
 }
 
 /** Whether there is a gap for a vehicle to change onto lane `c` of its way: room ahead, and behind for whoever is coming. */
@@ -1212,6 +1224,12 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
   }
   return true;
 }
+
+/** How far in toward the middle of a curve a long vehicle's body sits, as a share of the way from its way to the line from its tail to its nose. */
+const CHORD_IN = 0.5;
+
+/** How far ahead of one pulled in at the kerb a cyclist moves out to get by it, tiles. */
+const BIKE_OUT_LOOK = 0.8;
 
 /** About as long as a car, tiles: longer, a vehicle wants more room to get onto a roundabout. */
 const CAR_LONG = 0.6;
@@ -1418,11 +1436,9 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     else if (trip && kind === "car" && trip[0].kind === "door" && fromBay(t, g, trip[0], trip[1])) { /* on its way */ }
     else {
       const m = trip && setOff(t, g, kind, ...trip, colour);
-      if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR) && !amongParked(t, g, m)) {
-        // To a door: to park near it, if there is a bay free.
-        if (kind === "car" && trip![1].kind === "door") toBay(t, g, m, trip![0], trip![1]);
-        t.movers.push(m);
-      }
+      // To a door: to park near it, if there is a bay free. (Its way, and where it sets off, as it will be: then room there.)
+      if (m && kind === "car" && trip![1].kind === "door") toBay(t, g, m, trip![0], trip![1]);
+      if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR) && !amongParked(t, g, m)) t.movers.push(m);
     }
   }
   t.untilPerson -= h;
@@ -1499,7 +1515,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
         while (w.k < w.crossings.length && m.s > w.crossings[w.k].s1) { w.k++; w.on = false; w.waited = 0; }
         const x = w.crossings[w.k];
         // (Made up their mind to go, but held at the kerb all the same — behind somebody: not out on it after all.)
-        if (x && w.on && m.s < x.s0 - 0.02 && m.cap === 0) w.on = false;
+        if (x && w.on && m.s < x.s0 - 0.02 && (m.cap ?? 1) < 1e-6) w.on = false;
         if (x && !w.on) {
           const to = x.s0 - m.s;
           if (to <= 0 || (to < KERB_LOOK && mayCross(t, T, now, m, x))) w.on = true;
@@ -1518,10 +1534,18 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
       if (m.stuck > STALLED) m.gone = true;
     }
     m.s += m.speed * h;
-    const p = along(m, m.s);
+    let p = along(m, m.s);
+    // A LONG VEHICLE ON A CURVE — a bus — faces from its tail to its nose, both on its way, and sits a little in toward the line between
+    // them: its nose not swung out along the curve's tangent at its middle, over the oncoming lane.
+    if (drives(m) && !m.pause && 2 * halfLength(m) > CAR_LONG && m.s - halfLength(m) > 0 && m.s + halfLength(m) < m.at[m.at.length - 1]) {
+      const half = halfLength(m), f = along(m, m.s + half), b = along(m, m.s - half);
+      const cx = f.x - b.x, cy = f.y - b.y, c = Math.hypot(cx, cy);
+      if (c > half) p = { x: p.x + ((f.x + b.x) / 2 - p.x) * CHORD_IN, y: p.y + ((f.y + b.y) / 2 - p.y) * CHORD_IN, dx: cx / c, dy: cy / c };
+    }
     // Sideways, toward where it is going, off its line to its right.
     const to = m.sideTo ?? 0, side = m.side ?? 0;
-    const rate = m.kind === "person" ? WALK_SIDE_RATE : SIDE_RATE;
+    // (Out in the oncoming lane and done getting by: back in briskly, out of the way of what comes.)
+    const rate = m.kind === "person" ? WALK_SIDE_RATE : side < 0 && to > side && !m.pass ? BACK_IN_RATE : SIDE_RATE;
     if (side !== to) m.side = side < to ? Math.min(to, side + rate * h) : Math.max(to, side - rate * h);
     const off = m.side ?? 0;
     m.x = p.x - p.dy * off;
@@ -1632,6 +1656,7 @@ function toBay(t: Town, g: Grid, m: Mover, from: Place, door: Place) {
   m.path = way.path; m.line = way.line; m.drive = way.drive; m.bends = undefined;
   m.at = new Float32Array(m.line.length);
   for (let k = 1; k < m.line.length; k++) m.at[k] = m.at[k - 1] + Math.hypot(m.line[k].x - m.line[k - 1].x, m.line[k].y - m.line[k - 1].y);
+  m.x = m.line[0].x; m.y = m.line[0].y;
   m.bayTo = { bay: b.id, door };
 }
 

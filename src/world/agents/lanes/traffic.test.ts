@@ -216,12 +216,15 @@ describe("traffic on the lanes", () => {
   // junctions a block apart, each with one stood in it for the street between;
   // a car into its bay held by the car parked behind it; walkers held at the
   // kerb still counted out on the crossing, the cars stood for them for good.
+  // Nor anybody through another: cyclists by a bus at its stop, a bus's nose
+  // round a tight corner, a car set off from on top of one stood there.
   test.each([["bigtown", 55], ["bigtown", 88], ["traffic", 22], ["streets", 11]] as [FixtureId, number][])("%s, run %i, people on foot and buses: no knots", (id, seed) => {
     setTownCaps({ ...caps });
     const g = createGrid(48, 48, 1);
     applyFixture(g, id, 1);
     const r = soak(g, 400, seed);
     done();
+    expect(r.overlaps).toBe(0);
     expect(r.gone).toBe(0);
     expect(r.longest).toBeLessThan(35);
   });
