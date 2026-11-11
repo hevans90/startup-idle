@@ -71,6 +71,11 @@ export type Structure = {
    * faced the water: given on load. @see world/boats/quay
    */
   facing?: "N" | "E" | "S" | "W";
+  /**
+   * A SEAPORT: what each of its berths is fitted with, in order along its
+   * quay, by fitting id. Absent, or short: trading quays. @see world/boats/fittings
+   */
+  fit?: string[];
 };
 
 /** A building going up. @see stepWorks */

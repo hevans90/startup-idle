@@ -1,3 +1,4 @@
+import { yachtValuation } from "../world/boats/trade";
 import { create } from "zustand";
 import { questIncomeMult } from "../game/quests/effects";
 import { agentBonus } from "../game/agents";
@@ -954,6 +955,8 @@ export const useGeneratorStore = create<GeneratorState>()(
             { label: "Wonders", mult: wonderBonus("valuation") },
             // The content farms, by how busy they are. @see game/processors
             { label: "Content farms", mult: contentFarmBonus() },
+            // Yachts at a port's pontoon. @see world/boats/trade
+            { label: "Yachts in port", mult: yachtValuation() },
           ];
           const total = factors.reduce((acc, f) => acc * f.mult, base);
           return { total, base, mps, factors };

@@ -84,7 +84,9 @@ import { AI_BUILDINGS, structureDef } from "./structures/def";
 import { planUpgrade, quayBanks, strokeFootprint as structureFootprint, validatePlacement } from "./structures/place";
 import { createPortGuide, type PortGuide } from "./render/port-guide";
 import { dredgeCells, type Facing, type Rect as PortRect } from "./boats/quay";
-import { SHIP_CLASSES } from "./boats/classes";
+import { SHIP_CLASSES, classOf } from "./boats/classes";
+import { fitting } from "./boats/fittings";
+import { creditTrade, stepTrade } from "./boats/trade";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
 import { setCollapsed } from "./structures/tiles-renderer";
@@ -3090,6 +3092,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // off at its exit. Then every boat, the ones under way steered for it.
       const traffic = getTraffic();
       stepTraffic(traffic, fleet, useWorldStore.getState().grid, field.columns, dt);
+      stepTrade(dt);
       // THE PORTS PAID for the calls they finished — in the game, into the
       // company's money; in the editor, shown and never paid. @see portCallFee
       if (traffic.calls.length) {
@@ -3098,7 +3101,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const id = call.port;
           const s = st.grid.structures.get(id);
           // By the size of ship that called. @see SHIP_CLASSES
+          // And by what its berth is fitted for: less of the fee, and something for the town. @see FITTINGS
+          const fit = fitting(call.fit);
           let fee = s ? portCallFee(s.def, undefined, call.cls) : null;
+          if (fee !== null) fee *= fit.pay;
+          if (fit.keeps && s && !portShut(id)) creditTrade(fit.keeps, classOf(call.cls).dock * classOf(call.cls).span);
           // A PORT UNDER WATER takes no trade. @see portShut
           if (fee === null || portShut(id)) continue;
           // REGULAR ROUTES, won by serving convoys, add to every call. @see ROUTE_BONUS

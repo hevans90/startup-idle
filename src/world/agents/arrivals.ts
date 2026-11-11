@@ -32,6 +32,7 @@ import type { Grid, Structure } from "../grid";
 import type { Network } from "../roads/network";
 import type { Place } from "./roads";
 import { MOVE_IN_AT } from "./mood-rules";
+import { ferrySpeed } from "../boats/trade";
 import { liveMoods, tooUnhappy } from "./mood";
 import { sendOnJob, walkInto, type Mover, type Town } from "./town";
 
@@ -265,10 +266,11 @@ export function stepArrivals(
     // WHEN: a bus once it is full or has waited long enough; a car or a
     // limousine as soon as the last has had a moment's start.
     if (vehicle === "bus") {
-      a.waited += dt;
+      // FERRIES RUNNING bring them sooner. @see ferrySpeed
+      a.waited += dt * ferrySpeed();
       if (waiting < BUS_SEATS && a.waited < BUS_WAIT) continue;
     } else {
-      a.until[who] = (a.until[who] ?? 0) - dt;
+      a.until[who] = (a.until[who] ?? 0) - dt * ferrySpeed();
       if ((a.until[who] ?? 0) > 0) continue;
     }
     const first = plan[0];

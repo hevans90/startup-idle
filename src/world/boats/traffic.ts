@@ -32,6 +32,7 @@ import {
 } from "./river";
 import { berthsAlong, channelTo } from "./quay";
 import { SHIP_CLASSES, classOf } from "./classes";
+import { fitOf, type Fitting } from "./fittings";
 
 /** Seconds between looks at the rivers. */
 const REMAP_EVERY = 1;
@@ -70,7 +71,7 @@ const ANCHORAGE = 6;
  * water to it and room to turn — and how far every tile of a class's channel
  * is from it, worked out when first asked. @see SHIP_CLASSES
  */
-type Berth = BerthSpot & { reach: number; stepsOf: (cls: number) => Float32Array };
+type Berth = BerthSpot & { reach: number; fit: Fitting; stepsOf: (cls: number) => Float32Array };
 
 /** A seaport as the traffic sees it. */
 export type Port = {
@@ -81,24 +82,41 @@ export type Port = {
   berths: Berth[];
   /** The biggest class it takes, by number: its size allows it and a berth of its can be reached. */
   takes: number;
+  /** Whether it takes each class, by number: a berth fitted for it, that it can reach. */
+  accepts: boolean[];
   /** Steps to the nearest of its berths a class can lie at, for a boat that has not been given one. */
   stepsOf: (cls: number) => Float32Array;
   /** Where ships wait for a berth, the first nearest: a line up the way in. */
   anchorage: { x: number; y: number }[];
 };
 
-/** A call completed: at which port and berth, by what size of ship. */
-export type Call = { port: number; berth: number; cls: number };
+/** A call completed: at which port and berth, by what size of ship, come for what fitting. */
+export type Call = { port: number; berth: number; cls: number; fit: string };
 
-/** The berths a class may be given at a port: the first of each run it would lie across. */
-export function berthsFor(p: Port, cls: number): number[] {
+/**
+ * The berths a class may be given at a port: the first of each run it would
+ * lie across — water for it at every one, and one of them fitted for it;
+ * come for a fitting, one of them fitted with that.
+ */
+export function berthsFor(p: Port, cls: number, fit?: string): number[] {
   const span = classOf(cls).span;
   const out: number[] = [];
   for (let k = 0; k + span <= p.berths.length; k++) {
-    let ok = true;
-    for (let j = 0; j < span; j++) if (p.berths[k + j].reach <= cls) ok = false;
-    if (ok) out.push(k);
+    let ok = true, fitted = false;
+    for (let j = 0; j < span; j++) {
+      const b = p.berths[k + j];
+      if (b.reach <= cls) ok = false;
+      if (b.fit.classes.includes(cls) && (fit === undefined || b.fit.id === fit)) fitted = true;
+    }
+    if (ok && fitted) out.push(k);
   }
+  return out;
+}
+
+/** The fittings a class could come to a port for, in berth order, each once. */
+export function fitsFor(p: Port, cls: number): string[] {
+  const out: string[] = [];
+  for (const b of p.berths) if (!out.includes(b.fit.id) && berthsFor(p, cls, b.fit.id).length) out.push(b.fit.id);
   return out;
 }
 
@@ -146,13 +164,13 @@ export function portsOf(g: Grid, r: RiverMap): Map<number, Port> {
     const spots = s.facing ? berthsAlong(r, s, s.facing, port.berths) : berthsBeside(r, s.x, s.y, s.w, s.h, port.berths);
     if (!spots.length) continue;
     const memo = <K, V>(make: (k: K) => V) => { const m = new Map<K, V>(); return (k: K) => { let v = m.get(k); if (v === undefined) { v = make(k); m.set(k, v); } return v; }; };
-    const berths: Berth[] = spots.map((b) => {
+    const berths: Berth[] = spots.map((b, at) => {
       // What can lie here: the classes whose channel reaches it, with room to turn.
       let reach = 0;
       for (let k = 0; k < SHIP_CLASSES.length; k++) {
         if (r.reach[b.ty * r.w + b.tx] > k && basinAt(r, b.tx, b.ty, k) >= SHIP_CLASSES[k].basin) reach = k + 1; else break;
       }
-      return { ...b, reach, stepsOf: memo((cls: number) => stepsFrom(r, [{ x: b.tx, y: b.ty }], cls)) };
+      return { ...b, reach, fit: fitOf(s, at), stepsOf: memo((cls: number) => stepsFrom(r, [{ x: b.tx, y: b.ty }], cls)) };
     });
     const self: Port = {
       id: s.id,
@@ -161,11 +179,15 @@ export function portsOf(g: Grid, r: RiverMap): Map<number, Port> {
       dock: port.dockSeconds / (notable("market") && inAiDistrictNow(g, s.x, s.y) ? MARKET_TURNROUND : 1),
       berths,
       takes: 0,
+      accepts: [],
       stepsOf: memo((cls: number) => stepsFrom(r, berthsFor(self, cls).flatMap((k) => berths.slice(k, k + classOf(cls).span)).map((b) => ({ x: b.tx, y: b.ty })), cls)),
       anchorage: [],
     };
     // THE BIGGEST IT TAKES: no bigger than its size, and a berth for it.
-    for (let k = 0; k < SHIP_CLASSES.length; k++) if (SHIP_CLASSES[k].tier <= port.berths && berthsFor(self, k).length) self.takes = k;
+    for (let k = 0; k < SHIP_CLASSES.length; k++) {
+      self.accepts[k] = SHIP_CLASSES[k].tier <= port.berths && berthsFor(self, k).length > 0;
+      if (self.accepts[k]) self.takes = k;
+    }
     // WHERE SHIPS WAIT: back up the way in from the middle of the quay.
     const mid = spots[(spots.length - 1) >> 1];
     const way = channelTo(r, { x: mid.tx, y: mid.ty }).reverse();
@@ -275,7 +297,7 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
     const cls = b.cls ?? 0;
     if ((b.dockLeft ?? 0) > 0) {
       b.dockLeft! -= dt;
-      if (b.dockLeft! <= 0) { t.calls.push({ port: port.id, berth: b.berth ?? 0, cls }); castOff(t, b); }
+      if (b.dockLeft! <= 0) { t.calls.push({ port: port.id, berth: b.berth ?? 0, cls, fit: b.fit ?? "trade" }); castOff(t, b); }
       continue;
     }
     if (b.berth === undefined) {
@@ -295,7 +317,7 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
       // not passed by every boat behind it, or it would never get them.
       const waiting = q.filter((id) => live.get(id)?.berth === undefined);
       const next = waiting[0];
-      const free = berthsFor(port, cls).filter((k) => {
+      const free = berthsFor(port, cls, b.fit).filter((k) => {
         for (let j = 0; j < classOf(cls).span; j++) if (held.has(k + j)) return false;
         return true;
       });
@@ -329,7 +351,7 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
 function pickPort(t: Traffic, f: Fleet, river: number, cls = 0): Port | null {
   let best: Port | null = null, bestWait = Infinity;
   for (const p of t.ports.values()) {
-    if (p.river !== river || p.takes < cls) continue;
+    if (p.river !== river || !p.accepts[cls]) continue;
     const bound = f.boats.filter((b) => b.route?.[0] === p.id).length;
     const wait = Math.ceil((bound + 1) / p.berths.length) * p.dock;
     if (wait < bestWait) { best = p; bestWait = wait; }
@@ -392,16 +414,26 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     if (f.boats.some((b) => Math.hypot(b.x - s.x, b.y - s.y) < SPAWN_CLEAR)) continue;
     // WHAT COMES: boats, and as the river's ports can take them, coasters
     // and ships among them — as big as there is a port and a channel for.
-    let cls = Math.min(most, MIX[t.sent % MIX.length]);
-    while (cls > 0 && r.reach[at.y * r.w + at.x] <= cls) cls--;
-    const port = pickPort(t, f, river, cls);
-    const boat = addBoat(f, c, s.x, s.y, cls) ?? (cls ? addBoat(f, c, s.x, s.y) : null);
+    // The size wanted, then smaller, then bigger: whatever a port here takes.
+    const want = Math.min(most, MIX[t.sent % MIX.length]);
+    const sizes = [...Array.from({ length: want + 1 }, (_, k) => want - k), ...Array.from({ length: SHIP_CLASSES.length - want - 1 }, (_, k) => want + 1 + k)];
+    let port: Port | null = null, cls = 0;
+    for (const k of sizes) {
+      if (r.reach[at.y * r.w + at.x] <= k) continue;
+      port = pickPort(t, f, river, k);
+      if (port) { cls = k; break; }
+    }
+    if (!port) continue;
+    const boat = addBoat(f, c, s.x, s.y, cls);
     if (!boat) continue;
+    // COME FOR ONE OF ITS BERTHS, each kind in turn. @see fittings
+    const fits = fitsFor(port, cls);
+    boat.fit = fits[t.sent % fits.length];
     t.sent++;
     boat.motor = RIVER_MOTOR;
-    boat.route = port && port.takes >= (boat.cls ?? 0) ? [port.id] : [];
+    boat.route = [port.id];
     // Every other one bound for a Market Maker's port its own freighter.
-    const ps = port ? g.structures.get(port.id) : undefined;
+    const ps = g.structures.get(port.id);
     if (ps && notable("market") && inAiDistrictNow(g, ps.x, ps.y)) boat.ai = t.sent % 2 === 0;
     const way = downstream(r, s.x, s.y, boat.cls ?? 0);
     if (way) boat.heading = Math.atan2(way.y, way.x);

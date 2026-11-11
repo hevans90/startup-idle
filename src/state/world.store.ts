@@ -78,6 +78,8 @@ import {
 import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
 import { boreCost, buildCost, dredgeCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
 import { dredgeCells } from "../world/boats/quay";
+import { fitsTier, fitting } from "../world/boats/fittings";
+import { agentsOpen } from "../game/agents";
 import { planNode } from "../world/sewers/lay";
 import { sewersUnderground } from "../world/sewers/convert";
 import { lateralStrokePlan, sewerStrokePlan } from "../world/sewers/tool";
@@ -451,6 +453,8 @@ type WorldState = {
   dismissPumpOffer: () => void;
   /** Offer a pump for a main's intake, from its card. @see MainInfo */
   offerPump: (o: { x: number; y: number; price: number; why: string }) => void;
+  /** Fit one berth of a seaport out for a job. @see world/boats/fittings */
+  setBerthFit: (id: number, berth: number, fit: string) => void;
   /** Take up the whole main a tile is on, as one undoable edit. */
   liftMainAt: (c: Cell) => void;
   /** Widen the bore of the whole main a tile is on, paid for its tiles not yet widened. @see boreCost */
@@ -1094,6 +1098,18 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setSewerLateral: (sewerLateral) => set({ sewerLateral }),
   dismissPumpOffer: () => set({ pumpOffer: null }),
   offerPump: (pumpOffer) => set({ pumpOffer }),
+  setBerthFit: (id, berth, fit) => {
+    const st = get(), s = st.grid.structures.get(id);
+    const berths = s && !s.build ? structureDef(s.def)?.port?.berths : undefined;
+    const f = fitting(fit);
+    if (!s || !berths || berth < 0 || berth >= berths || f.id !== fit || !fitsTier(f, berths)) return;
+    if (f.needs === "datacentre" && !agentsOpen()) return;
+    const next = Array.from({ length: berths }, (_, k) => fitting(s.fit?.[k]).id as string);
+    next[berth] = f.id;
+    s.fit = next;
+    edited(st.grid);
+    set({ revision: st.revision + 1, lastTouched: markDirty(st.grid, [idx(st.grid, s.x, s.y)], false) });
+  },
   liftMainAt: (c) => {
     const st = get();
     if (!inBounds(st.grid, c.x, c.y)) return;

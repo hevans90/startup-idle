@@ -4,6 +4,7 @@
  * done next door. Shown on the port's label and on the Conference Centre's
  * ghost. @see stepOpportunities "convoy"
  */
+import { materialsMult } from "../boats/trade";
 import { useSessionStore } from "../../state/session.store";
 import { EDGE_LOADS } from "./defs/strike";
 import type { Grid, Structure } from "../grid";
@@ -41,7 +42,7 @@ let convoyIn = false;
 export const setConvoyIn = (on: boolean) => { convoyIn = on; };
 export const convoyIsIn = () => convoyIn;
 /** What a load costs now, against its usual price: the convoy in, and the routes won. */
-export const loadPriceMult = () => (convoyIn ? CONVOY_LOADS : 1) * (strike === "edge" ? EDGE_LOADS : 1) * Math.max(0, 1 - ROUTE_LOADS * (useSessionStore.getState().routes ?? 0));
+export const loadPriceMult = () => materialsMult() * (convoyIn ? CONVOY_LOADS : 1) * (strike === "edge" ? EDGE_LOADS : 1) * Math.max(0, 1 - ROUTE_LOADS * (useSessionStore.getState().routes ?? 0));
 
 /**
  * A SUPPLIER STRIKE, the scene's to say from the event under way: loads held

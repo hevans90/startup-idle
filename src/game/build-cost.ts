@@ -10,6 +10,7 @@
  * @see world/agents/services
  */
 import { classOf } from "../world/boats/classes";
+import { hardwareMult } from "../world/boats/trade";
 import Decimal from "break_infinity.js";
 
 import { hasLots, housedBy } from "./housing";
@@ -64,7 +65,8 @@ function listPrice(defId: string): Decimal | null {
   }
   // AN AI RACK: seconds of income, a little dearer for each standing. @see game/agents
   if (defId === "rack") {
-    return Decimal.max(new Decimal(RACK_FLOOR), new Decimal(safeIncome()).times(RACK_SECONDS)).times(RACK_STEP ** racksBuilt()).round();
+    // HARDWARE LANDED at a port's hardware berth takes some off. @see hardwareMult
+    return Decimal.max(new Decimal(RACK_FLOOR), new Decimal(safeIncome()).times(RACK_SECONDS)).times(RACK_STEP ** racksBuilt()).times(hardwareMult()).round();
   }
   // A SLOP PROCESSOR: seconds of income, never under a floor, dearer for each of its kind standing. @see game/processors
   const processor = PROCESSOR_PRICE[defId];

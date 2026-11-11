@@ -69,6 +69,8 @@ export type Boat = {
   cls?: number;
   /** The way it lies while tied up, radians: along its quay. */
   lie?: number;
+  /** The kind of berth it has come for, by fitting id. @see fittings */
+  fit?: string;
   /** Seconds it has waited off its port for a berth. @see traffic */
   waited?: number;
   /** One of the Machine's freighters: violet, crewless, a light at the bow. @see Market Maker */

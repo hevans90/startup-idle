@@ -8,6 +8,7 @@
  * The default export, so the game can load it lazily: the map engine is most
  * of the bundle, and the founder screen does not need it.
  */
+import { PortCard } from "./port-card";
 import { LeaderPlacement } from "./leader-placement";
 import { LinkedOut } from "../../molecules/linkedout";
 import { useLinkedOutStore } from "../../state/linkedout.store";
@@ -123,5 +124,5 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
 function LookedCard() {
   const looked = useWorldStore((s) => s.lookedAt);
   const tool = useWorldStore((s) => s.tool);
-  return <Anchored at={looked && tool === "inspect" ? looked : null}><MainInfo /></Anchored>;
+  return <Anchored at={looked && tool === "inspect" ? looked : null}><MainInfo /><PortCard /></Anchored>;
 }
