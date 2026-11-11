@@ -19,7 +19,7 @@ import { allTanks, resetCooling, stepCooling, tankFor } from "../projects/coolin
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField, setWaterEdge, stepWater } from "./field";
-import { findMains, layMain, mainReports, mainsToPorts, pipesToMains, planMain, runMains } from "./mains";
+import { findMains, layMain, mainReports, mainsToPorts, pipesToMains, planMain, runMains, setPipeSolver } from "./mains";
 
 afterEach(resetCooling);
 
@@ -60,7 +60,7 @@ describe("what one main carries", () => {
   const pumped = flow(20, -(PUMP_HEAD / 2), true);
   const wide = flow(20, 5, false, true);
   if (process.env.SWEEP) for (const [run, rise] of [[10, 3], [20, 3], [40, 3], [20, 5], [20, 8], [20, 12], [60, 5]]) console.log(`run ${run} rise ${rise}: ${flow(run, rise, false).toFixed(3)}/s`);
-  if (process.env.BALANCE) console.log(`gravity ${gravity.toFixed(2)}/s → ${agents(gravity)} agents · pumped ${pumped.toFixed(2)}/s → ${agents(pumped)} · wide ${wide.toFixed(2)}/s → ${agents(wide)}`);
+  if (process.env.BALANCE) console.log(`gravity ${gravity.toFixed(4)}/s → ${agents(gravity)} agents · pumped ${pumped.toFixed(4)}/s → ${agents(pumped)} · wide ${wide.toFixed(4)}/s → ${agents(wide)}`);
 
   test("a gravity run feeds sixteen agents or more", () => {
     expect(agents(gravity)).toBeGreaterThanOrEqual(16);
@@ -73,6 +73,29 @@ describe("what one main carries", () => {
 
   test("a widened bore carries twice as much", () => {
     expect(wide / gravity).toBeCloseTo(2, 1);
+  });
+});
+
+describe("what one main carries, solved as flow", () => {
+  // The same three runs through the link-and-node solver: the calibration it is held to. @see pipes/hydraulics
+  setPipeSolver(true);
+  const gravity = flow(20, 5, false);
+  const pumped = flow(20, -(PUMP_HEAD / 2), true);
+  const wide = flow(20, 5, false, true);
+  setPipeSolver(false);
+  if (process.env.BALANCE) console.log(`solved: gravity ${gravity.toFixed(4)}/s → ${agents(gravity)} agents · pumped ${pumped.toFixed(4)}/s → ${agents(pumped)} · wide ${wide.toFixed(4)}/s → ${agents(wide)}`);
+
+  test("the same as the formula it replaces, on the one run the formula was measured on", () => {
+    setPipeSolver(false);
+    const before = { gravity: flow(20, 5, false), pumped: flow(20, -(PUMP_HEAD / 2), true), wide: flow(20, 5, false, true) };
+    // Within a hundredth: the lake in this rig rocks a little, and the formula follows it at once where a pipe lags.
+    expect(Math.abs(gravity / before.gravity - 1)).toBeLessThan(0.01);
+    expect(Math.abs(pumped / before.pumped - 1)).toBeLessThan(0.01);
+    expect(Math.abs(wide / before.wide - 1)).toBeLessThan(0.01);
+    // So the agents it cools are the same, give or take the one a hair's difference tips over.
+    expect(Math.abs(agents(gravity) - agents(before.gravity))).toBeLessThanOrEqual(1);
+    expect(agents(pumped)).toBe(agents(before.pumped));
+    expect(Math.abs(agents(wide) - agents(before.wide))).toBeLessThanOrEqual(1);
   });
 });
 

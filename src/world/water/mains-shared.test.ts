@@ -10,12 +10,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { mainFlow } from "../../game/mains";
 import { commit, createHistory } from "../edit/commands";
-import { createGrid, fillTerrain, idx, setHeight, type Grid } from "../grid";
-import { resetCooling, stepCooling } from "../projects/cooling";
+import { createGrid, edited, fillTerrain, idx, setHeight, type Grid } from "../grid";
+import { allTanks, resetCooling, stepCooling } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
-import { createWaterField, setWaterEdge } from "./field";
-import { findMains, layMain, planMain, solveMain } from "./mains";
+import { createWaterField, setWaterEdge, stepWater } from "./field";
+import { totalWater } from "../../fluid/columns";
+import { findMains, layMain, mainFillAt, mainReports, planMain, runMains, setPipeSolver, solveMain, waterInMains } from "./mains";
 import { createPipeNets, findPipeNets } from "./pipe-net";
 import { runPipes } from "./pipes";
 
@@ -97,6 +98,94 @@ describe("today's faults in the mains, pinned", () => {
     // The first is 20 tiles from the lake and the second 30; both are given the same.
     expect(a.capacity).toBeCloseTo(b.capacity, 9);
   });
+});
+
+describe("the same maps, solved as flow (the switch on)", () => {
+  /** Run a yard for `seconds`, its tanks emptied every frame; water a second into each Data Centre over the last half, and the field. */
+  function played(g: Grid, seconds: number, f = createWaterField(g)) {
+    setWaterEdge(f, false);
+    stepCooling(g, 0, false, 0);
+    const got = new Map<number, number>();
+    const frames = seconds * 60;
+    for (let n = 0; n < frames; n++) {
+      for (const t of allTanks().values()) { t.capacity = 1e9; t.level = 0; }
+      runMains(f, g, 1 / 60);
+      // The lake keeps its level: left alone, the one column an intake draws from is drunk dry.
+      stepWater(f, 1 / 60);
+      if (n >= frames / 2) for (const [id, t] of allTanks()) got.set(id, (got.get(id) ?? 0) + t.level);
+    }
+    return { f, each: [...got.values()].map((v) => v / (seconds / 2)), report: [...mainReports().values()][0] };
+  }
+  const branch = (g: Grid, dcX: number) => {
+    building(g, dcX - 2, 6);
+    lay(g, [...line(dcX - 5, 5, dcX - 5, 9), ...line(dcX - 4, 9, dcX + 1, 9), ...line(dcX + 1, 8, dcX + 1, 7)]);
+  };
+  const on = <T>(run: () => T): T => { setPipeSolver(true); try { return run(); } finally { setPipeSolver(false); } };
+
+  test("a shared trunk's water is shared: a second Data Centre brings more than one's and well under twice", () => on(() => {
+    const one = played(yard().g, 6);
+    resetCooling();
+    const { g, dcX } = yard();
+    branch(g, dcX);
+    const two = played(g, 6);
+    const sum = two.each.reduce((n, v) => n + v, 0);
+    expect(two.each).toHaveLength(2);
+    expect(sum).toBeGreaterThan(one.each[0] * 1.05);
+    expect(sum).toBeLessThan(one.each[0] * 1.5);
+    // The card's number is the steady flow, and what arrives is within a twentieth of it.
+    expect(Math.abs(sum / two.report.capacity - 1)).toBeLessThan(0.05);
+    expect(two.report.outlets.map((o) => o.capacity).reduce((n, v) => n + v, 0)).toBeCloseTo(two.report.capacity, 9);
+  }));
+
+  test("a dead-end stub costs the outlet nothing", () => on(() => {
+    const one = played(yard().g, 6);
+    resetCooling();
+    const { g } = yard();
+    lay(g, line(12, 5, 12, 13).slice(0, 9));
+    expect(Math.abs(played(g, 6).report.capacity / one.report.capacity - 1)).toBeLessThan(0.005);
+  }));
+
+  test("a map first seen has its mains full; a main laid after starts empty and fills", () => on(() => {
+    const { g, dcX } = yard();
+    const f = createWaterField(g);
+    const first = played(g, 1 / 6, f);
+    // Ten frames in and it is already carrying: no dry spell after a load.
+    expect(first.report.flow).toBeGreaterThan(first.report.capacity * 0.9);
+    expect(mainFillAt(g, idx(g, dcX - 1, 5))).toBe(1);
+    // A branch laid now has nothing in it.
+    branch(g, dcX);
+    runMains(f, g, 1 / 60);
+    expect(mainFillAt(g, idx(g, dcX + 1, 7))).toBeLessThan(0.05);
+    played(g, 4, f);
+    expect(mainFillAt(g, idx(g, dcX + 1, 7))).toBe(1);
+  }));
+
+  test("no water is made or lost: the lake's, the tanks' and the pipes' add up, laying and lifting included", () => on(() => {
+    const { g, dcX } = yard();
+    const f = createWaterField(g);
+    setWaterEdge(f, false);
+    stepCooling(g, 0, false, 0);
+    for (const t of allTanks().values()) { t.capacity = 1e9; t.level = 0; }
+    const tanks = () => [...allTanks().values()].reduce((n, t) => n + t.level, 0);
+    const all = () => totalWater(f.columns) + tanks() + waterInMains(g);
+    runMains(f, g, 1 / 60);
+    // From here on: the first frame fills the mains of a map just loaded, out of nothing.
+    const start = all();
+    for (let n = 0; n < 120; n++) runMains(f, g, 1 / 60);
+    // To the water's own precision: its depths are single floats.
+    expect(all()).toBeCloseTo(start, 4);
+    branch(g, dcX);
+    for (let n = 0; n < 240; n++) runMains(f, g, 1 / 60);
+    // To the water's own precision: its depths are single floats.
+    expect(all()).toBeCloseTo(start, 4);
+    // The whole network lifted: what stood in it is on the ground.
+    for (let i = 0; i < g.main.length; i++) { g.main[i] = 0; g.mainEnd[i] = 0; }
+    edited(g);
+    runMains(f, g, 1 / 60);
+    expect(waterInMains(g)).toBe(0);
+    // To the water's own precision: its depths are single floats.
+    expect(all()).toBeCloseTo(start, 4);
+  }));
 });
 
 describe("the editor's spouts in the game's tick", () => {

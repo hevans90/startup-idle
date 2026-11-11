@@ -352,3 +352,21 @@ None. All were decided on 2026-11-11; each decision is written where it applies:
 - One report type, `PipeReport`: a main, a connection and a trunk say the same things, and a trunk adds its own (`trunk`: inflow, delivered, spilled, lifts). A trunk's `capacity` is its narrowest tile's on the way down and its `flow` what it delivered. `MainReport` and `SewerReport` are that type narrowed by state.
 - No behaviour change: every mains, sewer and slop test passed untouched but two lines of `flow.test` that read a trunk's own fields.
 - **Not yet:** nodes carry no invert level or storage. A trunk's level is `solveSewers`' and a main's is the ground's; phase 2 reads them when it needs them. Nothing draws from the graph, and the two renderers and report maps are still separate (phase 5).
+
+**Phase 2, first half — water mains solved as flow, behind a switch** (2026-11-11). `world/pipes/hydraulics.ts`; run on the map by `runSolved` in `water/mains.ts`. On with `?pipes=solver` or `setPipeSolver(true)`; off, everything is as it was. Tests: `pipes/hydraulics.test.ts`, and with the switch on in `mains-shared.test.ts` and `mains-capacity.test.ts`.
+- **The model.** A node holds water, a link a discharge; a link is pushed by the head across it and held back by the square of its flow, taken implicitly; nothing leaves a node it does not hold; a slot above the crown carries pressure. Steps of 1/120 s inside the frame.
+- **Calibration.** `head = flow² × (ENDS + RUN × tiles) / bore²`, fitted to `mainFlow` at nought and twenty tiles. On one 20-tile run the steady flow equals `mainFlow` to six places at any head; a widened run carries twice; a pump moves `PUMP_MOST` and no more. On the game's own rig (`mains-capacity.test`, a lake that rocks a little) it is within a hundredth of the formula: 0.952 against 0.948 a second by gravity, 0.500 pumped, 1.899 widened.
+- **Other lengths differ, as expected:** within a tenth of `mainFlow` from 5 to 40 tiles, more on longer runs (the formula's loss went as the length squared, a pipe's goes as the length).
+- **The faults turned round.** Two outlets on one trunk bring more than one's flow and under one and a half times it; a dead-end stub costs nothing; the nearer outlet is fed faster; shut one and the other has the run to itself; a building whose floor is above what head is left at the branch gets none.
+- **Filling.** 20 tiles are full in 2.1 s and 60 in 9.1 s (`PIPE_HOLDS`). A map first seen has its mains full and settled; a main laid afterwards starts empty; water carried over an edit by the tile it stood in; what stood in a lifted run goes on the ground.
+- **Conserved:** the lake's water, the tanks' and the pipes' add up through running, laying and lifting, to the water's single-float precision.
+- **What the cards read** (`MainReport`): `capacity` is the steady flow with every building taking all it is given, per outlet and summed; `flow` is what arrived this frame. Measured delivery is within a twentieth of it.
+- **Seen in the game** with the switch on (`/?fixture=singularity&pipes=solver`): the Data Centre's 45-tile main flowing, the GPU farm's pumped main full, no errors.
+- **Found on the way:** the solver's datum must not move with the lake. Recomputed each frame it shook every node's pressure with every ripple at the intake and a pumped main delivered 1.5% short.
+- **A main is a primed pressure pipe:** the ground it crosses does not stop it, as it never did. The profile strip of §8 has no "pipe above the head line" to show for a water main until that changes; left as it is.
+
+**Still to do in phase 2:**
+- sewers on the same solver (storage, backwater, surcharge), calibrated to the sewer flow tests;
+- the tool's preview from the same steady solve (`previewMain` still uses `mainFlow`);
+- `takeover-sim` and the AI cooling tests run with the switch on; the singularity fixture's cooling re-measured;
+- multi-outlet delivery re-measured across the fixtures, then the switch turned on for good and the old formula path deleted.
