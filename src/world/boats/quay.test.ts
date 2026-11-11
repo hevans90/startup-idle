@@ -87,6 +87,21 @@ describe("placing a seaport", () => {
     expect([...lit].every((i) => i % g.w === 5 || i % g.w === 10)).toBe(true);
   });
 
+  test("pointed at a tile of its quay, or at the water off it, it stands on that bank", () => {
+    const g = alongY();
+    // (5, 9) is the west bank's edge: cornered there its quay would be in the river.
+    for (const [x, y] of [[5, 9], [6, 9]]) {
+      const check = validatePlacement(g, T1, x, y);
+      expect(check.ok).toBe(true);
+      expect([check.at, check.facing]).toEqual([{ x: 4, y: 9, w: 2, h: 2 }, "S"]);
+    }
+    // Placed where the check says, not where it was pointed.
+    const s = place(g, T2, 6, 12)!;
+    expect([s.x, s.y, s.w, s.h, s.facing]).toEqual([4, 12, 2, 3, "S"]);
+    // Out in the stream is still in the river.
+    expect(validatePlacement(g, T1, 7, 9).ok).toBe(false);
+  });
+
   test("the way in runs from where the river comes in to the berth", () => {
     const g = alongY();
     const way = channelTo(steadyRivers(g), { x: 6, y: 9 });

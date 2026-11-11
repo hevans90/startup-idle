@@ -54,7 +54,9 @@ export function PlaceReadout({ className }: { className?: string }) {
     const plan = under >= 0 ? planUpgrade(grid, under, rules) : null;
     const price = plan ? upgradeCost(plan.from.def, plan.to.id) : buildCost(def.id);
     const check = plan ?? validatePlacement(grid, def, hover.x, hover.y, rules);
-    const what = plan ? `Upgrade to ${plan.to.name}` : def.name;
+    // A port by its name as the picker has it, capital first.
+    const named = (d: { name: string }) => d.name.replace(/^seaport/, "Seaport");
+    const what = plan ? `Upgrade to ${named(plan.to)}` : named(def);
     // Every reason at once, for a seaport, which has several ways to be wrong.
     const why = (check.reasons.length ? check.reasons : [check.reason ?? "blocked"]).map((r) => REFUSAL[r] ?? REFUSAL.blocked);
     line = !check.ok ? { text: [...new Set(why)].join(" · "), price: price && formatCurrency(price), tone: "bad" }

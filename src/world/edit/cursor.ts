@@ -72,6 +72,12 @@ function vertices(x: number, y: number, h: number, scale: number) {
   return [[p[0], p[1]], [p[2], p[3]], [p[4], p[5]], [p[6], p[7]]] as const;
 }
 
+/** The level a cell's cursor is drawn at: its surface, or its standing water's when `wet`. */
+function levelAt(grid: Grid, x: number, y: number, wet = false): number {
+  const i = idx(grid, x, y);
+  return surfaceHeightAt(grid, x, y) + (wet && grid.deck[i] === 0 ? grid.pool[i] : 0);
+}
+
 /**
  * Outer boundary of a footprint as world-space segments.
  *
@@ -84,6 +90,7 @@ export function footprintPerimeter(
   grid: Grid,
   cells: readonly Cell[],
   scale: number,
+  wet = false,
 ): [number, number, number, number][] {
   // A MASK OVER THE GRID, not a set of "x,y" strings: a pour dragged over a
   // 128 tile map is sixteen thousand cells, and this ran on every pointer
@@ -103,7 +110,7 @@ export function footprintPerimeter(
     // AN INTERIOR CELL HAS NO EDGE TO DRAW, and is most of a big footprint:
     // asked first, so only the rim works out its corners.
     if (EDGES.every((e) => has(c.x + e.dx, c.y + e.dy))) continue;
-    const v = vertices(c.x, c.y, surfaceHeightAt(grid, c.x, c.y), scale);
+    const v = vertices(c.x, c.y, levelAt(grid, c.x, c.y, wet), scale);
     for (const e of EDGES) {
       if (has(c.x + e.dx, c.y + e.dy)) continue;
       out.push([v[e.a][0], v[e.a][1], v[e.b][0], v[e.b][1]]);
@@ -124,6 +131,11 @@ export type CursorInput = {
    * no cell can answer alone. @see validatorFor
    */
   valid?: Validator;
+  /**
+   * Drawn on the WATER, where a cell has any standing: for a tool that works
+   * the river as it is seen, whose bed may lie well below. @see levelAt
+   */
+  wet?: boolean;
 };
 
 /**
@@ -149,7 +161,7 @@ export function cursorSignature(grid: Grid, input: CursorInput, valid: Validator
     // pointer moves the cursor and changes nothing else, and a signature off
     // the ground would call that the same picture and skip the redraw.
     const on = inBounds(grid, c.x, c.y);
-    const h = on ? surfaceHeightAt(grid, c.x, c.y) : 0;
+    const h = on ? levelAt(grid, c.x, c.y, input.wet) : 0;
     const d = on ? grid.deck[idx(grid, c.x, c.y)] : 0;
     mix(c.x); mix(c.y); mix(Math.round(h * 64)); mix(d);
     mix(valid(grid, c.x, c.y).ok ? 1 : 0);
@@ -292,7 +304,7 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
       // cell, and the march stops at the deck — so a cursor drawn off
       // `grid.height` sat in the channel under the span the pointer was on,
       // which is the one reading of a bridge nobody wants.
-      heights[n] = surfaceHeightAt(grid, c.x, c.y);
+      heights[n] = levelAt(grid, c.x, c.y, input.wet);
       const ok = valid(grid, c.x, c.y).ok;
       oks[n] = ok ? 1 : 2;
       if (!ok) blocked++;
@@ -339,7 +351,7 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
     }
 
     // perimeter last and bolder, so the footprint reads as one shape
-    for (const [x0, y0, x1, y1] of footprintPerimeter(grid, input.cells, input.scale)) {
+    for (const [x0, y0, x1, y1] of footprintPerimeter(grid, input.cells, input.scale, input.wet)) {
       outline.moveTo(x0, y0).lineTo(x1, y1);
     }
     outline.stroke({

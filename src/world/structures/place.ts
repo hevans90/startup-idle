@@ -233,18 +233,48 @@ export function validatePlacement(
  * AGAINST THE STANDING WATER, whatever rivers the rules carry: a flood or a
  * drought does not move the bank, and the cursor and the click cannot be
  * handed different rivers. @see steadyRivers
+ *
+ * OR WITH (ox, oy) A TILE OF ITS QUAY: the bank tiles are what is lit to
+ * build on, so a port that cannot stand cornered there is tried with that
+ * tile anywhere along its quay — or, pointed at the water, with that tile
+ * one of its berths. Where it then stands is the check's `at`.
  */
 function validatePort(grid: Grid, def: StructureDef, ox: number, oy: number, rules: PlaceRules, facing?: Facing): PlacementCheck {
   let best: PlacementCheck | null = null, bestWet = -1;
   const rivers = steadyRivers(grid);
-  for (const f of facing ? [facing] : FACINGS) {
-    const at = { x: ox, y: oy, ...portShape(def.footprint.w, f) };
+  const length = def.footprint.w;
+  const judge = (at: Rect, f: Facing): PlacementCheck | null => {
     const check = portCheck(grid, def, at, f, rules);
     if (check.ok) return check;
     const wet = quayTiles(at, f).filter((q) => riverAt(rivers, q.wx, q.wy)).length - check.reasons.length / 16;
     if (wet > bestWet) { best = check; bestWet = wet; }
+    return null;
+  };
+  for (const f of facing ? [facing] : FACINGS) {
+    const ok = judge({ x: ox, y: oy, ...portShape(length, f) }, f);
+    if (ok) return ok;
+  }
+  if (facing) return best!;
+  // Pointed at the water off a bank, it is that bank's: the tile is its berth.
+  const wet = riverAt(rivers, ox, oy) !== 0;
+  for (const f of FACINGS) {
+    const [dx, dy] = NEIGHBOUR[f];
+    const qx = wet ? ox - dx : ox, qy = wet ? oy - dy : oy;
+    if (riverAt(rivers, qx, qy) || !riverAt(rivers, qx + dx, qy + dy)) continue;
+    for (let k = 0; k < length; k++) {
+      const ok = judge(quayWith(qx, qy, k, f, length), f);
+      if (ok) return ok;
+    }
   }
   return best!;
+}
+
+/** The footprint of a port facing `f` whose quay has (x, y) as its `k`th tile. */
+function quayWith(x: number, y: number, k: number, f: Facing, length: number): Rect {
+  const [dx, dy] = NEIGHBOUR[f];
+  return alongX(f)
+    ? { x: x - k, y: dy > 0 ? y - (PORT_DEPTH - 1) : y, ...portShape(length, f) }
+    : { x: dx > 0 ? x - (PORT_DEPTH - 1) : x, y: y - k, ...portShape(length, f) };
 }
 
 /**
@@ -300,11 +330,11 @@ export function placeCommand(
   if (!check.ok) return null;
 
   // Where the check says, which for a seaport has turned to face the water.
-  const { w, h } = check.at;
+  const { x, y, w, h } = check.at;
   const b = new PatchBuilder(grid);
-  const structure: Structure = { id: grid.nextStructureId, def: def.id, x: ox, y: oy, w, h, ...(check.facing ? { facing: check.facing } : {}) };
+  const structure: Structure = { id: grid.nextStructureId, def: def.id, x, y, w, h, ...(check.facing ? { facing: check.facing } : {}) };
 
-  for (const c of footprintCells(ox, oy, w, h)) {
+  for (const c of footprintCells(x, y, w, h)) {
     if (placementOf(def).autoFlatten) {
       b.set("height", c.x, c.y, check.groundHeight);
       // A ramp under a structure is a contradiction: the cell is flat now.
@@ -411,9 +441,7 @@ export function quayBanks(grid: Grid, def: StructureDef, rules: PlaceRules = NO_
         if (!riverAt(rivers, x + dx, y + dy)) continue;
         // Every port whose quay on this side has this tile in it.
         for (let k = 0; k < length; k++) {
-          const at = alongX(f)
-            ? { x: x - k, y: dy > 0 ? y - (PORT_DEPTH - 1) : y, ...portShape(length, f) }
-            : { x: dx > 0 ? x - (PORT_DEPTH - 1) : x, y: y - k, ...portShape(length, f) };
+          const at = quayWith(x, y, k, f, length);
           if (!portCheck(grid, def, at, f, bare).ok) continue;
           // By the biggest ship that can come alongside that tile of it.
           for (const q of quayTiles(at, f)) {

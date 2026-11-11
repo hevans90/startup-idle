@@ -186,7 +186,7 @@ import "./structures/project-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
-import { footprintCells, idx, inBounds, structureAt, surfaceHeightAt, surfaceSampler, type Grid, type Structure } from "./grid";
+import { footprintCells, idx, inBounds, structureAt, surfaceHeightAt, surfaceSampler, wetSurfaceSampler, type Grid, type Structure } from "./grid";
 import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
@@ -314,6 +314,20 @@ const ROAD_TABLE = buildRoadTable("landscape");
 
 /** Tiles round the pointer's cell a building may stand and still be drawn under it. */
 const NEAR_HOVER = 8;
+
+/**
+ * Whether the tool in hand WORKS THE WATER AS IT IS SEEN: a seaport, whose
+ * berth is the water off the bank, and dredging. A deep river's bed is drawn
+ * nowhere near where its water shows, so these point at the water.
+ */
+const pointsAtWater = (st: { tool: string; structureDefId: string }) =>
+  st.tool === "dredge" || (st.tool === "placeStructure" && !!structureDef(st.structureDefId)?.port);
+
+/** The cell under a point: the ground, or the standing water over it for a tool that points at water. @see wetSurfaceSampler */
+function pickSeen(g: Grid, wx: number, wy: number, scale: number) {
+  const wet = pointsAtWater(useWorldStore.getState());
+  return pickCell(wx, wy, wet ? wetSurfaceSampler(g) : surfaceSampler(g), { min: g.minHeight, max: g.maxHeight }, scale);
+}
 
 /**
  * The structure drawn under a point on the screen, the frontmost if several
@@ -1933,12 +1947,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const repick = (wx: number, wy: number) => {
       const st = useWorldStore.getState();
       const qy = wy + st.pickNudge;
-      const cell = pickCell(
-        wx, qy,
-        surfaceSampler(st.grid),
-        { min: st.grid.minHeight, max: st.grid.maxHeight },
-        st.scale,
-      );
+      const cell = pickSeen(st.grid, wx, qy, st.scale);
       const f = worldToCellF(wx, qy + 0, 0, st.scale);
       st.setPointer({ wx, wy, fx: f.x, fy: f.y });
       const cur = st.hover;
@@ -1958,12 +1967,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const cellAt = (e: FederatedPointerEvent) => {
       const st = useWorldStore.getState();
       const p = vp.toWorld(e.global.x, e.global.y);
-      return pickCell(
-        p.x, p.y + st.pickNudge,
-        surfaceSampler(st.grid),
-        { min: st.grid.minHeight, max: st.grid.maxHeight },
-        st.scale,
-      );
+      return pickSeen(st.grid, p.x, p.y + st.pickNudge, st.scale);
     };
 
     // A TAKEOVER UNDER THE POINTER — a drone's job, or a building marked red:
@@ -2105,10 +2109,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const draw = () => {
       const st = useWorldStore.getState();
       // Over a building that opens something, the building is what is lit, not the tile.
-      if (hoverGfx.current) drawHover(hoverGfx.current, grid, st.hoverOpen === null ? st.hover : null, scale);
+      // Not for a tool that points at water: its own cursor is on the water, and this would sit on the bed under it.
+      if (hoverGfx.current) drawHover(hoverGfx.current, grid, st.hoverOpen === null && !pointsAtWater(st) ? st.hover : null, scale);
     };
     draw();
-    return useWorldStore.subscribe((s, was) => { if (s.hover !== was.hover || s.hoverOpen !== was.hoverOpen) draw(); });
+    return useWorldStore.subscribe((s, was) => { if (s.hover !== was.hover || s.hoverOpen !== was.hoverOpen || s.tool !== was.tool || s.structureDefId !== was.structureDefId) draw(); });
   }, [grid, scale]);
 
   // Calibration: changing the offset re-picks at the last pointer position, so
@@ -2674,7 +2679,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (def) {
             const fp = structureFootprint(def, s0.anchor, s0.head);
             const check = validatePlacement(grid, def, fp.x, fp.y, rules);
-            holos.push({ key: "place", def: def.id, x: fp.x, y: fp.y, w: check.at.w, h: check.at.h, facing: check.facing, ok: check.ok, steady: true });
+            holos.push({ key: "place", def: def.id, x: check.at.x, y: check.at.y, w: check.at.w, h: check.at.h, facing: check.facing, ok: check.ok, steady: true });
           }
         }
       }
@@ -2692,6 +2697,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         frame: s0.tool === "paintTerrain" ? (palette[material] ?? null) : null,
         tool: s0.tool,
         scale,
+        wet: s0.tool === "dredge",
       }, tex);
     };
     draw();
@@ -3115,8 +3121,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const g = useWorldStore.getState().grid, playing = useWorldStore.getState().playing;
         for (const first of traffic.firsts.splice(0)) {
           sfx("horn");
-          const name = structureDef(g.structures.get(first.port)?.def ?? "")?.name ?? "seaport";
-          if (playing) useWorldStore.setState({ notice: { text: `First ${classOf(first.cls).name.toLowerCase()} at the ${name}`, at: Date.now() } });
+          const name = (structureDef(g.structures.get(first.port)?.def ?? "")?.name ?? "seaport").replace(/^seaport/, "Seaport");
+          if (playing) useWorldStore.setState({ notice: { text: `First ${classOf(first.cls).name.toLowerCase()} at ${name}`, at: Date.now() } });
         }
         for (const id of traffic.lows.splice(0)) {
           const name = structureDef(g.structures.get(id)?.def ?? "")?.name ?? "seaport";

@@ -459,8 +459,25 @@ export const surfaceSampler = (g: Grid): SurfaceAt => (x, y): Surface | null => 
   //
   // It is flat: a deck carries no ramp. @see Grid.deck
   if (g.deck[i] !== 0) return { height: g.deckZ[i], ramp: RAMP.NONE, rise: 0 };
+
   const packed = g.ramp[i];
   return { height: g.height[i], ramp: rampDir(packed), rise: rampRise(packed) };
+};
+
+/**
+ * THE SURFACE AS IT IS SEEN OVER STANDING WATER: the water's top, where a cell
+ * has any, and the ground elsewhere. For a point `surfaceSampler` finds no
+ * cell under — the drowned face of a bank, which is drawn as the water in
+ * front of it. @see pickCell
+ */
+export const wetSurfaceSampler = (g: Grid): SurfaceAt => {
+  const dry = surfaceSampler(g);
+  return (x, y) => {
+    const at = dry(x, y);
+    if (!at) return null;
+    const pool = g.pool[idx(g, x, y)];
+    return pool > 0 && g.deck[idx(g, x, y)] === 0 ? { height: at.height + pool, ramp: RAMP.NONE, rise: 0 } : at;
+  };
 };
 
 /**

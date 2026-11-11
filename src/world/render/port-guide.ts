@@ -47,6 +47,8 @@ export function createPortGuide(overlay: Container): PortGuide {
       if (key === banksKey) return;
       banksKey = key;
       banks.clear();
+      // Out of the draw list while empty: a Graphics cleared to nothing kept showing what it had.
+      banks.visible = cells.length > 0;
       for (const { i, cls } of cells) {
         banks.poly(cellDiamond(i % g.w, (i / g.w) | 0, g.height[i], scale));
         banks.fill({ color: BANK[cls] ?? BANK[0], alpha: 0.42 });
@@ -57,6 +59,7 @@ export function createPortGuide(overlay: Container): PortGuide {
       if (key === ghostKey) return;
       ghostKey = key;
       ghost.clear();
+      ghost.visible = !!port;
       if (!port) return;
       const rivers = steadyRivers(g);
       const quay = quayTiles(port.at, port.facing);

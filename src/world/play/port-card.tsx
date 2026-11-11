@@ -38,7 +38,7 @@ export function PortCard() {
         const level = fit.keeps ? tradeLevel(fit.keeps) : null;
         return (
           <label key={k} className="flex items-center gap-2 py-0.5" title={fit.does}>
-            <span className="w-12 shrink-0 text-fg-muted">Berth {k + 1}</span>
+            <span className="w-12 shrink-0 whitespace-nowrap text-fg-muted">Berth {k + 1}</span>
             <select value={fit.id} onChange={(e) => setFit(s.id, k, e.target.value)}
               className="min-w-0 flex-1 cursor-pointer border border-line-quiet bg-surface-2 px-1 py-0.5 text-xs text-fg dark:bg-surface-2 dark:text-fg">
               {offered.map((f) => <option key={f.id} value={f.id} title={f.does}>{f.name}</option>)}

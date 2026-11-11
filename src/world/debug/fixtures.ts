@@ -448,6 +448,8 @@ export function buildHarbour(g: Grid, material: number) {
     for (let y = 0; y < g.h; y++) {
       set(g, x, y, Math.abs(y - centre(x)) <= half ? -HARBOUR_CUT : 0);
     }
+    // A SHELF under the south bank, west of the first port: shallows left to dredge. @see dredgeCells
+    if (x >= 5 && x <= 10) for (const k of [1, 2]) set(g, x, Math.floor(centre(x) + half) + k, -HARBOUR_FREEBOARD - 2);
     // Full from the start. @see buildInlet, which says why
     pond(g, -HARBOUR_FREEBOARD, 1, x, 0, x, g.h - 1);
   }
@@ -494,6 +496,10 @@ export function buildHarbour(g: Grid, material: number) {
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) if (read.paved(x, y)) g.ramp[idx(g, x, y)] = derivedRamp(read, x, y);
   }
+  // THE HARBOUR OFFICE, on the road: played, the fixture has ports open to buy. @see featureGateOpen
+  const office = structureDef("harbour");
+  const at = office && placeCommand(g, { ...office, placement: undefined }, 4, road + 2);
+  if (at) commit(g, history, at);
 }
 
 /**

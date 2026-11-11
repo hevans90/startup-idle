@@ -61,7 +61,16 @@ function spots(g: Grid, def: string, rules: PlaceRules): Cell[] {
   const out: Cell[] = [];
   // Never over a port, nor with its own all built over. @see keepsPorts
   const ports = portTileSet(g), { w, h } = d.footprint;
-  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (validatePlacement(g, d, x, y, rules).ok && keepsPorts(g, ports, def, x, y, w, h)) out.push({ x, y });
+  // Where the check says it stands: a seaport's may not be the tile asked. @see validatePort
+  const seen = new Set<number>();
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+    const check = validatePlacement(g, d, x, y, rules);
+    if (!check.ok) continue;
+    const at = check.at ?? { x, y, w, h };
+    if (seen.has(at.y * g.w + at.x) || !keepsPorts(g, ports, def, at.x, at.y, at.w, at.h)) continue;
+    seen.add(at.y * g.w + at.x);
+    out.push({ x: at.x, y: at.y });
+  }
   return out;
 }
 const manhattan = (a: Cell, b: Cell) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);

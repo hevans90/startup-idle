@@ -67,7 +67,9 @@ describe("a seaport", () => {
     expect(validatePlacement(g, SEAPORT, 8, 10, { rivers }).ok).toBe(true);
     // Back from it, and in it.
     expect(validatePlacement(g, SEAPORT, 8, 2, { rivers }).reason).toBe("quay off the water");
-    expect(validatePlacement(g, SEAPORT, 8, 5, { rivers }).ok).toBe(false);
+    expect(validatePlacement(g, SEAPORT, 8, 7, { rivers }).ok).toBe(false);
+    // Pointed at the bank's edge, it stands back from it with its quay there. @see validatePort
+    expect(validatePlacement(g, SEAPORT, 8, 5, { rivers }).at).toEqual({ x: 8, y: 4, w: 2, h: 2 });
     // The bank is the standing water's: it needs no rivers handed in. @see steadyRivers
     expect(validatePlacement(g, SEAPORT, 8, 4).ok).toBe(true);
   });
@@ -81,8 +83,10 @@ describe("a seaport", () => {
   test("the harbour fixture has one of each tier on its bank, west to east, with a berth each", () => {
     const g = createGrid(64, 64, 1);
     applyFixture(g, "harbour", 1);
-    const ports = [...g.structures.values()].sort((a, b) => a.x - b.x);
+    // Its Harbour Office stands on the road, for the fixture played.
+    const ports = [...g.structures.values()].filter((p) => p.def !== "harbour").sort((a, b) => a.x - b.x);
     expect(ports.map((p) => p.def)).toEqual(SEAPORTS.map((d) => d.id));
+    expect([...g.structures.values()].some((p) => p.def === "harbour")).toBe(true);
     const rivers = mapRiver(g, poolDepthOf(g));
     SEAPORTS.forEach((d, k) => {
       const p = ports[k];
