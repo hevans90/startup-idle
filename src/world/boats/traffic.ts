@@ -33,6 +33,7 @@ import {
 import { berthsAlong, channelTo } from "./quay";
 import { SHIP_CLASSES, classOf } from "./classes";
 import { fitOf, type Fitting } from "./fittings";
+import { cargoOf, lookOf } from "./cargo";
 import { createYards, landCargo, lands, yardSlows, type Yards } from "./yard";
 
 /** Seconds between looks at the rivers. */
@@ -93,39 +94,68 @@ export type Port = {
   anchorage: { x: number; y: number }[];
 };
 
-/** Lifts a crane makes to empty a ship; and, for one that loads again, to part-empty it and to fill it. */
-const LIFTS = 3;
-const SWAP = 2;
-/** How far through a lift the cargo leaves where it was picked up, and reaches where it is set down. @see seaport-renderer */
+/** Seconds a crane takes over one lift, by what it is. */
+const LIFT_SECONDS = { gantry: 3.6, other: 4.6 };
+/** How far through a lift the box leaves where it was picked up, and reaches where it is set down. @see seaport-renderer */
 export const PICKED = 0.15;
 export const SET_DOWN = 0.7;
 
 /**
- * THE LIFT a ship's crane is on, `at` of the way through its call: which one,
- * how far through it, and whether it is loading. At a cargo crane or a
- * hardware berth three lifts empty the ship; at a trading quay or a gantry
- * two take most off and two put as much back, so it sails as full as it came.
- * A ferry and a yacht have no cargo to work.
+ * THE WORK OF A CALL, settled as a ship ties up: how many boxes she has room
+ * for, how many cranes work her — one a berth she lies across — how many
+ * lifts each has time for, how many of those unload her, and whether she is
+ * then loaded again. At a cargo crane or a hardware berth every lift lands a
+ * box, as far as she has them; at a trading quay or a gantry the first lifts
+ * take boxes off and the last put as many back, so she sails as full as she
+ * came. @see cargoOf
  */
-export function liftAt(fit: string, at: number): { n: number; phase: number; loading: boolean } {
-  const lifts = fit === "crane" || fit === "hardware" ? LIFTS : SWAP * 2;
-  const q = Math.min(lifts - 1e-6, Math.max(0, at) * lifts);
-  const n = Math.floor(q);
-  return { n, phase: q - n, loading: lifts !== LIFTS && n >= SWAP };
+export type Work = { cap: number; cranes: number; lifts: number; unload: number; reload: boolean };
+
+export function workOf(look: string, fit: string, span: number, dockFor: number): Work | null {
+  const cargo = cargoOf(look);
+  if (!cargo || fit === "ferry" || fit === "pontoon") return null;
+  const cap = cargo.slots.length, cranes = span;
+  const lifts = Math.max(2, Math.round(dockFor / (fit === "gantry" ? LIFT_SECONDS.gantry : LIFT_SECONDS.other)));
+  const reload = fit !== "crane" && fit !== "hardware";
+  const unload = Math.max(1, Math.min(reload ? Math.floor(lifts / 2) : lifts, Math.floor(cap / cranes)));
+  return { cap, cranes, lifts, unload, reload };
 }
 
+/** The lift each of a ship's cranes is on, `at` of the way through her call: which, how far through it, and what it is doing. */
+export function liftAt(w: Work, at: number): { n: number; phase: number; mode: "unload" | "load" | "idle" } {
+  const q = Math.min(w.lifts - 1e-6, Math.max(0, at) * w.lifts);
+  const n = Math.floor(q);
+  return { n, phase: q - n, mode: n < w.unload ? "unload" : w.reload && n >= w.lifts - w.unload ? "load" : "idle" };
+}
+
+/** How many boxes have been picked off her, and how many set back aboard, that far through. */
+function moved(w: Work, at: number): { off: number; on: number; landed: number } {
+  if (at >= 1) return { off: w.cranes * w.unload, on: w.reload ? w.cranes * w.unload : 0, landed: w.cranes * w.unload };
+  const { n, phase, mode } = liftAt(w, at);
+  const off = w.cranes * (Math.min(n, w.unload) + (mode === "unload" && phase >= PICKED ? 1 : 0));
+  const landed = w.cranes * (Math.min(n, w.unload) + (mode === "unload" && phase >= SET_DOWN ? 1 : 0));
+  const on = w.reload ? w.cranes * (Math.max(0, n - (w.lifts - w.unload)) + (mode === "load" && phase >= SET_DOWN ? 1 : 0)) : 0;
+  return { off, on, landed };
+}
+
+/** How many boxes are aboard her that far through her call: one fewer as each lift picks one up, one more as each sets one down. */
+export function aboard(w: Work, at: number): number {
+  const m = moved(w, at);
+  return w.cap - m.off + m.on;
+}
+
+/** How many of her boxes have been set down ashore by then. */
+export const landedBy = (w: Work, at: number): number => moved(w, at).landed;
+
 /**
- * How much cargo is aboard a ship `at` of the way through its call, nought
- * to one, in thirds: a third goes as each lift picks it up, and comes as each
- * sets it down — so the ship is seen to empty and fill as the crane works.
+ * The slot the first of her cranes is working on this lift — the box it
+ * takes, or the place it fills; the next crane's is the one before it,
+ * unloading, and after it, loading. −1 on a lift with nothing to do.
  */
-export function cargoAt(fit: string, at: number): number {
-  if (fit === "ferry" || fit === "pontoon") return 1;
-  const { n, phase, loading } = liftAt(fit, at);
-  if (at >= 1) return fit === "crane" || fit === "hardware" ? 0 : 1;
-  const off = loading ? SWAP : n + (phase >= PICKED ? 1 : 0);
-  const on = loading ? n - SWAP + (phase >= SET_DOWN ? 1 : 0) : 0;
-  return (LIFTS - off + on) / LIFTS;
+export function slotAt(w: Work, n: number, mode: "unload" | "load" | "idle"): number {
+  if (mode === "unload") return w.cap - 1 - n * w.cranes;
+  if (mode === "load") return w.cap - w.cranes * w.unload + (n - (w.lifts - w.unload)) * w.cranes;
+  return -1;
 }
 
 /** A call completed: at which port and berth, by what size of ship, come for what fitting. */
@@ -355,14 +385,19 @@ function stepCalls(t: Traffic, f: Fleet, dt: number, sailed: { port: number; cls
         // LANDED, into the yard. @see yard
         castOff(t, b);
       } else if (b.dockFor) {
-        // WORKED BY THE CRANES as the call goes: its cargo off, and for some
-        // back on; what a landing berth takes off goes into the yard as it
-        // comes, not in a lump at the end. @see cargoAt, yard
+        // WORKED BY THE CRANES as the call goes, a box a lift: off her, and
+        // for some back on. What a landing berth takes off goes into the yard
+        // as each box is set down there. @see workOf, yard
         const at = 1 - b.dockLeft! / b.dockFor, fit = b.fit ?? "trade";
-        const was = b.load ?? 1;
-        b.load = cargoAt(fit, at);
-        // A third of its cargo a lift; the call's whole weight over the lifts that land.
-        if (lands(fit) && b.load < was) landCargo(t.yards, port.id, (classOf(cls).dock * classOf(cls).span) / (fit === "gantry" ? SWAP : LIFTS), port.berths.length);
+        const w = b.work;
+        if (w) {
+          b.boxes = aboard(w, at);
+          const landed = landedBy(w, at);
+          if (lands(fit) && landed > (b.landed ?? 0)) {
+            landCargo(t.yards, port.id, ((landed - (b.landed ?? 0)) * classOf(cls).dock * classOf(cls).span) / (w.cranes * w.unload), port.berths.length);
+            b.landed = landed;
+          }
+        }
       }
       continue;
     }
@@ -417,6 +452,8 @@ function stepCalls(t: Traffic, f: Fleet, dt: number, sailed: { port: number; cls
       const slow = lands(b.fit ?? "trade") ? yardSlows(t.yards, port.id, port.berths.length) : 1;
       b.dockLeft = (port.dock * classOf(cls).dock * slow) / t.rush;
       b.dockFor = b.dockLeft;
+      b.work = workOf(lookOf(cls, b.fit, !!b.ai, b.id % 2 === 1), b.fit ?? "trade", classOf(cls).span, b.dockFor) ?? undefined;
+      b.landed = 0;
     }
   }
 }
@@ -532,7 +569,7 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     // COME FOR ONE OF ITS BERTHS, each kind in turn. @see fittings
     const fits = fitsFor(port, cls);
     boat.fit = fits[t.sent % fits.length];
-    boat.load = 1;
+    boat.boxes = cargoOf(lookOf(cls, boat.fit, !!boat.ai, boat.id % 2 === 1))?.slots.length;
     if (t.convoy) boat.convoy = true;
     t.sent++;
     boat.motor = RIVER_MOTOR;
@@ -545,8 +582,16 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
   }
 }
 
-/** A ship being worked at a berth: where it lies and heads, how big it is, the lift its crane is on, and whether it has cargo to work. */
-export type Worked = { x: number; y: number; z: number; heading: number; cls: number; lift: number; phase: number; loading: boolean; cargo: boolean };
+/**
+ * A ship being worked at a berth: which she is and where she lies and heads;
+ * her look and how many boxes are aboard; and, of the crane at this berth,
+ * which lift it is on, how far through it, whether it is loading, whether it
+ * has anything to do, and which of her slots it is working. @see slotAt
+ */
+export type Worked = {
+  id: number; x: number; y: number; z: number; heading: number; cls: number; look: string; boxes: number;
+  lift: number; phase: number; loading: boolean; cargo: boolean; slot: number;
+};
 
 /**
  * How each berth of a port stands, in order along its quay: WORKING with a
@@ -561,9 +606,21 @@ export function portWork(t: Traffic, f: Fleet, port: number, berths: number, fit
   for (const b of f.boats) {
     if (b.route?.[0] !== port || b.berth === undefined || (b.dockLeft ?? 0) <= 0 || !b.dockFor) continue;
     const at = 1 - b.dockLeft! / b.dockFor, fit = b.fit ?? "trade";
-    const lift = liftAt(fit, at);
-    const ship: Worked = { x: b.x, y: b.y, z: b.z, heading: b.heading, cls: b.cls ?? 0, lift: lift.n, phase: lift.phase, loading: lift.loading, cargo: fit !== "ferry" && fit !== "pontoon" };
-    for (let j = 0; j < classOf(b.cls).span; j++) if (out[b.berth + j]) out[b.berth + j] = { state: "working", ship };
+    const look = lookOf(b.cls ?? 0, fit, !!b.ai, b.id % 2 === 1);
+    const lift = b.work ? liftAt(b.work, at) : null;
+    const first = lift && b.work ? slotAt(b.work, lift.n, lift.mode) : -1;
+    for (let j = 0; j < classOf(b.cls).span; j++) {
+      if (!out[b.berth + j]) continue;
+      // Each crane its own box: the one before the first's, unloading; the one after, loading.
+      const slot = first < 0 ? -1 : lift!.mode === "load" ? first + j : first - j;
+      out[b.berth + j] = {
+        state: "working",
+        ship: {
+          id: b.id, x: b.x, y: b.y, z: b.z, heading: b.heading, cls: b.cls ?? 0, look, boxes: b.boxes ?? 0,
+          lift: lift?.n ?? 0, phase: lift?.phase ?? 0, loading: lift?.mode === "load", cargo: slot >= 0, slot,
+        },
+      };
+    }
   }
   return out;
 }

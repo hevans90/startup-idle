@@ -95,24 +95,6 @@ function funnel(x: number, z0: number, h: number, r: number, mat: Mat, out: Tri[
   lathe(x, 0, [[r * 0.92, z0 + h * 0.8], [r * 0.9, z0 + h]], "trim", out, 12);
 }
 
-const CONTAINER: readonly Mat[] = ["liveryAlt", "liveryRed", "liveryGreen", "livery", "roofWhite", "brick"];
-
-/** Containers stacked on a deck from `x0` to `x1`: rows across, tiers up, colours by a sequence of their own. */
-function containers(x0: number, x1: number, half: number, z: number, tiers: number, out: Tri[], seed = 7) {
-  const long = 2.9, wide = 1.15, tall = 1.2;
-  const rows = Math.max(1, Math.floor((half * 2) / wide));
-  let s = seed;
-  const next = () => { s = (Math.imul(s, 1103515245) + 12345) >>> 0; return s >>> 8; };
-  for (let x = x0; x + long <= x1 + 1e-6; x += long + 0.12) {
-    for (let r = 0; r < rows; r++) {
-      const y0 = -((rows * wide) / 2) + r * wide;
-      // The stacks are not all as high: one short of full here and there.
-      const high = tiers - (next() % 4 === 0 ? 1 : 0);
-      for (let t = 0; t < high; t++) box(x, x + long, y0 + 0.03, y0 + wide - 0.03, z + t * tall, z + (t + 1) * tall - 0.03, CONTAINER[next() % CONTAINER.length], out);
-    }
-  }
-}
-
 const shadowOf = (L: number, B: number): PropShadow => ({ hl: L * 0.46, hw: B * 0.42, edge: 0.3, soft: 0.9, strength: 0.2, reach: 0.4 });
 
 function dinghy(): Tri[] {
@@ -131,13 +113,14 @@ function dinghy(): Tri[] {
 function fishing(): Tri[] {
   const { L, B } = sizeOf(0), out: Tri[] = [];
   hull(lines(L, B, 1.0, 0.5), "wood", "paint", out);
+  // The working deck aft, where her catch is stacked, and a net drum.
+  lathe(-0.6, 0, [[0.45, 1.0], [0.45, 1.6]], "iron", out, 10);
+  return out;
+}
+function fishingHouse(): Tri[] {
+  const { B } = sizeOf(0), out: Tri[] = [];
   house(0.6, 2.6, B * 0.3, 1.05, 2.9, out);
   lights(1.6, B * 0.3, 2.3, 1.0, 5.2, out, 2.9);
-  // The working deck aft: fish boxes, a net drum, and a derrick over them.
-  box(-3.4, -2.6, -0.9, -0.1, 1.0, 1.5, "liveryAlt", out);
-  box(-3.4, -2.6, 0.1, 0.9, 1.0, 1.45, "livery", out);
-  box(-2.4, -1.7, -0.5, 0.5, 1.0, 1.4, "load", out);
-  lathe(-0.6, 0, [[0.45, 1.0], [0.45, 1.6]], "iron", out, 10);
   limb([0.5, 0, 2.9], [-3.6, 0, 4.4], 0.07, 0.05, "iron", out, 6, false);
   return out;
 }
@@ -168,15 +151,16 @@ function yacht(): Tri[] {
   return out;
 }
 
-function lighter(load: number): Tri[] {
+function lighter(): Tri[] {
   const { L, B } = sizeOf(0), out: Tri[] = [];
   hull(lines(L, B, 0.8, 0.12, 0.95), "trim", "paint", out);
-  // An open hold with a coaming round it, full or empty; a small wheelhouse aft.
+  // An open hold with a coaming round it. What is in it is put there a crate at a time. @see cargo
   box(-1.9, 3.2, -B * 0.38, B * 0.38, 0.8, 1.05, "iron", out);
   box(-1.75, 3.05, -B * 0.33, B * 0.33, 1.05, 1.07, "interior", out);
-  if (load >= 1) box(-1.6, 0.1, -B * 0.3, B * 0.3, 1.05, 1.9, "load", out);
-  if (load >= 2) { box(0.25, 1.6, -B * 0.3, 0.0, 1.05, 1.75, "brick", out); box(0.25, 1.6, 0.05, B * 0.3, 1.05, 1.6, "liveryAlt", out); }
-  if (load >= 3) box(1.75, 2.9, -B * 0.28, B * 0.28, 1.05, 1.55, "gravel", out);
+  return out;
+}
+function lighterHouse(): Tri[] {
+  const { B } = sizeOf(0), out: Tri[] = [];
   house(-3.9, -2.4, B * 0.28, 0.85, 2.5, out);
   lights(-3.1, B * 0.28, 2.0, -3.1, 4.0, out, 2.5);
   return out;
@@ -192,21 +176,21 @@ function drone(): Tri[] {
   return out;
 }
 
-function coaster(load: number): Tri[] {
+function coaster(): Tri[] {
   const { L, B } = sizeOf(1), out: Tri[] = [];
   hull(lines(L, B, 1.5, 0.3, 0.9), "bed", "roofWhite", out);
-  // A raised fo'c'sle with a mast; a hold amidships under hatch covers, cargo on them when laden; the house and funnel aft.
+  // A raised fo'c'sle with a mast and derrick; a hold amidships under hatch covers, her cargo stacked on them.
   box(L * 0.3, L * 0.44, -B * 0.3, B * 0.3, 1.6, 2.2, "paint", out);
   box(-L * 0.16, L * 0.27, -B * 0.4, B * 0.4, 1.5, 1.85, "iron", out);
   for (let k = 0; k < 3; k++) {
     const x0 = -L * 0.15 + k * L * 0.14;
     box(x0, x0 + L * 0.13, -B * 0.36, B * 0.36, 1.85, 2.0, "liveryGreen", out);
   }
-  if (load >= 1) box(-L * 0.13, -L * 0.02, -B * 0.32, B * 0.32, 2.0, 3.1, "load", out);
-  if (load >= 2) { box(0.0, L * 0.11, -B * 0.32, -0.1, 2.0, 3.2, "liveryAlt", out); box(0.0, L * 0.11, 0.1, B * 0.32, 2.0, 2.9, "brick", out); }
-  if (load >= 3) box(L * 0.13, L * 0.25, -B * 0.3, B * 0.3, 2.0, 2.8, "liveryRed", out);
-  limb([L * 0.28, 0, 1.6], [L * 0.28, 0, 6.0], 0.1, 0.07, "iron", out, 6, false);
-  limb([L * 0.28, 0, 5.4], [L * 0.05, 0, 4.2], 0.07, 0.05, "iron", out, 6, false);
+  limb([L * 0.32, 0, 2.2], [L * 0.32, 0, 6.4], 0.1, 0.07, "iron", out, 6, false);
+  return out;
+}
+function coasterHouse(): Tri[] {
+  const { L, B } = sizeOf(1), out: Tri[] = [];
   house(-L * 0.44, -L * 0.22, B * 0.36, 1.55, 3.6, out);
   house(-L * 0.42, -L * 0.27, B * 0.28, 3.72, 5.5, out);
   funnel(-L * 0.37, 5.62, 1.6, 0.5, "paint", out);
@@ -214,53 +198,53 @@ function coaster(load: number): Tri[] {
   return out;
 }
 
-function containerShip(load: number): Tri[] {
+function containerShip(): Tri[] {
   const { L, B } = sizeOf(2), out: Tri[] = [];
   hull(lines(L, B, 2.3, 0.22, 0.94), "bed", "paint", out);
-  // The bridge aft, tall enough to see over the stacks; a foremast; boxes between, or their empty guides.
+  // A fo'c'sle and a foremast; the guides her boxes sit between. The boxes are put there one at a time. @see cargo
   box(L * 0.36, L * 0.47, -B * 0.28, B * 0.28, 2.4, 3.0, "bed", out);
-  if (load) containers(-L * 0.22, L * 0.34, B * 0.44, 2.3, load, out);
-  else for (let x = -L * 0.2; x < L * 0.34; x += 3.0) for (const s of [1, -1]) limb([x, s * B * 0.4, 2.3], [x, s * B * 0.4, 4.6], 0.07, 0.07, "iron", out, 5, false);
+  for (const x of [-4.2, 1.6, 7.5]) for (const s of [1, -1]) limb([x, s * B * 0.42, 2.3], [x, s * B * 0.42, 3.4], 0.07, 0.07, "iron", out, 5, false);
+  limb([L * 0.42, 0, 3.0], [L * 0.42, 0, 7.5], 0.1, 0.07, "iron", out, 6, false);
+  box(L * 0.42 - 0.13, L * 0.42 + 0.13, -0.13, 0.13, 7.5, 7.74, "lamp", out);
+  return out;
+}
+function containerHouse(): Tri[] {
+  const { L, B } = sizeOf(2), out: Tri[] = [];
+  // The bridge aft, tall enough to see over the stacks.
   house(-L * 0.46, -L * 0.27, B * 0.42, 2.35, 5.0, out);
   house(-L * 0.45, -L * 0.3, B * 0.36, 5.12, 7.4, out);
   house(-L * 0.44, -L * 0.33, B * 0.48, 7.52, 9.2, out);
   funnel(-L * 0.31, 7.52, 2.6, 0.7, "paint", out);
-  limb([L * 0.42, 0, 3.0], [L * 0.42, 0, 7.5], 0.1, 0.07, "iron", out, 6, false);
   lights(-L * 0.38, B * 0.48, 8.4, -L * 0.38, 11.6, out, 9.32);
-  box(L * 0.42 - 0.13, L * 0.42 + 0.13, -0.13, 0.13, 7.5, 7.74, "lamp", out);
   return out;
 }
 
-/** How full a hull that carries cargo is baked: empty, a third, two thirds, full. */
-export const LEVELS = [0, 1, 2, 3] as const;
-
-/** Every look baked, with the class of ship it is. A hull that carries cargo is baked at each of `LEVELS`. */
-export const BOATS: readonly BoatModel[] = [
-  { id: "dinghy", cls: 0, tris: dinghy },
-  { id: "fishing", cls: 0, tris: fishing },
-  { id: "ferry", cls: 0, tris: ferry },
-  { id: "yacht", cls: 0, tris: yacht },
-  ...LEVELS.map((n) => ({ id: `lighter-${n}`, cls: 0, tris: () => lighter(n) })),
-  { id: "drone", cls: 0, tris: drone },
-  ...LEVELS.map((n) => ({ id: `coaster-${n}`, cls: 1, tris: () => coaster(n) })),
-  ...LEVELS.map((n) => ({ id: `container-${n}`, cls: 2, tris: () => containerShip(n) })),
-].map((m) => ({ ...m, shadow: shadowOf(sizeOf(m.cls).L, sizeOf(m.cls).B) }));
+const NO_SHADOW: PropShadow = { hl: 0.1, hw: 0.1, edge: 0.1, soft: 0.1, strength: 0, reach: 0 };
 
 /**
- * Which look a ship is: by its size, what it has come for, and whether it
- * still has its cargo aboard. `odd` varies the plain trading boats.
+ * Every look baked, with the class of ship it is. A hull that carries cargo
+ * is baked bare, and its HOUSE apart as `<look>-house` — so her boxes, drawn
+ * one by one, can go between the two: in front of the house when it is the
+ * further from the camera, and behind it when it is the nearer.
  */
-export function lookOf(cls: number, fit: string | undefined, load: number, ai: boolean, odd: boolean): string {
-  // To the nearest level, and never drawn empty with anything still aboard.
-  const level = load <= 0.02 ? 0 : Math.max(1, Math.min(3, Math.round(load * 3)));
-  if (cls === 2) return `container-${level}`;
-  if (cls === 1) return `coaster-${level}`;
-  if (ai) return "drone";
-  if (fit === "ferry") return "ferry";
-  if (fit === "pontoon") return "yacht";
-  if (fit === "crane" || fit === "hardware") return `lighter-${level}`;
-  return odd ? "fishing" : "dinghy";
-}
+export const BOATS: readonly BoatModel[] = [
+  ...[
+    { id: "dinghy", cls: 0, tris: dinghy },
+    { id: "fishing", cls: 0, tris: fishing },
+    { id: "ferry", cls: 0, tris: ferry },
+    { id: "yacht", cls: 0, tris: yacht },
+    { id: "lighter", cls: 0, tris: lighter },
+    { id: "drone", cls: 0, tris: drone },
+    { id: "coaster", cls: 1, tris: coaster },
+    { id: "container", cls: 2, tris: containerShip },
+  ].map((m) => ({ ...m, shadow: shadowOf(sizeOf(m.cls).L, sizeOf(m.cls).B) })),
+  ...[
+    { id: "fishing-house", cls: 0, tris: fishingHouse },
+    { id: "lighter-house", cls: 0, tris: lighterHouse },
+    { id: "coaster-house", cls: 1, tris: coasterHouse },
+    { id: "container-house", cls: 2, tris: containerHouse },
+  ].map((m) => ({ ...m, shadow: NO_SHADOW })),
+];
 
 /** The liveries a line's hulls are painted in, by a ship's number. */
 export const LIVERIES: readonly number[] = [0xb8463a, 0x2f5f8f, 0x2f7d5b, 0xd9a23a, 0x5d4a8a, 0x30383f, 0xc9603a, 0x1f6f7a];

@@ -72,10 +72,13 @@ export type Boat = {
   /** The kind of berth it has come for, by fitting id. @see fittings */
   fit?: string;
   /**
-   * How much of its cargo is aboard, nought to one; full when absent. Worked
-   * off it, and back onto it, by the cranes while it lies alongside. @see cargoAt
+   * How many boxes of its cargo are aboard; none to show when absent. Worked
+   * off it, and back onto it, by the cranes while it lies alongside. @see cargo
    */
-  load?: number;
+  boxes?: number;
+  /** The work of the call it is making, once tied up; and how many of its boxes have been set down ashore. @see workOf */
+  work?: { cap: number; cranes: number; lifts: number; unload: number; reload: boolean };
+  landed?: number;
   /** How long its call lasts in all, seconds, once tied up. */
   dockFor?: number;
   /** Seconds it has waited off its port for a berth. @see traffic */

@@ -10,7 +10,10 @@ export type BerthState = "free" | "working" | "blocked";
  * heads, how big it is, which lift its crane is on and how far through it,
  * loading or unloading, and whether it has cargo to work. @see liftAt
  */
-export type ShipAt = { x: number; y: number; z: number; heading: number; cls: number; lift: number; phase: number; loading: boolean; cargo: boolean };
+export type ShipAt = {
+  id: number; x: number; y: number; z: number; heading: number; cls: number; look: string; boxes: number;
+  lift: number; phase: number; loading: boolean; cargo: boolean; slot: number;
+};
 export type PortLife = { berths: { state: BerthState; ship?: ShipAt }[]; yard: number; night: number };
 
 let source: ((port: number) => PortLife | null) | null = null;

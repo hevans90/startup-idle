@@ -16,7 +16,7 @@
  * end, first among that band's movers so a boat in the same band draws over
  * it. It is foam drawn on the sheet and nothing more. @see wake
  */
-import { Container, Graphics, Sprite } from "pixi.js";
+import { Container, Graphics, Sprite, Texture } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
@@ -24,7 +24,10 @@ import type { ColumnField } from "../../fluid/columns";
 import { type Boat, type Fleet } from "./fleet";
 import { classOf } from "./classes";
 import { bakedBoats, boatSprites, boatsLoaded, type BoatSprites } from "./boat-sheet";
-import { AI_HULL as AI_LIVERY, CONVOY_HULL, LIVERIES, YACHT_HULLS, lookOf } from "./models";
+import { AI_HULL as AI_LIVERY, CONVOY_HULL, LIVERIES, YACHT_HULLS } from "./models";
+import { cargoOf, lookOf, slotTint } from "./cargo";
+import { HALF_STEPS_PER_M, TILES_PER_M } from "../agents/cars/models";
+import { cranesLoaded, craneSprites, framePiece, makePiece, type Piece } from "../structures/cranes/crane-sheet";
 import { createWake, stepWake, wakeMarks, type WakeMark } from "./wake";
 
 /** How far the gunwale stands over the water, in half steps. */
@@ -64,42 +67,85 @@ export type BoatLayer = {
 
 export function createBoatLayer(bands: BandLayer): BoatLayer {
   const drawn = new Map<number, { g: Graphics; band: number }>();
-  // THE BAKED FLEET, once its sheet is in: a container a boat, of its paint,
-  // its trim and its lights. Until then, and with `?boats=drawn`, the drawn boat.
-  type Baked = { c: Container; parts: Sprite[]; band: number; look: string; frame: number; lit: number };
+  // THE BAKED FLEET, once its sheet is in: a container a boat. Until then,
+  // and with `?boats=drawn`, the drawn boat.
+  //
+  // A SHIP WITH CARGO is drawn in this order: her hull; her house, if it is
+  // the further from the camera; her boxes, one sprite each, far to near; her
+  // house again, if it is the nearer. There are two houses and only one is
+  // seen, and the boxes' sprites never change order — each is given whichever
+  // box is next furthest — so nothing is reordered as she turns or is worked.
+  type Group = { sp: Sprite[]; look: string; frame: number };
+  type Baked = {
+    c: Container; hull: Group; back: Group; front: Group; boxes: Piece[];
+    band: number; lit: number; shown: string;
+  };
   const baked = new Map<number, Baked>();
-  if (bakedBoats()) void boatSprites();
+  if (bakedBoats()) { void boatSprites(); void craneSprites(); }
   /** The colours a hull's lights are lit in, in the marks' order: windows and white lights, port, starboard. */
   const LIGHTS = [0xffe2a8, 0xff4a3a, 0x4dff8a];
+  const group = (P: BoatSprites, c: Container, tint: number): Group => ({
+    look: "", frame: -1,
+    sp: Array.from({ length: P.layers + P.marks }, (_, k) => {
+      const sp = new Sprite();
+      if (k === 0) sp.tint = tint;
+      if (k >= P.layers) { sp.blendMode = "add"; sp.tint = LIGHTS[k - P.layers] ?? 0xffffff; sp.alpha = 0; }
+      c.addChild(sp);
+      return sp;
+    }),
+  });
+  const turn = (P: BoatSprites, g: Group, look: string, frame: number) => {
+    if (g.look === look && g.frame === frame) return;
+    const f = P.boats.get(look)?.[frame];
+    g.sp.forEach((sp, k) => { sp.texture = f ? f.tex[k] : Texture.EMPTY; if (f) sp.anchor.set(f.anchor[k].x, f.anchor[k].y); });
+    g.look = look; g.frame = frame;
+  };
   const drawBaked = (P: BoatSprites, b: Boat, s: number, night: number) => {
     const cls = classOf(b.cls);
-    const look = lookOf(b.cls ?? 0, b.fit, b.load ?? 1, !!b.ai, b.id % 2 === 1);
-    const frames = P.boats.get(look);
-    if (!frames) return;
+    const look = lookOf(b.cls ?? 0, b.fit, !!b.ai, b.id % 2 === 1);
+    if (!P.boats.has(look)) return;
+    const cargo = cargoOf(look), CP = cranesLoaded();
     const step = (Math.PI * 2) / P.headings;
     const frame = ((Math.round(b.heading / step) % P.headings) + P.headings) % P.headings;
     let d = baked.get(b.id);
     if (!d) {
       const c = new Container();
       c.eventMode = "none";
-      const parts = Array.from({ length: P.layers + P.marks }, (_, k) => {
-        const sp = new Sprite();
-        if (k >= P.layers) { sp.blendMode = "add"; sp.tint = LIGHTS[k - P.layers] ?? 0xffffff; sp.alpha = 0; }
-        c.addChild(sp);
-        return sp;
-      });
-      parts[0].tint = b.ai ? AI_LIVERY : b.convoy ? CONVOY_HULL : look === "yacht" ? YACHT_HULLS[b.id % YACHT_HULLS.length] : LIVERIES[b.id % LIVERIES.length];
-      d = { c, parts, band: -1, look: "", frame: -1, lit: -1 };
+      const tint = b.ai ? AI_LIVERY : b.convoy ? CONVOY_HULL : look === "yacht" ? YACHT_HULLS[b.id % YACHT_HULLS.length] : LIVERIES[b.id % LIVERIES.length];
+      const hull = group(P, c, tint), back = group(P, c, tint);
+      // One sprite a slot, in the order they are drawn; which box each shows is settled as she turns.
+      const boxes = cargo && CP ? cargo.slots.map(() => { const pc = makePiece(CP, c, cargo.kind, 0, 0xffffff, 1); pc.c.scale.set(P.res / CP.res); pc.c.alpha = 0; return pc; }) : [];
+      d = { c, hull, back, front: group(P, c, tint), boxes, band: -1, lit: -1, shown: "" };
       baked.set(b.id, d);
     }
-    if (d.look !== look || d.frame !== frame) {
-      const f = frames[frame];
-      d.parts.forEach((sp, k) => { sp.texture = f.tex[k]; sp.anchor.set(f.anchor[k].x, f.anchor[k].y); });
-      d.look = look; d.frame = frame;
+    turn(P, d.hull, look, frame);
+    // HER HOUSE, behind her boxes or in front of them: whichever of the two is nearer the camera as she heads.
+    const h0 = frame * step, ch0 = Math.cos(h0), sh0 = Math.sin(h0);
+    const houseNear = !!cargo && cargo.house * (ch0 + sh0) > 0;
+    turn(P, d.back, cargo && !houseNear ? `${look}-house` : "", frame);
+    turn(P, d.front, cargo && houseNear ? `${look}-house` : "", frame);
+    // HER BOXES: those aboard, the furthest from the camera on the first sprite.
+    const n = Math.max(0, Math.min(d.boxes.length, b.boxes ?? 0));
+    const shown = `${frame}|${n}`;
+    if (cargo && CP && d.boxes.length && shown !== d.shown) {
+      const tall = cargo.kind === "box" ? 2.2 : 1.3;
+      const at = cargo.slots.slice(0, n).map((sl, k) => {
+        const u = (sl.x * ch0 - sl.y * sh0) * TILES_PER_M, v = (sl.x * sh0 + sl.y * ch0) * TILES_PER_M;
+        return { k, u, v, z: sl.z * HALF_STEPS_PER_M, key: u + v + sl.z / (tall * 40) };
+      }).sort((p, q) => p.key - q.key);
+      d.boxes.forEach((pc, i) => {
+        const a = at[i];
+        if (!a) { pc.c.alpha = 0; return; }
+        framePiece(CP, pc, frame);
+        pc.sp[0].tint = slotTint(cargo.kind, b.id, a.k);
+        pc.c.position.set((a.u - a.v) * HW * P.res, ((a.u + a.v) * HH - a.z * HEIGHT_UNIT) * P.res);
+        pc.c.alpha = 1;
+      });
+      d.shown = shown;
     }
     // LIT as it gets dark; by alpha, never by showing and hiding. @see render-group-rebuilds
     const lit = Math.round(Math.min(1, Math.max(0, (night - 0.35) / 0.3)) * 20) / 20;
-    if (lit !== d.lit) { for (let k = P.layers; k < d.parts.length; k++) d.parts[k].alpha = lit; d.lit = lit; }
+    if (lit !== d.lit) { for (const g of [d.hull, d.back, d.front]) for (let k = P.layers; k < g.sp.length; k++) g.sp[k].alpha = lit; d.lit = lit; }
     d.c.scale.set(s / P.res);
     d.c.position.set((b.x - b.y) * HW * s, (b.x + b.y) * HH * s - b.z * HEIGHT_UNIT * s);
     // A little of the water's roll, as a lean.

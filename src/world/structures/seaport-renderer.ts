@@ -28,7 +28,7 @@ import { Container, Graphics, Matrix, Sprite } from "pixi.js";
 import { NEIGHBOUR } from "../../iso/dir";
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { fitOf, type FitId } from "../boats/fittings";
-import { lands } from "../boats/yard";
+import { BOX_TINTS, CRATE_TINTS, cargoOf, slotTint } from "../boats/cargo";
 import { idx, inBounds, type Structure } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { portLife, type BerthState } from "./port-life";
@@ -41,7 +41,6 @@ const PLANK = 0x8b6a45;
 const WALL = 0xd2b48c, WALL_SHADE = 0xae9068, ROOF = 0xb5523b, ROOF_SHADE = 0x8e3d2b, DOOR = 0x5a3d22;
 const IRON = 0x33373c, FENDER = 0x1d1f22, TIMBER = 0x9a7446, TIMBER_SHADE = 0x6f5231;
 const TOWER = 0xe8e2d2, TOWER_SHADE = 0xb9b2a0, GLASS = 0x29384a;
-const BOXES = [0x3f6e9c, 0xb8463a, 0x2f7d5b, 0xd9a23a, 0xc9c4b8, 0x9c6b3a];
 const BOX_SHADE = 0.72;
 const ROPE = 0x2b2b2b;
 const LAMP: Record<BerthState, number> = { free: 0x5dff8a, working: 0xffc247, blocked: 0xff5a4a };
@@ -107,7 +106,7 @@ function frame(s: Structure, ctx: RenderCtx) {
 }
 
 /** Draw column `c` of a port — one tile of its quay, across its whole depth — with its yard `fill` full. */
-function draw(G: Statics, s: Structure, ctx: RenderCtx, c: number, fill: number): void {
+function draw(G: Statics, s: Structure, ctx: RenderCtx, c: number): void {
   // What is drawn goes to `g`: the bay's ground first, then its stacks and its gear each on their own. @see Statics
   let g = G.base;
   G.stacks.clear();
@@ -188,34 +187,12 @@ function draw(G: Statics, s: Structure, ctx: RenderCtx, c: number, fill: number)
   // A YARD: planking; what has been landed, stacked at the back; and what its berth is fitted with.
   const fit: FitId = fitOf(s, berthOf(c)).id;
   for (let k = 1; k < 8; k++) line(Q(a0 + 0.05, (depth * k) / 8, QUAY), Q(a1 - 0.05, (depth * k) / 8, QUAY), PLANK, 1.1, 0.55);
-  /** A box of cargo, coloured by where it stands. */
-  const cargo = (a: number, d: number, tier: number, n: number, w = 0.3, l = 0.42, h = 0.9) => {
-    const col = BOXES[(c * 7 + n * 5 + tier * 2) % BOXES.length];
-    box(a, d, a + w, d + l, QUAY + tier * h, QUAY + (tier + 1) * h - 0.04, col, col, shade(col));
-  };
-  // THE STACKS: as high as the yard is full, so the port's state reads from across the map.
-  const stacks = () => {
-    if (!lands(fit)) { cargo(a0 + 0.12, 0.2, 0, 0); cargo(a0 + 0.5, 0.2, 0, 1); cargo(a0 + 0.3, 0.24, 1, 2); return; }
-    const boxes = Math.round(fill * 12);
-    // Far stacks first, so the near ones draw over them.
-    const spots = [[0.1, 0.12], [0.55, 0.12], [0.1, 0.62], [0.55, 0.62]];
-    if (away) spots.reverse();
-    spots.forEach(([a, d], k) => { for (let t = 0; t * 4 + k < boxes && t < 3; t++) cargo(a0 + a, d, t, k + t); });
-  };
+  // What is stacked on a yard is not drawn here: it is boxes, each its own. @see Yard
+  const stacks = () => {};
   if (kinds[c] === "stack") {
     // A BAY OF THE CONTAINER YARD: lanes painted on the quay, and rows of
     // boxes lying along it — a tier always there, more as the yard fills.
     for (const d of [0.14, depth - 0.42]) line(Q(a0 + 0.04, d, QUAY + 0.01), Q(a1 - 0.04, d, QUAY + 0.01), 0xf2d24a, 0.9, 0.8);
-    const rows: number[] = [];
-    for (let d = 0.22; d + 0.22 <= depth - 0.5; d += 0.27) rows.push(d);
-    if (away) rows.reverse();
-    rows.forEach((d, k) => {
-      for (const a of away ? [0.54, 0.07] : [0.07, 0.54]) {
-        const n = k * 2 + (a > 0.3 ? 1 : 0);
-        const tiers = 1 + Math.min(2, Math.floor(fill * 3 + ((n * 7 + s.id) % 5) / 5));
-        for (let t = 0; t < tiers; t++) cargo(a0 + a, d, t, n + t * 3, 0.39, 0.2, 0.95);
-      }
-    });
     // THE GATE at its back: two posts, and a striped bar across.
     box(a0 + 0.02, 0, a0 + 0.08, 0.06, QUAY, QUAY + 1.2, IRON, IRON, FENDER);
     box(a0 + 0.92, 0, a0 + 0.98, 0.06, QUAY, QUAY + 1.2, IRON, IRON, FENDER);
@@ -283,6 +260,23 @@ const SLOTS = {
   away: ["loadC", "base", "edge", "gear", "jib", "loadB", "front", "top", "stacks", "loadA"],
 } as const;
 
+/**
+ * WHAT STANDS ON A YARD, box by box: every place one can stand, a sprite
+ * there already, and how many are there now. The places are in the order
+ * they are drawn — a stack at a time, far from the camera to near, each from
+ * the ground up — and each has its turn to be FILLED: a tier at a time across
+ * the yard. A box set down by a crane keeps the colour it came with.
+ */
+type Yard = {
+  kind: "box" | "crate";
+  at: { a: number; d: number; z: number; turn: number }[];
+  pieces: Piece[];
+  tints: number[];
+  /** How many stand there whatever the yard holds, and how many are showing. */
+  base: number;
+  shown: number;
+};
+
 /** What hangs from a crane, once for each place it can be: its ropes, what is on the hook, and the hook or spreader. */
 type Load = { ropes: Graphics[]; hook: Graphics | null; spreader: Piece | null; box: Piece; crate: Piece };
 
@@ -306,6 +300,12 @@ type Rig = {
   pivot: number;
   /** Its baked parts. @see crane-sheet */
   pieces: Record<string, Piece>;
+  /** What stands on its yard, if it lands things there. */
+  yard: Yard | null;
+  /** What it last had on its hook, and whether it had it a frame ago. */
+  what: "box" | "crate";
+  had: boolean;
+  tint: number;
   /** A gantry's boom: how far raised, radians; and how long its berth has been empty. */
   boom: number;
   idle: number;
@@ -335,6 +335,7 @@ type Rig = {
 type SeaportHandle = StructureHandle & {
   columns: Graphics[];
   statics: Statics[];
+  yards: Yard[];
   rigs: Rig[];
   nodes: Container[];
   beacon: Graphics | null;
@@ -355,7 +356,7 @@ const fitsKey = (s: Structure, fill: number) => `${(s.fit ?? []).join(",")}|${Ma
 /** Draw the static picture, for the yard as it stands. */
 function redraw(h: SeaportHandle, s: Structure, ctx: RenderCtx): void {
   const fill = portLife(s.id)?.yard ?? 0;
-  h.statics.forEach((g, c) => draw(g, s, ctx, c, fill));
+  h.statics.forEach((g, c) => draw(g, s, ctx, c));
   h.drawnFor = fitsKey(s, fill);
 }
 
@@ -380,7 +381,7 @@ function lay(g: Graphics, a: readonly [number, number], b: readonly [number, num
 }
 
 function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
-  const columns: Graphics[] = [], statics: Statics[] = [], rigs: Rig[] = [], nodes: Container[] = [];
+  const columns: Graphics[] = [], statics: Statics[] = [], rigs: Rig[] = [], nodes: Container[] = [], yards: Yard[] = [];
   const f = frame(s, ctx), sc = f.sc;
   // Which of the four ways the quay faces, as the cranes' parts are baked. @see FACING_HEADINGS
   const fi = FACING_INDEX[s.facing ?? "W"];
@@ -417,6 +418,35 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
       flood.position.set(...f.Q(c + 1 - 0.08, 0.08, QUAY + 7));
       flood.alpha = 0;
     }
+    /**
+     * A yard of boxes on this bay: a stack at each of `as` along the quay by
+     * `ds` out from the back, `tiers` high, `base` of them always there.
+     */
+    const yardOf = (kind: "box" | "crate", as: readonly number[], ds: readonly number[], tiers: number, base: number): Yard | null => {
+      const CP0 = cranesLoaded();
+      if (!CP0) return null;
+      const tall = (kind === "box" ? BOX.tall : CRATE.tall) / M_STEP + 0.02;
+      const spots = as.flatMap((a) => ds.map((d) => ({ a: c + a, d })));
+      // The order they are filled in: a tier at a time. And drawn in: a stack at a time, the furthest first.
+      const turnOf = new Map(spots.map((sp, k) => [sp, k]));
+      const depthOf = (sp: { a: number; d: number }) => { const [u, v] = f.L(sp.a, sp.d); return u + v; };
+      const at = [...spots].sort((p, q) => depthOf(p) - depthOf(q))
+        .flatMap((sp) => Array.from({ length: tiers }, (_, t) => ({ ...sp, z: QUAY + t * tall, turn: t * spots.length + turnOf.get(sp)! })));
+      const list = kind === "box" ? BOX_TINTS : CRATE_TINTS;
+      const tints = at.map((_, k) => list[(k * 5 + c * 3 + s.id) % list.length]);
+      const made = at.map((p) => {
+        const pc = makePiece(CP0, slot.stacks, kind, (fi * 8 + 8) % TURNS, tints[p.turn], sc);
+        nodes.push(pc.c);
+        pc.c.position.set(...f.Q(p.a, p.d, p.z));
+        pc.c.alpha = p.turn < base ? 1 : 0;
+        return pc;
+      });
+      const y: Yard = { kind, at, pieces: made, tints, base, shown: base };
+      yards.push(y);
+      return y;
+    };
+    // A BAY OF THE CONTAINER YARD: rows of boxes lying along the quay, a tier always there.
+    if (f.kinds[c] === "stack") yardOf("box", [0.27, 0.73], Array.from({ length: Math.floor((f.depth - 0.55) / 0.24) }, (_, k) => 0.2 + k * 0.24), 3, 2 * Math.floor((f.depth - 0.55) / 0.24));
     if (f.kinds[c] !== "yard") continue;
     const fit = fitOf(s, f.berthOf(c)).id;
     const CP = cranesLoaded();
@@ -466,6 +496,11 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
     lamp.position.set(...f.Q(c + 0.5, f.depth - 0.03, QUAY + 0.75));
     const rig: Rig = {
       c, berth: f.berthOf(c), kind, T, pieces, boom: BOOM_UP, idle: BOOM_WAITS,
+      // What it lands stands behind it: containers behind a gantry, crates behind a crane; a few crates always by a trading quay.
+      yard: fit === "gantry" ? yardOf("box", [0.27, 0.73], [0.42, 0.66, 0.9], 3, 0)
+        : fit === "crane" || fit === "hardware" ? yardOf("crate", [0.22, 0.5, 0.78], [0.22, 0.42, 0.62, 0.82], 2, 0)
+          : fit === "trade" ? yardOf("crate", [0.25, 0.5], [0.3, 0.5], 2, 3) : null,
+      what: fit === "gantry" ? "box" : "crate", had: false, tint: 0xffffff,
       reach: T ? (T.foot[0] + T.jib * 0.98) / M_TILE : 0,
       pivot: T ? f.depth - (fit === "trade" ? PIVOT.harbour : PIVOT.luffing) : f.depth - 1.2,
       lamp, bars, parts, loads, hand: [], handKey: "", state: "",
@@ -492,7 +527,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
     rigs.push(rig);
   }
   const h: SeaportHandle = {
-    columns, statics, rigs, nodes, beacon, flood, drawnFor: "", t: 0, pending: real && !cranesLoaded(),
+    columns, statics, yards, rigs, nodes, beacon, flood, drawnFor: "", t: 0, pending: real && !cranesLoaded(),
     // What was made last first: a slot after everything in it.
     destroy: () => { for (const n of [...nodes].reverse()) { n.parent?.removeChild(n); n.destroy({ children: true }); } },
   };
@@ -540,6 +575,13 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
   const night = life?.night ?? 0;
   if (h.beacon) h.beacon.alpha = 0.35 + 0.65 * (Math.sin(h.t * 3) > 0.6 ? 1 : 0.15) * (0.4 + 0.6 * night);
   if (h.flood) h.flood.alpha = Math.min(1, Math.max(0, (night - 0.3) / 0.3));
+  // WHAT STANDS ON EACH YARD, as full as the port's yard is: shown and hidden by alpha, a box at a time.
+  for (const y of h.yards) {
+    const want = y.base + Math.round((life?.yard ?? 0) * (y.at.length - y.base));
+    if (want === y.shown) continue;
+    y.at.forEach((p, k) => { y.pieces[k].c.alpha = p.turn < want ? 1 : 0; if (p.turn >= y.shown && p.turn < want) y.pieces[k].sp[0].tint = y.tints[p.turn]; });
+    y.shown = want;
+  }
   const P = peopleLoaded();
   const ground = inBounds(ctx.grid, s.x, s.y) ? ctx.grid.height[idx(ctx.grid, s.x, s.y)] : 0;
   const [fx, fy] = NEIGHBOUR[s.facing ?? "W"];
@@ -601,27 +643,37 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
     for (const pc of Object.values(r.pieces)) lightPiece(CP, pc, lit);
     const lifting = !!ship?.cargo;
     const p = lifting ? ship!.phase : PARKED;
-    const lift = lifting ? ship!.lift : Math.max(0, r.lift);
-    // What she carries: a boat, crates; anything bigger, containers. A gantry lifts only containers.
-    const what: "box" | "crate" = r.kind === "gantry" || (ship ? ship.cls > 0 : false) ? "box" : "crate";
+    // WHAT SHE CARRIES, and the very box this crane is on: the slot on her
+    // deck it takes one from, or sets one in. Each by its floor. @see slotAt
+    const cargo = ship ? cargoOf(ship.look) : null;
+    if (lifting && cargo) r.what = cargo.kind;
+    const what = r.what;
     const tall = (what === "box" ? BOX.tall : CRATE.tall) / M_STEP;
-    // WHERE THE CARGO IS ABOARD: another hold each lift, along her from stern to bow. Each by its floor.
-    const [sa, sd] = ship ? local(ship.x, ship.y) : [r.c + 0.5, f.depth + 0.5];
-    const hold = ship ? ([-0.2, 0.06, 0.24][lift % 3]) * ([0.84, 1.5, 2.4][ship.cls] ?? 1) * (Math.cos(ship.heading) * (f.alongU ? 1 : 0) + Math.sin(ship.heading) * (f.alongU ? 0 : 1) >= 0 ? 1 : -1) : 0;
-    const deck = { a: sa + hold, d: sd, z: ship ? ship.z - ground + DECK[ship.cls] : 0.6 };
-    // AND ASHORE: another stack each lift, as high as the yard stands.
-    const spot = [[0.28, 0.34], [0.72, 0.34], [0.28, 0.84], [0.72, 0.84]][lift % 4];
-    const yard = { a: r.c + spot[0], d: spot[1], z: QUAY + 0.95 * Math.round(2.6 * (life?.yard ?? 0)) };
+    const sl = lifting && cargo ? cargo.slots[ship!.slot] : null;
+    const ch = ship ? Math.cos(ship.heading) : 1, sh = ship ? Math.sin(ship.heading) : 0;
+    const [sa, sd] = ship
+      ? local(ship.x + ((sl?.x ?? 0) * ch - (sl?.y ?? 0) * sh) / M_TILE, ship.y + ((sl?.x ?? 0) * sh + (sl?.y ?? 0) * ch) / M_TILE)
+      : [r.c + 0.5, f.depth + 0.5];
+    const deck = { a: sa, d: sd, z: ship ? ship.z - ground + (sl ? sl.z / M_STEP : DECK[ship.cls]) : 0.6 };
+    // AND ASHORE: the next place free on the yard behind it, to set one down;
+    // the last one filled, to take one up.
+    const ya = r.yard;
+    const turn = ya ? Math.max(0, Math.min(ya.at.length - 1, lifting && ship!.loading ? ya.shown - 1 : ya.shown)) : 0;
+    const place = ya?.at.find((q) => q.turn === turn);
+    const yard = place ? { a: place.a, d: place.d, z: place.z } : { a: r.c + 0.5, d: 0.5, z: QUAY };
     const [from, to] = lifting && ship!.loading ? [yard, deck] : [deck, yard];
     const across = ease(span(p, 0.3, 0.55)) - ease(span(p, 0.88, 1));
     const downFrom = ease(span(p, 0, 0.15)) - ease(span(p, 0.15, 0.3));
     const downTo = ease(span(p, 0.55, 0.7)) - ease(span(p, 0.7, 0.86));
     const carried = lifting && p >= 0.15 && p < 0.7;
-    if (carried && r.lift !== lift) {
-      const tint = what === "box" ? BOXES[(lift * 5 + r.c * 3 + s.id) % BOXES.length] : 0xc9a26b;
-      for (const l of r.loads) (what === "box" ? l.box : l.crate).sp[0].tint = tint;
-      r.lift = lift;
+    if (carried && !r.had) {
+      // The box's own colour, as it was on her deck — or will be.
+      r.tint = slotTint(what, ship!.id, ship!.slot);
+      for (const l of r.loads) (what === "box" ? l.box : l.crate).sp[0].tint = r.tint;
     }
+    // SET DOWN ASHORE: the place it went keeps its colour, for when the yard shows it there.
+    if (!carried && r.had && ya && !(ship?.loading) && ya.kind === what) ya.tints[turn] = r.tint;
+    r.had = carried;
     const mid = r.c + 0.5;
     /**
      * Put the load where the hook is, in the one of its three places that is

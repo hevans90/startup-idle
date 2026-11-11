@@ -12,7 +12,8 @@ import { mapRiver, poolDepthOf } from "./river";
 import {
   MATERIALS_OFF, TRADE_A_CALL, TRADE_LASTS, creditTrade, ferrySpeed, hardwareMult, materialsMult, resetTrade, stepTrade, tradeLevel, yachtValuation,
 } from "./trade";
-import { berthsFor, cargoAt, createTraffic, fitsFor, liftAt, portsOf, stepTraffic, trafficSteer, type Call } from "./traffic";
+import { aboard, berthsFor, createTraffic, fitsFor, landedBy, liftAt, portsOf, slotAt, stepTraffic, trafficSteer, workOf, type Call } from "./traffic";
+import { cargoOf } from "./cargo";
 
 function river(depth: number, w = 40): Grid {
   const g = createGrid(w, 18, 1);
@@ -90,32 +91,39 @@ describe("a berth's fitting", () => {
   });
 });
 
-describe("a ship's cargo, worked by the cranes", () => {
-  test("a crane berth empties her a third a lift, as each lift picks it up", () => {
-    expect(cargoAt("crane", 0)).toBe(1);
-    expect(cargoAt("crane", 0.04)).toBe(1);
-    expect(cargoAt("crane", 0.1)).toBeCloseTo(2 / 3, 6);
-    expect(cargoAt("crane", 0.5)).toBeCloseTo(1 / 3, 6);
-    expect(cargoAt("crane", 0.9)).toBe(0);
-    expect(cargoAt("crane", 1)).toBe(0);
-    expect(liftAt("crane", 0.5)).toMatchObject({ n: 1, loading: false });
+describe("a ship's cargo, worked by the cranes a box at a time", () => {
+  test("a call's work is settled by its length: so many lifts, and at a crane berth every one lands a box", () => {
+    const w = workOf("lighter", "crane", 1, 20)!;
+    expect(w).toMatchObject({ cap: 4, cranes: 1, lifts: 4, unload: 4, reload: false });
+    expect(aboard(w, 0)).toBe(4);
+    // One fewer as each lift picks one up; ashore as each is set down.
+    expect(aboard(w, 0.02)).toBe(4);
+    expect(aboard(w, 0.05)).toBe(3);
+    expect(landedBy(w, 0.05)).toBe(0);
+    expect(landedBy(w, 0.2)).toBe(1);
+    expect(aboard(w, 1)).toBe(0);
+    expect(landedBy(w, 1)).toBe(4);
+    // The top box first.
+    expect(slotAt(w, 0, "unload")).toBe(3);
+    expect(slotAt(w, 3, "unload")).toBe(0);
   });
 
-  test("a trading quay and a gantry take most off and put it back, so she sails full", () => {
-    for (const fit of ["trade", "gantry"]) {
-      expect(cargoAt(fit, 0)).toBe(1);
-      expect(cargoAt(fit, 0.45)).toBeCloseTo(1 / 3, 6);
-      expect(liftAt(fit, 0.45).loading).toBe(false);
-      expect(liftAt(fit, 0.55).loading).toBe(true);
-      // Back aboard as each lift sets it down.
-      expect(cargoAt(fit, 0.55)).toBeCloseTo(1 / 3, 6);
-      expect(cargoAt(fit, 0.72)).toBeCloseTo(2 / 3, 6);
-      expect(cargoAt(fit, 1)).toBe(1);
-    }
+  test("at a gantry two cranes take boxes off and put as many back, so she sails as full as she came", () => {
+    const w = workOf("container", "gantry", 2, 30)!;
+    expect(w).toMatchObject({ cap: 12, cranes: 2, lifts: 8, unload: 4, reload: true });
+    expect(aboard(w, 0.49)).toBe(4);
+    expect(liftAt(w, 0.3).mode).toBe("unload");
+    expect(liftAt(w, 0.7).mode).toBe("load");
+    expect(aboard(w, 1)).toBe(12);
+    // The second crane's box is the one before the first's, coming off; and the one after, going on.
+    expect(slotAt(w, 0, "unload")).toBe(11);
+    expect(slotAt(w, 4, "load")).toBe(4);
   });
 
-  test("a ferry and a yacht have none to work", () => {
-    expect([cargoAt("ferry", 0.5), cargoAt("pontoon", 0.5)]).toEqual([1, 1]);
+  test("a ferry and a yacht have none to work, nor has a look with no slots", () => {
+    expect(workOf("ferry", "ferry", 1, 20)).toBeNull();
+    expect(workOf("dinghy", "trade", 1, 20)).toBeNull();
+    expect(cargoOf("coaster")!.slots).toHaveLength(12);
   });
 });
 

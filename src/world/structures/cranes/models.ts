@@ -105,7 +105,7 @@ function bogie(x: number, y: number, out: Tri[], half = 1.2) {
 export const STS = {
   water: -1.4, land: -10.6, half: 3.3, top: 21.5,
   hinge: [-0.4, 0, 22.4] as V3, apex: [-3.4, 0, 30.5] as V3,
-  boom: 15.5, back: -16.5, rail: 22.0,
+  boom: 15.5, back: -19, rail: 22.0,
 } as const;
 
 /** One side frame, at `y`: two legs on their bogies, a sill, a portal beam, bracing, a ladder and landings. */
