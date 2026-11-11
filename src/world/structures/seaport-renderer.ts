@@ -23,7 +23,7 @@
  * and faded each frame — nothing is shown, hidden, reparented or redrawn
  * while a port works, so no draw list is rebuilt. @see render-group-rebuilds
  */
-import { Container, Graphics, Sprite } from "pixi.js";
+import { Container, Graphics, Matrix, Sprite } from "pixi.js";
 
 import { NEIGHBOUR } from "../../iso/dir";
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
@@ -32,14 +32,13 @@ import { lands } from "../boats/yard";
 import { idx, inBounds, type Structure } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { portLife, type BerthState } from "./port-life";
+import { cranesLoaded, craneSprites, framePiece, lightPiece, makePiece, type Piece } from "./cranes/crane-sheet";
+import { BOX, CRATE, HARBOUR, LUFFING, M_STEP, M_TILE, STS, TURNS, type Turning } from "./cranes/models";
 import { registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
 
 const STONE = 0xa29d93, STONE_SIDE = 0x7d786f, STONE_SHADE = 0x625e57;
 const PLANK = 0x8b6a45;
 const WALL = 0xd2b48c, WALL_SHADE = 0xae9068, ROOF = 0xb5523b, ROOF_SHADE = 0x8e3d2b, DOOR = 0x5a3d22;
-const CRANE = 0xe0b030, CRANE_SHADE = 0xa98220;
-const GANTRY = 0x2f6ea8, GANTRY_SHADE = 0x1f4c78;
-const STEEL = 0x8a8f98, STEEL_SHADE = 0x5d626a;
 const IRON = 0x33373c, FENDER = 0x1d1f22, TIMBER = 0x9a7446, TIMBER_SHADE = 0x6f5231;
 const TOWER = 0xe8e2d2, TOWER_SHADE = 0xb9b2a0, GLASS = 0x29384a;
 const BOXES = [0x3f6e9c, 0xb8463a, 0x2f7d5b, 0xd9a23a, 0xc9c4b8, 0x9c6b3a];
@@ -48,28 +47,23 @@ const ROPE = 0x2b2b2b;
 const LAMP: Record<BerthState, number> = { free: 0x5dff8a, working: 0xffc247, blocked: 0xff5a4a };
 
 /** Heights, in half steps over the ground. */
-const QUAY = 0.6, WALLS = 3, RIDGE = 4.6, MAST = 6.5;
-/** A gantry's boom over the quay, half steps, and how far out over the water it reaches, tiles. */
-const BOOM_Z = 9.5, REACH = 0.95;
+const QUAY = 0.6, WALLS = 3, RIDGE = 4.6;
+/** How far back from the quay's edge a turning crane's mast stands, tiles, by what it is. */
+const PIVOT = { harbour: 0.45, luffing: 0.5 } as const;
+/** What a crane's steelwork is painted, by the fitting it serves. */
+const PAINT: Record<string, number> = { gantry: 0x2f6ea8, crane: 0xe3ac1f, hardware: 0x8f959e, trade: 0xc9562c };
+/** How far a gantry's boom is raised with no ship under it, radians; and seconds a berth is empty before it goes up. */
+const BOOM_UP = 1.2;
+const BOOM_WAITS = 4;
 /**
- * A crane that TURNS, by the fitting it serves: how high its jib is, half
- * steps; how long the jib and its tail, tiles; and how big the crate it lifts.
+ * How far a gantry runs either way along its rails, tiles: with its width,
+ * inside its own tile of quay, so it never runs over the bay beside it or off
+ * the end of the port.
  */
-const GEAR = {
-  trade: { z: MAST, jib: 1.2, tail: 0, crate: [0.16, 0.16, 0.5] },
-  crane: { z: 7.4, jib: 1.5, tail: 0.38, crate: [0.24, 0.24, 0.8] },
-} as const;
-/** How many half steps a luffing jib's tip rises for each tile it is drawn in. */
-const LUFF = 3.4;
-/** How far back from the quay's edge each one's mast stands, tiles. */
-const PIVOT = { trade: 0.8, crane: 0.5 } as const;
-/**
- * How wide a gantry's portal is along the quay, and how far it runs either
- * way along its rails, tiles: together inside its own tile of quay, so it
- * never runs over the bay beside it or off the end of the port.
- */
-const PORTAL = 0.6;
-const TRAVEL = (1 - PORTAL) / 2 - 0.04;
+const TRAVEL = 0.5 - STS.half / M_TILE - 0.04;
+/** How far under a spreader's top a container's floor hangs, and under a hook a crate's or a container's, metres. */
+const UNDER_SPREADER = 0.95;
+const SLINGS = 0.7;
 /** A mooring rope: its colour, and how many short lengths its curve is laid in. */
 const HEMP = 0xd8c79a, HEMP_SHADE = 0x8a7648;
 const ROPE_LENGTHS = 6;
@@ -229,28 +223,13 @@ function draw(G: Statics, s: Structure, ctx: RenderCtx, c: number, fill: number)
     for (const t of [0.2, 0.5, 0.8]) line(Q(a0 + t - 0.07, 0.03, QUAY + 1.0), Q(a0 + t + 0.07, 0.03, QUAY + 1.0), 0xd8432f, 2.2);
     return;
   }
-  /** A lattice mast: a box, and cross-bracing up its lit face. */
-  const mast = (a: number, d: number, half: number, z1: number, col: number, dark: number) => {
-    box(a - half, d - half, a + half, d + half, QUAY, z1, col, col, dark);
-  };
-
-  const mid = a0 + 0.5;
   const gear = () => {
     if (fit === "trade") {
-      // A DERRICK's mast. Its jib, and all that hangs from it, are apart. @see Rig
-      mast(mid, depth - PIVOT.trade, 0.07, QUAY + GEAR.trade.z, CRANE, CRANE_SHADE);
-    } else if (fit === "crane" || fit === "hardware") {
-      // A TOWER CRANE's tower and its cab. Its jib turns, apart.
-      const col = fit === "hardware" ? STEEL : CRANE, dark = fit === "hardware" ? STEEL_SHADE : CRANE_SHADE;
-      mast(mid, depth - PIVOT.crane, 0.09, QUAY + GEAR.crane.z, col, dark);
-      for (let z = 1; z < GEAR.crane.z - 1.4; z += 1.1) {
-        line(Q(mid + 0.09, depth - PIVOT.crane - 0.09, QUAY + z), Q(mid + 0.09, depth - PIVOT.crane + 0.09, QUAY + z + 1.1), dark, 0.9, 0.8);
-        line(Q(mid - 0.09, depth - PIVOT.crane + 0.09, QUAY + z), Q(mid + 0.09, depth - PIVOT.crane + 0.09, QUAY + z + 1.1), dark, 0.9, 0.8);
-      }
-      box(mid - 0.15, depth - PIVOT.crane - 0.15, mid + 0.15, depth - PIVOT.crane + 0.15, QUAY + GEAR.crane.z - 1.1, QUAY + GEAR.crane.z, 0xf2efe6, 0xf2efe6, 0xc9c3b4);
-    } else if (fit === "gantry") {
-      // A GANTRY's rails along the quay. The gantry runs on them, apart.
-      for (const d of [depth - 0.95, depth - 0.12]) { line(Q(a0, d, QUAY + 0.02), Q(a1, d, QUAY + 0.02), IRON, 1.6); line(Q(a0, d, QUAY + 0.05), Q(a1, d, QUAY + 0.05), 0x8a8f98, 0.6); }
+      // A HARBOUR CRANE stands here, on its pedestal: all of it is apart. @see Rig
+    } else if (fit === "crane" || fit === "hardware" || fit === "gantry") {
+      // THE RAILS a crane runs on, along the quay. The crane is apart.
+      const rails = fit === "gantry" ? [depth + STS.land / M_TILE, depth + STS.water / M_TILE] : [depth - PIVOT.luffing - 1.9 / M_TILE, depth - PIVOT.luffing + 1.9 / M_TILE];
+      for (const d of rails) { line(Q(a0, d, QUAY + 0.02), Q(a1, d, QUAY + 0.02), IRON, 1.6); line(Q(a0, d, QUAY + 0.05), Q(a1, d, QUAY + 0.05), 0x8a8f98, 0.6); }
     } else if (fit === "ferry") {
       // A FERRY'S RAMP down to the water, a ticket hut, a striped post either side.
       quad([Q(a0 + 0.2, depth, QUAY), Q(a0 + 0.8, depth, QUAY), Q(a0 + 0.8, depth + 0.45, -0.7), Q(a0 + 0.2, depth + 0.45, -0.7)], 0x4a4f55);
@@ -300,12 +279,12 @@ type Statics = { base: Graphics; stacks: Graphics; gear: Graphics };
  * behind, the gear behind the stacks, and the order runs the other way.
  */
 const SLOTS = {
-  near: ["base", "stacks", "loadA", "gear", "jib", "loadB", "front", "edge"],
-  away: ["loadC", "base", "edge", "gear", "jib", "loadB", "front", "stacks", "loadA"],
+  near: ["base", "stacks", "loadA", "gear", "jib", "loadB", "front", "top", "edge"],
+  away: ["loadC", "base", "edge", "gear", "jib", "loadB", "front", "top", "stacks", "loadA"],
 } as const;
 
 /** What hangs from a crane, once for each place it can be: its ropes, what is on the hook, and the hook or spreader. */
-type Load = { ropes: Graphics[]; crate: Graphics; hook: Graphics };
+type Load = { ropes: Graphics[]; hook: Graphics | null; spreader: Piece | null; box: Piece; crate: Piece };
 
 /**
  * WHAT MOVES ON ONE YARD, every piece its own node, made once and then only
@@ -321,8 +300,15 @@ type Rig = {
   c: number;
   berth: number;
   kind: "turn" | "gantry" | "none";
-  gear: (typeof GEAR)[keyof typeof GEAR] | null;
+  /** A turning crane's measures, and how far it reaches, tiles; null for a gantry. */
+  T: Turning | null;
+  reach: number;
   pivot: number;
+  /** Its baked parts. @see crane-sheet */
+  pieces: Record<string, Piece>;
+  /** A gantry's boom: how far raised, radians; and how long its berth has been empty. */
+  boom: number;
+  idle: number;
   lamp: Graphics;
   /** Its two mooring ropes, each a run of short lengths laid along a sagging curve. */
   lines: Graphics[][];
@@ -355,6 +341,8 @@ type SeaportHandle = StructureHandle & {
   flood: Graphics | null;
   /** The yard's fill and the fittings the static picture was drawn for. */
   drawnFor: string;
+  /** Made before the cranes' sheet was in: to be made again once it is. */
+  pending: boolean;
   t: number;
 };
 
@@ -370,6 +358,10 @@ function redraw(h: SeaportHandle, s: Structure, ctx: RenderCtx): void {
   h.statics.forEach((g, c) => draw(g, s, ctx, c, fill));
   h.drawnFor = fitsKey(s, fill);
 }
+
+/** A quay's facing as the cranes are baked: the heading its water is toward, and which of the four that is. */
+const FACING_INDEX = { S: 0, W: 1, N: 2, E: 3 } as const;
+const FACING = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
 
 const WORKER = [0xe0b090, 0x2b3a55, 0xf2a21a, 0x3a2a1a, 0xffffff];
 
@@ -390,6 +382,9 @@ function lay(g: Graphics, a: readonly [number, number], b: readonly [number, num
 function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
   const columns: Graphics[] = [], statics: Statics[] = [], rigs: Rig[] = [], nodes: Container[] = [];
   const f = frame(s, ctx), sc = f.sc;
+  // Which of the four ways the quay faces, as the cranes' parts are baked. @see FACING_HEADINGS
+  const fi = FACING_INDEX[s.facing ?? "W"];
+  void craneSprites();
   const clampBand = (b: number) => Math.max(0, Math.min(ctx.bands.structureOf.length - 1, b));
   const bandFor = (c: number) => ctx.bands.structureOf[clampBand(bandOfColumn(s, c))];
   // WHAT REACHES OUT OVER THE WATER is drawn with the movers of a band in
@@ -402,19 +397,6 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
   let beacon: Graphics | null = null, flood: Graphics | null = null;
   const add = <T extends Container>(parent: Container, n: T): T => { n.eventMode = "none"; parent.addChild(n); nodes.push(n); return n; };
   const shape = (make: (g: Graphics) => void) => { const g = new Graphics(); make(g); return g; };
-  /** A box drawn about its top's middle, `wa` along the quay, `wd` out, `h` high, in greys to tint. */
-  const crate = (wa: number, wd: number, hgt: number) => shape((g) => {
-    const [ua, va] = f.L(-wa / 2, -wd / 2), [ub, vb] = f.L(wa / 2, wd / 2), [u0, v0] = f.L(0, 0);
-    const x0 = Math.min(ua, ub) - u0, x1 = Math.max(ua, ub) - u0, y0 = Math.min(va, vb) - v0, y1 = Math.max(va, vb) - v0;
-    const R = (u: number, v: number, z: number): [number, number] => [(u - v) * HW * sc, (u + v) * HH * sc - z * HEIGHT_UNIT * sc];
-    g.poly([R(x1, y0, 0), R(x1, y1, 0), R(x1, y1, -hgt), R(x1, y0, -hgt)].flat()).fill({ color: 0xd4d4d4 });
-    g.poly([R(x0, y1, 0), R(x1, y1, 0), R(x1, y1, -hgt), R(x0, y1, -hgt)].flat()).fill({ color: 0xa2a2a2 });
-    g.poly([R(x0, y0, 0), R(x1, y0, 0), R(x1, y1, 0), R(x0, y1, 0)].flat()).fill({ color: 0xffffff });
-    // Its ribs, so a container reads as one.
-    for (const t of [0.25, 0.5, 0.75]) g.moveTo(...R(x1, y0 + (y1 - y0) * t, 0)).lineTo(...R(x1, y0 + (y1 - y0) * t, -hgt));
-    for (const t of [0.25, 0.5, 0.75]) g.moveTo(...R(x0 + (x1 - x0) * t, y1, 0)).lineTo(...R(x0 + (x1 - x0) * t, y1, -hgt));
-    g.stroke({ color: 0x000000, width: Math.max(0.5, 0.6 * sc), alpha: 0.18 });
-  });
   for (let c = 0; c < f.length; c++) {
     // THE BAY'S SLOTS, far to near, in its own band. @see SLOTS
     const slot: Record<string, Container> = {};
@@ -437,76 +419,55 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
     }
     if (f.kinds[c] !== "yard") continue;
     const fit = fitOf(s, f.berthOf(c)).id;
-    const kind: Rig["kind"] = fit === "gantry" ? "gantry" : fit === "trade" || fit === "crane" || fit === "hardware" ? "turn" : "none";
-    const gear = kind === "turn" ? GEAR[fit === "trade" ? "trade" : "crane"] : null;
-    const col = fit === "hardware" ? STEEL : CRANE, dark = fit === "hardware" ? STEEL_SHADE : CRANE_SHADE;
-    const bars: Rig["bars"] = {}, parts: Rig["parts"] = {}, loads: Load[] = [];
+    const CP = cranesLoaded();
+    const kind: Rig["kind"] = !CP ? "none" : fit === "gantry" ? "gantry" : fit === "trade" || fit === "crane" || fit === "hardware" ? "turn" : "none";
+    const T = kind === "turn" ? (fit === "trade" ? HARBOUR : LUFFING) : null;
+    const paint = PAINT[fit] ?? 0xffffff;
+    const bars: Rig["bars"] = {}, parts: Rig["parts"] = {}, pieces: Rig["pieces"] = {}, loads: Load[] = [];
+    const piece = (where: Container, id: string, frame: number, tint = paint) => { const pc = makePiece(CP!, where, id, frame, tint, sc); nodes.push(pc.c); return pc; };
+    /** What hangs from it, in one of the three places it can be. @see SLOTS */
+    const load = (where: Container, ropes: number, spreader: boolean): Load => ({
+      ropes: Array.from({ length: ropes }, () => add(where, bar(ROPE, Math.max(1, 1.1 * sc)))),
+      box: piece(where, "box", (fi * 8 + 8) % TURNS, 0xffffff),
+      crate: piece(where, "crate", (fi * 8 + 8) % TURNS, 0xc9a26b),
+      spreader: spreader ? piece(where, "sts-spreader", fi) : null,
+      // The hook block, and slings down to the load's corners.
+      hook: spreader ? null : add(where, shape((b) => {
+        b.rect(-2.6 * sc, -6 * sc, 5.2 * sc, 5 * sc).fill({ color: 0xf2c230 });
+        b.rect(-2.6 * sc, -3.5 * sc, 5.2 * sc, 1.2 * sc).fill({ color: 0x2b2b2b });
+        b.moveTo(0, -1 * sc).lineTo(-7 * sc, 8 * sc).moveTo(0, -1 * sc).lineTo(7 * sc, 8 * sc);
+        b.stroke({ color: ROPE, width: Math.max(0.8, 0.9 * sc) });
+      })),
+    });
     if (kind === "gantry") {
-      // THE GANTRY ITSELF, drawn where it stands and then run along its
-      // rails. IN TWO: the side of it further from the camera, with its boom;
-      // and the legs and sill nearer the camera — so the container it carries
-      // hangs between them, in front of the one and behind the other.
-      const d0 = f.depth - 0.95, d1 = f.depth - 0.12, a0 = c + 0.5 - PORTAL / 2, a1 = c + 0.5 + PORTAL / 2, top = QUAY + BOOM_Z;
-      const pen = (p: Graphics) => (a: [number, number], b: [number, number], colour: number, w: number) => { p.moveTo(...a).lineTo(...b); p.stroke({ color: colour, width: Math.max(1, w * sc) }); };
-      /** One side frame of the portal, at `a` along the quay: two legs, a sill, braces, a top beam. */
-      const side = (p: Graphics, a: number) => {
-        const ln = pen(p);
-        // The leg further from the camera first.
-        for (const d of f.away ? [d1, d0] : [d0, d1]) { ln(f.Q(a, d, QUAY), f.Q(a, d, top), GANTRY_SHADE, 5.2); ln(f.Q(a, d, QUAY), f.Q(a, d, top), GANTRY, 2.6); }
-        ln(f.Q(a, d0, QUAY + 0.5), f.Q(a, d1, QUAY + 0.5), GANTRY_SHADE, 3);
-        ln(f.Q(a, d0, QUAY + 3.2), f.Q(a, d1, top - 2.2), GANTRY_SHADE, 1.4);
-        ln(f.Q(a, d1, QUAY + 3.2), f.Q(a, d0, top - 2.2), GANTRY_SHADE, 1.4);
-        ln(f.Q(a, d0, top), f.Q(a, d1, top), GANTRY_SHADE, 5); ln(f.Q(a, d0, top), f.Q(a, d1, top), GANTRY, 2.4);
-      };
-      parts.portal = add(slot.gear, shape((p) => {
-        const ln = pen(p);
-        side(p, a0);
-        // The cross beams, and the boom: a girder with a walkway's shade under it; the A-frame over it and its stays.
-        ln(f.Q(a0, d0, top), f.Q(a1, d0, top), GANTRY, 4); ln(f.Q(a0, d1, top), f.Q(a1, d1, top), GANTRY, 4);
-        const m = c + 0.5, b0 = f.depth - 1.45, b1 = f.depth + REACH + 0.25;
-        ln(f.Q(m, b0, top + 0.1), f.Q(m, b1, top + 0.1), GANTRY_SHADE, 6.5);
-        ln(f.Q(m, b0, top + 0.35), f.Q(m, b1, top + 0.35), GANTRY, 3);
-        ln(f.Q(m, d0 + 0.3, top), f.Q(m, d0 + 0.3, top + 3.2), GANTRY, 2.6);
-        ln(f.Q(m, d0 + 0.3, top + 3.2), f.Q(m, b1, top + 0.35), GANTRY_SHADE, 1.3);
-        ln(f.Q(m, d0 + 0.3, top + 3.2), f.Q(m, f.depth + 0.25, top + 0.35), GANTRY_SHADE, 1.3);
-        ln(f.Q(m, d0 + 0.3, top + 3.2), f.Q(m, b0, top + 0.35), GANTRY_SHADE, 1.3);
-        // The machinery house, white, on the landward end.
-        const [hx, hy] = f.Q(m, b0 + 0.25, top + 0.4);
-        p.rect(hx - 9 * sc, hy - 11 * sc, 18 * sc, 11 * sc).fill({ color: 0xf2efe6 });
-        p.rect(hx - 9 * sc, hy - 4 * sc, 18 * sc, 4 * sc).fill({ color: 0xc9c3b4 });
-      }));
-      parts.trolley = add(slot.jib, shape((t) => { t.rect(-6 * sc, -4 * sc, 12 * sc, 5 * sc).fill({ color: IRON }); t.rect(-4 * sc, 1 * sc, 8 * sc, 3 * sc).fill({ color: 0xf2efe6 }); }));
-      parts.portalFront = add(slot.front, shape((p) => side(p, a1)));
-      for (const where of [slot.loadA, slot.loadB, slot.loadC]) {
-        const ropes = [add(where, bar(ROPE, Math.max(1, 1.1 * sc))), add(where, bar(ROPE, Math.max(1, 1.1 * sc)))];
-        const box = add(where, crate(0.5, 0.2, 0.95));
-        const hook = add(where, shape((p) => { const w = 0.5 * HW * sc * 1.15; p.rect(-w / 2, -2.2 * sc, w, 3 * sc).fill({ color: 0xf2c230 }); p.rect(-w / 2, 0.2 * sc, w, 1 * sc).fill({ color: 0xa98220 }); }));
-        loads.push({ ropes, crate: box, hook });
-      }
-    } else if (gear) {
-      // A CRANE THAT TURNS: every member of it a bar laid between two points that move.
-      if (gear.tail) { bars.tail = add(slot.jib, bar(dark, 4.6 * sc, col)); bars.stayB = add(slot.jib, bar(dark, 1.1 * sc)); }
-      bars.jib = add(slot.jib, bar(dark, (gear.tail ? 4.6 : 3) * sc, col));
-      bars.stayA = add(slot.jib, bar(dark, 1.1 * sc));
-      bars.king = add(slot.jib, bar(col, 2.6 * sc));
-      if (gear.tail) { parts.weight = add(slot.jib, crate(0.2, 0.2, 0.8)); parts.weight.tint = 0x4a4f55; }
-      parts.trolley = add(slot.jib, shape((t) => { t.rect(-4 * sc, -1.5 * sc, 8 * sc, 3.5 * sc).fill({ color: IRON }); }));
-      for (const where of [slot.loadA, slot.loadB, slot.loadC]) {
-        const ropes = [add(where, bar(ROPE, Math.max(1, 1.2 * sc)))];
-        const box = add(where, crate(gear.crate[0], gear.crate[1], gear.crate[2]));
-        // The hook block, and slings down to the crate's corners.
-        const hook = add(where, shape((b) => {
-          b.rect(-2.4 * sc, -5 * sc, 4.8 * sc, 4 * sc).fill({ color: 0xf2c230 });
-          b.moveTo(0, -1 * sc).lineTo(-5 * sc, 4 * sc).moveTo(0, -1 * sc).lineTo(5 * sc, 4 * sc);
-          b.stroke({ color: ROPE, width: Math.max(0.8, 0.8 * sc) });
-        }));
-        loads.push({ ropes, crate: box, hook });
-      }
+      // THE SHIP-TO-SHORE GANTRY, in its baked parts: the side frame further
+      // from the camera, then what it carries, then the nearer side frame,
+      // then its top works, its boom and its trolley. @see cranes/models
+      const bNear = Math.cos(FACING[fi]) - Math.sin(FACING[fi]) > 0;
+      pieces.far = piece(slot.gear, bNear ? "sts-side-a" : "sts-side-b", fi);
+      pieces.near = piece(slot.front, bNear ? "sts-side-b" : "sts-side-a", fi);
+      pieces.top = piece(slot.top, "sts-top", fi);
+      // Its forestays, from the head of the A-frame to the boom: laid as it is raised.
+      bars.stayA = add(slot.top, bar(shade(paint, 0.8), Math.max(1, 1.3 * sc)));
+      bars.stayB = add(slot.top, bar(shade(paint, 0.8), Math.max(1, 1.3 * sc)));
+      pieces.boom = piece(slot.top, "sts-boom", fi);
+      pieces.trolley = piece(slot.top, "sts-trolley", fi);
+      for (const where of [slot.loadA, slot.loadB, slot.loadC]) loads.push(load(where, 2, true));
+    } else if (T) {
+      // A CRANE THAT TURNS: its base, the house that turns on it, and the jib about its foot.
+      pieces.base = piece(slot.gear, fit === "trade" ? "harbour-base" : "luff-portal", fi);
+      pieces.house = piece(slot.jib, fit === "trade" ? "harbour-house" : "luff-house", 0);
+      bars.luffA = add(slot.jib, bar(ROPE, Math.max(1, 1 * sc)));
+      bars.luffB = add(slot.jib, bar(ROPE, Math.max(1, 1 * sc)));
+      pieces.jib = piece(slot.jib, fit === "trade" ? "harbour-jib" : "luff-jib", 0);
+      for (const where of [slot.loadA, slot.loadB, slot.loadC]) loads.push(load(where, 1, false));
     }
     const lamp = add(slot.edge, shape((l) => { l.circle(0, 0, 2.6 * sc).fill({ color: 0xffffff }); l.circle(0, 0, 6 * sc).fill({ color: 0xffffff, alpha: 0.22 }); }));
     lamp.position.set(...f.Q(c + 0.5, f.depth - 0.03, QUAY + 0.75));
     const rig: Rig = {
-      c, berth: f.berthOf(c), kind, gear, pivot: kind === "turn" ? f.depth - PIVOT[fit === "trade" ? "trade" : "crane"] : f.depth - 1.2,
+      c, berth: f.berthOf(c), kind, T, pieces, boom: BOOM_UP, idle: BOOM_WAITS,
+      reach: T ? (T.foot[0] + T.jib * 0.98) / M_TILE : 0,
+      pivot: T ? f.depth - (fit === "trade" ? PIVOT.harbour : PIVOT.luffing) : f.depth - 1.2,
       lamp, bars, parts, loads, hand: [], handKey: "", state: "",
       // TWO ROPES ASHORE. Where the ship lies in front of the quay they are
       // drawn with the quay, so her hull hides what runs behind it; where she
@@ -531,9 +492,9 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
     rigs.push(rig);
   }
   const h: SeaportHandle = {
-    columns, statics, rigs, nodes, beacon, flood, drawnFor: "", t: 0,
+    columns, statics, rigs, nodes, beacon, flood, drawnFor: "", t: 0, pending: real && !cranesLoaded(),
     // What was made last first: a slot after everything in it.
-    destroy: () => { for (const n of [...nodes].reverse()) { n.parent?.removeChild(n); n.destroy(); } },
+    destroy: () => { for (const n of [...nodes].reverse()) { n.parent?.removeChild(n); n.destroy({ children: true }); } },
   };
   redraw(h, s, ctx);
   tick(h, s, _def, ctx, 0);
@@ -565,6 +526,13 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
   const h = hh as SeaportHandle;
   if (!h.rigs.length && !h.beacon) return;
   h.t += dt;
+  // THE CRANES' SHEET CAME IN after this port was drawn: its cranes are made now.
+  if (h.pending && cranesLoaded()) {
+    const fresh = mount(s, _def, ctx);
+    h.destroy();
+    Object.assign(h, fresh);
+    return;
+  }
   const life = portLife(s.id);
   // The yard's stacks, redrawn when they change by a box; never by the frame.
   if (life && fitsKey(s, life.yard) !== h.drawnFor) redraw(h, s, ctx);
@@ -627,98 +595,155 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
     });
     if (r.kind === "none") continue;
 
+    const CP = cranesLoaded();
+    if (!CP) continue;
+    const lit = Math.round(Math.min(1, Math.max(0, (night - 0.35) / 0.3)) * 10) / 10;
+    for (const pc of Object.values(r.pieces)) lightPiece(CP, pc, lit);
     const lifting = !!ship?.cargo;
     const p = lifting ? ship!.phase : PARKED;
     const lift = lifting ? ship!.lift : Math.max(0, r.lift);
-    // WHERE THE CARGO IS ABOARD: another hold each lift, along her from stern to bow.
+    // What she carries: a boat, crates; anything bigger, containers. A gantry lifts only containers.
+    const what: "box" | "crate" = r.kind === "gantry" || (ship ? ship.cls > 0 : false) ? "box" : "crate";
+    const tall = (what === "box" ? BOX.tall : CRATE.tall) / M_STEP;
+    // WHERE THE CARGO IS ABOARD: another hold each lift, along her from stern to bow. Each by its floor.
     const [sa, sd] = ship ? local(ship.x, ship.y) : [r.c + 0.5, f.depth + 0.5];
     const hold = ship ? ([-0.2, 0.06, 0.24][lift % 3]) * ([0.84, 1.5, 2.4][ship.cls] ?? 1) * (Math.cos(ship.heading) * (f.alongU ? 1 : 0) + Math.sin(ship.heading) * (f.alongU ? 0 : 1) >= 0 ? 1 : -1) : 0;
-    const deck = { a: sa + hold, d: sd, z: (ship ? ship.z - ground + DECK[ship.cls] : 0.6) + (lifting && !ship!.loading ? 0.4 : 0) };
+    const deck = { a: sa + hold, d: sd, z: ship ? ship.z - ground + DECK[ship.cls] : 0.6 };
     // AND ASHORE: another stack each lift, as high as the yard stands.
     const spot = [[0.28, 0.34], [0.72, 0.34], [0.28, 0.84], [0.72, 0.84]][lift % 4];
-    const yard = { a: r.c + spot[0], d: spot[1], z: QUAY + 0.95 + 2.6 * (life?.yard ?? 0) };
+    const yard = { a: r.c + spot[0], d: spot[1], z: QUAY + 0.95 * Math.round(2.6 * (life?.yard ?? 0)) };
     const [from, to] = lifting && ship!.loading ? [yard, deck] : [deck, yard];
     const across = ease(span(p, 0.3, 0.55)) - ease(span(p, 0.88, 1));
     const downFrom = ease(span(p, 0, 0.15)) - ease(span(p, 0.15, 0.3));
     const downTo = ease(span(p, 0.55, 0.7)) - ease(span(p, 0.7, 0.86));
     const carried = lifting && p >= 0.15 && p < 0.7;
-    if (carried && r.lift !== lift) { for (const l of r.loads) l.crate.tint = BOXES[(lift * 5 + r.c * 3 + s.id) % BOXES.length]; r.lift = lift; }
+    if (carried && r.lift !== lift) {
+      const tint = what === "box" ? BOXES[(lift * 5 + r.c * 3 + s.id) % BOXES.length] : 0xc9a26b;
+      for (const l of r.loads) (what === "box" ? l.box : l.crate).sp[0].tint = tint;
+      r.lift = lift;
+    }
     const mid = r.c + 0.5;
     /**
      * Put the load where the hook is, in the one of its three places that is
      * right for how far out it is: over the yard (behind the gear), over the
-     * quay, or out over the ship. The other two are not seen. @see SLOTS
+     * quay, or out over the ship. The other two are not seen. `under` is how
+     * far below the hook the load's floor hangs, half steps. @see SLOTS
      */
-    const hang = (d: number, behind: number, ends: [number, number][][], hx: number, hy: number, crateDy: number, tilt: number) => {
+    const hang = (a: number, d: number, behind: number, ends: [number, number][], under: number, swing: number) => {
       const where = d >= f.depth - 0.02 ? 2 : d < behind ? 0 : 1;
+      const [hx0, hy] = f.Q(a, d, r.hook), hx = hx0 + swing;
+      const drop = under * HEIGHT_UNIT * sc;
       r.loads.forEach((l, n) => {
         const on = n === where ? 1 : 0;
-        l.ropes.forEach((rope, e) => { lay(rope, ends[e][0], ends[e][1]); rope.alpha = on; });
-        l.hook.position.set(hx, hy); l.hook.alpha = on;
-        l.crate.position.set(hx, hy + crateDy); l.crate.rotation = tilt; l.crate.alpha = on && carried ? 1 : 0;
+        l.ropes.forEach((rope, e) => { lay(rope, ends[e], [hx + (l.ropes.length > 1 ? (e ? 1 : -1) * 9 * sc : 0), hy - (l.hook ? 6 * sc : 0)]); rope.alpha = on; });
+        if (l.hook) { l.hook.position.set(hx, hy); l.hook.alpha = on; }
+        if (l.spreader) { l.spreader.c.position.set(hx, hy); l.spreader.c.alpha = on; }
+        const mine = what === "box" ? l.box : l.crate, other = what === "box" ? l.crate : l.box;
+        mine.c.position.set(hx, hy + drop);
+        mine.c.alpha = on && carried ? 1 : 0;
+        other.c.alpha = 0;
       });
     };
 
     if (r.kind === "gantry") {
-      const top = QUAY + BOOM_Z, up = top - 1.6;
-      // Along its rails to the hold or the stack, as far as they run; the trolley out along the boom.
-      // Never out of its own bay: not over its neighbour, nor off the end of the quay.
+      const rail = QUAY + STS.rail / M_STEP, up = rail - 2.6 / M_STEP, under = (UNDER_SPREADER + BOX.tall) / M_STEP;
+      // THE BOOM comes down as a ship ties up, and goes up when the berth has stood empty a while.
+      r.idle = ship ? 0 : r.idle + dt;
+      const wantBoom = r.idle >= BOOM_WAITS ? BOOM_UP : 0;
+      r.boom += Math.sign(wantBoom - r.boom) * Math.min(Math.abs(wantBoom - r.boom), dt * 0.45);
+      // Along its rails to the hold or the stack — never out of its own bay —
+      // and the trolley out along the boom, once the boom is down.
       const wantAlong = Math.max(-TRAVEL, Math.min(TRAVEL, from.a + (to.a - from.a) * across - mid));
-      const wantOut = Math.max(f.depth - 1.3, Math.min(f.depth + REACH + 0.15, from.d + (to.d - from.d) * across));
-      const wantHook = up - downFrom * Math.max(0, up - from.z - 0.95) - downTo * Math.max(0, up - to.z - 0.95);
+      const inner = f.depth + (STS.back + 3) / M_TILE, outer = f.depth + (STS.hinge[0] + STS.boom - 2) / M_TILE;
+      const wantOut = Math.max(inner, Math.min(r.boom > 0.12 ? f.depth + (STS.hinge[0] - 2) / M_TILE : outer, from.d + (to.d - from.d) * across));
+      const wantHook = up - downFrom * Math.max(0, up - from.z - under) - downTo * Math.max(0, up - to.z - under);
       r.speed += (Math.abs(wantOut - r.out) + Math.abs(wantAlong - r.along) - r.speed) * k;
       r.along += (wantAlong - r.along) * k; r.out += (wantOut - r.out) * k; r.hook += (wantHook - r.hook) * k;
-      const o = f.Q(mid, 0, 0), q = f.Q(mid + r.along, 0, 0);
-      r.parts.portal.position.set(q[0] - o[0], q[1] - o[1]);
-      r.parts.portalFront.position.set(q[0] - o[0], q[1] - o[1]);
-      const [tx, ty] = f.Q(mid + r.along, r.out, top);
+      const a = mid + r.along;
+      const stands = f.Q(a, f.depth, QUAY);
+      for (const id of ["far", "near", "top"]) r.pieces[id].c.position.set(stands[0], stands[1]);
+      // THE BOOM, RAISED: its picture lying down, sheared about its hinge. Exact, for a thing in one upright plane.
+      const [ox, oy] = f.Q(0, 0, 0), [dx, dy] = f.Q(0, 1 / M_TILE, 0), [, zy] = f.Q(0, 0, 1 / M_STEP);
+      const A0: [number, number] = [dx - ox, dy - oy], B0: [number, number] = [0, zy - oy];
+      const hinge = f.Q(a, f.depth + STS.hinge[0] / M_TILE, QUAY + STS.hinge[2] / M_STEP);
+      shear(r.pieces.boom.c, A0, B0, A0, B0, 0, r.boom, CP.res / sc, hinge);
+      const along = (m: number, upM: number): [number, number] => {
+        const cb = Math.cos(r.boom), sb = Math.sin(r.boom);
+        return [hinge[0] + A0[0] * (m * cb - upM * sb) + B0[0] * (m * sb + upM * cb), hinge[1] + A0[1] * (m * cb - upM * sb) + B0[1] * (m * sb + upM * cb)];
+      };
+      const apex = f.Q(a, f.depth + STS.apex[0] / M_TILE, QUAY + STS.apex[2] / M_STEP);
+      lay(r.bars.stayA, apex, along(STS.boom * 0.55, 1));
+      lay(r.bars.stayB, apex, along(STS.boom - 0.6, 1));
+      const [tx, ty] = f.Q(a, r.out, rail);
+      r.pieces.trolley.c.position.set(tx, ty);
       const swing = Math.sin(h.t * 2.4 + r.c) * Math.min(1, r.speed * 6) * 3 * sc;
-      const [, hy] = f.Q(mid + r.along, r.out, r.hook);
-      const hx = tx + swing, w = 0.5 * HW * sc * 0.5;
-      r.parts.trolley.position.set(tx, ty);
-      hang(r.out, f.depth - 1.05, [[[tx - 4 * sc, ty + 2 * sc], [hx - w, hy - 2 * sc]], [[tx + 4 * sc, ty + 2 * sc], [hx + w, hy - 2 * sc]]], hx, hy, 1 * sc, 0);
+      hang(a, r.out, f.depth + STS.land / M_TILE - 0.1, [[tx - 8 * sc, ty], [tx + 8 * sc, ty]], under, swing);
       continue;
     }
 
-    // A CRANE THAT TURNS, about its mast at (mid, pivot).
-    const gear = r.gear!, top = QUAY + gear.z, up = top - 1.4;
-    const polar = (a: number, d: number) => ({ turn: Math.atan2(a - mid, d - r.pivot), out: Math.min(gear.jib - 0.08, Math.max(0.3, Math.hypot(a - mid, d - r.pivot))) });
-    // THE LOAD GOES STRAIGHT from the one to the other, and the jib and trolley
-    // follow it: swung round the mast the short way, it went out over the
-    // road beside the port, or over the bay next door.
+    // A CRANE THAT TURNS, about its mast at (mid, pivot): its jib luffed to
+    // put its head over the hook — raised to bring the load in, lowered to
+    // reach out — and slewed to follow it.
+    const T = r.T!, up = QUAY + (T.foot[1] + 1.5) / M_STEP, under = SLINGS / M_STEP + tall;
+    const polar = (a: number, d: number) => ({ turn: Math.atan2(a - mid, d - r.pivot), out: Math.min(r.reach, Math.max(0.28, Math.hypot(a - mid, d - r.pivot))) });
+    // THE LOAD GOES STRAIGHT from the one to the other, and the jib follows it.
     const want = polar(from.a + (to.a - from.a) * across, from.d + (to.d - from.d) * across);
-    const wantTurn = want.turn, wantOut = want.out;
-    const wantHook = up - downFrom * Math.max(0, up - from.z - gear.crate[2]) - downTo * Math.max(0, up - to.z - gear.crate[2]);
-    const next = turnTo(r.turn, wantTurn);
-    r.speed += (Math.abs(next - r.turn) + Math.abs(wantOut - r.out) - r.speed) * k;
-    r.turn += (next - r.turn) * k; r.out += (wantOut - r.out) * k; r.hook += (wantHook - r.hook) * k;
+    const wantHook = up - downFrom * Math.max(0, up - from.z - under) - downTo * Math.max(0, up - to.z - under);
+    const next = turnTo(r.turn, want.turn);
+    r.speed += (Math.abs(next - r.turn) + Math.abs(want.out - r.out) - r.speed) * k;
+    r.turn += (next - r.turn) * k; r.out += (want.out - r.out) * k; r.hook += (wantHook - r.hook) * k;
     const sin = Math.sin(r.turn), cos = Math.cos(r.turn);
-    const head = f.Q(mid, r.pivot, top), apex = f.Q(mid, r.pivot, top + (gear.tail ? 1.7 : 0.9));
-    // A LUFFING JIB, hinged at the head of the mast: its tip is always over
-    // the hook, raised to bring the load in and lowered to reach out. A jib
-    // of fixed reach stuck out past its hook — through the gantry beside it,
-    // and over the road behind the port.
-    const jibZ = top + Math.sqrt(Math.max(0, gear.jib * gear.jib - r.out * r.out)) * LUFF;
-    const tip = f.Q(mid + sin * r.out, r.pivot + cos * r.out, jibZ);
-    lay(r.bars.jib, head, tip);
-    lay(r.bars.stayA, apex, tip);
-    lay(r.bars.king, head, apex);
-    if (gear.tail) {
-      const end = f.Q(mid - sin * gear.tail, r.pivot - cos * gear.tail, top);
-      lay(r.bars.tail, head, end);
-      lay(r.bars.stayB, apex, end);
-      const [wx, wy] = f.Q(mid - sin * gear.tail * 0.8, r.pivot - cos * gear.tail * 0.8, top - 0.1);
-      r.parts.weight.position.set(wx, wy + 0.8 * HEIGHT_UNIT * sc);
-    }
-    const [tx, ty] = tip;
+    // Which way that is on the map, and the baked heading nearest it.
+    const ea = f.alongU ? [1, 0] : [0, 1];
+    const wx = cos * fx + sin * ea[0], wy = cos * fy + sin * ea[1];
+    const step = (Math.PI * 2) / TURNS;
+    const heading = (Math.atan2(wy, wx) + Math.PI * 2) % (Math.PI * 2);
+    const turnK = Math.floor(heading / step) % TURNS, baked = (turnK + 0.5) * step;
+    const axis = f.Q(mid, r.pivot, QUAY);
+    r.pieces.base.c.position.set(axis[0], axis[1]);
+    r.pieces.house.c.position.set(axis[0], axis[1]);
+    framePiece(CP, r.pieces.house, turnK);
+    framePiece(CP, r.pieces.jib, turnK);
+    // A metre out from the mast on the screen — as it is, and as it was baked — and a metre up.
+    const px = (ux: number, uy: number): [number, number] => [((ux - uy) * HW * sc) / M_TILE, ((ux + uy) * HH * sc) / M_TILE];
+    const Sr = px(wx, wy), Sr0 = px(Math.cos(baked), Math.sin(baked)), Sz: [number, number] = [0, (-HEIGHT_UNIT * sc) / M_STEP];
+    const foot: [number, number] = [axis[0] + Sr[0] * T.foot[0] + Sz[0] * T.foot[1], axis[1] + Sr[1] * T.foot[0] + Sz[1] * T.foot[1]];
+    const luff = Math.acos(Math.min(0.985, Math.max(0.06, (r.out * M_TILE - T.foot[0]) / T.jib)));
+    shear(r.pieces.jib.c, Sr0, Sz, Sr, Sz, T.baked, luff, CP.res / sc, foot);
+    const onJib = (m: number): [number, number] => [foot[0] + (Sr[0] * Math.cos(luff) + Sz[0] * Math.sin(luff)) * m, foot[1] + (Sr[1] * Math.cos(luff) + Sz[1] * Math.sin(luff)) * m];
+    const tip = onJib(T.jib);
+    // The luffing ropes, from the head of the mast — where the house was baked — to the jib.
+    const apex: [number, number] = [axis[0] + Sr0[0] * T.apex[0] + Sz[0] * T.apex[1], axis[1] + Sr0[1] * T.apex[0] + Sz[1] * T.apex[1]];
+    lay(r.bars.luffA, apex, tip);
+    lay(r.bars.luffB, apex, onJib(T.jib * 0.62));
     const swing = Math.sin(h.t * 2.4 + r.c) * Math.min(1, r.speed * 5) * 3.5 * sc;
-    const [, hy] = f.Q(mid + sin * r.out, r.pivot + cos * r.out, r.hook + gear.crate[2]);
-    const hx = tx + swing;
-    r.parts.trolley.position.set(tx, ty);
-    r.parts.trolley.alpha = 0;
-    hang(r.pivot + cos * r.out, r.pivot - 0.12, [[[tx, ty], [hx, hy - 5 * sc]]], hx, hy, 4 * sc, (swing / (40 * sc)) * 0.5);
+    hang(mid + sin * r.out, r.pivot + cos * r.out, r.pivot - 0.12, [tip], under, swing);
   }
 }
+
+/**
+ * Lay a part baked in one upright plane — a jib, a boom — at another angle
+ * in that plane, and in a plane turned a little from it: the 2×2 that takes
+ * the picture's two axes (along the part and across it, as baked) to where
+ * they should be now. `r0` and `r` are a metre out along the ground on the
+ * screen, as baked and now; `z`, a metre up; `texel`, texels to a screen px.
+ */
+function shear(
+  c: Container, r0: readonly [number, number], z0: readonly [number, number], r: readonly [number, number], z: readonly [number, number],
+  bakedAngle: number, angle: number, texel: number, at: readonly [number, number],
+): void {
+  const c0 = Math.cos(bakedAngle), s0 = Math.sin(bakedAngle), c1 = Math.cos(angle), s1 = Math.sin(angle);
+  // The baked axes, in texels; and the same axes now, on the screen.
+  const A0 = [(c0 * r0[0] + s0 * z0[0]) * texel, (c0 * r0[1] + s0 * z0[1]) * texel], B0 = [(-s0 * r0[0] + c0 * z0[0]) * texel, (-s0 * r0[1] + c0 * z0[1]) * texel];
+  const A = [c1 * r[0] + s1 * z[0], c1 * r[1] + s1 * z[1]], B = [-s1 * r[0] + c1 * z[0], -s1 * r[1] + c1 * z[1]];
+  const det = A0[0] * B0[1] - A0[1] * B0[0];
+  if (Math.abs(det) < 1e-9) return;
+  // M = [A B] · inv([A0 B0])
+  const i00 = B0[1] / det, i01 = -B0[0] / det, i10 = -A0[1] / det, i11 = A0[0] / det;
+  SHEAR.set(A[0] * i00 + B[0] * i10, A[1] * i00 + B[1] * i10, A[0] * i01 + B[0] * i11, A[1] * i01 + B[1] * i11, at[0], at[1]);
+  c.setFromMatrix(SHEAR);
+}
+const SHEAR = new Matrix();
 
 registerCustomRenderer("seaport", {
   mount,

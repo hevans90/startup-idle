@@ -31,7 +31,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "streets" | "traffic";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "streets" | "traffic" | "cranes";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -494,6 +494,50 @@ export function buildHarbour(g: Grid, material: number) {
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) if (read.paved(x, y)) g.ramp[idx(g, x, y)] = derivedRamp(read, x, y);
   }
+}
+
+/**
+ * THE CRANE GALLERY: a deep river with a bend in it, so it has a bank facing
+ * each of the four ways, and on every bank a port fitted out — a big one with
+ * its gantries and a dockside crane, a middling one with a crane and a
+ * trading quay. Every crane, with the water toward the camera and away from
+ * it, at work. For looking at them. @see seaport-renderer, plans/seaports.md
+ *
+ * In over the west edge, east along the top, then south and out by the bottom.
+ */
+export function buildCranes(g: Grid, material: number) {
+  clear(g, material);
+  const wet = (x: number, y: number) => (y >= 10 && y <= 15 && x <= 37) || (x >= 32 && x <= 37 && y >= 10);
+  for (let x = 0; x < g.w; x++) {
+    for (let y = 0; y < g.h; y++) set(g, x, y, wet(x, y) ? -HARBOUR_CUT : 0);
+    pond(g, -HARBOUR_FREEBOARD, 1, x, 0, x, g.h - 1);
+  }
+  for (let y = 10; y <= 15; y++) setInflow(g, 0, y, HARBOUR_CUT - HARBOUR_FREEBOARD);
+  for (let x = 32; x <= 37; x++) setInflow(g, x, g.h - 1, HARBOUR_CUT - HARBOUR_FREEBOARD - HARBOUR_HEAD);
+  // A road along the top and a spur to the back of the north bank's ports, for their lorries.
+  for (let x = 0; x < g.w; x++) { pave(g, x, 4); pave(g, x, 5); }
+  for (const x of [9, 10, 21, 22]) for (let y = 6; y <= 7; y++) pave(g, x, y);
+  const history = createHistory();
+  const put = (def: StructureDef, x: number, y: number, fit: string[]) => {
+    const cmd = placeCommand(g, def, x, y);
+    if (!cmd) return;
+    commit(g, history, cmd);
+    const all = [...g.structures.values()];
+    all[all.length - 1].fit = fit;
+  };
+  const big = ["gantry", "gantry", "crane"], mid = ["crane", "trade"];
+  // North bank, the water toward the camera; south bank, away from it.
+  put(SEAPORTS[2], 8, 8, big); put(SEAPORTS[1], 20, 8, mid);
+  put(SEAPORTS[2], 8, 16, big); put(SEAPORTS[1], 20, 16, mid);
+  // West bank of the reach south, the water toward the camera; east bank, away.
+  put(SEAPORTS[2], 30, 20, big); put(SEAPORTS[1], 30, 30, mid);
+  put(SEAPORTS[2], 38, 20, big); put(SEAPORTS[1], 38, 30, mid);
+  const read = {
+    inBounds: (x: number, y: number) => inBounds(g, x, y),
+    paved: (x: number, y: number) => g.paved[idx(g, x, y)] !== 0,
+    height: (x: number, y: number) => g.height[idx(g, x, y)],
+  };
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (read.paved(x, y)) g.ramp[idx(g, x, y)] = derivedRamp(read, x, y);
 }
 
 /** Half steps the harbour's channel is cut below the land. */
@@ -1063,7 +1107,7 @@ export function buildCulvert(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, streets: 48, traffic: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, streets: 48, traffic: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1075,7 +1119,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "streets", "traffic",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "streets", "traffic", "cranes",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1095,6 +1139,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "river": buildRiver(g, material); recomputeHeightRange(g); return;
     case "inlet": buildInlet(g, material); recomputeHeightRange(g); return;
     case "harbour": buildHarbour(g, material); recomputeHeightRange(g); return;
+    case "cranes": buildCranes(g, material); recomputeHeightRange(g); return;
     case "bridge": buildBridge(g, material); recomputeHeightRange(g); return;
     case "crossing": buildCrossing(g, material); recomputeHeightRange(g); return;
     case "cascade": buildCascade(g, material); recomputeHeightRange(g); return;
