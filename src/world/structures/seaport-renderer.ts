@@ -68,6 +68,11 @@ const PIVOT = { trade: 0.8, crane: 0.5 } as const;
  */
 const PORTAL = 0.6;
 const TRAVEL = (1 - PORTAL) / 2 - 0.04;
+/** A mooring rope: its colour, and how many short lengths its curve is laid in. */
+const HEMP = 0xd8c79a, HEMP_SHADE = 0x8a7648;
+const ROPE_LENGTHS = 6;
+/** A ship's length and beam, tiles, and how high its rail stands over the water, half steps, by class. @see SHIP_CLASSES */
+const SHIP_LENGTH = [0.84, 1.5, 2.4], SHIP_BEAM = [0.36, 0.5, 0.62], SHIP_RAIL = [0.5, 0.85, 1.3];
 /** How high a ship's cargo stands over its waterline, by its class, half steps. */
 const DECK = [0.9, 1.5, 2.6];
 /** Where in a lift a crane waits: back over the yard, hook up, empty. */
@@ -280,7 +285,11 @@ type Rig = {
   gear: (typeof GEAR)[keyof typeof GEAR] | null;
   pivot: number;
   lamp: Graphics;
-  lines: Graphics[];
+  /** Its two mooring ropes, each a run of short lengths laid along a sagging curve. */
+  lines: Graphics[][];
+  /** How far across each is, nought coiled on the quay to one made fast; and where on the ship each was last fast, on the screen. */
+  fast: number;
+  cleats: [number, number][];
   bars: Record<string, Graphics>;
   parts: Record<string, Graphics>;
   hand: Sprite[];
@@ -441,7 +450,16 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
       c, berth: f.berthOf(c), kind, gear, pivot: kind === "turn" ? f.depth - PIVOT[fit === "trade" ? "trade" : "crane"] : f.depth - 1.2,
       lamp, bars, parts, hand: [], handKey: "", state: "",
       // TWO LINES ASHORE to whatever lies alongside: slack with nothing there.
-      lines: [0, 1].map(() => { const l = add(over, bar(0xe9e2cf, Math.max(0.8, 0.8 * sc))); l.alpha = 0; return l; }),
+      // TWO ROPES ASHORE. Where the ship lies in front of the quay they are
+      // drawn with the quay, so her hull hides what runs behind it; where she
+      // lies behind it, with the movers of the band before the quay's, over
+      // her and under the port.
+      lines: [0, 1].map(() => Array.from({ length: ROPE_LENGTHS }, () => {
+        const l = add(f.away ? ctx.bands.dynamicOf[clampBand(bandOfColumn(s, c) - 1)] ?? bandFor(c) : bandFor(c), bar(HEMP, Math.max(1, 1.3 * sc), HEMP_SHADE));
+        l.alpha = 0;
+        return l;
+      })),
+      fast: 0, cleats: [[0, 0], [0, 0]],
       turn: Math.PI, out: 0.7, hook: QUAY + 5, along: 0, speed: 0, lift: -1,
     };
     // A DOCKER by the berth, from the people sheet once it is in.
@@ -513,18 +531,41 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
     if (r.hand.length && P) {
       r.handKey = posePerson(r.hand, P, "builder", ship ? "work" : "stand", f.alongU ? Math.PI / 2 : 0, h.t * 6 + r.c, ctx.scale, 1, r.handKey);
     }
-    // LINES ASHORE: from a bollard to her bow, and to her stern.
+    // MOORED BY TWO ROPES, each from a bollard to the nearest cleat along her
+    // quay-side rail. THROWN ACROSS as she ties up — paid out from the
+    // bollard, slack, then hauled taut — and LET GO as she leaves: hauled back
+    // from where it was last fast, and coiled. Each hangs in a curve.
     if (ship) {
-      const len = [0.84, 1.5, 2.4][ship.cls] ?? 0.84;
-      r.lines.forEach((l, j) => {
-        const e = (j ? -1 : 1) * len * 0.4;
-        const [sa, sd] = local(ship.x + Math.cos(ship.heading) * e, ship.y + Math.sin(ship.heading) * e);
-        // The bollard on the side of the berth that end of her is nearer.
-        const ba = r.c + (sa > r.c + 0.5 ? 0.75 : 0.25);
-        lay(l, f.Q(ba, f.depth - 0.1, QUAY + 0.3), f.Q(sa, sd, ship.z - ground + 0.5));
-        l.alpha = Math.min(1, l.alpha + dt * 2);
+      const len = SHIP_LENGTH[ship.cls] ?? 0.84, beam = SHIP_BEAM[ship.cls] ?? 0.36;
+      const hx = Math.cos(ship.heading), hy = Math.sin(ship.heading);
+      // Toward the quay from her middle, across her beam.
+      const [fx2, fy2] = NEIGHBOUR[s.facing ?? "W"];
+      r.cleats = [0.25, 0.75].map((t) => {
+        const ba = r.c + t;
+        let best: [number, number] = [0, 0], bestD = Infinity;
+        for (const e of [-0.4, -0.14, 0.14, 0.4]) {
+          // A cleat on her rail, on the side the quay is.
+          const x = ship.x + hx * e * len - fx2 * beam * 0.42, y = ship.y + hy * e * len - fy2 * beam * 0.42;
+          const [a, d] = local(x, y);
+          if (Math.abs(a - ba) < bestD) { bestD = Math.abs(a - ba); best = f.Q(a, d, ship.z - ground + SHIP_RAIL[ship.cls]); }
+        }
+        return best;
       });
-    } else for (const l of r.lines) l.alpha = Math.max(0, l.alpha - dt * 3);
+      r.fast = Math.min(1, r.fast + dt / 0.9);
+    } else r.fast = Math.max(0, r.fast - dt / 0.6);
+    r.lines.forEach((rope, j) => {
+      const from = f.Q(r.c + (j ? 0.75 : 0.25), f.depth - 0.1, QUAY + 0.32);
+      const reach = ease(Math.min(1, r.fast * 1.4));
+      const to: [number, number] = [from[0] + (r.cleats[j][0] - from[0]) * reach, from[1] + (r.cleats[j][1] - from[1]) * reach];
+      // Slack while it is paid out, near taut once fast; a little life in it with the water.
+      const span2 = Math.hypot(to[0] - from[0], to[1] - from[1]);
+      const sag = span2 * (0.1 + 0.3 * (1 - ease(r.fast))) + Math.sin(h.t * 1.7 + r.c + j) * 0.6 * sc * r.fast;
+      const at = (t: number): [number, number] => [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t + sag * 4 * t * (1 - t)];
+      rope.forEach((seg, n) => {
+        lay(seg, at(n / ROPE_LENGTHS), at((n + 1) / ROPE_LENGTHS));
+        seg.alpha = r.fast > 0.02 ? 1 : 0;
+      });
+    });
     if (r.kind === "none") continue;
 
     const lifting = !!ship?.cargo;
