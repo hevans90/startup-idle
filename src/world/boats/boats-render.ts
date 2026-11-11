@@ -24,7 +24,7 @@ import type { ColumnField } from "../../fluid/columns";
 import { type Boat, type Fleet } from "./fleet";
 import { classOf } from "./classes";
 import { bakedBoats, boatSprites, boatsLoaded, type BoatSprites } from "./boat-sheet";
-import { AI_HULL as AI_LIVERY, LIVERIES, YACHT_HULLS, lookOf } from "./models";
+import { AI_HULL as AI_LIVERY, CONVOY_HULL, LIVERIES, YACHT_HULLS, lookOf } from "./models";
 import { createWake, stepWake, wakeMarks, type WakeMark } from "./wake";
 
 /** How far the gunwale stands over the water, in half steps. */
@@ -88,7 +88,7 @@ export function createBoatLayer(bands: BandLayer): BoatLayer {
         c.addChild(sp);
         return sp;
       });
-      parts[0].tint = b.ai ? AI_LIVERY : look === "yacht" ? YACHT_HULLS[b.id % YACHT_HULLS.length] : LIVERIES[b.id % LIVERIES.length];
+      parts[0].tint = b.ai ? AI_LIVERY : b.convoy ? CONVOY_HULL : look === "yacht" ? YACHT_HULLS[b.id % YACHT_HULLS.length] : LIVERIES[b.id % LIVERIES.length];
       d = { c, parts, band: -1, look: "", frame: -1, lit: -1 };
       baked.set(b.id, d);
     }

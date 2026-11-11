@@ -21,7 +21,7 @@
  * settings. @see SoundControls
  */
 export type Sfx = "click" | "build" | "pop" | "coin" | "crumble" | "transmission" | "decision"
-  | "tick" | "open" | "close" | "confirm" | "deny" | "alert";
+  | "tick" | "open" | "close" | "confirm" | "deny" | "alert" | "horn";
 /** The interface's sounds, on its own bus. */
 export const INTERFACE: ReadonlySet<Sfx> = new Set(["click", "transmission", "decision", "tick", "open", "close", "confirm", "deny", "alert"]);
 
@@ -153,6 +153,8 @@ export function sfx(name: Sfx): void {
     case "deny": note("square", 220, 180, t, 0.07, 0.05); note("square", 180, 150, t + 0.08, 0.09, 0.05); break;
     case "alert": for (let k = 0; k < 2; k++) note("triangle", 1046, 1046, t + k * 0.16, 0.1, 0.1); break;
     case "pop": tone(bus, "sine", 420, 980, t, 0.09, 0.25); tone(bus, "triangle", 1960, 1960, t + 0.05, 0.08, 0.06); break;
+    // A SHIP'S HORN: two low notes together, long. @see Traffic.firsts
+    case "horn": tone(bus, "sawtooth", 146, 146, t, 0.9, 0.16); tone(bus, "sawtooth", 110, 110, t, 0.9, 0.14); break;
     case "coin": tone(bus, "square", 988, 988, t, 0.07, 0.06); tone(bus, "square", 1319, 1319, t + 0.07, 0.16, 0.06); break;
     case "build": tone(bus, "sine", 120, 55, t, 0.22, 0.5); burst(bus, t, 0.12, 900, 0.25); break;
     case "crumble": burst(bus, t, 0.45, 600, 0.4); burst(bus, t + 0.08, 0.3, 1800, 0.15); break;

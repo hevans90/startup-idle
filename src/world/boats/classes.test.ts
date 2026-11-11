@@ -149,3 +149,50 @@ describe("the traffic, by size", () => {
     expect(turned).toBeGreaterThan(0);
   });
 });
+
+describe("moments on the river", () => {
+  const run = (g: Grid, seconds: number, t = createTraffic(), each?: (f: ReturnType<typeof createFleet>) => void) => {
+    const c = fieldOf(g), f = createFleet();
+    for (let k = 0; k < seconds * 30; k++) {
+      stepTraffic(t, f, g, c, 1 / 30);
+      stepFleet(f, c, 1 / 30, trafficSteer(t));
+      each?.(f);
+    }
+    return { t, f };
+  };
+
+  test("a convoy is the biggest ships the port takes, one after another, in its livery", () => {
+    const g = river(6);
+    port(g, 3);
+    const t = createTraffic();
+    t.convoy = true;
+    const seen = new Set<string>();
+    run(g, 60, t, (f) => { for (const b of f.boats) seen.add(`${b.cls ?? 0}|${!!b.convoy}`); });
+    expect(seen).toEqual(new Set(["2|true"]));
+  });
+
+  test("the first of each bigger class to call at a port is greeted, once, and the port remembers", () => {
+    const g = river(6);
+    const s = port(g, 3);
+    const t = createTraffic();
+    const firsts: number[] = [];
+    const c = fieldOf(g), f = createFleet();
+    for (let k = 0; k < 300 * 30; k++) {
+      stepTraffic(t, f, g, c, 1 / 30);
+      stepFleet(f, c, 1 / 30, trafficSteer(t));
+      firsts.push(...t.firsts.splice(0).map((x) => x.cls));
+    }
+    expect(firsts).toEqual([1, 2]);
+    expect(g.structures.get(s.id)!.biggest).toBe(2);
+  });
+
+  test("a river that falls too low for a port's ships is noticed", () => {
+    const g = river(6);
+    const s = port(g, 3);
+    const { t } = run(g, 3);
+    expect(t.lows).toEqual([]);
+    for (let y = 6; y <= 10; y++) for (let x = 0; x < g.w; x++) g.pool[idx(g, x, y)] = 2;
+    run(g, 3, t);
+    expect(t.lows).toContain(s.id);
+  });
+});

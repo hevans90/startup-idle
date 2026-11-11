@@ -43,6 +43,8 @@ const SPAWN_SLOWEST = 20;
 const FIRST_SPAWN = 1;
 /** How much faster a port in the AI's district turns ships round, with Market Maker. */
 export const MARKET_TURNROUND = 1.5;
+/** Berths' worth of ships that may be on their way to a port, or waiting off it, beyond what it has berths for. */
+const WAITING = 1;
 /** The sizes sent, in turn, where the river's ports take them: mostly boats. @see SHIP_CLASSES */
 const MIX = [0, 1, 0, 2, 0, 1] as const;
 /** Boats under way on a river: this many, and this many more for every berth on it. */
@@ -178,6 +180,17 @@ export type Traffic = {
   calls: Call[];
   /** Ports a ship gave up waiting for since the last look, by structure id. */
   turned: number[];
+  /**
+   * A CONVOY IS IN: what the rivers send is the convoy — the biggest ships
+   * the ports take, one after another, in one livery. The scene's to say.
+   */
+  convoy: boolean;
+  /** The first call at a port by a bigger class of ship than it has had: for a horn and a notice. */
+  firsts: { port: number; cls: number }[];
+  /** Ports the river has fallen too low for the biggest ships they were taking, since the last look. */
+  lows: number[];
+  /** What each port was taking when last mapped. */
+  took: Map<number, number>;
   /** What each port's cranes have landed and not yet sent out by road. @see yard */
   yards: Yards;
   /**
@@ -189,7 +202,7 @@ export type Traffic = {
 };
 
 export const createTraffic = (): Traffic => ({
-  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [], turned: [], yards: createYards(), rush: 1,
+  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [], turned: [], yards: createYards(), rush: 1, convoy: false, firsts: [], lows: [], took: new Map(),
 });
 
 /** Every seaport's berths, on the rivers as they stand. */
@@ -322,7 +335,7 @@ function castOff(t: Traffic, b: Boat): void {
  * The calls being made: join a port's queue on getting near it, take a free
  * berth in turn, tie up there, and cast off when the call is over.
  */
-function stepCalls(t: Traffic, f: Fleet, dt: number): void {
+function stepCalls(t: Traffic, f: Fleet, dt: number, sailed: { port: number; cls: number }[] = []): void {
   // Boats that have gone, or are bound somewhere else now, leave a queue.
   const live = new Map(f.boats.map((b) => [b.id, b]));
   for (const [port, q] of t.queues) {
@@ -338,6 +351,7 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
       b.dockLeft! -= dt;
       if (b.dockLeft! <= 0) {
         t.calls.push({ port: port.id, berth: b.berth ?? 0, cls, fit: b.fit ?? "trade" });
+        sailed.push({ port: port.id, cls });
         // LANDED, into the yard. @see yard
         castOff(t, b);
       } else if (b.dockFor) {
@@ -356,7 +370,10 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
       const near = nearestBerth(port, b);
       const q = t.queues.get(port.id) ?? [];
       // Not near it yet, and not already waiting off it at anchor.
-      if (!q.includes(b.id) && Math.hypot(near.x - b.x, near.y - b.y) >= WAIT_AT * Math.max(1, classOf(cls).length)) { b.moor = null; continue; }
+      // Nor come to where ships wait for it, which is on its way in.
+      const hold = port.anchorage[0];
+      if (!q.includes(b.id) && Math.hypot(near.x - b.x, near.y - b.y) >= WAIT_AT * Math.max(1, classOf(cls).length)
+        && !(hold && Math.hypot(hold.x - b.x, hold.y - b.y) < WAIT_AT)) { b.moor = null; continue; }
       // NEAR IT: in the queue, and a berth when one is free and it is next.
       if (!q.includes(b.id)) q.push(b.id);
       t.queues.set(port.id, q);
@@ -377,7 +394,11 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
         // AT ANCHOR, in the line, and not for ever. @see PATIENCE
         b.waited = (b.waited ?? 0) + dt;
         if (b.waited > PATIENCE) { t.turned.push(port.id); castOff(t, b); continue; }
-        b.moor = port.anchorage[waiting.indexOf(b.id)] ?? b.moor ?? { x: b.x, y: b.y };
+        // IN THE LINE, in its turn, lying along the channel with its bow to the port.
+        const place = waiting.indexOf(b.id), spot = port.anchorage[place];
+        b.moor = spot ?? b.moor ?? { x: b.x, y: b.y };
+        const ahead = place > 0 ? port.anchorage[place - 1] : port.berths[(port.berths.length - 1) >> 1];
+        if (spot && ahead) b.lie = Math.atan2(ahead.y - spot.y, ahead.x - spot.x);
         continue;
       }
       free.sort((m, n) =>
@@ -385,6 +406,7 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
         - Math.hypot(port.berths[n].x - b.x, port.berths[n].y - b.y));
       b.berth = free[0];
       b.moor = null;
+      b.lie = undefined;
     }
     const at = lieAt(port, b.berth, cls);
     if (Math.hypot(at.x - b.x, at.y - b.y) < TIE_UP_AT * Math.max(1, classOf(cls).length)) {
@@ -407,7 +429,12 @@ function pickPort(t: Traffic, f: Fleet, river: number, cls = 0): Port | null {
   let best: Port | null = null, bestWait = Infinity;
   for (const p of t.ports.values()) {
     if (p.river !== river || !p.accepts[cls]) continue;
-    const bound = f.boats.filter((b) => b.route?.[0] === p.id).length;
+    // NO MORE THAN IT HAS BERTHS FOR, AND ONE TO WAIT: counted in berths, so
+    // a ship bound for it is two. A river sent ships by the clock alone had
+    // them stacked up off every quay. @see WAITING
+    let bound = 0;
+    for (const b of f.boats) if (b.route?.[0] === p.id) bound += classOf(b.cls).span;
+    if (bound + classOf(cls).span > p.berths.length + WAITING) continue;
     const wait = Math.ceil((bound + 1) / p.berths.length) * p.dock;
     if (wait < bestWait) { best = p; bestWait = wait; }
   }
@@ -421,9 +448,23 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     t.rivers = mapRiver(g, tileDepthOf(c));
     t.ports = portsOf(g, t.rivers);
     t.sinceMap = 0;
+    // THE RIVER FALLEN: a port that took bigger ships a moment ago, and cannot now.
+    for (const p of t.ports.values()) {
+      const was = t.took.get(p.id);
+      if (was !== undefined && p.takes < was) t.lows.push(p.id);
+      t.took.set(p.id, p.takes);
+    }
   }
   const r = t.rivers;
-  stepCalls(t, f, dt);
+  const sailed: { port: number; cls: number }[] = [];
+  stepCalls(t, f, dt, sailed);
+  // THE FIRST of a bigger class to call at a port, remembered on the port. @see Structure.biggest
+  for (const c of sailed) {
+    const ps = g.structures.get(c.port);
+    if (!ps || c.cls <= (ps.biggest ?? 0)) continue;
+    ps.biggest = c.cls;
+    t.firsts.push(c);
+  }
 
   // LEAVING: a boat at its river's way out, against the rim, is gone.
   for (let k = f.boats.length - 1; k >= 0; k--) {
@@ -470,21 +511,29 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     // WHAT COMES: boats, and as the river's ports can take them, coasters
     // and ships among them — as big as there is a port and a channel for.
     // The size wanted, then smaller, then bigger: whatever a port here takes.
-    const want = Math.min(most, MIX[t.sent % MIX.length]);
+    const want = t.convoy ? most : Math.min(most, MIX[t.sent % MIX.length]);
     const sizes = [...Array.from({ length: want + 1 }, (_, k) => want - k), ...Array.from({ length: SHIP_CLASSES.length - want - 1 }, (_, k) => want + 1 + k)];
     let port: Port | null = null, cls = 0;
     for (const k of sizes) {
       if (r.reach[at.y * r.w + at.x] <= k) continue;
+      // A size some port here takes is the size sent — when there is room for
+      // it, not a smaller one in its place, or a ship would never get its turn.
+      let taken = false;
+      for (const p of t.ports.values()) if (p.river === river && p.accepts[k]) taken = true;
+      if (!taken) continue;
       port = pickPort(t, f, river, k);
-      if (port) { cls = k; break; }
+      cls = k;
+      break;
     }
-    if (!port) continue;
+    // Nowhere for one to go just now: ask again in a moment, not a whole interval on.
+    if (!port) { t.untilSpawn.set(river, 1); continue; }
     const boat = addBoat(f, c, s.x, s.y, cls);
     if (!boat) continue;
     // COME FOR ONE OF ITS BERTHS, each kind in turn. @see fittings
     const fits = fitsFor(port, cls);
     boat.fit = fits[t.sent % fits.length];
     boat.load = 1;
+    if (t.convoy) boat.convoy = true;
     t.sent++;
     boat.motor = RIVER_MOTOR;
     boat.route = [port.id];

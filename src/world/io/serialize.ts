@@ -297,11 +297,12 @@ function readStructure(raw: unknown): Structure | null {
   const grown = Number.isInteger(s.grown) && s.grown! > 0 ? s.grown : undefined;
   const shop = typeof s.shop === "string" && serviceDef(s.shop)?.shop ? s.shop : undefined;
   const fit = Array.isArray(s.fit) && s.fit.every((f) => typeof f === "string") ? s.fit.slice(0, 8) : undefined;
+  const biggest = s.biggest === 1 || s.biggest === 2 ? s.biggest : undefined;
   const facing = s.facing === "N" || s.facing === "E" || s.facing === "S" || s.facing === "W" ? s.facing : undefined;
   return {
     id: s.id!, def: s.def, x: s.x!, y: s.y!, w: s.w!, h: s.h!,
     ...(build ? { build } : {}), ...(residents !== undefined ? { residents } : {}),
-    ...(grown !== undefined ? { grown } : {}), ...(shop ? { shop } : {}), ...(facing ? { facing } : {}), ...(fit ? { fit } : {}),
+    ...(grown !== undefined ? { grown } : {}), ...(shop ? { shop } : {}), ...(facing ? { facing } : {}), ...(fit ? { fit } : {}), ...(biggest ? { biggest } : {}),
   };
 }
 

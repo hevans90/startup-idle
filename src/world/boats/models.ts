@@ -267,3 +267,5 @@ export const LIVERIES: readonly number[] = [0xb8463a, 0x2f5f8f, 0x2f7d5b, 0xd9a2
 /** A yacht's hull is white, or near it; the Machine's is its own violet. */
 export const YACHT_HULLS: readonly number[] = [0xf4f1ea, 0xe9eef2, 0x23324a];
 export const AI_HULL = 0x4b3a78;
+/** A convoy's ships are all in one: navy. */
+export const CONVOY_HULL = 0x1f3a5f;

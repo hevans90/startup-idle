@@ -80,6 +80,8 @@ export type Boat = {
   dockFor?: number;
   /** Seconds it has waited off its port for a berth. @see traffic */
   waited?: number;
+  /** One of a convoy: in the convoy's livery. @see Traffic.convoy */
+  convoy?: boolean;
   /** One of the Machine's freighters: violet, crewless, a light at the bow. @see Market Maker */
   ai?: boolean;
 };

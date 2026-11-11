@@ -61,16 +61,24 @@ const GEAR = {
 } as const;
 /** How far back from the quay's edge each one's mast stands, tiles. */
 const PIVOT = { trade: 0.8, crane: 0.5 } as const;
+/**
+ * How wide a gantry's portal is along the quay, and how far it runs either
+ * way along its rails, tiles: together inside its own tile of quay, so it
+ * never runs over the bay beside it or off the end of the port.
+ */
+const PORTAL = 0.6;
+const TRAVEL = (1 - PORTAL) / 2 - 0.04;
 /** How high a ship's cargo stands over its waterline, by its class, half steps. */
 const DECK = [0.9, 1.5, 2.6];
 /** Where in a lift a crane waits: back over the yard, hook up, empty. */
 const PARKED = 0.9;
 
 /** What stands in each column of a port this many tiles long: its berths' yards, and a shed. @see berthsAlong */
-const LAYOUT: Record<number, readonly ("shed" | "yard")[]> = {
+const LAYOUT: Record<number, readonly ("shed" | "yard" | "stack")[]> = {
   2: ["yard", "shed"],
   3: ["yard", "shed", "yard"],
-  4: ["yard", "shed", "yard", "yard"],
+  // THE BIGGEST IS ALL CONTAINER YARD: no shed, a bay of stacks where the quay has no berth.
+  4: ["yard", "stack", "yard", "yard"],
 };
 const layoutOf = (n: number) => LAYOUT[n] ?? Array.from({ length: n }, (_, k) => (k % 2 ? "shed" : "yard"));
 
@@ -177,7 +185,7 @@ function draw(g: Graphics, s: Structure, ctx: RenderCtx, c: number, fill: number
   for (let k = 1; k < 8; k++) line(Q(a0 + 0.05, (depth * k) / 8, QUAY), Q(a1 - 0.05, (depth * k) / 8, QUAY), PLANK, 1.1, 0.55);
   /** A box of cargo, coloured by where it stands. */
   const cargo = (a: number, d: number, tier: number, n: number, w = 0.3, l = 0.42, h = 0.9) => {
-    const col = BOXES[(c * 7 + n * 3 + tier) % BOXES.length];
+    const col = BOXES[(c * 7 + n * 5 + tier * 2) % BOXES.length];
     box(a, d, a + w, d + l, QUAY + tier * h, QUAY + (tier + 1) * h - 0.04, col, col, shade(col));
   };
   // THE STACKS: as high as the yard is full, so the port's state reads from across the map.
@@ -189,6 +197,27 @@ function draw(g: Graphics, s: Structure, ctx: RenderCtx, c: number, fill: number
     if (away) spots.reverse();
     spots.forEach(([a, d], k) => { for (let t = 0; t * 4 + k < boxes && t < 3; t++) cargo(a0 + a, d, t, k + t); });
   };
+  if (kinds[c] === "stack") {
+    // A BAY OF THE CONTAINER YARD: lanes painted on the quay, and rows of
+    // boxes lying along it — a tier always there, more as the yard fills.
+    for (const d of [0.14, depth - 0.42]) line(Q(a0 + 0.04, d, QUAY + 0.01), Q(a1 - 0.04, d, QUAY + 0.01), 0xf2d24a, 0.9, 0.8);
+    const rows: number[] = [];
+    for (let d = 0.22; d + 0.22 <= depth - 0.5; d += 0.27) rows.push(d);
+    if (away) rows.reverse();
+    rows.forEach((d, k) => {
+      for (const a of away ? [0.54, 0.07] : [0.07, 0.54]) {
+        const n = k * 2 + (a > 0.3 ? 1 : 0);
+        const tiers = 1 + Math.min(2, Math.floor(fill * 3 + ((n * 7 + s.id) % 5) / 5));
+        for (let t = 0; t < tiers; t++) cargo(a0 + a, d, t, n + t * 3, 0.39, 0.2, 0.95);
+      }
+    });
+    // THE GATE at its back: two posts, and a striped bar across.
+    box(a0 + 0.02, 0, a0 + 0.08, 0.06, QUAY, QUAY + 1.2, IRON, IRON, FENDER);
+    box(a0 + 0.92, 0, a0 + 0.98, 0.06, QUAY, QUAY + 1.2, IRON, IRON, FENDER);
+    line(Q(a0 + 0.05, 0.03, QUAY + 1.0), Q(a0 + 0.95, 0.03, QUAY + 1.0), 0xf2f2f2, 2.2);
+    for (const t of [0.2, 0.5, 0.8]) line(Q(a0 + t - 0.07, 0.03, QUAY + 1.0), Q(a0 + t + 0.07, 0.03, QUAY + 1.0), 0xd8432f, 2.2);
+    return;
+  }
   /** A lattice mast: a box, and cross-bracing up its lit face. */
   const mast = (a: number, d: number, half: number, z1: number, col: number, dark: number) => {
     box(a - half, d - half, a + half, d + half, QUAY, z1, col, col, dark);
@@ -361,7 +390,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
     if (kind === "gantry") {
       // THE GANTRY ITSELF, drawn where it stands and then run along its rails: four legs, sill beams, a machinery house, the boom out over the ship and its stays.
       parts.portal = add(bandFor(c), shape((p) => {
-        const d0 = f.depth - 0.95, d1 = f.depth - 0.12, a0 = c + 0.1, a1 = c + 0.9, top = QUAY + BOOM_Z;
+        const d0 = f.depth - 0.95, d1 = f.depth - 0.12, a0 = c + 0.5 - PORTAL / 2, a1 = c + 0.5 + PORTAL / 2, top = QUAY + BOOM_Z;
         const ln = (a: [number, number], b: [number, number], colour: number, w: number) => { p.moveTo(...a).lineTo(...b); p.stroke({ color: colour, width: Math.max(1, w * sc) }); };
         // Far legs first, then the near.
         const legs: [number, number][] = [[a0, d0], [a1, d0], [a0, d1], [a1, d1]];
@@ -520,7 +549,8 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
     if (r.kind === "gantry") {
       const top = QUAY + BOOM_Z, up = top - 1.6;
       // Along its rails to the hold or the stack, as far as they run; the trolley out along the boom.
-      const wantAlong = Math.max(-0.32, Math.min(0.32, from.a + (to.a - from.a) * across - mid));
+      // Never out of its own bay: not over its neighbour, nor off the end of the quay.
+      const wantAlong = Math.max(-TRAVEL, Math.min(TRAVEL, from.a + (to.a - from.a) * across - mid));
       const wantOut = Math.max(f.depth - 1.3, Math.min(f.depth + REACH + 0.15, from.d + (to.d - from.d) * across));
       const wantHook = up - downFrom * Math.max(0, up - from.z - 0.95) - downTo * Math.max(0, up - to.z - 0.95);
       r.speed += (Math.abs(wantOut - r.out) + Math.abs(wantAlong - r.along) - r.speed) * k;
@@ -542,9 +572,11 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
     // A CRANE THAT TURNS, about its mast at (mid, pivot).
     const gear = r.gear!, top = QUAY + gear.z, up = top - 1.4;
     const polar = (a: number, d: number) => ({ turn: Math.atan2(a - mid, d - r.pivot), out: Math.min(gear.jib - 0.08, Math.max(0.3, Math.hypot(a - mid, d - r.pivot))) });
-    const A = polar(from.a, from.d), B = polar(to.a, to.d);
-    const wantTurn = A.turn + (turnTo(A.turn, B.turn) - A.turn) * across;
-    const wantOut = A.out + (B.out - A.out) * across;
+    // THE LOAD GOES STRAIGHT from the one to the other, and the jib and trolley
+    // follow it: swung round the mast the short way, it went out over the
+    // road beside the port, or over the bay next door.
+    const want = polar(from.a + (to.a - from.a) * across, from.d + (to.d - from.d) * across);
+    const wantTurn = want.turn, wantOut = want.out;
     const wantHook = up - downFrom * Math.max(0, up - from.z - gear.crate[2]) - downTo * Math.max(0, up - to.z - gear.crate[2]);
     const next = turnTo(r.turn, wantTurn);
     r.speed += (Math.abs(next - r.turn) + Math.abs(wantOut - r.out) - r.speed) * k;

@@ -76,6 +76,8 @@ export type Structure = {
    * quay, by fitting id. Absent, or short: trading quays. @see world/boats/fittings
    */
   fit?: string[];
+  /** A SEAPORT: the biggest class of ship that has called at it, by number. For greeting the first of each. @see SHIP_CLASSES */
+  biggest?: number;
 };
 
 /** A building going up. @see stepWorks */

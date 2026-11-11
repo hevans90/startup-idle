@@ -3109,6 +3109,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const traffic = getTraffic();
       stepTraffic(traffic, fleet, useWorldStore.getState().grid, field.columns, dt);
       stepTrade(dt);
+      // MOMENTS: the first coaster or ship to call at a port sounds its horn; a river fallen too low for a port's ships is said. @see Traffic.firsts
+      if (traffic.firsts.length || traffic.lows.length) {
+        const g = useWorldStore.getState().grid, playing = useWorldStore.getState().playing;
+        for (const first of traffic.firsts.splice(0)) {
+          sfx("horn");
+          const name = structureDef(g.structures.get(first.port)?.def ?? "")?.name ?? "seaport";
+          if (playing) useWorldStore.setState({ notice: { text: `First ${classOf(first.cls).name.toLowerCase()} at the ${name}`, at: Date.now() } });
+        }
+        for (const id of traffic.lows.splice(0)) {
+          const name = structureDef(g.structures.get(id)?.def ?? "")?.name ?? "seaport";
+          if (playing) useWorldStore.setState({ notice: { text: `River too low for the ${name}'s bigger ships`, at: Date.now() } });
+        }
+      }
       // THE PORTS PAID for the calls they finished — in the game, into the
       // company's money; in the editor, shown and never paid. @see portCallFee
       if (traffic.calls.length) {
@@ -3436,6 +3449,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           getTraffic().rush = convoy?.chosen === "hands" ? 2 : 1;
           // AND BRINGS MATERIALS: a site's loads off the boats, at half price. @see CONVOY_LOADS
           setConvoyIn(!!convoy);
+          getTraffic().convoy = !!convoy;
           // THE WEATHER ON WHAT DRINKS: a heatwave's thirst, and every tank
           // kept full by pumps, trucks or rationing. @see setHeat
           const heatwave = st.events.find((e) => e.kind === "heatwave" && e.phase === "active");

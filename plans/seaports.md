@@ -1,6 +1,6 @@
 # Seaports and boats, rebuilt
 
-**Status:** phases 0 and 1 built, 2026-11-11 (see "Built so far"); the rest proposed. Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Not seen in the browser:** the app would not boot on the day (`process is not defined`, from uncommitted diagnostic edits in `agents/town.ts`), so every claim about how it looks is read from the drawing code and tagged [read].
+**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Not seen in the browser:** the app would not boot on the day (`process is not defined`, from uncommitted diagnostic edits in `agents/town.ts`), so every claim about how it looks is read from the drawing code and tagged [read].
 
 ## Why
 
@@ -179,6 +179,36 @@ Phase 1 stands alone and fixes what is broken. Phases 5 and 7 need nothing from 
 - **Banks are lit in one colour.** Colour by largest ship waits for the ship classes (phase 2), as does red where the way in grounds.
 - **The standing water is as last saved or generated.** A map saved in a flood loads with the flood as its bank until saved again.
 - **Measured:** on 15 generated maps (64², 96², 128²), a tier 3 fits on 38–79% of bank tiles. A bank on the slant takes no port; the harbour fixture's bank was straightened at its three ports for this.
+
+**Phase 2 — ships and water.** `boats/classes.ts`; `RiverMap.depth/reach/toExitOf`; anchorage and `PATIENCE` in `traffic.ts`; the Dredge tool (`dredgeCells`, `dredgeCost`). Tests in `classes.test.ts`.
+- Coaster: channel deeper than 3 half steps, tier 2. Ship: deeper than 5, tier 3, two berths, no bridge.
+- Pay follows berth-time and a little over (coaster 2.2× for 2×; ship 7.5× for 6×).
+- Not built: a tug, and a ship turning in a basin. Room to turn is a check, not a manoeuvre.
+- Dredging is not undoable in play, and reads the map's standing water, not the live river.
+
+**Phase 3 — fittings.** `boats/fittings.ts`, `boats/trade.ts`, `play/port-card.tsx`. Tests in `fittings.test.ts`.
+- **Left out: the slop loader** (open question 4). It needs a slop inlet on a port and a link into the sewer solver, which the pipe plan is about to replace.
+- **Left out: homes across the water counting as near** for the ferry. It brings hires sooner only.
+- The effects are unit-tested; none has been run through the balance sim.
+
+**Phase 4 — yard and road.** `boats/yard.ts`. Lorries are real town trucks from the port's door to where its road leaves the map, one on the road a port (open question 1: real lorries, capped).
+
+**Phase 5 — the fleet.** `boats/models.ts`, `dev/bake-boats.ts`, `boat-sheet.ts`. Dinghy, fishing boat, ferry, yacht, lighter, drone, coaster, container ship; five 2048² pages, 2.7 MB.
+- Not built: the tug and the slop barge. Pitch is not sheared; a hull bobs and leans a little.
+- Lights at night are baked and wired but were only seen by day.
+
+**Phase 6 — wakes.** `pushWater` in `boats/wake.ts`: water taken from under the stern and put either side of the bow, conserved (test).
+- **The drawn foam is kept.** At a strength that does not slop over the quays, the water's own wake did not read by eye.
+- Not run under `?gpucheck`.
+
+**Phase 7 — the port.** `structures/seaport-renderer.ts`, `port-life.ts`; `liftAt`/`cargoAt` in `traffic.ts`.
+- Tower cranes slew, gantries travel, each lift in step with the ship's cargo, from another hold to another stack.
+- `_buildInstructions` was not counted; the design is transform, tint and alpha only.
+
+**Phase 8 — moments.** Convoy as a fleet in one livery; a horn and a notice for the first coaster or ship at a port (`Structure.biggest`); a notice when the river falls too low.
+- Not built: the investor arriving by yacht when a term sheet is due.
+
+**Open questions, as decided:** lorries are real and capped; dredging is in; lakes stay out; the slop loader is left out for now; hulls push the water, gently.
 
 ## Open questions
 
