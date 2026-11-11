@@ -894,7 +894,10 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
       if (front < CROSS_STOP || front > FOLLOW) continue;
       // (One who has waited, only if it can stop for them gently: too near, it goes on, and they after it.)
       const patient = now.foot.patient.has(x.c) && front - CROSS_STOP > (v * v) / (2 * IDM_B) + 0.05;
-      if (now.foot.on.has(x.c) || patient || (now.foot.waiting.has(x.c) && zebraAt(t, T, x.c))) follow(A, v, front - CROSS_STOP, 0, 0.02);
+      // (Stood at it a while for them, with the way on clear: its turn — no more step out, and it goes once they are over.)
+      const turn = m.stuck > CARS_TURN && front - CROSS_STOP < 0.3 && clearPast(now, d, j, m, x.s) && !T.signals.has(G.crossings[x.c].junction);
+      if (turn) heldOf(T).set(x.c, t.t);
+      if (now.foot.on.has(x.c) || (!turn && (patient || (now.foot.waiting.has(x.c) && zebraAt(t, T, x.c))))) follow(A, v, front - CROSS_STOP, 0, 0.02);
     }
     // LETTING IN one waiting beside to change onto this lane, a little ahead.
     for (const b of G.lanes[d.lanes[j]].beside ?? []) {
@@ -1016,8 +1019,9 @@ function passParked(T: Traffic, m: Mover, now: ReturnType<typeof trafficNow>, A:
       const at = d.start[j] + p.s, ph = halfLength(p.m), gap = at - m.s;
       // Behind it already, or beyond where it is going.
       // (Into a bay: up to the next one's car, bumper to bumper.)
-      // (Alongside it already, its middle behind ours: stopping would not get it out of the way.)
-      if (gap + ph + half < 0 || gap > FOLLOW + 1 || at - ph > end + (m.bayTo ? 0 : half + GAP)) continue;
+      // (Alongside it already, its middle behind ours: stopping would not get it out of the way.
+      // Into a bay, not even one just behind, its nose over our tail, bumper to bumper.)
+      if (gap + ph + half < 0 || (m.bayTo && gap < 0) || gap > FOLLOW + 1 || at - ph > end + (m.bayTo ? 0 : half + GAP)) continue;
       // Parked where it is going: it stops short, there.
       if (!m.bayTo && at - ph < end + half + GAP && at > end - 1) {
         follow(A, v, gap - spacing(m, p.m) + GAP, 0, GAP);
@@ -1166,8 +1170,9 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
   let r = q;
   while (r < d.lanes.length && G.lanes[d.lanes[r]].kind !== "street") r++;
   if (r < d.lanes.length) {
-    const need = 2 * halfLength(m) + GAP;
-    for (const o of now.on.get(d.lanes[r]) ?? []) if (o.m !== m && o.s - halfLength(o.m) < need && o.m.speed < 0.5) return false;
+    // (On a short street between two junctions, anybody there at all: about to stop at the next one's line.)
+    const need = 2 * halfLength(m) + GAP, short = G.lanes[d.lanes[r]].len < SHORT_BLOCK;
+    for (const o of now.on.get(d.lanes[r]) ?? []) if (o.m !== m && o.s - halfLength(o.m) < need && (short || o.m.speed < 0.5)) return false;
   }
   const J = G.junctions[y.junction!];
   // ONTO A ROUNDABOUT: nobody on the ring near its port, nor coming round to it soon.
@@ -1180,7 +1185,8 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
         if (o.m === m || lane === y.id) continue;
         const dist = l.kind === "entry" ? l.len - o.s : roundTo(T, J.id, o.m, port);
         const back = 2 * Math.PI * Math.hypot(o.m.x - J.centre.x, o.m.y - J.centre.y) - dist;
-        if (back < spacing(m, o.m) + 0.15 || dist < Math.max(1.4, o.m.speed * 2.5)) return false;
+        // (A long one — a bus — takes longer to be in: as much more room as it is longer than a car.)
+        if (back < spacing(m, o.m) + 0.15 || dist < Math.max(1.4, o.m.speed * 2.5) + Math.max(0, 2 * halfLength(m) - CAR_LONG)) return false;
       }
     }
     return true;
@@ -1191,7 +1197,8 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
   if (J.kind === "signals" && y.arm !== undefined) {
     const light = lightOf(T, J.id, y.arm, t.t);
     if (light === "red") return false;
-    if (light === "amber" && toLine > stopping + 0.1) return false;
+    // (On the amber, only one too near to stop — or one long waiting at the line for a gap to turn across, now the stream stops.)
+    if (light === "amber" && toLine > stopping + 0.1 && d.waited < PATIENT) return false;
   }
   // GIVING WAY to whoever has the right of it, coming on.
   if (d.waited < PATIENT) {
@@ -1205,6 +1212,12 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
   }
   return true;
 }
+
+/** About as long as a car, tiles: longer, a vehicle wants more room to get onto a roundabout. */
+const CAR_LONG = 0.6;
+
+/** A street shorter than this between junctions, tiles, is a short block: no room on it, whoever is there. */
+const SHORT_BLOCK = 5;
 
 /** Traffic this near a lights junction, tiles, wants its green. */
 const WANTS_GREEN = 4;
@@ -1234,19 +1247,41 @@ const CROSS_STOP = 0.2;
 /** A gap a walker crosses a plain road in, seconds; and how long they wait before the cars stop for them. */
 const CROSS_GAP = 2.5;
 const WALK_PATIENT = 4;
+/** Half a crossing's width, tiles. */
+const CROSS_HALF = 0.3;
+/** How long a vehicle stands at a crossing for those on foot before its turn, seconds. */
+const CARS_TURN = 10;
+
+/** THE CROSSINGS A VEHICLE HAS WAITED ITS TURN AT, each with when it last asked: nobody more steps out on them till it is over. */
+const helds = new WeakMap<Traffic, Map<number, number>>();
+const heldOf = (T: Traffic) => { let h = helds.get(T); if (!h) helds.set(T, (h = new Map())); return h; };
+const heldNow = (t: Town, T: Traffic, c: number) => (helds.get(T)?.get(c) ?? -1) > t.t - 0.15;
+
+/** Whether nothing stands on a vehicle's way within its length past a crossing at `s` along lane `j` of it: over it, it would not stop on it. */
+function clearPast(now: ReturnType<typeof trafficNow>, d: Drive, j: number, m: Mover, s: number): boolean {
+  const end = d.start[j] + s + CROSS_HALF + 2 * halfLength(m) + GAP;
+  for (let k = d.k; k < d.lanes.length && d.start[k] < end; k++) {
+    for (const o of now.on.get(d.lanes[k]) ?? []) {
+      if (o.m === m || o.m.speed > 0.3) continue;
+      const at = d.start[k] + o.s;
+      if (at > m.s && at - halfLength(o.m) < end) return false;
+    }
+  }
+  return true;
+}
 
 /** Whether a crossing is a zebra, as the road is painted. */
 const zebraAt = (t: Town, T: Traffic, c: number) => !!t.dress && (t.dress[T.G.crossings[c].cells[0]] & 4) !== 0;
 
 /** The vehicles coming to a crossing, or on it: each with the gap from its nose to the crossing's middle. */
-function comingTo(T: Traffic, now: ReturnType<typeof trafficNow>, c: number): { m: Mover; f: number }[] {
-  const out: { m: Mover; f: number }[] = [];
+function comingTo(T: Traffic, now: ReturnType<typeof trafficNow>, c: number): { m: Mover; f: number; inJ: boolean }[] {
+  const out: { m: Mover; f: number; inJ: boolean }[] = [];
   for (const L of T.lanesOver.get(c) ?? []) {
-    const s = T.over.get(L)!.find((x) => x.c === c)!.s;
-    for (const o of now.on.get(L) ?? []) out.push({ m: o.m, f: s - o.s - halfLength(o.m) });
+    const s = T.over.get(L)!.find((x) => x.c === c)!.s, inL = inside(T.G.lanes[L]);
+    for (const o of now.on.get(L) ?? []) out.push({ m: o.m, f: s - o.s - halfLength(o.m), inJ: inL });
     for (const P of T.into.get(L) ?? []) {
-      const len = T.G.lanes[P].len;
-      for (const o of now.on.get(P) ?? []) if (len - o.s + s < 4) out.push({ m: o.m, f: len - o.s + s - halfLength(o.m) });
+      const len = T.G.lanes[P].len, inP = inside(T.G.lanes[P]);
+      for (const o of now.on.get(P) ?? []) if (len - o.s + s < 4) out.push({ m: o.m, f: len - o.s + s - halfLength(o.m), inJ: inP });
     }
   }
   return out;
@@ -1265,10 +1300,14 @@ function mayCross(t: Town, T: Traffic, now: ReturnType<typeof trafficNow>, m: Mo
   const lead = m.group && t.movers.find((o) => o.id === m.group!.lead);
   const led = !!lead?.walk?.on && lead.walk.crossings[lead.walk.k]?.c === x.c;
   if (lit && !led) { const arm = armOver(T, x.c); if (arm >= 0 && !walkOn(T, C.junction, arm, t.t)) return false; }
+  // (A vehicle has stood its turn at it: they wait for it to go.)
+  if (!led && heldNow(t, T, x.c)) return false;
   const yielded = led || lit || zebraAt(t, T, x.c) || m.walk!.waited > WALK_PATIENT;
-  for (const { m: o, f } of comingTo(T, now, x.c)) {
+  for (const { m: o, f, inJ } of comingTo(T, now, x.c)) {
     if (f < -2 * halfLength(o) - CROSS_STOP) continue;
     if (f < CROSS_STOP) return false;
+    // (One in the junction already, on its way out over this crossing: they let it out first.)
+    if (inJ && !led) return false;
     if (o.speed < 0.1) continue;
     const room = f - CROSS_STOP;
     if (yielded ? room < (o.speed * o.speed) / (2 * IDM_B) + 0.15 : room / o.speed < CROSS_GAP) return false;
@@ -1459,6 +1498,8 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
       if (w && w.graph === T.G) {
         while (w.k < w.crossings.length && m.s > w.crossings[w.k].s1) { w.k++; w.on = false; w.waited = 0; }
         const x = w.crossings[w.k];
+        // (Made up their mind to go, but held at the kerb all the same — behind somebody: not out on it after all.)
+        if (x && w.on && m.s < x.s0 - 0.02 && m.cap === 0) w.on = false;
         if (x && !w.on) {
           const to = x.s0 - m.s;
           if (to <= 0 || (to < KERB_LOOK && mayCross(t, T, now, m, x))) w.on = true;

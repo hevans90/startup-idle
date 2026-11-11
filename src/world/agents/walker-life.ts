@@ -70,7 +70,8 @@ const crossing = (m: Mover) => {
   const w = m.walk;
   if (!w) return false;
   const x = w.crossings[w.k];
-  return !!x && m.s > x.s0 - 0.05 && m.s < x.s1 + 0.05;
+  // (Set off over it from the kerb too: not stopping there now.)
+  return !!x && (m.s > x.s0 - 0.05 || w.on) && m.s < x.s1 + 0.05;
 };
 
 /** The shop windows: a point on the pavement before each shop door, and the way to face it. */
@@ -164,8 +165,8 @@ export function stepWalkers(t: Town, g: Grid, h: number): void {
         if (a < 0.4 && Math.abs(l) < 0.08) side = Math.max(side, 0.05);
         // Two who meet, alone, now and then stop and talk.
         if (a < 0.25 && Math.abs(l) < 0.12) maybeChat(m, o, company);
-      } else if (dot > 0.5 && a > 0 && Math.abs(l) < 0.05) {
-        // Someone ahead going the same way, slower: in the way.
+      } else if (dot > 0.5 && a > 0 && Math.abs(l) < 0.05 && !(crossing(m) && !crossing(o))) {
+        // Someone ahead going the same way, slower: in the way. (Out in the road, only one out there too: off it, past whoever stands at the kerb.)
         if (o.speed < m.cruise * 0.85 && (!slow || a < (slow.x - m.x) * p.dx + (slow.y - m.y) * p.dy)) slow = o;
       }
     });

@@ -272,6 +272,12 @@ Tests: `agents/lamps.test.ts`. Notes:
 - Wider roads: a lane each way a cell (up to four) inside a 0.2 parking strip, lane lines painted
   (`laneLines`, `Look.ln`); chained lane changes; every lane in leads on; both lanes onto a roundabout.
 - Works count loads on the road from the trucks there; a job vehicle lifted off counts as arrived.
+- Deadlocks near close crossings (soaked 8 seeds × 4 towns at the game's caps: 10 lifted off → 0):
+  walkers held at the kerb no longer count as out on the crossing (cars stood for them for good);
+  walkers let a vehicle already in the junction out first; a car stood 10 s at a crossing gets its
+  turn (`CARS_TURN`); no entering a junction onto a short block with anyone on it (`SHORT_BLOCK`);
+  a turner waited at the lights goes on the amber; a car into its bay is not held by the one parked
+  behind; a bus wants room for its length onto a roundabout. Soaks now have people on foot.
 
 ## Cross-cutting
 - **Perf**: budget ≤1.0 ms js for 80 + 120 movers. Off-screen movers step at

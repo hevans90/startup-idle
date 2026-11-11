@@ -15,9 +15,10 @@ import { buildLaneGraph } from "./graph";
 import { isPaved } from "../../roads/mask";
 
 /** Run a town `secs` seconds: trips finished, vehicles lost, overlaps, the longest wait. */
-function soak(g: Grid, secs: number) {
+function soak(g: Grid, secs: number, seed?: number) {
   const net = createNetwork(g);
   const t = createTown();
+  if (seed !== undefined) t.seed = seed;
   let arrived = 0, gone = 0, overlaps = 0, longest = 0, peak = 0, changed = 0, bikes = 0, behindBike = 0;
   const dt = 1 / 20;
   for (let k = 0; k < secs / dt; k++) {
@@ -197,7 +198,8 @@ describe("traffic on the lanes", () => {
   });
 
   test.each(["traffic", "streets", "singularity", "bigtown"] as FixtureId[])("%s, busy for three minutes: no overlaps, no knots", (id) => {
-    busy();
+    // (People on foot too: over the crossings among the traffic.)
+    setTownCaps({ cars: 80, people: 120, every: 1 });
     const n = FIXTURE_SIZE[id] ?? 48;
     const g = createGrid(n, n, 1);
     applyFixture(g, id, 1);
@@ -206,7 +208,21 @@ describe("traffic on the lanes", () => {
     expect(r.overlaps).toBe(0);
     expect(r.gone).toBe(0);
     // (Nobody waits much more than once round the lights at their longest, queued.)
-    expect(r.longest).toBeLessThan(40);
+    expect(r.longest).toBeLessThan(30);
     expect(r.arrived).toBeGreaterThan(100);
+  });
+
+  // Towns that knotted, squeezed small, at the game's own numbers: two
+  // junctions a block apart, each with one stood in it for the street between;
+  // a car into its bay held by the car parked behind it; walkers held at the
+  // kerb still counted out on the crossing, the cars stood for them for good.
+  test.each([["bigtown", 55], ["bigtown", 88], ["traffic", 22], ["streets", 11]] as [FixtureId, number][])("%s, run %i, people on foot and buses: no knots", (id, seed) => {
+    setTownCaps({ ...caps });
+    const g = createGrid(48, 48, 1);
+    applyFixture(g, id, 1);
+    const r = soak(g, 400, seed);
+    done();
+    expect(r.gone).toBe(0);
+    expect(r.longest).toBeLessThan(35);
   });
 });
