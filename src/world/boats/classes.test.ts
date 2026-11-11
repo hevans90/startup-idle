@@ -10,7 +10,7 @@ import { SHIP_CLASSES } from "./classes";
 import { createFleet, stepFleet } from "./fleet";
 import { dredgeCells } from "./quay";
 import { mapRiver, poolDepthOf } from "./river";
-import { PATIENCE, berthsFor, createTraffic, portsOf, stepTraffic, trafficSteer } from "./traffic";
+import { LOW_HOLD, PATIENCE, berthsFor, createTraffic, portsOf, stepTraffic, trafficSteer } from "./traffic";
 
 /** A river across a flat map, rows 6 to 10, `depth` deep, in over the west edge. */
 function river(depth: number, w = 40): Grid {
@@ -150,6 +150,48 @@ describe("the traffic, by size", () => {
   });
 });
 
+describe("which port a boat is sent to", () => {
+  /** Every boat sent to each port, and the most bound for each at once that are no ship. */
+  const calls = (g: Grid, seconds: number) => {
+    const c = fieldOf(g), f = createFleet(), t = createTraffic();
+    const got = new Map<number, Set<number>>(), most = new Map<number, number>();
+    for (let k = 0; k < seconds * 30; k++) {
+      stepTraffic(t, f, g, c, 1 / 30);
+      stepFleet(f, c, 1 / 30, trafficSteer(t));
+      const small = new Map<number, number>();
+      for (const b of f.boats) {
+        const to = b.route?.[0];
+        if (to === undefined) continue;
+        got.set(to, (got.get(to) ?? new Set()).add(b.id));
+        if ((b.cls ?? 0) < 2) small.set(to, (small.get(to) ?? 0) + 1);
+      }
+      for (const [to, n] of small) most.set(to, Math.max(most.get(to) ?? 0, n));
+      t.calls.length = 0;
+    }
+    return { got, most };
+  };
+
+  test("two ports alike take turns: the first built does not take the lion's share", () => {
+    const g = river(6, 56);
+    const a = port(g, 2, 12), b = port(g, 2, 34);
+    const { got } = calls(g, 180);
+    const na = got.get(a.id)?.size ?? 0, nb = got.get(b.id)?.size ?? 0;
+    expect(na + nb).toBeGreaterThan(6);
+    // Not boat for boat — the nearer is free sooner — but a fair share each.
+    expect(Math.min(na, nb) / (na + nb)).toBeGreaterThan(0.38);
+  });
+
+  test("by the berths a boat can lie at: a big port's gantries are no room for it", () => {
+    const g = river(6, 56);
+    const small = port(g, 1, 12), big = port(g, 3, 34);
+    big.fit = ["gantry", "gantry", "crane"];
+    const { got, most } = calls(g, 180);
+    // One at its crane and one to wait, never a queue for the gantries.
+    expect(most.get(big.id) ?? 0).toBeLessThanOrEqual(2);
+    expect(got.get(small.id)?.size ?? 0).toBeGreaterThan(1);
+  });
+});
+
 describe("moments on the river", () => {
   const run = (g: Grid, seconds: number, t = createTraffic(), each?: (f: ReturnType<typeof createFleet>) => void) => {
     const c = fieldOf(g), f = createFleet();
@@ -192,7 +234,19 @@ describe("moments on the river", () => {
     const { t } = run(g, 3);
     expect(t.lows).toEqual([]);
     for (let y = 6; y <= 10; y++) for (let x = 0; x < g.w; x++) g.pool[idx(g, x, y)] = 2;
+    // Not at once: a dip that passes is not said. @see LOW_HOLD
     run(g, 3, t);
-    expect(t.lows).toContain(s.id);
+    expect(t.lows).toEqual([]);
+    run(g, LOW_HOLD, t);
+    expect(t.lows).toEqual([s.id]);
+  });
+
+  test("a river dipping under a ship's depth and back is not noticed", () => {
+    const g = river(6);
+    port(g, 3);
+    const { t } = run(g, 3);
+    const set = (d: number) => { for (let y = 6; y <= 10; y++) for (let x = 0; x < g.w; x++) g.pool[idx(g, x, y)] = d; };
+    for (let k = 0; k < 6; k++) { set(2); run(g, LOW_HOLD / 4, t); set(6); run(g, 2, t); }
+    expect(t.lows).toEqual([]);
   });
 });

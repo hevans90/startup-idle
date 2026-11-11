@@ -38,6 +38,8 @@ import { createYards, landCargo, lands, yardSlows, type Yards } from "./yard";
 
 /** Seconds between looks at the rivers. */
 const REMAP_EVERY = 1;
+/** Seconds a river must stay too low for a port's bigger ships before it is said. */
+export const LOW_HOLD = 20;
 /** The quickest and slowest a river sends boats, seconds apart, and before the first. */
 const SPAWN_FASTEST = 3;
 const SPAWN_SLOWEST = 20;
@@ -224,6 +226,10 @@ export type Traffic = {
   lows: number[];
   /** What each port was taking when last mapped. */
   took: Map<number, number>;
+  /** How long each port's river has been too low for what it took, seconds. @see LOW_HOLD */
+  falling: Map<number, number>;
+  /** When each port was last sent a boat, by the count of boats sent: ports as good as each other take turns. @see pickPort */
+  turn: Map<number, number>;
   /** What each port's cranes have landed and not yet sent out by road. @see yard */
   yards: Yards;
   /**
@@ -235,7 +241,7 @@ export type Traffic = {
 };
 
 export const createTraffic = (): Traffic => ({
-  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [], turned: [], yards: createYards(), rush: 1, convoy: false, firsts: [], lows: [], took: new Map(),
+  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [], turned: [], yards: createYards(), rush: 1, convoy: false, firsts: [], lows: [], took: new Map(), falling: new Map(), turn: new Map(),
 });
 
 /** Every seaport's berths, on the rivers as they stand. */
@@ -498,18 +504,36 @@ function stepCalls(t: Traffic, f: Fleet, dt: number, sailed: { port: number; cls
  */
 function pickPort(t: Traffic, f: Fleet, river: number, cls = 0): Port | null {
   let best: Port | null = null, bestWait = Infinity;
+  const span = classOf(cls).span;
   for (const p of t.ports.values()) {
     if (p.river !== river || !p.accepts[cls]) continue;
-    // NO MORE THAN IT HAS BERTHS FOR, AND ONE TO WAIT: counted in berths, so
+    // BY THE BERTHS IT CAN LIE AT, not all the port has: a boat counted a big
+    // port's gantry berths as room for it, and queued for its one crane
+    // while a small port up the river stood empty. @see berthsFor
+    const room = berthsOf(p, cls);
+    if (!room.size) continue;
+    // NO MORE THAN THOSE BERTHS HOLD, AND ONE TO WAIT: counted in berths, so
     // a ship bound for it is two. A river sent ships by the clock alone had
     // them stacked up off every quay. @see WAITING
     let bound = 0;
-    for (const b of f.boats) if (b.route?.[0] === p.id) bound += classOf(b.cls).span;
-    if (bound + classOf(cls).span > p.berths.length + WAITING) continue;
-    const wait = Math.ceil((bound + 1) / p.berths.length) * p.dock;
-    if (wait < bestWait) { best = p; bestWait = wait; }
+    for (const b of f.boats) {
+      if (b.route?.[0] !== p.id) continue;
+      for (const k of berthsOf(p, b.cls ?? 0)) if (room.has(k)) { bound += classOf(b.cls).span; break; }
+    }
+    if (bound + span > room.size + WAITING) continue;
+    const wait = Math.ceil((bound + 1) / room.size) * p.dock;
+    // AS GOOD AS ANOTHER, the one longer without a boat: the first built of two alike took every ship.
+    const turn = t.turn.get(p.id) ?? -1;
+    if (wait < bestWait || (wait === bestWait && best && turn < (t.turn.get(best.id) ?? -1))) { best = p; bestWait = wait; }
   }
   return best;
+}
+
+/** The berths of a port a class can lie on, each once. @see berthsFor */
+function berthsOf(p: Port, cls: number): Set<number> {
+  const out = new Set<number>(), span = classOf(cls).span;
+  for (const k of berthsFor(p, cls)) for (let j = 0; j < span; j++) out.add(k + j);
+  return out;
 }
 
 /** One frame of the rivers' traffic: re-map, make the calls, take off the boats that left, send new ones. */
@@ -518,12 +542,19 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
   if (!t.rivers || t.sinceMap >= REMAP_EVERY || t.rivers.w !== g.w || t.rivers.h !== g.h) {
     t.rivers = mapRiver(g, tileDepthOf(c));
     t.ports = portsOf(g, t.rivers);
+    const since = Number.isFinite(t.sinceMap) ? t.sinceMap : 0;
     t.sinceMap = 0;
     // THE RIVER FALLEN: a port that took bigger ships a moment ago, and cannot now.
+    // Said once it has STAYED fallen: a river a hair over a ship's depth dips
+    // under it with every wake, and said so every few seconds. @see LOW_HOLD
     for (const p of t.ports.values()) {
       const was = t.took.get(p.id);
-      if (was !== undefined && p.takes < was) t.lows.push(p.id);
+      if (was === undefined || p.takes >= was) { t.took.set(p.id, p.takes); t.falling.delete(p.id); continue; }
+      const held = (t.falling.get(p.id) ?? 0) + since;
+      if (held < LOW_HOLD) { t.falling.set(p.id, held); continue; }
+      t.lows.push(p.id);
       t.took.set(p.id, p.takes);
+      t.falling.delete(p.id);
     }
   }
   const r = t.rivers;
@@ -608,6 +639,7 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     t.sent++;
     boat.motor = RIVER_MOTOR;
     boat.route = [port.id];
+    t.turn.set(port.id, t.sent);
     // Every other one bound for a Market Maker's port its own freighter.
     const ps = g.structures.get(port.id);
     if (ps && notable("market") && inAiDistrictNow(g, ps.x, ps.y)) boat.ai = t.sent % 2 === 0;

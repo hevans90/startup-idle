@@ -139,7 +139,7 @@ function seedHarbour(): void {
 
 export function seedFixtureCompany(): void {
   if (startFixture() === "bigtown") { seedBigTown(); return; }
-  if (startFixture() === "harbour") { seedHarbour(); return; }
+  if (startFixture() === "harbour" || startFixture() === "shoal") { seedHarbour(); return; }
   if (startFixture() === "ascension") { seedAscension(); return; }
   if (startFixture() !== "singularity") return;
   resetAllGameStores();

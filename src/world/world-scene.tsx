@@ -3125,8 +3125,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (playing) useWorldStore.setState({ notice: { text: `First ${classOf(first.cls).name.toLowerCase()} at ${name}`, at: Date.now() } });
         }
         for (const id of traffic.lows.splice(0)) {
-          const name = structureDef(g.structures.get(id)?.def ?? "")?.name ?? "seaport";
-          if (playing) useWorldStore.setState({ notice: { text: `River too low for the ${name}'s bigger ships`, at: Date.now() } });
+          const name = (structureDef(g.structures.get(id)?.def ?? "")?.name ?? "seaport").replace(/^seaport/, "Seaport");
+          if (playing) useWorldStore.setState({ notice: { text: `River too low for ${name}'s bigger ships`, at: Date.now() } });
         }
       }
       // THE PORTS PAID for the calls they finished — in the game, into the

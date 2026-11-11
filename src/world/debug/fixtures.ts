@@ -31,7 +31,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "streets" | "traffic" | "cranes";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "streets" | "traffic" | "cranes" | "shoal";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -430,7 +430,7 @@ export function buildInlet(g: Grid, material: number) {
  * to the back of each port. The ramps are derived the way the road tool
  * derives them. @see derivedRamp
  */
-export function buildHarbour(g: Grid, material: number) {
+export function buildHarbour(g: Grid, material: number, shoal = false) {
   clear(g, material);
   const mid = g.h / 2;
   const half = Math.max(2, Math.round(g.h * 0.05));
@@ -447,6 +447,11 @@ export function buildHarbour(g: Grid, material: number) {
   for (let x = 0; x < g.w; x++) {
     for (let y = 0; y < g.h; y++) {
       set(g, x, y, Math.abs(y - centre(x)) <= half ? -HARBOUR_CUT : 0);
+    }
+    // THE `shoal` FIXTURE: a bar right across the channel above the biggest port,
+    // deep enough for a coaster and no more — dredged, the ships come. @see SHIP_CLASSES
+    if (shoal && x >= wants[2] - 5 && x <= wants[2] - 4) {
+      for (let y = 0; y < g.h; y++) if (Math.abs(y - centre(x)) <= half) set(g, x, y, -HARBOUR_FREEBOARD - SHOAL_DEPTH);
     }
     // A SHELF under the south bank, west of the first port: shallows left to dredge. @see dredgeCells
     if (x >= 5 && x <= 10) for (const k of [1, 2]) set(g, x, Math.floor(centre(x) + half) + k, -HARBOUR_FREEBOARD - 2);
@@ -546,6 +551,8 @@ export function buildCranes(g: Grid, material: number) {
   for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (read.paved(x, y)) g.ramp[idx(g, x, y)] = derivedRamp(read, x, y);
 }
 
+/** Half steps of water over the `shoal` fixture's bar: a coaster's, short of a ship's. */
+const SHOAL_DEPTH = 4;
 /** Half steps the harbour's channel is cut below the land. */
 const HARBOUR_CUT = 9;
 /** Half steps the harbour's river is held under its brim. */
@@ -1125,7 +1132,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "streets", "traffic", "cranes",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "streets", "traffic", "cranes", "shoal",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1145,6 +1152,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "river": buildRiver(g, material); recomputeHeightRange(g); return;
     case "inlet": buildInlet(g, material); recomputeHeightRange(g); return;
     case "harbour": buildHarbour(g, material); recomputeHeightRange(g); return;
+    case "shoal": buildHarbour(g, material, true); recomputeHeightRange(g); return;
     case "cranes": buildCranes(g, material); recomputeHeightRange(g); return;
     case "bridge": buildBridge(g, material); recomputeHeightRange(g); return;
     case "crossing": buildCrossing(g, material); recomputeHeightRange(g); return;
