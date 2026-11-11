@@ -208,6 +208,11 @@ Phase 1 stands alone and fixes what is broken. Phases 5 and 7 need nothing from 
 **Phase 8 — moments.** Convoy as a fleet in one livery; a horn and a notice for the first coaster or ship at a port (`Structure.biggest`); a notice when the river falls too low.
 - Not built: the investor arriving by yacht when a term sheet is due.
 
+**Cranes, rebuilt (after phase 7).** The stroke-drawn cranes are gone. `structures/cranes/models.ts` models a ship-to-shore gantry, a luffing crane, a harbour crane and a yard gantry, baked in parts (`bun run bake:cranes`, one 2048² page). Cargo is individual boxes (`boats/cargo.ts`): on deck, on the hook, in the yard. Motion is spring-damped with a pendulum on the load. Ships hold midstream. `?fixture=cranes` shows a port on each of the four bank facings.
+- Port lorries are box lorries in the port's blue; a box is not seen being set on one.
+- The yard gantry travels its bay but lifts nothing.
+- Seen on three of the four facings by day; not at night, and not in play mode.
+
 **Open questions, as decided:** lorries are real and capped; dredging is in; lakes stay out; the slop loader is left out for now; hulls push the water, gently.
 
 ## Open questions

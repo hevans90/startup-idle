@@ -89,6 +89,7 @@ import { fitting } from "./boats/fittings";
 import { creditTrade, stepTrade } from "./boats/trade";
 import { pushWater } from "./boats/wake";
 import { stepYards, yardFill } from "./boats/yard";
+import { PORT_LORRY_COLOUR } from "./agents/cars/fleet";
 import { portWork } from "./boats/traffic";
 import { setPortLife } from "./structures/port-life";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
@@ -3659,7 +3660,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const out = door && town.places.find((pl) => pl.kind === "gateway" && pl.net === door.net);
             if (!door || !out) return "none";
             if (town.movers.some((m) => m.job?.role === "freight" && m.job.site === port)) return "busy";
-            return sendOnJob(town, st.grid, "truck", door, out, { site: port, role: "freight" }) ? "sent" : "busy";
+            const lorry = sendOnJob(town, st.grid, "truck", door, out, { site: port, role: "freight" });
+            if (lorry) lorry.colour = PORT_LORRY_COLOUR;
+            return lorry ? "sent" : "busy";
           });
         }
         stepWorks(works, st.grid, net, getTown(), ownedNow(), st.playing ? payForLoad : () => true, dt, Date.now());

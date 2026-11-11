@@ -343,6 +343,8 @@ type SeaportHandle = StructureHandle & {
   columns: Graphics[];
   statics: Statics[];
   yards: Yard[];
+  /** The yard gantry over a bay of stacks: its parts, and where along the bay it is and is going. @see RTG */
+  rtgs: { c: number; parts: Piece[]; d: number; v: number; to: number; wait: number }[];
   rigs: Rig[];
   nodes: Container[];
   beacon: Graphics | null;
@@ -389,6 +391,7 @@ function lay(g: Graphics, a: readonly [number, number], b: readonly [number, num
 
 function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
   const columns: Graphics[] = [], statics: Statics[] = [], rigs: Rig[] = [], nodes: Container[] = [], yards: Yard[] = [];
+  const rtgs: SeaportHandle["rtgs"] = [], later: (() => void)[] = [];
   const f = frame(s, ctx), sc = f.sc;
   // Which of the four ways the quay faces, as the cranes' parts are baked. @see FACING_HEADINGS
   const fi = FACING_INDEX[s.facing ?? "W"];
@@ -453,7 +456,19 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
       return y;
     };
     // A BAY OF THE CONTAINER YARD: rows of boxes lying along the quay, a tier always there.
+    // AND A YARD GANTRY astride them, on tyres: the side of it further from
+    // the camera behind the stacks, the nearer side and its beams in front.
+    const RP = cranesLoaded();
+    if (f.kinds[c] === "stack" && RP) {
+      const bNear = Math.cos(FACING[fi]) - Math.sin(FACING[fi]) > 0;
+      const mk = (where: Container, id: string) => { const pc = makePiece(RP, where, id, fi, 0xe3ac1f, sc); nodes.push(pc.c); return pc; };
+      const parts = [mk(slot.base, bNear ? "rtg-side-a" : "rtg-side-b")];
+      rtgs.push({ c, parts, d: f.depth * 0.5, v: 0, to: f.depth * 0.5, wait: 2 });
+      later.push(() => { parts.push(mk(f.away ? slot.loadA : slot.front, bNear ? "rtg-side-b" : "rtg-side-a"), mk(f.away ? slot.loadA : slot.top, "rtg-top")); });
+    }
     if (f.kinds[c] === "stack") yardOf("box", [0.27, 0.73], Array.from({ length: Math.floor((f.depth - 0.55) / 0.24) }, (_, k) => 0.2 + k * 0.24), 3, 2 * Math.floor((f.depth - 0.55) / 0.24));
+    // What goes in front of the stacks is made after them.
+    for (const make of later.splice(0)) make();
     if (f.kinds[c] !== "yard") continue;
     const fit = fitOf(s, f.berthOf(c)).id;
     const CP = cranesLoaded();
@@ -535,7 +550,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
     rigs.push(rig);
   }
   const h: SeaportHandle = {
-    columns, statics, yards, rigs, nodes, beacon, flood, drawnFor: "", t: 0, pending: real && !cranesLoaded(),
+    columns, statics, yards, rtgs, rigs, nodes, beacon, flood, drawnFor: "", t: 0, pending: real && !cranesLoaded(),
     // What was made last first: a slot after everything in it.
     destroy: () => { for (const n of [...nodes].reverse()) { n.parent?.removeChild(n); n.destroy({ children: true }); } },
   };
@@ -567,7 +582,7 @@ const turnTo = (from: number, to: number) => from + Math.atan2(Math.sin(to - fro
  */
 function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, dt: number): void {
   const h = hh as SeaportHandle;
-  if (!h.rigs.length && !h.beacon) return;
+  if (!h.rigs.length && !h.beacon && !h.rtgs.length) return;
   h.t += dt;
   // THE CRANES' SHEET CAME IN after this port was drawn: its cranes are made now.
   if (h.pending && cranesLoaded()) {
@@ -589,6 +604,14 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
     if (want === y.shown) continue;
     y.at.forEach((p, k) => { y.pieces[k].c.alpha = p.turn < want ? 1 : 0; if (p.turn >= y.shown && p.turn < want) y.pieces[k].sp[0].tint = y.tints[p.turn]; });
     y.shown = want;
+  }
+  // THE YARD GANTRY trundles along its bay from one row to another, and stands a while at each.
+  for (const g of h.rtgs) {
+    g.wait -= dt;
+    if (g.wait <= 0 && Math.abs(g.d - g.to) < 0.02) { g.to = 0.5 + ((Math.sin(h.t * 0.37 + g.c * 2.1) + 1) / 2) * (f.depth - 1.15); g.wait = 5 + 3 * Math.abs(Math.sin(h.t + g.c)); }
+    [g.d, g.v] = damp(g.d, g.v, g.to, 1.1, dt);
+    const at = f.Q(g.c + 0.5, g.d, QUAY);
+    for (const pc of g.parts) pc.c.position.set(at[0], at[1]);
   }
   const P = peopleLoaded();
   const ground = inBounds(ctx.grid, s.x, s.y) ? ctx.grid.height[idx(ctx.grid, s.x, s.y)] : 0;
@@ -811,8 +834,10 @@ function swingOf(r: Rig, x: number, rope: number, sc: number, dt: number): numbe
   r.hungAt = x; r.hungV = v;
   // A pendulum as long as its rope, in metres, lightly damped.
   const w0 = Math.sqrt(9.81 / Math.max(1.5, (len / (HEIGHT_UNIT * sc)) * M_STEP));
-  r.swayV += (-w0 * w0 * r.sway - 2 * 0.16 * w0 * r.swayV - pull / len) * h;
-  r.sway = Math.max(-0.3, Math.min(0.3, r.sway + r.swayV * h));
+  // A driver keeps it from swinging far: a fifth of the pull gets through, and it never leans past a few degrees.
+  r.swayV += (-w0 * w0 * r.sway - 2 * 0.3 * w0 * r.swayV - (0.2 * pull) / len) * h;
+  r.sway = Math.max(-0.07, Math.min(0.07, r.sway + r.swayV * h));
+  if (Math.abs(r.sway) >= 0.07) r.swayV = 0;
   return r.sway * len;
 }
 

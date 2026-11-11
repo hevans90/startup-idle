@@ -12,6 +12,8 @@ import { BUS_WEIGHTS, CAR_WEIGHTS, LORRY_WEIGHTS, MINIBUS_WEIGHTS, modelById, TI
 
 /** The Machine's lorries: white, cabless, a violet light bar. @see Autonomous Freight */
 export const AI_TRUCK_COLOUR = 0xeef0f6;
+/** A port's lorries, taking what was landed out by the gate: box lorries, in the port's blue. @see boats/yard */
+export const PORT_LORRY_COLOUR = 0x2f6ea8;
 /** Hire to Fire's moving vans, white. */
 export const VAN_COLOUR = 0xe9e6dd;
 /** The interns' bus, yellow; Shuttle Bus's buses, blue. */
@@ -39,6 +41,7 @@ export function modelFor(m: Pick<Mover, "id" | "kind" | "colour" | "siren" | "bu
   if (m.kind === "bus") return ofId(m.id, 0xb05, m.colour === SHUTTLE_COLOUR || m.bus ? BUS_PICKS : MINIBUS_PICKS);
   if (m.kind === "truck") {
     if (m.colour === AI_TRUCK_COLOUR) return "machineLorry";
+    if (m.colour === PORT_LORRY_COLOUR) return "boxLorry";
     return ofId(m.id, 0x7a11, m.colour === VAN_COLOUR ? VAN_PICKS : LORRY_PICKS);
   }
   return null;
