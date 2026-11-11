@@ -65,6 +65,12 @@ export type Structure = {
    * Absent: none. @see world/agents/needs, stepTown
    */
   shop?: string;
+  /**
+   * A SEAPORT: the side its quay is on, as `NEIGHBOUR` reads the faces. Its
+   * berths are the water along that side. Absent on one from before ports
+   * faced the water: given on load. @see world/boats/quay
+   */
+  facing?: "N" | "E" | "S" | "W";
 };
 
 /** A building going up. @see stepWorks */

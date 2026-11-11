@@ -435,7 +435,15 @@ export function buildHarbour(g: Grid, material: number) {
   const mid = g.h / 2;
   const half = Math.max(2, Math.round(g.h * 0.05));
   const amp = g.h * 0.1;
-  const centre = (x: number) => mid + amp * Math.sin((x / g.w) * Math.PI * 2);
+  const bend = (x: number) => mid + amp * Math.sin((x / g.w) * Math.PI * 2);
+  // Where each port is wanted, west to east. THE BANK RUNS STRAIGHT THERE, a
+  // tile past each end: every tile of a quay is on the water, and a bank on
+  // the slant has no three in a row. @see validatePort
+  const wants = SEAPORTS.map((def, k) => Math.round((g.w * (k + 1)) / (SEAPORTS.length + 1)) - (def.footprint.w >> 1));
+  const centre = (x: number) => {
+    const k = wants.findIndex((at, j) => x >= at - 1 && x <= at + SEAPORTS[j].footprint.w);
+    return k < 0 ? bend(x) : bend(wants[k] + SEAPORTS[k].footprint.w / 2);
+  };
   for (let x = 0; x < g.w; x++) {
     for (let y = 0; y < g.h; y++) {
       set(g, x, y, Math.abs(y - centre(x)) <= half ? -HARBOUR_CUT : 0);
@@ -457,8 +465,7 @@ export function buildHarbour(g: Grid, material: number) {
   const history = createHistory();
   const ports: { x: number; y: number; w: number }[] = [];
   SEAPORTS.forEach((def, k) => {
-    const want = Math.round((g.w * (k + 1)) / (SEAPORTS.length + 1)) - (def.footprint.w >> 1);
-    const spot = harbourSpot(g, rivers, def, want);
+    const spot = harbourSpot(g, rivers, def, wants[k]);
     if (!spot) return;
     const cmd = placeCommand(g, def, spot.x, spot.y, { rivers });
     if (!cmd) return;

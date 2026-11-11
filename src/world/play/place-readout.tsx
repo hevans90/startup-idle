@@ -29,6 +29,9 @@ const REFUSAL: Record<string, string> = {
   "not on a river bank": "Needs a river bank",
   "not beside water": "Needs water beside it",
   "uneven ground": "Ground too uneven",
+  "quay off the water": "Quay must be on the water",
+  "too high above the water": "Too high above the water",
+  "no road at the gate": "Needs a road behind it",
   blocked: "Can't build here",
 };
 
@@ -52,7 +55,9 @@ export function PlaceReadout({ className }: { className?: string }) {
     const price = plan ? upgradeCost(plan.from.def, plan.to.id) : buildCost(def.id);
     const check = plan ?? validatePlacement(grid, def, hover.x, hover.y, rules);
     const what = plan ? `Upgrade to ${plan.to.name}` : def.name;
-    line = !check.ok ? { text: REFUSAL[check.reason ?? "blocked"] ?? REFUSAL.blocked, price: price && formatCurrency(price), tone: "bad" }
+    // Every reason at once, for a seaport, which has several ways to be wrong.
+    const why = (check.reasons.length ? check.reasons : [check.reason ?? "blocked"]).map((r) => REFUSAL[r] ?? REFUSAL.blocked);
+    line = !check.ok ? { text: [...new Set(why)].join(" · "), price: price && formatCurrency(price), tone: "bad" }
       : !canAfford(price) ? { text: `${what} · not enough money`, price: price && formatCurrency(price), tone: "bad" }
       : { text: what, price: price && formatCurrency(price), tone: "ok" };
   }

@@ -17,7 +17,12 @@ import {
   VOID, footprintCells, idx, inBounds, structureAt, type Grid, type Structure,
 } from "../grid";
 import { RAMP } from "../iso";
-import { riverAt, riversBeside, riverWithin, type RiverMap } from "../boats/river";
+import { NEIGHBOUR } from "../../iso/dir";
+import { riverAt, riverWithin, type RiverMap } from "../boats/river";
+import {
+  FACINGS, PORT_DEPTH, QUAY_MAX_DROP, alongX, bestFacing, portShape, quayLength, quayLevel, quayRiver, quayTiles, steadyRivers,
+  type Facing, type Rect,
+} from "../boats/quay";
 import { placementOf, structureDef, type StructureDef } from "./def";
 import { LATERAL_REACH, hasSewer, solveSewers } from "../sewers/solve";
 import { portTiles } from "../water/ports";
@@ -40,6 +45,15 @@ export type PlacementCheck = {
   reason: string | null;
   /** The height the footprint would be levelled to. */
   groundHeight: number;
+  /**
+   * The footprint judged, which is where it would stand. A seaport's turns to
+   * face the water, so it is not always the definition's. @see validatePort
+   */
+  at: Rect;
+  /** A seaport's: the side its quay would be on. */
+  facing?: Facing;
+  /** Every reason it fails, not only the first; empty when it may stand. */
+  reasons: string[];
 };
 
 const OK: CellVerdict = { ok: true };
@@ -159,8 +173,11 @@ export function validatePlacement(
   ox: number,
   oy: number,
   rules: PlaceRules = NO_RULES,
+  facing?: Facing,
 ): PlacementCheck {
+  if (placementOf(def).riverside) return validatePort(grid, def, ox, oy, rules, facing);
   const { w, h } = def.footprint;
+  const at = { x: ox, y: oy, w, h };
   const cells = footprintCells(ox, oy, w, h);
   const verdicts = cells.map((c) => cellVerdict(grid, def, c.x, c.y, rules));
 
@@ -168,81 +185,98 @@ export function validatePlacement(
     .filter((c) => inBounds(grid, c.x, c.y))
     .map((c) => grid.height[idx(grid, c.x, c.y)]);
   const groundHeight = medianHeight(heights);
+  /** Refused as a whole: every cell says why. */
+  const whole = (reason: string): PlacementCheck =>
+    ({ ok: false, cells: verdicts.map(() => ({ ok: false, reason })), reason, reasons: [reason], groundHeight, at });
 
   const firstBad = verdicts.find((v) => !v.ok);
   if (firstBad) {
-    return { ok: false, cells: verdicts, reason: firstBad.reason ?? "blocked", groundHeight };
+    const reason = firstBad.reason ?? "blocked";
+    return { ok: false, cells: verdicts, reason, reasons: [reason], groundHeight, at };
   }
 
   // BESIDE a road, which is not the same as ON one — and both rules apply, so
   // a building wants cells that are bare themselves, and frontage.
   //
   // FRONTAGE IS THE FOOTPRINT'S, not every cell's: a door on one side is
-  // a door. Asked of every cell, it held for the one-cell houses it was
-  // written for and refused every seaport there could be — a port's back row
-  // fronts the road and its front row the river, and no cell does both.
+  // a door.
   if (rules.needsRoad && !placementOf(def).noFrontage && !cells.some((c) => inBounds(grid, c.x, c.y) && touchesRoad(grid, c.x, c.y))) {
-    return {
-      ok: false,
-      cells: verdicts.map(() => ({ ok: false, reason: "no road access" })),
-      reason: "no road access",
-      groundHeight,
-    };
+    return whole("no road access");
   }
 
   // A SEWER IN REACH, for what makes slop. @see sewerInReach
-  if (rules.needsSewer && !sewerInReach(grid, def, ox, oy)) {
-    return {
-      ok: false,
-      cells: verdicts.map(() => ({ ok: false, reason: "No sewer node in reach" })),
-      reason: "No sewer node in reach",
-      groundHeight,
-    };
-  }
+  if (rules.needsSewer && !sewerInReach(grid, def, ox, oy)) return whole("No sewer node in reach");
 
   // NEAR A RIVER, likewise: some river tile within reach of the footprint.
   const near = placementOf(def).nearRiver;
-  if (near !== undefined && !(rules.rivers && riverWithin(rules.rivers, ox, oy, w, h, near))) {
-    return {
-      ok: false,
-      cells: verdicts.map(() => ({ ok: false, reason: "too far from a river" })),
-      reason: "too far from a river",
-      groundHeight,
-    };
-  }
-
-  // ON A BANK is a property of the footprint too: no one cell of it has to
-  // touch the river, but one of them must.
-  if (placementOf(def).riverside && !(rules.rivers && riversBeside(rules.rivers, ox, oy, w, h).length)) {
-    return {
-      ok: false,
-      cells: verdicts.map(() => ({ ok: false, reason: "not on a river bank" })),
-      reason: "not on a river bank",
-      groundHeight,
-    };
-  }
+  if (near !== undefined && !(rules.rivers && riverWithin(rules.rivers, ox, oy, w, h, near))) return whole("too far from a river");
 
   // BESIDE STANDING WATER, likewise: a footprint cell's neighbour is pool.
-  if (placementOf(def).waterside && !waterBeside(grid, ox, oy, w, h)) {
-    return {
-      ok: false,
-      cells: verdicts.map(() => ({ ok: false, reason: "not beside water" })),
-      reason: "not beside water",
-      groundHeight,
-    };
-  }
+  if (placementOf(def).waterside && !waterBeside(grid, ox, oy, w, h)) return whole("not beside water");
 
   // Uneven ground is a property of the FOOTPRINT, so it can only be judged
   // here — and only matters when nothing is going to level it.
-  if (!placementOf(def).autoFlatten && new Set(heights).size > 1) {
-    return {
-      ok: false,
-      cells: verdicts.map(() => ({ ok: false, reason: "uneven ground" })),
-      reason: "uneven ground",
-      groundHeight,
-    };
+  if (!placementOf(def).autoFlatten && new Set(heights).size > 1) return whole("uneven ground");
+  return { ok: true, cells: verdicts, reason: null, reasons: [], groundHeight, at };
+}
+
+/**
+ * Whether a SEAPORT may stand with its footprint's corner at (ox, oy): a
+ * length of quay along the bank, facing the water, two tiles deep.
+ *
+ * IT TURNS TO FACE THE WATER. With no facing asked for, each side is tried —
+ * the camera's first — and the first that may stand is the answer; failing
+ * all, the one with the most of its quay on the water, so what is said to be
+ * wrong is what is nearest to right.
+ *
+ * AGAINST THE STANDING WATER, whatever rivers the rules carry: a flood or a
+ * drought does not move the bank, and the cursor and the click cannot be
+ * handed different rivers. @see steadyRivers
+ */
+function validatePort(grid: Grid, def: StructureDef, ox: number, oy: number, rules: PlaceRules, facing?: Facing): PlacementCheck {
+  let best: PlacementCheck | null = null, bestWet = -1;
+  const rivers = steadyRivers(grid);
+  for (const f of facing ? [facing] : FACINGS) {
+    const at = { x: ox, y: oy, ...portShape(def.footprint.w, f) };
+    const check = portCheck(grid, def, at, f, rules);
+    if (check.ok) return check;
+    const wet = quayTiles(at, f).filter((q) => riverAt(rivers, q.wx, q.wy)).length - check.reasons.length / 16;
+    if (wet > bestWet) { best = check; bestWet = wet; }
   }
-  return { ok: true, cells: verdicts, reason: null, groundHeight };
+  return best!;
+}
+
+/**
+ * A port's footprint judged with its quay on side `f`. Every reason it
+ * fails is given, and the cells that are the trouble say so themselves:
+ *  - EVERY TILE OF QUAY has the one river beside it, so it has its berths;
+ *  - BUILT AT THE WATER: levelled to a half step over it, and refused on a
+ *    bank that stands too far above — but not `standing`, for one being
+ *    grown, which is at the height it is;
+ *  - THE GATE IS LANDWARD: the road it needs is behind it, across from the quay.
+ */
+function portCheck(grid: Grid, def: StructureDef, at: Rect, f: Facing, rules: PlaceRules, standing = false): PlacementCheck {
+  const rivers = steadyRivers(grid);
+  const cells = footprintCells(at.x, at.y, at.w, at.h);
+  const verdicts = cells.map((c) => cellVerdict(grid, def, c.x, c.y, { ...rules, rivers }));
+  const quay = quayTiles(at, f);
+  const river = quayRiver(rivers, quay);
+  for (const q of quay) {
+    const k = (q.y - at.y) * at.w + (q.x - at.x);
+    if (verdicts[k].ok && !(river && riverAt(rivers, q.wx, q.wy) === river)) verdicts[k] = { ok: false, reason: "quay off the water" };
+  }
+  const reasons = [...new Set(verdicts.filter((v) => !v.ok).map((v) => v.reason ?? "blocked"))];
+
+  const heights = cells.filter((c) => inBounds(grid, c.x, c.y)).map((c) => grid.height[idx(grid, c.x, c.y)]);
+  const level = quayLevel(grid, quay);
+  const groundHeight = level ?? medianHeight(heights);
+  const whole: string[] = [];
+  if (!standing && level !== null && medianHeight(heights) - level > QUAY_MAX_DROP) whole.push("too high above the water");
+  if (rules.needsRoad && !quay.some((q) => inBounds(grid, q.bx, q.by) && grid.paved[idx(grid, q.bx, q.by)] !== VOID)) whole.push("no road at the gate");
+  // What is wrong with the whole of it is said by every cell that had nothing of its own to say.
+  if (whole.length) for (let k = 0; k < verdicts.length; k++) if (verdicts[k].ok) verdicts[k] = { ok: false, reason: whole[0] };
+  reasons.push(...whole);
+  return { ok: !reasons.length, cells: verdicts, reason: reasons[0] ?? null, reasons, groundHeight, at, facing: f };
 }
 
 /**
@@ -259,13 +293,15 @@ export function placeCommand(
   ox: number,
   oy: number,
   rules: PlaceRules = NO_RULES,
+  facing?: Facing,
 ): Command | null {
-  const check = validatePlacement(grid, def, ox, oy, rules);
+  const check = validatePlacement(grid, def, ox, oy, rules, facing);
   if (!check.ok) return null;
 
-  const { w, h } = def.footprint;
+  // Where the check says, which for a seaport has turned to face the water.
+  const { w, h } = check.at;
   const b = new PatchBuilder(grid);
-  const structure: Structure = { id: grid.nextStructureId, def: def.id, x: ox, y: oy, w, h };
+  const structure: Structure = { id: grid.nextStructureId, def: def.id, x: ox, y: oy, w, h, ...(check.facing ? { facing: check.facing } : {}) };
 
   for (const c of footprintCells(ox, oy, w, h)) {
     if (placementOf(def).autoFlatten) {
@@ -335,6 +371,7 @@ export function planUpgrade(
   for (const c of old) grid.structureAt[idx(grid, c.x, c.y)] = -1;
   let first: UpgradePlan | null = null;
   try {
+    if (placementOf(to).riverside) return planQuay(grid, from, to, rules);
     // Where it stands first, then grown out back or left. A landmark from an
     // older save grows out of a smaller first tier. @see tierBelow
     const at: [number, number][] = [];
@@ -352,6 +389,62 @@ export function planUpgrade(
 }
 
 /**
+ * EVERY BANK A SEAPORT OF THIS TIER COULD GO ON: the tiles that would be quay
+ * in some placement that may stand, as cell indices. The road it needs is not
+ * asked — a bank is a fact about the water, and the road can be laid to it.
+ * For lighting them while a port is in hand. @see validatePort
+ */
+export function quayBanks(grid: Grid, def: StructureDef, rules: PlaceRules = NO_RULES): number[] {
+  const rivers = steadyRivers(grid), lit = new Set<number>();
+  const bare = { ...rules, needsRoad: false, needsSewer: false };
+  const length = def.footprint.w;
+  for (let y = 0; y < grid.h; y++) {
+    for (let x = 0; x < grid.w; x++) {
+      if (riverAt(rivers, x, y)) continue;
+      for (const f of FACINGS) {
+        const [dx, dy] = NEIGHBOUR[f];
+        if (!riverAt(rivers, x + dx, y + dy)) continue;
+        // Every port whose quay on this side has this tile in it.
+        for (let k = 0; k < length; k++) {
+          const at = alongX(f)
+            ? { x: x - k, y: dy > 0 ? y - (PORT_DEPTH - 1) : y, ...portShape(length, f) }
+            : { x: dx > 0 ? x - (PORT_DEPTH - 1) : x, y: y - k, ...portShape(length, f) };
+          if (!portCheck(grid, def, at, f, bare).ok) continue;
+          for (const q of quayTiles(at, f)) lit.add(idx(grid, q.x, q.y));
+        }
+      }
+    }
+  }
+  return [...lit];
+}
+
+/**
+ * A SEAPORT GROWS ALONG ITS QUAY: the same side to the water, the same two
+ * tiles deep, and longer at one end or the other — every new tile of quay on
+ * the water like the old. One whose quay is not its long side, from before
+ * ports faced the water, has no quay to lengthen. @see validatePort
+ */
+function planQuay(grid: Grid, from: Structure, to: StructureDef, rules: PlaceRules): UpgradePlan {
+  const f = from.facing ?? bestFacing(steadyRivers(grid), from);
+  const grow = to.footprint.w - quayLength(from, f);
+  const deep = (alongX(f) ? from.h : from.w) === PORT_DEPTH;
+  if (grow < 0 || !deep) {
+    const check = portCheck(grid, to, from, f, rules, true);
+    const reason = "quay off the water";
+    return { ...check, ok: false, cells: check.cells.map(() => ({ ok: false, reason })), reason, reasons: [reason], from, to, x: from.x, y: from.y };
+  }
+  let first: UpgradePlan | null = null;
+  for (const k of grow ? [0, grow, ...Array.from({ length: grow - 1 }, (_, j) => j + 1)] : [0]) {
+    const x = from.x - (alongX(f) ? k : 0), y = from.y - (alongX(f) ? 0 : k);
+    const check = portCheck(grid, to, { x, y, ...portShape(to.footprint.w, f) }, f, rules, true);
+    const plan = { ...check, from, to, x, y };
+    if (check.ok) return plan;
+    first ??= plan;
+  }
+  return first!;
+}
+
+/**
  * The command that upgrades one structure in place, or null if it cannot be.
  *
  * ONE COMMAND, like placing: the record swapped for the next tier's under the
@@ -365,7 +458,7 @@ export function upgradeCommand(grid: Grid, id: number, rules: PlaceRules = NO_RU
   const { from, to } = plan;
   const b = new PatchBuilder(grid);
   const ground = grid.height[idx(grid, from.x, from.y)];
-  const next: Structure = { ...from, def: to.id, x: plan.x, y: plan.y, w: to.footprint.w, h: to.footprint.h };
+  const next: Structure = { ...from, def: to.id, ...plan.at, ...(plan.facing ? { facing: plan.facing } : {}) };
   for (const c of footprintCells(next.x, next.y, next.w, next.h)) {
     b.set("height", c.x, c.y, ground);
     b.set("ramp", c.x, c.y, RAMP.NONE);

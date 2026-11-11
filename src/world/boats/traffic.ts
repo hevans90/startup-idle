@@ -30,6 +30,7 @@ import {
   berthsBeside, downhill, downstream, isExit, mapRiver, riverAt, stepsFrom, tileDepthOf,
   type BerthSpot, type RiverMap,
 } from "./river";
+import { berthsAlong } from "./quay";
 
 /** Seconds between looks at the rivers. */
 const REMAP_EVERY = 1;
@@ -108,7 +109,8 @@ export function portsOf(g: Grid, r: RiverMap): Map<number, Port> {
   for (const s of g.structures.values()) {
     const port = structureDef(s.def)?.port;
     if (!port) continue;
-    const spots = berthsBeside(r, s.x, s.y, s.w, s.h, port.berths);
+    // Along its quay; one with no facing, built by hand in a test, along its best side.
+    const spots = s.facing ? berthsAlong(r, s, s.facing, port.berths) : berthsBeside(r, s.x, s.y, s.w, s.h, port.berths);
     if (!spots.length) continue;
     out.set(s.id, {
       id: s.id,

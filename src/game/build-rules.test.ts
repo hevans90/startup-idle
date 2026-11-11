@@ -136,11 +136,10 @@ describe("seaports have a price", () => {
 describe("frontage is the footprint's, not every cell's", () => {
   test("a two-deep building fronts the road from its back row", () => {
     const g = ground(true);                      // road on rows 4 and 5
-    // Rows 2 and 3: only row 3 touches the road. Refused for the bank, not the road.
-    expect(validatePlacement(g, structureDef("seaport")!, 3, 2, { needsRoad: true }).reason)
-      .toBe("not on a river bank");
+    // Rows 2 and 3: only row 3 touches the road, and that is frontage.
+    expect(validatePlacement(g, structureDef("club")!, 3, 2, { needsRoad: true }).ok).toBe(true);
     // Rows 1 and 2: neither does.
-    const back = validatePlacement(g, structureDef("seaport")!, 3, 1, { needsRoad: true });
+    const back = validatePlacement(g, structureDef("club")!, 3, 1, { needsRoad: true });
     expect(back.reason).toBe("no road access");
     expect(back.cells.every((c) => !c.ok)).toBe(true);
   });

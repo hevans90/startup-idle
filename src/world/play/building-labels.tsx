@@ -23,6 +23,7 @@
  *  - where they are, every frame, from points kept in the WORLD, so a pan
  *    moves them without measuring a building again.
  */
+import { berthsAlong, steadyRivers } from "../boats/quay";
 import { useEffect, useRef, useState } from "react";
 import { twMerge } from "tailwind-merge";
 import {
@@ -141,7 +142,15 @@ function gather(): BadgeContext {
     }
   }
   const nearConference = new Set([...st.grid.structures.values()].filter((s) => structureDef(s.def)?.port && conferenceNear(st.grid, s)).map((s) => s.id));
-  return { quiet: liveTownProblems().quiet, deskless, perks, nearConference, perHead, arriving, alongside, queued, stalled, earning, residents, commutes, coverage, needOpen: (n) => needOpen(st.grid, n), moods, labsNear, racksPowered, desks, repairedIn, damagedAs, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
+  // PORTS SHORT OF BERTHS: less quay on the standing water than the tier has. @see berthsAlong
+  const shortBerths = new Map<number, number>();
+  for (const s of st.grid.structures.values()) {
+    const berths = structureDef(s.def)?.port?.berths;
+    if (!berths || !s.facing) continue;
+    const wet = berthsAlong(steadyRivers(st.grid), s, s.facing, berths).length;
+    if (wet < berths) shortBerths.set(s.id, wet);
+  }
+  return { quiet: liveTownProblems().quiet, deskless, perks, nearConference, perHead, arriving, alongside, queued, shortBerths, stalled, earning, residents, commutes, coverage, needOpen: (n) => needOpen(st.grid, n), moods, labsNear, racksPowered, desks, repairedIn, damagedAs, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
 }
 
 /**

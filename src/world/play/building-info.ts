@@ -40,6 +40,8 @@ export type InfoContext = {
   arriving: ReadonlyMap<number, number>;
   /** Boats alongside each seaport, and waiting off it, by its id. */
   alongside: ReadonlyMap<number, number>;
+  /** Seaports with less of their quay on the water than their tier has berths, and how many it has. @see berthsAlong */
+  shortBerths?: ReadonlyMap<number, number>;
   queued: ReadonlyMap<number, number>;
   /** How many live in each house, by its id. */
   residents: ReadonlyMap<number, number>;
@@ -306,6 +308,8 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const lines: InfoLine[] = [
       { text: `${along}/${def.port.berths} alongside${waiting ? ` · ${waiting} waiting` : ""}`, tone: along ? undefined : "dim" },
     ];
+    const wet = ctx.shortBerths?.get(s.id);
+    if (wet !== undefined) lines.push({ text: `${wet} of ${def.port.berths} berths on the water`, tone: "warn" });
     const broken = damageLine(s, ctx);
     if (broken) lines.push(broken);
     if (ctx.nearConference?.has(s.id)) lines.push({ text: `Conference Centre nearby: convoys ×${NEAR_CONFERENCE_PAYS}`, tone: "good" });

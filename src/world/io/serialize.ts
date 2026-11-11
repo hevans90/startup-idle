@@ -11,6 +11,8 @@
  * still be valid but would mean something else.
  */
 import { saveFleet, type Fleet, type SavedBoat } from "../boats/fleet";
+import { facePorts } from "../boats/quay";
+import { structureDef } from "../structures/def";
 import {
   VOID, createGrid, edited, recomputeHeightRange, stampFootprint,
   type Build, type Grid, type Structure,
@@ -294,10 +296,11 @@ function readStructure(raw: unknown): Structure | null {
   const residents = Number.isInteger(s.residents) && s.residents! >= 0 ? s.residents : undefined;
   const grown = Number.isInteger(s.grown) && s.grown! > 0 ? s.grown : undefined;
   const shop = typeof s.shop === "string" && serviceDef(s.shop)?.shop ? s.shop : undefined;
+  const facing = s.facing === "N" || s.facing === "E" || s.facing === "S" || s.facing === "W" ? s.facing : undefined;
   return {
     id: s.id!, def: s.def, x: s.x!, y: s.y!, w: s.w!, h: s.h!,
     ...(build ? { build } : {}), ...(residents !== undefined ? { residents } : {}),
-    ...(grown !== undefined ? { grown } : {}), ...(shop ? { shop } : {}),
+    ...(grown !== undefined ? { grown } : {}), ...(shop ? { shop } : {}), ...(facing ? { facing } : {}),
   };
 }
 
@@ -366,6 +369,8 @@ export function deserializeWorld(
     stampFootprint(grid, s);
     if (s.id >= grid.nextStructureId) grid.nextStructureId = s.id + 1;
   }
+  // A SEAPORT FROM BEFORE PORTS FACED THE WATER is given the side its water is on. @see facePorts
+  facePorts(grid, (s) => !!structureDef(s.def)?.port);
   recomputeHeightRange(grid);
   // A LOADED MAP IS AN EDIT, and the bulkiest one there is. The layers go in
   // by `set` rather than through any setter, so nothing else says so. @see edited

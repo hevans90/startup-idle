@@ -26,7 +26,11 @@ import { rendererFor, type RenderCtx, type StructureHandle, type StructureRender
  * worth costs nothing a frame. `steady`: the build tool's — lit, with its
  * footprint, but no flicker and no warp-in, which is the AI building.
  */
-export type HoloSpec = { key: string; def: string; x: number; y: number; ok: boolean; planned?: boolean; steady?: boolean };
+export type HoloSpec = {
+  key: string; def: string; x: number; y: number; ok: boolean; planned?: boolean; steady?: boolean;
+  /** A seaport's footprint and the side its quay is on, where they are not its definition's. @see validatePort */
+  w?: number; h?: number; facing?: Structure["facing"];
+};
 
 export const HOLO_OK = 0x5fe3ff;
 export const HOLO_BLOCKED = 0xff5a5a;
@@ -86,7 +90,7 @@ export function createHolograms(): Holograms {
       const want = new Map(specs.slice(0, MAX_HOLOGRAMS).map((s) => [s.key, s]));
       for (const [key, m] of shown) {
         const w = want.get(key);
-        if (!w || w.def !== m.spec.def || w.x !== m.spec.x || w.y !== m.spec.y) unmount(key);
+        if (!w || w.def !== m.spec.def || w.x !== m.spec.x || w.y !== m.spec.y || w.w !== m.spec.w || w.h !== m.spec.h || w.facing !== m.spec.facing) unmount(key);
         else { if (w.planned !== m.spec.planned || w.steady !== m.spec.steady || w.ok !== m.spec.ok) m.styled = false; m.spec = w; }
       }
       for (const [key, spec] of want) {
@@ -94,7 +98,7 @@ export function createHolograms(): Holograms {
         const def = structureDef(spec.def);
         const renderer = def ? rendererFor(def) : null;
         if (!def || !renderer) continue;
-        const s: Structure = { id: nextId--, def: def.id, x: spec.x, y: spec.y, w: def.footprint.w, h: def.footprint.h };
+        const s: Structure = { id: nextId--, def: def.id, x: spec.x, y: spec.y, w: spec.w ?? def.footprint.w, h: spec.h ?? def.footprint.h, ...(spec.facing ? { facing: spec.facing } : {}) };
         shown.set(key, { spec, s, handle: renderer.mount(s, def, ctx), renderer, styled: false });
       }
     },

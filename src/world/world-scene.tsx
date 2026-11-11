@@ -81,7 +81,9 @@ import {
 } from "./structures/layer";
 import type { RenderCtx } from "./structures/render";
 import { AI_BUILDINGS, structureDef } from "./structures/def";
-import { planUpgrade, strokeFootprint as structureFootprint, validatePlacement } from "./structures/place";
+import { planUpgrade, quayBanks, strokeFootprint as structureFootprint, validatePlacement } from "./structures/place";
+import { createPortGuide, type PortGuide } from "./render/port-guide";
+import type { Facing, Rect as PortRect } from "./boats/quay";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
 import { setCollapsed } from "./structures/tiles-renderer";
@@ -456,6 +458,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const streetHeatRef = useRef<StreetHeat | null>(null);
   /** The placing heat map. @see createDesireHeat */
   const heatRef = useRef<DesireHeat | null>(null);
+  /** Where a seaport goes, with one in hand. @see createPortGuide */
+  const portGuideRef = useRef<PortGuide | null>(null);
   /** The boats, drawn among the movers of the bands. @see world/boats */
   const boatRef = useRef<BoatLayer | null>(null);
   /** The water mains, drawn. @see createMainsLayer */
@@ -1655,6 +1659,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (overlayRoot.current) {
         cursorRef.current = createBuildCursor(overlayRoot.current, bl);
         heatRef.current = createDesireHeat(overlayRoot.current);
+        portGuideRef.current = createPortGuide(overlayRoot.current);
         streetHeatRef.current = createStreetHeat(overlayRoot.current);
         aiLayerRef.current = createAiLayer(overlayRoot.current);
         // HOLOGRAMS mount in the bands, at true depth; their scan lines go over everything.
@@ -1730,6 +1735,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       holoScanRef.current = null;
       heatRef.current?.destroy();
       heatRef.current = null;
+      portGuideRef.current?.destroy();
+      portGuideRef.current = null;
       streetHeatRef.current?.destroy();
       streetHeatRef.current = null;
       aiLayerRef.current?.destroy();
@@ -2425,6 +2432,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     heat.draw(grid, liveDesireMaps(grid, net), who, (x, y) => validatePlacement(grid, def!, x, y, rules).ok, scale);
   }, [tool, structureDefId, grid, revision, scale, sceneEpoch]);
 
+  /**
+   * THE BANKS A SEAPORT COULD GO ON, lit with one in hand. Drawn again when
+   * the map, the tool or the port in hand changes. @see quayBanks
+   */
+  useEffect(() => {
+    const guide = portGuideRef.current;
+    if (!guide) return;
+    const def = structureDef(structureDefId);
+    const port = tool === "placeStructure" && def?.port && !useWorldStore.getState().placingProject ? def : null;
+    guide.banks(grid, port ? quayBanks(grid, port) : [], scale);
+  }, [tool, structureDefId, grid, revision, scale, sceneEpoch]);
+
   /** THE EARNINGS OVERLAY: the streets tinted by what they earn, every two seconds while it is on. */
   const earningsOverlay = useWorldStore((s) => s.earningsOverlay);
   useEffect(() => {
@@ -2533,7 +2552,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const draw = () => {
       const { stroke, hover: hoverForBrush, hoverOpen } = useWorldStore.getState();
       // Over a building that opens something, the tool is put down: no cursor. @see opensSomething
-      const unplace = () => { cur.clear(); if (placeHolos.current.length) { placeHolos.current = []; showHolos(); } };
+      const unplace = () => { cur.clear(); portGuideRef.current?.ghost(grid, null, scale); if (placeHolos.current.length) { placeHolos.current = []; showHolos(); } };
       // Over a building that opens something, the player is aiming at IT: nothing gets out of its way.
       if (!stroke && hoverOpen !== null) { unplace(); cutawayFor([]); return; }
       // A live drag takes over; otherwise the hover stands in as a one-cell
@@ -2589,8 +2608,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // shows what it would grow into instead. @see planUpgrade
       const under = s0.tool === "placeStructure" ? structureAt(grid, s0.head.x, s0.head.y) : -1;
       const plan = under >= 0 ? planUpgrade(grid, under, rules) : null;
+      // What a seaport standing here would be, for its berths, gate and way in. @see createPortGuide
+      let port: { at: PortRect; facing: Facing } | null = null;
       if (plan) {
-        const { w, h } = plan.to.footprint;
+        const { w, h } = plan.at;
+        if (plan.facing) port = { at: plan.at, facing: plan.facing };
         cells = footprintCells(plan.x, plan.y, w, h);
         valid = (_g, x, y) => plan.cells[(y - plan.y) * w + (x - plan.x)] ?? { ok: false };
       } else if (s0.tool === "placeStructure" && lotLine(useWorldStore.getState(), s0)) {
@@ -2604,21 +2626,27 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (def) {
           const fp = structureFootprint(def, s0.anchor, s0.head);
           const check = validatePlacement(grid, def, fp.x, fp.y, rules);
-          valid = (_g, x, y) => check.cells[(y - fp.y) * fp.w + (x - fp.x)] ?? { ok: false };
+          // WHERE THE CHECK SAYS: a seaport's footprint has turned to face the water.
+          const at = check.at;
+          cells = footprintCells(at.x, at.y, at.w, at.h);
+          valid = (_g, x, y) => check.cells[(y - at.y) * at.w + (x - at.x)] ?? { ok: false };
+          if (check.facing) port = { at, facing: check.facing };
         }
       }
+      portGuideRef.current?.ghost(grid, port, scale);
 
       // THE HOLOGRAM of what the click puts down: the building itself, red where it cannot go. @see createHolograms
       const holos: HoloSpec[] = [];
       if (s0.tool === "placeStructure") {
-        if (plan) holos.push({ key: "place:upgrade", def: plan.to.id, x: plan.x, y: plan.y, ok: plan.cells.every((c) => c.ok), steady: true });
+        if (plan) holos.push({ key: "place:upgrade", def: plan.to.id, x: plan.x, y: plan.y, w: plan.at.w, h: plan.at.h, facing: plan.facing, ok: plan.cells.every((c) => c.ok), steady: true });
         else if (lotLine(useWorldStore.getState(), s0)) {
           for (const c of lotLine(useWorldStore.getState(), s0)!) holos.push({ key: `place:${c.x},${c.y}`, def: structureDefId, x: c.x, y: c.y, ok: valid?.(grid, c.x, c.y).ok ?? true, steady: true });
         } else {
           const def = structureDef(structureDefId);
           if (def) {
             const fp = structureFootprint(def, s0.anchor, s0.head);
-            holos.push({ key: "place", def: def.id, x: fp.x, y: fp.y, ok: validatePlacement(grid, def, fp.x, fp.y, rules).ok, steady: true });
+            const check = validatePlacement(grid, def, fp.x, fp.y, rules);
+            holos.push({ key: "place", def: def.id, x: fp.x, y: fp.y, w: check.at.w, h: check.at.h, facing: check.facing, ok: check.ok, steady: true });
           }
         }
       }

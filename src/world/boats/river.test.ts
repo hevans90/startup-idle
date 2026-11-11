@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { FLOW_DEFAULTS, createColumnField } from "../../fluid/columns";
 import { commit, createHistory, undo } from "../edit/commands";
-import { createGrid, idx, setInflow, type Grid } from "../grid";
+import { createGrid, edited, idx, setInflow, type Grid } from "../grid";
 import { SEAPORT, SEAPORTS, structureDef, type StructureDef } from "../structures/def";
 import { planUpgrade, placeCommand, touchesRoad, upgradeCommand, validatePlacement } from "../structures/place";
 import { rampNeed } from "../roads/ramp-derive";
@@ -65,10 +65,11 @@ describe("a seaport", () => {
     // On the bank.
     expect(validatePlacement(g, SEAPORT, 8, 4, { rivers }).ok).toBe(true);
     expect(validatePlacement(g, SEAPORT, 8, 10, { rivers }).ok).toBe(true);
-    // Back from it, in it, and with no rivers to ask about.
-    expect(validatePlacement(g, SEAPORT, 8, 2, { rivers }).reason).toBe("not on a river bank");
+    // Back from it, and in it.
+    expect(validatePlacement(g, SEAPORT, 8, 2, { rivers }).reason).toBe("quay off the water");
     expect(validatePlacement(g, SEAPORT, 8, 5, { rivers }).ok).toBe(false);
-    expect(validatePlacement(g, SEAPORT, 8, 4).ok).toBe(false);
+    // The bank is the standing water's: it needs no rivers handed in. @see steadyRivers
+    expect(validatePlacement(g, SEAPORT, 8, 4).ok).toBe(true);
   });
 
   test("by a lake is not by a river", () => {
@@ -300,7 +301,10 @@ describe("upgrading a seaport in place", () => {
     undo(g, history);
     expect(g.structures.get(id)).toEqual(before);
     expect(g.structureAt[idx(g, 10, 4)]).toBe(-1);
-    // With no rivers to ask, there is no bank to grow along.
+    // Off the bank's end, there is no water to lengthen the quay along.
+    for (let x = 10; x < g.w; x++) for (let y = 6; y <= 9; y++) g.pool[idx(g, x, y)] = 0;
+    for (let x = 0; x < 8; x++) for (let y = 6; y <= 9; y++) if (x) g.pool[idx(g, x, y)] = 0;
+    edited(g);
     expect(upgradeCommand(g, id)).toBeNull();
   });
 });
