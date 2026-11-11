@@ -87,6 +87,7 @@ import { dredgeCells, type Facing, type Rect as PortRect } from "./boats/quay";
 import { SHIP_CLASSES, classOf } from "./boats/classes";
 import { fitting } from "./boats/fittings";
 import { creditTrade, stepTrade } from "./boats/trade";
+import { pushWater } from "./boats/wake";
 import { stepYards } from "./boats/yard";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
@@ -3132,6 +3133,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
       }
       stepFleet(fleet, field.columns, dt, trafficSteer(traffic));
+      // HULLS MOVE THE WATER: a bow wave and a hollow astern, the water's own. @see pushWater
+      pushWater(fleet, field.columns, dt);
       boatRef.current?.draw(fleet, field.columns, scale, dt, useGlobalSettingsStore.getState().dayNight && useWorldStore.getState().playing ? darkness(phaseNow()) / NIGHT_DARK : 0);
       sBoats();
       // THE WATER MAINS: their tubes where they changed — or the zoom asks for more or less detail — and the water in them. @see createMainsLayer

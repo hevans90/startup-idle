@@ -48,3 +48,30 @@ describe("a boat's wake", () => {
     expect(w.points.length).toBe(0);
   });
 });
+
+describe("hulls move the water", () => {
+  test("a hull under way raises the water at its bow and lowers it astern, and nothing is made or lost", async () => {
+    const { FLOW_DEFAULTS, createColumnField, totalWater } = await import("../../fluid/columns");
+    const { pushWater } = await import("./wake");
+    const { addBoat, createFleet } = await import("./fleet");
+    const c = createColumnField(64, 64, { ...FLOW_DEFAULTS, wind: 0 }, 0.25);
+    c.depth.fill(4);
+    const f = createFleet();
+    for (const [cls, y] of [[0, 4], [1, 8], [2, 12]] as const) {
+      const b = addBoat(f, c, 6, y, cls)!;
+      b.vx = 0.8; b.heading = 0;
+    }
+    const before = totalWater(c);
+    for (let k = 0; k < 120; k++) { for (const b of f.boats) b.x += b.vx / 60; pushWater(f, c, 1 / 60); }
+    expect(totalWater(c)).toBeCloseTo(before, 6);
+    let high = 0, low = 0;
+    for (const d of c.depth) { if (d > 4.001) high++; if (d < 3.999) low++; }
+    expect(high).toBeGreaterThan(0);
+    expect(low).toBeGreaterThan(0);
+    // Tied up, or stopped, it moves none.
+    const still = Float32Array.from(c.depth);
+    for (const b of f.boats) b.moor = { x: b.x, y: b.y };
+    pushWater(f, c, 1 / 60);
+    expect(Array.from(c.depth)).toEqual(Array.from(still));
+  });
+});

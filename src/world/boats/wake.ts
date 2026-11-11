@@ -14,6 +14,9 @@
  * when they are drawn, not where it was when the boat went by.
  */
 import type { ColumnField } from "../../fluid/columns";
+import { addWater, wantDepth, type ColumnField as Columns } from "../../fluid/columns";
+import { COLUMNS_PER_TILE } from "../water/field";
+import { classOf } from "./classes";
 import { BOAT_BEAM, sampleWater, type Fleet } from "./fleet";
 
 /** How far a boat goes between points, in tiles. */
@@ -142,4 +145,50 @@ export function wakeMarks(w: Wake, c: ColumnField): WakeMark[] {
     });
   }
   return out;
+}
+
+/**
+ * How much water a hull moves aside, in half steps over one column, for
+ * every tile it travels and every tile of its beam.
+ */
+export const PUSH = 1.6;
+/** The slowest a hull goes and still moves water; and the least water it will take a column down to, half steps. */
+const PUSH_FROM = 0.08;
+const PUSH_KEEPS = 1;
+
+/**
+ * HULLS MOVE THE WATER. A hull under way takes a little from the column
+ * under its stern and puts it, half each, on the columns either side of its
+ * bow: the bow wave, and the hollow behind that the river runs back into. So
+ * a wake is the water's own, and it rocks what is moored nearby.
+ *
+ * NOTHING IS MADE OR LOST: what is taken is what is put down, to the last
+ * drop, and no more is taken than leaves the column deep — against the host's
+ * copy of it, which every column touched is asked for by name. Through
+ * `addWater`, so on the device it goes up with the arrivals. @see addWater
+ */
+export function pushWater(f: Fleet, c: Columns, dt: number): void {
+  if (dt <= 0) return;
+  const col = (t: number) => Math.round((t + 0.5) * COLUMNS_PER_TILE - 0.5);
+  for (const b of f.boats) {
+    const speed = Math.hypot(b.vx, b.vy);
+    if (!b.afloat || b.moor || speed < PUSH_FROM) continue;
+    const cls = classOf(b.cls);
+    const hx = b.vx / speed, hy = b.vy / speed;
+    const sx = col(b.x - hx * cls.length * 0.45), sy = col(b.y - hy * cls.length * 0.45);
+    if (sx < 0 || sy < 0 || sx >= c.nx || sy >= c.ny) continue;
+    const from = sy * c.nx + sx;
+    wantDepth(c, from);
+    const take = Math.min(PUSH * speed * cls.beam * dt, Math.max(0, c.depth[from] - PUSH_KEEPS));
+    if (take <= 0) continue;
+    // Either side of the bow, a column clear of the hull; only onto water.
+    const out = cls.beam / 2 + 1 / COLUMNS_PER_TILE;
+    const sides = [1, -1].map((k) => ({ x: col(b.x + hx * cls.length * 0.4 - hy * out * k), y: col(b.y + hy * cls.length * 0.4 + hx * out * k) }))
+      .filter((p) => p.x >= 0 && p.y >= 0 && p.x < c.nx && p.y < c.ny && c.depth[p.y * c.nx + p.x] > c.params.dryDepth);
+    if (!sides.length) continue;
+    const before = c.depth[from];
+    addWater(c, sx, sy, -take);
+    const took = before - c.depth[from];
+    for (const p of sides) { wantDepth(c, p.y * c.nx + p.x); addWater(c, p.x, p.y, took / sides.length); }
+  }
 }
