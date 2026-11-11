@@ -1,6 +1,6 @@
 # Seaports and boats, rebuilt
 
-**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Not seen in the browser:** the app would not boot on the day (`process is not defined`, from uncommitted diagnostic edits in `agents/town.ts`), so every claim about how it looks is read from the drawing code and tagged [read].
+**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **What is left waits for the pipe plan** (`plans/pipe-network.md`), decided 2026-11-11: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
 
 ## Why
 
@@ -212,6 +212,24 @@ Phase 1 stands alone and fixes what is broken. Phases 5 and 7 need nothing from 
 - Port lorries are box lorries in the port's blue; a box is not seen being set on one.
 - The yard gantry travels its bay but lifts nothing.
 - Seen on three of the four facings by day; not at night, and not in play mode.
+
+## Left to do, after the pipes
+
+Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then these. The slop loader stands on the pipe graph and its solver, so it cannot sensibly be built before them; the rest wait with it so the port work lands as one piece.
+
+| Item | What it is | Waits on |
+|---|---|---|
+| Slop loader and slop barge | A berth fitting with a slop inlet; a barge takes slop away for a fee | Pipe plan phases 1–2 (the graph, the solver), 4 for mixtures |
+| Tug, and ships turning | A tug meets a ship and turns it in the basin; today room to turn is only a check | Nothing |
+| Ferry: homes across the water | A ferry ramp makes housing on the far bank count as near | Nothing |
+| Investor yacht | A yacht calls at a pontoon when a term sheet is due | Nothing |
+| Yard gantry lifts | The yard gantry moves boxes between stack and lorry lane | Nothing |
+| Boxes onto lorries | A box seen set on a lorry at the gate | Yard gantry lifts |
+| Wake foam | Foam from the water, or baked, in place of the drawn foam | Nothing |
+| Balance | Ship classes, fees and fittings through the balance sim | Nothing |
+| Generated banks | How often a Port III fits on generated maps' slanted banks, and whether placing should straighten a bank | Nothing |
+
+Fixed while play-testing, not in the phases above: a port is placed by pointing at its quay or the water off it; the pointer picks the water with a port in hand or dredging; boats are sent by the berths their class can use, ports alike take turns; a low river is said once it has stayed low (`LOW_HOLD`). `?fixture=shoal` is the harbour with a bar to dredge.
 
 **Open questions, as decided:** lorries are real and capped; dredging is in; lakes stay out; the slop loader is left out for now; hulls push the water, gently.
 

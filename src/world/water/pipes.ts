@@ -345,6 +345,11 @@ export function runPipes(field: WaterField, grid: Grid, dt: number, pumps: Pumps
   // list starts empty and every mouth that runs puts itself back on it.
   resetMouths(columns.drips);
   const nets = findPipeNets(grid, field.nets);
+  // NO SPOUTS, NOTHING TO RUN: the game's maps have none — its pipes are
+  // mains — and a pump house only fills the pipe ends that face it. What
+  // was standing in a run just lifted still goes back on the ground.
+  // @see plans/pipe-network.md phase 0
+  if (nets.count === 0) { spillOrphaned(field, grid); return; }
   const { cells, at } = nets;
 
   for (let net = 0; net < nets.count; net++) {
