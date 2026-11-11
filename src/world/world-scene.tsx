@@ -87,6 +87,7 @@ import { dredgeCells, type Facing, type Rect as PortRect } from "./boats/quay";
 import { SHIP_CLASSES, classOf } from "./boats/classes";
 import { fitting } from "./boats/fittings";
 import { creditTrade, stepTrade } from "./boats/trade";
+import { stepYards } from "./boats/yard";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
 import { setCollapsed } from "./structures/tiles-renderer";
@@ -129,7 +130,7 @@ const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
-import { seatsByCell, stepTown, trafficOf, type Seat } from "./agents/town";
+import { seatsByCell, sendOnJob, stepTown, trafficOf, type Seat } from "./agents/town";
 import { createEmergency, stepEmergency } from "./agents/emergency";
 import { moveOut, stepArrivals } from "./agents/arrivals";
 import { liveCoverage, stepEvolution, townChanged, withTier } from "./agents/services";
@@ -3619,6 +3620,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         sMood();
         const sWorks = section("tick: works");
         const works = getWorks();
+        // THE PORTS' YARDS, out by the gate: a lorry from the port's door to where its road leaves the map, one on the road a port. @see yard
+        {
+          const town = getTown();
+          stepYards(getTraffic().yards, dt, (port) => {
+            const door = town.places.find((pl) => pl.kind === "door" && pl.structure === port);
+            const out = door && town.places.find((pl) => pl.kind === "gateway" && pl.net === door.net);
+            if (!door || !out) return "none";
+            if (town.movers.some((m) => m.job?.role === "freight" && m.job.site === port)) return "busy";
+            return sendOnJob(town, st.grid, "truck", door, out, { site: port, role: "freight" }) ? "sent" : "busy";
+          });
+        }
         stepWorks(works, st.grid, net, getTown(), ownedNow(), st.playing ? payForLoad : () => true, dt, Date.now());
         if (works.opened.length) announceOpened(works.opened.splice(0));
         if (works.rev !== worksRevRef.current) {

@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 
 import { agentsOpen } from "../../game/agents";
 import { useTicking } from "../../hooks/use-ticking";
-import { useWorldStore } from "../../state/world.store";
+import { getTraffic, useWorldStore } from "../../state/world.store";
+import { lands, yardFill } from "../boats/yard";
 import { Card } from "../../ui/console";
 import { FITTINGS, fitOf, fitsTier } from "../boats/fittings";
 import { tradeLevel } from "../boats/trade";
@@ -26,6 +27,9 @@ export function PortCard() {
   const s = structureOf(useWorldStore.getState().grid, looked.x, looked.y);
   const def = s && !s.build ? structureDef(s.def) : null;
   if (!s || !def?.port) return null;
+  const berths = def.port.berths;
+  const hasYard = Array.from({ length: berths }, (_, k) => fitOf(s, k).id).some(lands);
+  const fill = yardFill(getTraffic().yards, s.id, berths);
   const offered = FITTINGS.filter((f) => fitsTier(f, def.port!.berths) && (f.needs !== "datacentre" || agentsOpen()));
   return (
     <Card onClose={() => setShut(looked.n)} className="w-72" title={<span className="capitalize">{def.name}</span>}>
@@ -47,6 +51,14 @@ export function PortCard() {
           </label>
         );
       })}
+      {hasYard && (
+        <p className="mt-0.5 flex items-center gap-2" title="A full yard slows the cranes; lorries empty it by road">
+          <span className="w-12 shrink-0 text-fg-muted">Yard</span>
+          <span className="h-1 flex-1 bg-surface-3 dark:bg-surface-3">
+            <span className={fill > 0.75 ? "block h-full bg-warn dark:bg-warn" : "block h-full bg-good dark:bg-good"} style={{ width: `${Math.round(fill * 100)}%` }} />
+          </span>
+        </p>
+      )}
     </Card>
   );
 }

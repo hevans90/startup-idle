@@ -33,6 +33,7 @@ import {
 import { berthsAlong, channelTo } from "./quay";
 import { SHIP_CLASSES, classOf } from "./classes";
 import { fitOf, type Fitting } from "./fittings";
+import { createYards, landCargo, lands, yardSlows, type Yards } from "./yard";
 
 /** Seconds between looks at the rivers. */
 const REMAP_EVERY = 1;
@@ -142,6 +143,8 @@ export type Traffic = {
   calls: Call[];
   /** Ports a ship gave up waiting for since the last look, by structure id. */
   turned: number[];
+  /** What each port's cranes have landed and not yet sent out by road. @see yard */
+  yards: Yards;
   /**
    * How much quicker than usual the rivers run: calls take this many times
    * less long, and boats are sent this many times as often. One, but for a
@@ -151,7 +154,7 @@ export type Traffic = {
 };
 
 export const createTraffic = (): Traffic => ({
-  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [], turned: [], rush: 1,
+  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [], turned: [], yards: createYards(), rush: 1,
 });
 
 /** Every seaport's berths, on the rivers as they stand. */
@@ -297,7 +300,12 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
     const cls = b.cls ?? 0;
     if ((b.dockLeft ?? 0) > 0) {
       b.dockLeft! -= dt;
-      if (b.dockLeft! <= 0) { t.calls.push({ port: port.id, berth: b.berth ?? 0, cls, fit: b.fit ?? "trade" }); castOff(t, b); }
+      if (b.dockLeft! <= 0) {
+        t.calls.push({ port: port.id, berth: b.berth ?? 0, cls, fit: b.fit ?? "trade" });
+        // LANDED, into the yard. @see yard
+        if (lands(b.fit ?? "trade")) landCargo(t.yards, port.id, classOf(cls).dock * classOf(cls).span, port.berths.length);
+        castOff(t, b);
+      }
       continue;
     }
     if (b.berth === undefined) {
@@ -339,7 +347,9 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
       b.moor = { x: at.x, y: at.y };
       // Along the quay, whichever way round is nearer how it came.
       b.lie = Math.cos(at.lie - b.heading) >= 0 ? at.lie : at.lie + Math.PI;
-      b.dockLeft = (port.dock * classOf(cls).dock) / t.rush;
+      // A FULL YARD slows the cranes that fill it. @see yardSlows
+      const slow = lands(b.fit ?? "trade") ? yardSlows(t.yards, port.id, port.berths.length) : 1;
+      b.dockLeft = (port.dock * classOf(cls).dock * slow) / t.rush;
     }
   }
 }
