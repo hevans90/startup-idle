@@ -71,6 +71,8 @@ export type Boat = {
   lie?: number;
   /** The kind of berth it has come for, by fitting id. @see fittings */
   fit?: string;
+  /** Whether its cargo is still aboard: landed at a berth that lands things. @see yard */
+  laden?: boolean;
   /** Seconds it has waited off its port for a berth. @see traffic */
   waited?: number;
   /** One of the Machine's freighters: violet, crewless, a light at the bow. @see Market Maker */

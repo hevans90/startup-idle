@@ -16,13 +16,15 @@
  * end, first among that band's movers so a boat in the same band draws over
  * it. It is foam drawn on the sheet and nothing more. @see wake
  */
-import { Graphics } from "pixi.js";
+import { Container, Graphics, Sprite } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
 import type { ColumnField } from "../../fluid/columns";
 import { type Boat, type Fleet } from "./fleet";
 import { classOf } from "./classes";
+import { bakedBoats, boatSprites, boatsLoaded, type BoatSprites } from "./boat-sheet";
+import { AI_HULL as AI_LIVERY, LIVERIES, YACHT_HULLS, lookOf } from "./models";
 import { createWake, stepWake, wakeMarks, type WakeMark } from "./wake";
 
 /** How far the gunwale stands over the water, in half steps. */
@@ -55,13 +57,64 @@ const OUTLINE: readonly (readonly [number, number])[] = [
 ];
 
 export type BoatLayer = {
-  /** Step the wake by `dt` and draw it and every boat on `c`'s water. */
-  draw: (fleet: Fleet, c: ColumnField, scale: number, dt: number) => void;
+  /** Step the wake by `dt` and draw it and every boat on `c`'s water; `night`, how dark it is, 0–1, lights their lamps. */
+  draw: (fleet: Fleet, c: ColumnField, scale: number, dt: number, night?: number) => void;
   destroy: () => void;
 };
 
 export function createBoatLayer(bands: BandLayer): BoatLayer {
   const drawn = new Map<number, { g: Graphics; band: number }>();
+  // THE BAKED FLEET, once its sheet is in: a container a boat, of its paint,
+  // its trim and its lights. Until then, and with `?boats=drawn`, the drawn boat.
+  type Baked = { c: Container; parts: Sprite[]; band: number; look: string; frame: number; lit: number };
+  const baked = new Map<number, Baked>();
+  if (bakedBoats()) void boatSprites();
+  /** The colours a hull's lights are lit in, in the marks' order: windows and white lights, port, starboard. */
+  const LIGHTS = [0xffe2a8, 0xff4a3a, 0x4dff8a];
+  const drawBaked = (P: BoatSprites, b: Boat, s: number, night: number) => {
+    const cls = classOf(b.cls);
+    const look = lookOf(b.cls ?? 0, b.fit, b.laden !== false, !!b.ai, b.id % 2 === 1);
+    const frames = P.boats.get(look);
+    if (!frames) return;
+    const step = (Math.PI * 2) / P.headings;
+    const frame = ((Math.round(b.heading / step) % P.headings) + P.headings) % P.headings;
+    let d = baked.get(b.id);
+    if (!d) {
+      const c = new Container();
+      c.eventMode = "none";
+      const parts = Array.from({ length: P.layers + P.marks }, (_, k) => {
+        const sp = new Sprite();
+        if (k >= P.layers) { sp.blendMode = "add"; sp.tint = LIGHTS[k - P.layers] ?? 0xffffff; sp.alpha = 0; }
+        c.addChild(sp);
+        return sp;
+      });
+      parts[0].tint = b.ai ? AI_LIVERY : look === "yacht" ? YACHT_HULLS[b.id % YACHT_HULLS.length] : LIVERIES[b.id % LIVERIES.length];
+      d = { c, parts, band: -1, look: "", frame: -1, lit: -1 };
+      baked.set(b.id, d);
+    }
+    if (d.look !== look || d.frame !== frame) {
+      const f = frames[frame];
+      d.parts.forEach((sp, k) => { sp.texture = f.tex[k]; sp.anchor.set(f.anchor[k].x, f.anchor[k].y); });
+      d.look = look; d.frame = frame;
+    }
+    // LIT as it gets dark; by alpha, never by showing and hiding. @see render-group-rebuilds
+    const lit = Math.round(Math.min(1, Math.max(0, (night - 0.35) / 0.3)) * 20) / 20;
+    if (lit !== d.lit) { for (let k = P.layers; k < d.parts.length; k++) d.parts[k].alpha = lit; d.lit = lit; }
+    d.c.scale.set(s / P.res);
+    d.c.position.set((b.x - b.y) * HW * s, (b.x + b.y) * HH * s - b.z * HEIGHT_UNIT * s);
+    // A little of the water's roll, as a lean.
+    d.c.rotation = Math.max(-0.08, Math.min(0.08, b.roll * 0.05));
+    // THE BAND OF ITS FRONTMOST CORNER. @see the note at the top
+    const ch = Math.cos(b.heading), sh = Math.sin(b.heading), l = cls.length / 2, w = cls.beam / 2;
+    let front = -Infinity;
+    for (const [a, e] of [[l, w], [l, -w], [-l, w], [-l, -w]]) front = Math.max(front, Math.round(b.x + a * ch - e * sh) + Math.round(b.y + a * sh + e * ch));
+    const band = Math.max(0, Math.min(bands.bands.length - 1, front));
+    if (band !== d.band) {
+      d.c.parent?.removeChild(d.c);
+      bands.dynamicOf[band].addChild(d.c);
+      d.band = band;
+    }
+  };
   const wake = createWake();
   /** One Graphics of foam per band that has had any, cleared every frame. */
   const foam = new Map<number, Graphics>();
@@ -110,12 +163,14 @@ export function createBoatLayer(bands: BandLayer): BoatLayer {
     }
   };
 
-  const draw = (fleet: Fleet, c: ColumnField, scale: number, dt: number) => {
+  const draw = (fleet: Fleet, c: ColumnField, scale: number, dt: number, night = 0) => {
     stepWake(wake, fleet, dt);
     drawWake(wakeMarks(wake, c), scale);
     const live = new Set<number>();
+    const P = bakedBoats() ? boatsLoaded() : null;
     for (const b of fleet.boats) {
       live.add(b.id);
+      if (P) { drawBaked(P, b, scale, night); continue; }
       let d = drawn.get(b.id);
       if (!d) {
         const g = new Graphics();
@@ -131,9 +186,14 @@ export function createBoatLayer(bands: BandLayer): BoatLayer {
       }
     }
     for (const [id, d] of drawn) {
-      if (live.has(id)) continue;
+      if (live.has(id) && !P) continue;
       d.g.destroy();
       drawn.delete(id);
+    }
+    for (const [id, d] of baked) {
+      if (live.has(id)) continue;
+      d.c.destroy({ children: true });
+      baked.delete(id);
     }
   };
 
@@ -142,6 +202,8 @@ export function createBoatLayer(bands: BandLayer): BoatLayer {
     destroy: () => {
       for (const d of drawn.values()) d.g.destroy();
       drawn.clear();
+      for (const d of baked.values()) d.c.destroy({ children: true });
+      baked.clear();
       for (const g of foam.values()) g.destroy();
       foam.clear();
     },

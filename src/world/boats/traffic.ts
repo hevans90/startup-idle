@@ -303,7 +303,7 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
       if (b.dockLeft! <= 0) {
         t.calls.push({ port: port.id, berth: b.berth ?? 0, cls, fit: b.fit ?? "trade" });
         // LANDED, into the yard. @see yard
-        if (lands(b.fit ?? "trade")) landCargo(t.yards, port.id, classOf(cls).dock * classOf(cls).span, port.berths.length);
+        if (lands(b.fit ?? "trade")) { landCargo(t.yards, port.id, classOf(cls).dock * classOf(cls).span, port.berths.length); b.laden = false; }
         castOff(t, b);
       }
       continue;
@@ -439,6 +439,7 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     // COME FOR ONE OF ITS BERTHS, each kind in turn. @see fittings
     const fits = fitsFor(port, cls);
     boat.fit = fits[t.sent % fits.length];
+    boat.laden = true;
     t.sent++;
     boat.motor = RIVER_MOTOR;
     boat.route = [port.id];

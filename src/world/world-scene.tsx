@@ -3132,7 +3132,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
       }
       stepFleet(fleet, field.columns, dt, trafficSteer(traffic));
-      boatRef.current?.draw(fleet, field.columns, scale, dt);
+      boatRef.current?.draw(fleet, field.columns, scale, dt, useGlobalSettingsStore.getState().dayNight && useWorldStore.getState().playing ? darkness(phaseNow()) / NIGHT_DARK : 0);
       sBoats();
       // THE WATER MAINS: their tubes where they changed — or the zoom asks for more or less detail — and the water in them. @see createMainsLayer
       mainsRef.current?.sync(grid, scale, useWorldStore.getState().viewport?.scale.x ?? 1);

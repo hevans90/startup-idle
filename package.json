@@ -19,7 +19,8 @@
     "bake:cars": "bun run dev/bake-cars.ts",
     "wording": "bun run src/game/wording-audit.ts",
     "bake:people": "bun run dev/bake-people.ts",
-    "bake:props": "bun run dev/bake-props.ts"
+    "bake:props": "bun run dev/bake-props.ts",
+    "bake:boats": "bun run dev/bake-boats.ts"
   },
   "dependencies": {
     "@arwes/animated": "1.0.0-next.25020502",
