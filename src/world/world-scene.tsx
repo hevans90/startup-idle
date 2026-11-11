@@ -88,7 +88,9 @@ import { SHIP_CLASSES, classOf } from "./boats/classes";
 import { fitting } from "./boats/fittings";
 import { creditTrade, stepTrade } from "./boats/trade";
 import { pushWater } from "./boats/wake";
-import { stepYards } from "./boats/yard";
+import { stepYards, yardFill } from "./boats/yard";
+import { portWork } from "./boats/traffic";
+import { setPortLife } from "./structures/port-life";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
 import { setCollapsed } from "./structures/tiles-renderer";
@@ -1665,6 +1667,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         cursorRef.current = createBuildCursor(overlayRoot.current, bl);
         heatRef.current = createDesireHeat(overlayRoot.current);
         portGuideRef.current = createPortGuide(overlayRoot.current);
+        // WHAT EACH PORT IS DOING, for its cranes, lamps and lights. @see port-life
+        setPortLife((id) => {
+          const g = useWorldStore.getState().grid, ps = g.structures.get(id);
+          const berths = ps && structureDef(ps.def)?.port?.berths;
+          if (!ps || !berths) return null;
+          const t = getTraffic(), fits = Array.from({ length: berths }, (_, k) => ps.fit?.[k] ?? "trade");
+          return {
+            berths: portWork(t, getFleet(), id, berths, fits),
+            yard: yardFill(t.yards, id, berths),
+            night: useGlobalSettingsStore.getState().dayNight && useWorldStore.getState().playing ? darkness(phaseNow()) / NIGHT_DARK : 0,
+          };
+        });
         streetHeatRef.current = createStreetHeat(overlayRoot.current);
         aiLayerRef.current = createAiLayer(overlayRoot.current);
         // HOLOGRAMS mount in the bands, at true depth; their scan lines go over everything.

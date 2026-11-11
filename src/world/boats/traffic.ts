@@ -91,6 +91,27 @@ export type Port = {
   anchorage: { x: number; y: number }[];
 };
 
+/** How far through a call the unloading is done, for a ship that then loads again. */
+const UNLOADED = 0.5;
+/** What is left aboard a ship that is to load again, at its emptiest. */
+const KEPT = 1 / 3;
+
+/**
+ * How much cargo is aboard a ship `at` of the way through its call, nought
+ * to one. At a cargo crane or a hardware berth it is all landed; at a
+ * trading quay or a gantry most comes off, and as much goes back on, so it
+ * sails as full as it came. A ferry and a yacht carry none to work.
+ */
+export function cargoAt(fit: string, at: number): number {
+  const p = Math.min(1, Math.max(0, at));
+  if (fit === "crane" || fit === "hardware") return 1 - p;
+  if (fit === "ferry" || fit === "pontoon") return 1;
+  return p < UNLOADED ? 1 - (1 - KEPT) * (p / UNLOADED) : KEPT + (1 - KEPT) * ((p - UNLOADED) / (1 - UNLOADED));
+}
+
+/** Whether a ship that far through its call is being loaded, not unloaded. */
+export const loadingAt = (fit: string, at: number) => fit !== "crane" && fit !== "hardware" && at >= UNLOADED;
+
 /** A call completed: at which port and berth, by what size of ship, come for what fitting. */
 export type Call = { port: number; berth: number; cls: number; fit: string };
 
@@ -303,8 +324,15 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
       if (b.dockLeft! <= 0) {
         t.calls.push({ port: port.id, berth: b.berth ?? 0, cls, fit: b.fit ?? "trade" });
         // LANDED, into the yard. @see yard
-        if (lands(b.fit ?? "trade")) { landCargo(t.yards, port.id, classOf(cls).dock * classOf(cls).span, port.berths.length); b.laden = false; }
         castOff(t, b);
+      } else if (b.dockFor) {
+        // WORKED BY THE CRANES as the call goes: its cargo off, and for some
+        // back on; what a landing berth takes off goes into the yard as it
+        // comes, not in a lump at the end. @see cargoAt, yard
+        const at = 1 - b.dockLeft! / b.dockFor, fit = b.fit ?? "trade";
+        const was = b.load ?? 1;
+        b.load = cargoAt(fit, at);
+        if (lands(fit) && b.load < was) landCargo(t.yards, port.id, (was - b.load) * classOf(cls).dock * classOf(cls).span / (1 - cargoAt(fit, UNLOADED)), port.berths.length);
       }
       continue;
     }
@@ -350,6 +378,7 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
       // A FULL YARD slows the cranes that fill it. @see yardSlows
       const slow = lands(b.fit ?? "trade") ? yardSlows(t.yards, port.id, port.berths.length) : 1;
       b.dockLeft = (port.dock * classOf(cls).dock * slow) / t.rush;
+      b.dockFor = b.dockLeft;
     }
   }
 }
@@ -439,7 +468,7 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     // COME FOR ONE OF ITS BERTHS, each kind in turn. @see fittings
     const fits = fitsFor(port, cls);
     boat.fit = fits[t.sent % fits.length];
-    boat.laden = true;
+    boat.load = 1;
     t.sent++;
     boat.motor = RIVER_MOTOR;
     boat.route = [port.id];
@@ -449,4 +478,26 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     const way = downstream(r, s.x, s.y, boat.cls ?? 0);
     if (way) boat.heading = Math.atan2(way.y, way.x);
   }
+}
+
+/** A ship being worked at a berth: where it lies, how big it is, how far through its call, and whether it is loading. */
+export type Worked = { x: number; y: number; z: number; cls: number; at: number; loading: boolean; cargo: boolean };
+
+/**
+ * How each berth of a port stands, in order along its quay: WORKING with a
+ * ship alongside, and which ship; BLOCKED with no water for a berth there, or
+ * — a berth that lands things — its yard full; else FREE. @see port-life
+ */
+export function portWork(t: Traffic, f: Fleet, port: number, berths: number, fits: readonly string[]): { state: "free" | "working" | "blocked"; ship?: Worked }[] {
+  const p = t.ports.get(port);
+  const out: { state: "free" | "working" | "blocked"; ship?: Worked }[] = Array.from({ length: berths }, (_, k) => ({
+    state: !p || k >= p.berths.length ? "blocked" : lands(fits[k] ?? "trade") && (t.yards.held.get(port) ?? 0) >= p.berths.length * 4 - 1e-6 ? "blocked" : "free",
+  }));
+  for (const b of f.boats) {
+    if (b.route?.[0] !== port || b.berth === undefined || (b.dockLeft ?? 0) <= 0 || !b.dockFor) continue;
+    const at = 1 - b.dockLeft! / b.dockFor, fit = b.fit ?? "trade";
+    const ship: Worked = { x: b.x, y: b.y, z: b.z, cls: b.cls ?? 0, at, loading: loadingAt(fit, at), cargo: fit !== "ferry" && fit !== "pontoon" };
+    for (let j = 0; j < classOf(b.cls).span; j++) if (out[b.berth + j]) out[b.berth + j] = { state: "working", ship };
+  }
+  return out;
 }

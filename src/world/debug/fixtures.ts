@@ -471,6 +471,9 @@ export function buildHarbour(g: Grid, material: number) {
     if (!cmd) return;
     commit(g, history, cmd);
     ports.push({ ...spot, w: def.footprint.w });
+    // FITTED OUT, so every kind of berth and its gear is here to be seen. @see FITTINGS
+    const all = [...g.structures.values()], placed = all[all.length - 1];
+    if (placed) placed.fit = [["ferry"], ["crane", "trade"], ["gantry", "gantry", "crane"]][k];
   });
 
   // THE ROADS: two lanes edge to edge north of the river, and a spur down

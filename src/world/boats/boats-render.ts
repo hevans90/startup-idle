@@ -73,7 +73,7 @@ export function createBoatLayer(bands: BandLayer): BoatLayer {
   const LIGHTS = [0xffe2a8, 0xff4a3a, 0x4dff8a];
   const drawBaked = (P: BoatSprites, b: Boat, s: number, night: number) => {
     const cls = classOf(b.cls);
-    const look = lookOf(b.cls ?? 0, b.fit, b.laden !== false, !!b.ai, b.id % 2 === 1);
+    const look = lookOf(b.cls ?? 0, b.fit, b.load ?? 1, !!b.ai, b.id % 2 === 1);
     const frames = P.boats.get(look);
     if (!frames) return;
     const step = (Math.PI * 2) / P.headings;

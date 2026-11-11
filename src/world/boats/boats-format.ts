@@ -6,7 +6,7 @@
 /** Headings baked round the turn, as the cars'. */
 export const BOAT_HEADINGS = 32;
 /** Texels to a world px at scale 1. */
-export const BOAT_RES = 1.5;
+export const BOAT_RES = 1;
 /** Texels between one part of a frame and the next. */
 export const BOAT_GAP = 3;
 
