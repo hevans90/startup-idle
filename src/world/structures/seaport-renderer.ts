@@ -329,6 +329,13 @@ type Rig = {
   along: number;
   /** How fast it is moving, for the load's swing; and the lift whose crate it carries. */
   speed: number;
+  /** How fast each of those is changing: a crane gathers way and brakes, it does not glide. @see damp */
+  vel: { turn: number; out: number; hook: number; along: number };
+  /** The load's swing on its ropes, radians, and how fast; and where its hanging point was a frame ago, to know how hard it was pulled. */
+  sway: number;
+  swayV: number;
+  hungAt: number;
+  hungV: number;
   lift: number;
 };
 
@@ -515,6 +522,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
       })),
       fast: 0, cleats: [[0, 0], [0, 0]],
       turn: Math.PI, out: 0.7, hook: QUAY + 5, along: 0, speed: 0, lift: -1,
+      vel: { turn: 0, out: 0, hook: 0, along: 0 }, sway: 0, swayV: 0, hungAt: NaN, hungV: 0,
     };
     // A DOCKER by the berth, from the people sheet once it is in.
     const P = bakedPeople() ? peopleLoaded() : null;
@@ -589,7 +597,6 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
   const local = (x: number, y: number): [number, number] => f.alongU
     ? [x - (s.x - 0.5), fy > 0 ? y - (s.y - 0.5) : s.y + s.h - 0.5 - y]
     : [y - (s.y - 0.5), fx > 0 ? x - (s.x - 0.5) : s.x + s.w - 0.5 - x];
-  const k = dt > 0 ? Math.min(1, dt * 5) : 1;
 
   for (const r of h.rigs) {
     const at = life?.berths[r.berth];
@@ -662,9 +669,12 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
     const place = ya?.at.find((q) => q.turn === turn);
     const yard = place ? { a: place.a, d: place.d, z: place.z } : { a: r.c + 0.5, d: 0.5, z: QUAY };
     const [from, to] = lifting && ship!.loading ? [yard, deck] : [deck, yard];
-    const across = ease(span(p, 0.3, 0.55)) - ease(span(p, 0.88, 1));
-    const downFrom = ease(span(p, 0, 0.15)) - ease(span(p, 0.15, 0.3));
-    const downTo = ease(span(p, 0.55, 0.7)) - ease(span(p, 0.7, 0.86));
+    // THE LIFT, as a driver works it: down, a moment still to lock on, and up;
+    // away across while still hoisting; lowering before it has stopped; a
+    // moment still to let go; up and back at once. @see PICKED, SET_DOWN
+    const across = ease(span(p, 0.25, 0.56)) - ease(span(p, 0.8, 1));
+    const downFrom = ease(span(p, 0, 0.12)) - ease(span(p, 0.18, 0.32));
+    const downTo = ease(span(p, 0.5, 0.67)) - ease(span(p, 0.73, 0.86));
     const carried = lifting && p >= 0.15 && p < 0.7;
     if (carried && !r.had) {
       // The box's own colour, as it was on her deck — or will be.
@@ -709,8 +719,9 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
       const inner = f.depth + (STS.back + 3) / M_TILE, outer = f.depth + (STS.hinge[0] + STS.boom - 2) / M_TILE;
       const wantOut = Math.max(inner, Math.min(r.boom > 0.12 ? f.depth + (STS.hinge[0] - 2) / M_TILE : outer, from.d + (to.d - from.d) * across));
       const wantHook = up - downFrom * Math.max(0, up - from.z - under) - downTo * Math.max(0, up - to.z - under);
-      r.speed += (Math.abs(wantOut - r.out) + Math.abs(wantAlong - r.along) - r.speed) * k;
-      r.along += (wantAlong - r.along) * k; r.out += (wantOut - r.out) * k; r.hook += (wantHook - r.hook) * k;
+      [r.along, r.vel.along] = damp(r.along, r.vel.along, wantAlong, 0.45, dt);
+      [r.out, r.vel.out] = damp(r.out, r.vel.out, wantOut, 0.3, dt);
+      [r.hook, r.vel.hook] = damp(r.hook, r.vel.hook, wantHook, 0.22, dt);
       const a = mid + r.along;
       const stands = f.Q(a, f.depth, QUAY);
       for (const id of ["far", "near", "top"]) r.pieces[id].c.position.set(stands[0], stands[1]);
@@ -728,7 +739,7 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
       lay(r.bars.stayB, apex, along(STS.boom - 0.6, 1));
       const [tx, ty] = f.Q(a, r.out, rail);
       r.pieces.trolley.c.position.set(tx, ty);
-      const swing = Math.sin(h.t * 2.4 + r.c) * Math.min(1, r.speed * 6) * 3 * sc;
+      const swing = swingOf(r, tx, (rail - r.hook) * HEIGHT_UNIT * sc, sc, dt);
       hang(a, r.out, f.depth + STS.land / M_TILE - 0.1, [[tx - 8 * sc, ty], [tx + 8 * sc, ty]], under, swing);
       continue;
     }
@@ -742,8 +753,9 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
     const want = polar(from.a + (to.a - from.a) * across, from.d + (to.d - from.d) * across);
     const wantHook = up - downFrom * Math.max(0, up - from.z - under) - downTo * Math.max(0, up - to.z - under);
     const next = turnTo(r.turn, want.turn);
-    r.speed += (Math.abs(next - r.turn) + Math.abs(want.out - r.out) - r.speed) * k;
-    r.turn += (next - r.turn) * k; r.out += (want.out - r.out) * k; r.hook += (wantHook - r.hook) * k;
+    [r.turn, r.vel.turn] = damp(r.turn, r.vel.turn, next, 0.4, dt);
+    [r.out, r.vel.out] = damp(r.out, r.vel.out, want.out, 0.35, dt);
+    [r.hook, r.vel.hook] = damp(r.hook, r.vel.hook, wantHook, 0.24, dt);
     const sin = Math.sin(r.turn), cos = Math.cos(r.turn);
     // Which way that is on the map, and the baked heading nearest it.
     const ea = f.alongU ? [1, 0] : [0, 1];
@@ -768,9 +780,40 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
     const apex: [number, number] = [axis[0] + Sr0[0] * T.apex[0] + Sz[0] * T.apex[1], axis[1] + Sr0[1] * T.apex[0] + Sz[1] * T.apex[1]];
     lay(r.bars.luffA, apex, tip);
     lay(r.bars.luffB, apex, onJib(T.jib * 0.62));
-    const swing = Math.sin(h.t * 2.4 + r.c) * Math.min(1, r.speed * 5) * 3.5 * sc;
+    const swing = swingOf(r, tip[0], f.Q(mid + sin * r.out, r.pivot + cos * r.out, r.hook)[1] - tip[1], sc, dt);
     hang(mid + sin * r.out, r.pivot + cos * r.out, r.pivot - 0.12, [tip], under, swing);
   }
+}
+
+/**
+ * Move a value toward where it is wanted as a thing with weight does: it
+ * gathers way, and brakes into its mark without passing it. `smooth` is about
+ * how long it takes, seconds. Answers the value and its speed.
+ */
+function damp(x: number, v: number, to: number, smooth: number, dt: number): [number, number] {
+  if (dt <= 0) return [x, v];
+  const w = 2 / smooth, e = w * Math.min(dt, 0.1), k = 1 / (1 + e + 0.48 * e * e + 0.235 * e * e * e);
+  const off = x - to, t = (v + w * off) * Math.min(dt, 0.1);
+  return [to + (off + t) * k, (v - w * t) * k];
+}
+
+/**
+ * THE LOAD'S SWING, as a weight on a rope: pulled back when what it hangs
+ * from gathers way, forward when it brakes, and swinging on after at the
+ * pace of a pendulum as long as its rope — a short hoist quick, a long one
+ * slow — until it dies down. `x` is where it hangs from on the screen and
+ * `rope` how long it hangs, px. Answers how far aside it is, px.
+ */
+function swingOf(r: Rig, x: number, rope: number, sc: number, dt: number): number {
+  const h = Math.min(Math.max(dt, 0), 1 / 20), len = Math.max(10 * sc, rope);
+  if (h <= 0 || !Number.isFinite(r.hungAt) || Math.abs(x - r.hungAt) > 60 * sc) { r.hungAt = x; r.hungV = 0; return r.sway * len; }
+  const v = (x - r.hungAt) / h, pull = Math.max(-600 * sc, Math.min(600 * sc, (v - r.hungV) / h));
+  r.hungAt = x; r.hungV = v;
+  // A pendulum as long as its rope, in metres, lightly damped.
+  const w0 = Math.sqrt(9.81 / Math.max(1.5, (len / (HEIGHT_UNIT * sc)) * M_STEP));
+  r.swayV += (-w0 * w0 * r.sway - 2 * 0.16 * w0 * r.swayV - pull / len) * h;
+  r.sway = Math.max(-0.3, Math.min(0.3, r.sway + r.swayV * h));
+  return r.sway * len;
 }
 
 /**

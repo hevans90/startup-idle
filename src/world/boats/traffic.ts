@@ -27,7 +27,7 @@ import { addBoat, type Boat, type Fleet, type Steer } from "./fleet";
 import { notable } from "../../game/machine";
 import { inAiDistrictNow } from "../ai/district";
 import {
-  basinAt, berthsBeside, downhill, downstream, isExit, mapRiver, riverAt, stepsFrom, tileDepthOf,
+  basinAt, berthsBeside, downhill, downstream, isExit, mapRiver, midstream, riverAt, stepsFrom, tileDepthOf,
   type BerthSpot, type RiverMap,
 } from "./river";
 import { berthsAlong, channelTo } from "./quay";
@@ -46,6 +46,9 @@ const FIRST_SPAWN = 1;
 export const MARKET_TURNROUND = 1.5;
 /** Berths' worth of ships that may be on their way to a port, or waiting off it, beyond what it has berths for. */
 const WAITING = 1;
+/** How hard a ship under way is held off the banks, against her course; and within how many steps of her berth she is let come in. */
+const MIDSTREAM = 1.6;
+const COME_IN = 2;
 /** The sizes sent, in turn, where the river's ports take them: mostly boats. @see SHIP_CLASSES */
 const MIX = [0, 1, 0, 2, 0, 1] as const;
 /** Boats under way on a river: this many, and this many more for every berth on it. */
@@ -273,7 +276,27 @@ export function portsOf(g: Grid, r: RiverMap): Map<number, Port> {
     const mid = spots[(spots.length - 1) >> 1];
     const way = channelTo(r, { x: mid.tx, y: mid.ty }).reverse();
     // Two tiles apart: a ship at anchor is longer than a tile.
-    self.anchorage = way.slice(ANCHOR_FROM).filter((_, k) => k % 2 === 0).slice(0, ANCHORAGE);
+    // OUT IN THE STREAM, not along the bank the way in runs by: each place
+    // moved up the river's own breadth to where the water is widest about it.
+    const midOf = (at: { x: number; y: number }) => {
+      let { x, y } = at;
+      for (let n = 0; n < 3; n++) {
+        let best = r.shore[y * r.w + x], bx = x, by = y;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= r.w || ny >= r.h || r.river[ny * r.w + nx] !== self.river) continue;
+          if (r.shore[ny * r.w + nx] > best) { best = r.shore[ny * r.w + nx]; bx = nx; by = ny; }
+        }
+        if (bx === x && by === y) break;
+        x = bx; y = by;
+      }
+      return { x, y };
+    };
+    const waits: { x: number; y: number }[] = [];
+    for (const at of way.slice(ANCHOR_FROM).filter((_, k) => k % 2 === 0).map(midOf)) {
+      if (!waits.some((q) => Math.hypot(q.x - at.x, q.y - at.y) < 1.5)) waits.push(at);
+    }
+    self.anchorage = waits.slice(0, ANCHORAGE);
     out.set(s.id, self);
   }
   return out;
@@ -343,10 +366,21 @@ export const trafficSteer = (t: Traffic): Steer | undefined => {
   return (b: Boat) => {
     const port = b.route?.length ? t.ports.get(b.route[0]) : undefined;
     const cls = b.cls ?? 0;
-    if (!port) return downstream(r, b.x, b.y, cls) ?? backToChannel(r, b, cls);
+    // MIDSTREAM, not along the bank: a ship keeps water on both sides of her
+    // all the way, and only comes in to the quay when she is nearly at her
+    // berth. Followed alone, the steps to a berth — which is at the bank —
+    // had every ship sliding along the wall of the river to get there.
+    const off = (way: { x: number; y: number } | null, steps = Infinity) => {
+      if (!way) return way;
+      const mid = midstream(r, b.x, b.y), k = MIDSTREAM * Math.min(1, Math.max(0, (steps - COME_IN) / 2));
+      const x = way.x + mid.x * k, y = way.y + mid.y * k, m = Math.hypot(x, y);
+      return m > 1e-6 ? { x: x / m, y: y / m } : way;
+    };
+    const here = (f: Float32Array) => { const tx = Math.round(b.x), ty = Math.round(b.y); return tx >= 0 && ty >= 0 && tx < r.w && ty < r.h ? f[ty * r.w + tx] : Infinity; };
+    if (!port) return off(downstream(r, b.x, b.y, cls) ?? backToChannel(r, b, cls));
     const berth = b.berth !== undefined ? port.berths[b.berth] : undefined;
-    if (berth) return toward(r, berth.stepsOf(cls), b, lieAt(port, b.berth!, cls));
-    return toward(r, port.stepsOf(cls), b, nearestBerth(port, b));
+    if (berth) return off(toward(r, berth.stepsOf(cls), b, lieAt(port, b.berth!, cls)), here(berth.stepsOf(cls)));
+    return off(toward(r, port.stepsOf(cls), b, nearestBerth(port, b)), here(port.stepsOf(cls)));
   };
 };
 

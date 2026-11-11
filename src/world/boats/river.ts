@@ -52,6 +52,8 @@ export type RiverMap = {
   reach: Uint8Array;
   /** Steps to the nearest exit a class can reach, through its own channel; by class. */
   toExitOf: Float32Array[];
+  /** How far a river tile is from the bank, in steps: one for a tile against it. Nought off the river. @see midstream */
+  shore: Float32Array;
 };
 
 /**
@@ -224,7 +226,55 @@ export function mapRiver(
     }
     toExitOf.push(out);
   }
-  return { w: g.w, h: g.h, river, toExit, sources, exits, depth, reach, toExitOf };
+  // HOW FAR FROM THE BANK each tile is: out from the tiles that touch dry
+  // land, a step at a time. The rim of the map is not a bank.
+  const shore = new Float32Array(n);
+  let head = 0, tail = 0;
+  for (let i = 0; i < n; i++) {
+    if (!river[i]) continue;
+    const x = i % g.w, y = (i / g.w) | 0;
+    for (const [dx, dy] of STEPS) {
+      const nx = x + dx, ny = y + dy;
+      if (inBounds(g, nx, ny) && !river[ny * g.w + nx]) { shore[i] = 1; queue[tail++] = i; break; }
+    }
+  }
+  while (head < tail) {
+    const i = queue[head++];
+    const x = i % g.w, y = (i / g.w) | 0;
+    for (const [dx, dy] of STEPS) {
+      const nx = x + dx, ny = y + dy;
+      if (!inBounds(g, nx, ny)) continue;
+      const j = ny * g.w + nx;
+      if (river[j] && !shore[j]) { shore[j] = shore[i] + 1; queue[tail++] = j; }
+    }
+  }
+  return { w: g.w, h: g.h, river, toExit, sources, exits, depth, reach, toExitOf, shore };
+}
+
+/**
+ * Which way is MIDSTREAM from a point: away from the nearer bank, as a
+ * vector no longer than one — strong hard against a bank, and nothing once
+ * there are `clear` tiles of water on that side. For keeping a ship under
+ * way off the banks. @see RiverMap.shore
+ */
+export function midstream(r: RiverMap, x: number, y: number, clear = 2.5): { x: number; y: number } {
+  const tx = Math.round(x), ty = Math.round(y);
+  if (tx < 0 || ty < 0 || tx >= r.w || ty >= r.h) return { x: 0, y: 0 };
+  const here = r.shore[ty * r.w + tx];
+  if (!here || here >= clear) return { x: 0, y: 0 };
+  let vx = 0, vy = 0;
+  for (const [dx, dy] of STEPS) {
+    const nx = tx + dx, ny = ty + dy;
+    // Dry land pushes away from itself; deeper water draws toward itself.
+    const there = nx < 0 || ny < 0 || nx >= r.w || ny >= r.h ? here : r.shore[ny * r.w + nx];
+    vx += (there - here) * dx;
+    vy += (there - here) * dy;
+  }
+  // And within the tile: a boat in the half of it against the bank is pushed the harder.
+  const m = Math.hypot(vx, vy);
+  if (m < 1e-6) return { x: 0, y: 0 };
+  const k = Math.min(1, (clear - here) / clear + 0.35);
+  return { x: (vx / m) * k, y: (vy / m) * k };
 }
 
 /** Which river a tile is in, from 1, or nought. */
