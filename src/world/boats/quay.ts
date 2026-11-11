@@ -128,6 +128,22 @@ export function facePorts(g: Grid, isPort: (s: Structure) => boolean): void {
   }
 }
 
+/** The deepest a river bed is dredged, half steps of standing water. */
+export const DREDGE_DEEPEST = 8;
+
+/**
+ * The tiles of a stroke that can be DREDGED: river bed under standing water,
+ * with nothing built on or over it, not yet as deep as dredging goes. Each is
+ * taken down a half step, and the water over it stands that much deeper.
+ */
+export function dredgeCells<C extends { x: number; y: number }>(g: Grid, cells: readonly C[]): C[] {
+  return cells.filter((c) => {
+    if (!inBounds(g, c.x, c.y)) return false;
+    const i = idx(g, c.x, c.y);
+    return g.pool[i] > 0 && g.pool[i] < DREDGE_DEEPEST && g.structureAt[i] < 0 && g.paved[i] === 0 && g.height[i] > -126;
+  });
+}
+
 /**
  * The way a boat comes to a berth: river tiles from where the river comes in
  * to the water tile `at`, in order. Empty when no boat can get there.

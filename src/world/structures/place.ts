@@ -18,6 +18,7 @@ import {
 } from "../grid";
 import { RAMP } from "../iso";
 import { NEIGHBOUR } from "../../iso/dir";
+import { SHIP_CLASSES } from "../boats/classes";
 import { riverAt, riverWithin, type RiverMap } from "../boats/river";
 import {
   FACINGS, PORT_DEPTH, QUAY_MAX_DROP, alongX, bestFacing, portShape, quayLength, quayLevel, quayRiver, quayTiles, steadyRivers,
@@ -392,10 +393,14 @@ export function planUpgrade(
  * EVERY BANK A SEAPORT OF THIS TIER COULD GO ON: the tiles that would be quay
  * in some placement that may stand, as cell indices. The road it needs is not
  * asked — a bank is a fact about the water, and the road can be laid to it.
- * For lighting them while a port is in hand. @see validatePort
+ * Each with the biggest class of ship that could come alongside it there,
+ * by number. For lighting them while a port is in hand. @see validatePort
  */
-export function quayBanks(grid: Grid, def: StructureDef, rules: PlaceRules = NO_RULES): number[] {
-  const rivers = steadyRivers(grid), lit = new Set<number>();
+export function quayBanks(grid: Grid, def: StructureDef, rules: PlaceRules = NO_RULES): { i: number; cls: number }[] {
+  const rivers = steadyRivers(grid), lit = new Map<number, number>();
+  // The biggest ship a port of this size takes. @see SHIP_CLASSES
+  let top = 0;
+  for (let k = 0; k < SHIP_CLASSES.length; k++) if (SHIP_CLASSES[k].tier <= (def.port?.berths ?? 1)) top = k;
   const bare = { ...rules, needsRoad: false, needsSewer: false };
   const length = def.footprint.w;
   for (let y = 0; y < grid.h; y++) {
@@ -410,12 +415,17 @@ export function quayBanks(grid: Grid, def: StructureDef, rules: PlaceRules = NO_
             ? { x: x - k, y: dy > 0 ? y - (PORT_DEPTH - 1) : y, ...portShape(length, f) }
             : { x: dx > 0 ? x - (PORT_DEPTH - 1) : x, y: y - k, ...portShape(length, f) };
           if (!portCheck(grid, def, at, f, bare).ok) continue;
-          for (const q of quayTiles(at, f)) lit.add(idx(grid, q.x, q.y));
+          // By the biggest ship that can come alongside that tile of it.
+          for (const q of quayTiles(at, f)) {
+            const i = idx(grid, q.x, q.y);
+            const cls = Math.min(top, rivers.reach[idx(grid, q.wx, q.wy)] - 1);
+            lit.set(i, Math.max(lit.get(i) ?? 0, cls));
+          }
         }
       }
     }
   }
-  return [...lit];
+  return [...lit].map(([i, cls]) => ({ i, cls }));
 }
 
 /**

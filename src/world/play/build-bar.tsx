@@ -35,7 +35,7 @@ import { formatCurrency } from "../../utils/money-utils";
 import { VEHICLE } from "../agents/arrivals";
 import { DESKS, liveSeating, workplaceKind } from "../agents/commute";
 import type { ToolId } from "../edit/tools";
-import { allStructureDefs, type StructureDef } from "../structures/def";
+import { allStructureDefs, structureDef, type StructureDef } from "../structures/def";
 import { KIND_COLOUR, saleName } from "./building-info";
 import { useAiSingularityStore } from "../../state/ai-singularity.store";
 import { runningAgents } from "../../state/agents.store";
@@ -65,6 +65,7 @@ const ICONS: Record<string, ReactNode> = {
   pipe: <Icon><path d="M2 6h7a3 3 0 0 1 3 3v5M2 10h7M8 14h8" /></Icon>,
   placeStructure: <Icon><path d="M2 8l6-5 6 5M4 7v7h8V7M7 14v-4h2v4" /></Icon>,
   demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
+  dredge: <Icon><path d="M1 5c2-1.5 3-1.5 5 0s3 1.5 5 0 3-1.5 4 0M3 9l3 4h4l3-4M8 13V8" /></Icon>,
   labels: <Icon><path d="M2 3h7l5 5-5 5-7-7z" /><circle cx="5.5" cy="6.5" r="1" /></Icon>,
   water: <Icon><path d="M8 2.5c2.5 3 4 5.2 4 7a4 4 0 0 1-8 0c0-1.8 1.5-4 4-7z" /></Icon>,
   mood: <Icon><circle cx="8" cy="8" r="6" /><path d="M5.5 9.5c.7 1 1.5 1.5 2.5 1.5s1.8-.5 2.5-1.5M6 6.5h.01M10 6.5h.01" /></Icon>,
@@ -115,6 +116,7 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "pipe", label: "Pipe", hint: "Drag from water to the Data Centre or an AI building to lay a water main: it finds its own way" },
   { id: "sewer", label: "Sewer", hint: "Drag from water or a processor to lay a sewer underground; click one to add a manhole" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road, a park anywhere; drag along a street for a row of lots; click a seaport to upgrade it" },
+  { id: "dredge", label: "Dredge", hint: "Drag along a river to deepen it, for bigger ships" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to lift it" },
 ];
 
@@ -265,7 +267,7 @@ export function BuildBar({ className }: { className?: string }) {
   const choose = (id: ToolId) => {
     setTool(id);
     // Road goes down in a line, as a road does; everything else is a click.
-    setBrush(id === "paintRoad" || id === "pipe" || id === "sewer" || id === "demolish" ? "line" : "point");
+    setBrush(id === "paintRoad" || id === "pipe" || id === "sewer" || id === "demolish" || id === "dredge" ? "line" : "point");
     setBrushRadius(0);
     setPicking(id === "placeStructure" ? !(tool === id && picking) : false);
     // Something on offer in hand, not whatever was last: a lot for people the
@@ -281,7 +283,9 @@ export function BuildBar({ className }: { className?: string }) {
   const mainsOpen = agentsOpen();
   const sewersOpen = (generators.find((g) => g.id === "vibe_coder")?.amount ?? 0) >= SLOP_FROM;
   // THE TOOLS ON OFFER, and their keys: 1 to 5, as shown on each. Not while typing in a field, nor with a modifier.
-  const shown = useMemo(() => TOOLS.filter((t) => (t.id !== "pipe" || mainsOpen) && (t.id !== "sewer" || sewersOpen)), [mainsOpen, sewersOpen]);
+  // DREDGING opens with the first port big enough for a coaster. @see SHIP_CLASSES
+  const dredgeOpen = useWorldStore((s) => { void s.revision; for (const b of s.grid.structures.values()) if ((structureDef(b.def)?.port?.berths ?? 0) >= 2 && !b.build) return true; return false; });
+  const shown = useMemo(() => TOOLS.filter((t) => (t.id !== "pipe" || mainsOpen) && (t.id !== "sewer" || sewersOpen) && (t.id !== "dredge" || dredgeOpen)), [mainsOpen, sewersOpen, dredgeOpen]);
   const keyed = useRef(choose);
   keyed.current = choose;
   useEffect(() => {

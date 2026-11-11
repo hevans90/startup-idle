@@ -21,6 +21,7 @@
 import { COLUMNS_PER_TILE } from "../water/field";
 import type { ColumnField } from "../../fluid/columns";
 import { footprintCells, inBounds, type Grid } from "../grid";
+import { SHIP_CLASSES } from "./classes";
 
 /** Deeper than this, in half steps, and a tile is navigable river. */
 export const RIVER_DEPTH = 1;
@@ -40,6 +41,17 @@ export type RiverMap = {
   sources: { x: number; y: number; river: number }[];
   /** Exit tiles, per river. */
   exits: { x: number; y: number; river: number }[];
+  /** How deep each tile stands, half steps. */
+  depth: Float32Array;
+  /**
+   * How many of the ship classes can get to a tile: from where its river
+   * comes in, and on to a way out, through water deep enough for them all
+   * the way. One for a boat, three for a ship; nought off the river.
+   * @see SHIP_CLASSES
+   */
+  reach: Uint8Array;
+  /** Steps to the nearest exit a class can reach, through its own channel; by class. */
+  toExitOf: Float32Array[];
 };
 
 /**
@@ -87,11 +99,13 @@ export function mapRiver(
 ): RiverMap {
   const n = g.w * g.h;
   const deep = new Uint8Array(n);
+  const depth = new Float32Array(n);
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
       const i = y * g.w + x;
+      depth[i] = depthAt(i, x, y);
       // A STRUCTURE'S FOOTPRINT is never river, whatever is under it.
-      if (g.structureAt[i] < 0 && depthAt(i, x, y) > minDepth) deep[i] = 1;
+      if (g.structureAt[i] < 0 && depth[i] > minDepth) deep[i] = 1;
     }
   }
   const river = new Int32Array(n);
@@ -175,7 +189,42 @@ export function mapRiver(
       }
     }
   }
-  return { w: g.w, h: g.h, river, toExit, sources, exits };
+  // THE CHANNEL OF EACH BIGGER CLASS: the tiles deep enough for it — and
+  // open to the sky, for one too tall for a bridge — that are joined, through
+  // tiles like them, both to a source and to an exit.
+  const reach = new Uint8Array(n);
+  for (let i = 0; i < n; i++) if (river[i]) reach[i] = 1;
+  const toExitOf = [toExit];
+  for (let k = 1; k < SHIP_CLASSES.length; k++) {
+    const cls = SHIP_CLASSES[k];
+    const ok = (i: number) => river[i] > 0 && depth[i] > cls.depth && !(cls.tall && g.deck[i] !== 0);
+    const flood = (seeds: readonly { x: number; y: number }[]) => {
+      const out = new Float32Array(n).fill(Infinity);
+      let head = 0, tail = 0;
+      for (const s of seeds) {
+        const i = s.y * g.w + s.x;
+        if (ok(i) && out[i] === Infinity) { out[i] = 0; queue[tail++] = i; }
+      }
+      while (head < tail) {
+        const i = queue[head++];
+        const x = i % g.w, y = (i / g.w) | 0;
+        for (const [dx, dy] of STEPS) {
+          const nx = x + dx, ny = y + dy;
+          if (!inBounds(g, nx, ny)) continue;
+          const j = ny * g.w + nx;
+          if (river[j] === river[i] && ok(j) && out[j] === Infinity) { out[j] = out[i] + 1; queue[tail++] = j; }
+        }
+      }
+      return out;
+    };
+    const fromIn = flood(sources), out = flood(exits);
+    for (let i = 0; i < n; i++) {
+      if (Number.isFinite(fromIn[i]) && Number.isFinite(out[i])) reach[i] = k + 1;
+      else out[i] = Infinity;
+    }
+    toExitOf.push(out);
+  }
+  return { w: g.w, h: g.h, river, toExit, sources, exits, depth, reach, toExitOf };
 }
 
 /** Which river a tile is in, from 1, or nought. */
@@ -206,8 +255,8 @@ export function riversBeside(r: RiverMap, x0: number, y0: number, w: number, h: 
  * down the steps-to-exit count across the tiles round it. Null off a river,
  * or on one with nowhere to go.
  */
-export const downstream = (r: RiverMap, x: number, y: number) =>
-  downhill(r.toExit, r.w, r.h, x, y, true);
+export const downstream = (r: RiverMap, x: number, y: number, cls = 0) =>
+  downhill(r.toExitOf[cls] ?? r.toExit, r.w, r.h, x, y, true);
 
 /**
  * Which way is down a steps-to-somewhere count at a point, as a unit vector.
@@ -242,9 +291,10 @@ export function downhill(
 
 /**
  * Steps from the nearest of some river tiles to every other tile of their
- * river; Infinity elsewhere. The tiles are taken to be on one river.
+ * river; Infinity elsewhere. The tiles are taken to be on one river. For a
+ * bigger class, through its own channel only. @see RiverMap.reach
  */
-export function stepsFrom(r: RiverMap, seeds: readonly { x: number; y: number }[]): Float32Array {
+export function stepsFrom(r: RiverMap, seeds: readonly { x: number; y: number }[], cls = 0): Float32Array {
   const out = new Float32Array(r.w * r.h).fill(Infinity);
   const label = seeds.length ? riverAt(r, seeds[0].x, seeds[0].y) : 0;
   if (!label) return out;
@@ -252,7 +302,7 @@ export function stepsFrom(r: RiverMap, seeds: readonly { x: number; y: number }[
   let head = 0, tail = 0;
   for (const s of seeds) {
     const i = s.y * r.w + s.x;
-    if (r.river[i] !== label || out[i] === 0) continue;
+    if (r.river[i] !== label || r.reach[i] <= cls || out[i] === 0) continue;
     out[i] = 0;
     queue[tail++] = i;
   }
@@ -263,10 +313,20 @@ export function stepsFrom(r: RiverMap, seeds: readonly { x: number; y: number }[
       const nx = cx + dx, ny = cy + dy;
       if (nx < 0 || ny < 0 || nx >= r.w || ny >= r.h) continue;
       const j = ny * r.w + nx;
-      if (r.river[j] === label && out[j] === Infinity) { out[j] = out[i] + 1; queue[tail++] = j; }
+      if (r.river[j] === label && r.reach[j] > cls && out[j] === Infinity) { out[j] = out[i] + 1; queue[tail++] = j; }
     }
   }
   return out;
+}
+
+/** How many tiles of a class's channel are among the nine round a tile: its room to turn. */
+export function basinAt(r: RiverMap, x: number, y: number, cls: number): number {
+  let n = 0;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const nx = x + dx, ny = y + dy;
+    if (nx >= 0 && ny >= 0 && nx < r.w && ny < r.h && r.reach[ny * r.w + nx] > cls) n++;
+  }
+  return n;
 }
 
 /** A place a boat ties up: its river tile, and the point in it it moors at. */

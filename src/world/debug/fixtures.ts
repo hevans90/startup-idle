@@ -494,7 +494,7 @@ export function buildHarbour(g: Grid, material: number) {
 }
 
 /** Half steps the harbour's channel is cut below the land. */
-const HARBOUR_CUT = 4;
+const HARBOUR_CUT = 9;
 /** Half steps the harbour's river is held under its brim. */
 const HARBOUR_FREEBOARD = 1;
 /** Half steps lower it is held where it leaves than where it comes in. */

@@ -21,11 +21,12 @@ import { Graphics } from "pixi.js";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
 import type { ColumnField } from "../../fluid/columns";
-import { BOAT_BEAM, BOAT_LENGTH, type Boat, type Fleet } from "./fleet";
+import { type Boat, type Fleet } from "./fleet";
+import { classOf } from "./classes";
 import { createWake, stepWake, wakeMarks, type WakeMark } from "./wake";
 
 /** How far the gunwale stands over the water, in half steps. */
-const FREEBOARD = 0.55;
+const BOARD = 0.55;
 /** How tall the mast is over the deck, in half steps. */
 const MAST = 3.4;
 
@@ -161,6 +162,9 @@ function drawBoat(g: Graphics, b: Boat, s: number, bandsN: number): number {
     const z = b.z + up + l * b.pitch + w * b.roll;
     return { u, v, px: (u - v) * HW * s, py: (u + v) * HH * s - z * HEIGHT_UNIT * s };
   };
+  const cls = classOf(b.cls), BOAT_LENGTH = cls.length, BOAT_BEAM = cls.beam;
+  // A bigger hull stands higher out of the water.
+  const FREEBOARD = BOARD * (1 + 0.5 * (b.cls ?? 0));
   const rim = OUTLINE.map(([l, w]) => at(l * BOAT_LENGTH, w * BOAT_BEAM, FREEBOARD));
   const sea = OUTLINE.map(([l, w]) => at(l * BOAT_LENGTH * 0.94, w * BOAT_BEAM * 0.86, 0));
 
@@ -194,6 +198,35 @@ function drawBoat(g: Graphics, b: Boat, s: number, bandsN: number): number {
     const bow = at(BOAT_LENGTH * 0.46, 0, FREEBOARD + 0.4);
     g.circle(bow.px, bow.py, Math.max(1.5, 2.2 * s));
     g.fill({ color: AI_LIGHT, alpha: 0.95 });
+    let front = -Infinity;
+    for (const p of rim) front = Math.max(front, Math.round(p.u) + Math.round(p.v));
+    return Math.max(0, Math.min(bandsN - 1, front));
+  }
+
+  // A COASTER OR A SHIP: no sail — a hold of cargo amidships and a
+  // wheelhouse aft, its sides the camera sees and its roof.
+  if (b.cls) {
+    const block = (l0: number, l1: number, half: number, up: number, top: number, lit: number, shade: number) => {
+      const c = [at(l0, -half, FREEBOARD), at(l1, -half, FREEBOARD), at(l1, half, FREEBOARD), at(l0, half, FREEBOARD)];
+      const r = [at(l0, -half, FREEBOARD + up), at(l1, -half, FREEBOARD + up), at(l1, half, FREEBOARD + up), at(l0, half, FREEBOARD + up)];
+      for (let k = 0; k < 4; k++) {
+        const a = c[k], n2 = c[(k + 1) % 4];
+        const nu = n2.v - a.v, nv = -(n2.u - a.u);
+        if (nu + nv <= 0) continue;
+        g.poly([r[k].px, r[k].py, r[(k + 1) % 4].px, r[(k + 1) % 4].py, n2.px, n2.py, a.px, a.py]);
+        g.fill({ color: nu > nv ? lit : shade });
+      }
+      g.poly(r.flatMap((p) => [p.px, p.py]));
+      g.fill({ color: top });
+    };
+    const L = BOAT_LENGTH, W = BOAT_BEAM;
+    // Drawn far end first, by which way it faces the camera.
+    const parts: [number, () => void][] = [
+      [-0.36, () => block(-0.44 * L, -0.28 * L, 0.34 * W, 1.6 + 0.5 * b.cls!, 0xf4f1e8, 0xe9e5d8, 0xbdb7a6)],
+      [0.02, () => block(-0.22 * L, 0.3 * L, 0.36 * W, 0.7 + 0.35 * b.cls!, b.cls === 2 ? 0x3f6e9c : 0x9c6b3a, b.cls === 2 ? 0x3f6e9c : 0x9c6b3a, b.cls === 2 ? 0x2f5478 : 0x7a5229)],
+    ];
+    parts.sort((p, q) => (p[0] - q[0]) * (ch + sh));
+    for (const [, drawPart] of parts) drawPart();
     let front = -Infinity;
     for (const p of rim) front = Math.max(front, Math.round(p.u) + Math.round(p.v));
     return Math.max(0, Math.min(bandsN - 1, front));

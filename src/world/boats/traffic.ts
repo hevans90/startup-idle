@@ -27,10 +27,11 @@ import { addBoat, type Boat, type Fleet, type Steer } from "./fleet";
 import { notable } from "../../game/machine";
 import { inAiDistrictNow } from "../ai/district";
 import {
-  berthsBeside, downhill, downstream, isExit, mapRiver, riverAt, stepsFrom, tileDepthOf,
+  basinAt, berthsBeside, downhill, downstream, isExit, mapRiver, riverAt, stepsFrom, tileDepthOf,
   type BerthSpot, type RiverMap,
 } from "./river";
-import { berthsAlong } from "./quay";
+import { berthsAlong, channelTo } from "./quay";
+import { SHIP_CLASSES, classOf } from "./classes";
 
 /** Seconds between looks at the rivers. */
 const REMAP_EVERY = 1;
@@ -40,6 +41,8 @@ const SPAWN_SLOWEST = 20;
 const FIRST_SPAWN = 1;
 /** How much faster a port in the AI's district turns ships round, with Market Maker. */
 export const MARKET_TURNROUND = 1.5;
+/** The sizes sent, in turn, where the river's ports take them: mostly boats. @see SHIP_CLASSES */
+const MIX = [0, 1, 0, 2, 0, 1] as const;
 /** Boats under way on a river: this many, and this many more for every berth on it. */
 const MAX_BASE = 2;
 const MAX_PER_BERTH = 2;
@@ -56,8 +59,18 @@ const TIE_UP_AT = 0.45;
 /** Nearer a port's berths than this, tiles, and a boat joins its queue. */
 const WAIT_AT = 1.6;
 
-/** One berth at a port, and how far every tile of its river is from it. */
-type Berth = BerthSpot & { steps: Float32Array };
+/** How long a ship waits off a port for a berth before it gives up and goes, seconds. */
+export const PATIENCE = 45;
+/** How far off its berth the first ship waiting lies, in tiles up the way in, and how far apart the rest. */
+const ANCHOR_FROM = 2;
+const ANCHORAGE = 6;
+
+/**
+ * One berth at a port: how many of the ship classes can lie at it — deep
+ * water to it and room to turn — and how far every tile of a class's channel
+ * is from it, worked out when first asked. @see SHIP_CLASSES
+ */
+type Berth = BerthSpot & { reach: number; stepsOf: (cls: number) => Float32Array };
 
 /** A seaport as the traffic sees it. */
 export type Port = {
@@ -66,9 +79,28 @@ export type Port = {
   /** Seconds a boat lies alongside. */
   dock: number;
   berths: Berth[];
-  /** Steps to the nearest of its berths, for a boat that has not been given one. */
-  steps: Float32Array;
+  /** The biggest class it takes, by number: its size allows it and a berth of its can be reached. */
+  takes: number;
+  /** Steps to the nearest of its berths a class can lie at, for a boat that has not been given one. */
+  stepsOf: (cls: number) => Float32Array;
+  /** Where ships wait for a berth, the first nearest: a line up the way in. */
+  anchorage: { x: number; y: number }[];
 };
+
+/** A call completed: at which port and berth, by what size of ship. */
+export type Call = { port: number; berth: number; cls: number };
+
+/** The berths a class may be given at a port: the first of each run it would lie across. */
+export function berthsFor(p: Port, cls: number): number[] {
+  const span = classOf(cls).span;
+  const out: number[] = [];
+  for (let k = 0; k + span <= p.berths.length; k++) {
+    let ok = true;
+    for (let j = 0; j < span; j++) if (p.berths[k + j].reach <= cls) ok = false;
+    if (ok) out.push(k);
+  }
+  return out;
+}
 
 export type Traffic = {
   rivers: RiverMap | null;
@@ -86,11 +118,12 @@ export type Traffic = {
   /** Boats sent so far, to vary where along the inflow the next one comes in. */
   sent: number;
   /**
-   * Ports where a call was COMPLETED since the last look, by structure id —
-   * a boat that lay its full time alongside and cast off. What the port is
-   * paid for. @see world/boats/exports
+   * Calls COMPLETED since the last look — a ship that lay its full time
+   * alongside and cast off. What the port is paid for. @see world/boats/exports
    */
-  calls: number[];
+  calls: Call[];
+  /** Ports a ship gave up waiting for since the last look, by structure id. */
+  turned: number[];
   /**
    * How much quicker than usual the rivers run: calls take this many times
    * less long, and boats are sent this many times as often. One, but for a
@@ -100,7 +133,7 @@ export type Traffic = {
 };
 
 export const createTraffic = (): Traffic => ({
-  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [], rush: 1,
+  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [], turned: [], rush: 1,
 });
 
 /** Every seaport's berths, on the rivers as they stand. */
@@ -112,14 +145,32 @@ export function portsOf(g: Grid, r: RiverMap): Map<number, Port> {
     // Along its quay; one with no facing, built by hand in a test, along its best side.
     const spots = s.facing ? berthsAlong(r, s, s.facing, port.berths) : berthsBeside(r, s.x, s.y, s.w, s.h, port.berths);
     if (!spots.length) continue;
-    out.set(s.id, {
+    const memo = <K, V>(make: (k: K) => V) => { const m = new Map<K, V>(); return (k: K) => { let v = m.get(k); if (v === undefined) { v = make(k); m.set(k, v); } return v; }; };
+    const berths: Berth[] = spots.map((b) => {
+      // What can lie here: the classes whose channel reaches it, with room to turn.
+      let reach = 0;
+      for (let k = 0; k < SHIP_CLASSES.length; k++) {
+        if (r.reach[b.ty * r.w + b.tx] > k && basinAt(r, b.tx, b.ty, k) >= SHIP_CLASSES[k].basin) reach = k + 1; else break;
+      }
+      return { ...b, reach, stepsOf: memo((cls: number) => stepsFrom(r, [{ x: b.tx, y: b.ty }], cls)) };
+    });
+    const self: Port = {
       id: s.id,
       river: spots[0].river,
       // MARKET MAKER: a port in the AI's district turns ships round half as fast again. @see game/machine "market"
       dock: port.dockSeconds / (notable("market") && inAiDistrictNow(g, s.x, s.y) ? MARKET_TURNROUND : 1),
-      berths: spots.map((b) => ({ ...b, steps: stepsFrom(r, [{ x: b.tx, y: b.ty }]) })),
-      steps: stepsFrom(r, spots.map((b) => ({ x: b.tx, y: b.ty }))),
-    });
+      berths,
+      takes: 0,
+      stepsOf: memo((cls: number) => stepsFrom(r, berthsFor(self, cls).flatMap((k) => berths.slice(k, k + classOf(cls).span)).map((b) => ({ x: b.tx, y: b.ty })), cls)),
+      anchorage: [],
+    };
+    // THE BIGGEST IT TAKES: no bigger than its size, and a berth for it.
+    for (let k = 0; k < SHIP_CLASSES.length; k++) if (SHIP_CLASSES[k].tier <= port.berths && berthsFor(self, k).length) self.takes = k;
+    // WHERE SHIPS WAIT: back up the way in from the middle of the quay.
+    const mid = spots[(spots.length - 1) >> 1];
+    const way = channelTo(r, { x: mid.tx, y: mid.ty }).reverse();
+    self.anchorage = way.slice(ANCHOR_FROM, ANCHOR_FROM + ANCHORAGE);
+    out.set(s.id, self);
   }
   return out;
 }
@@ -136,6 +187,15 @@ function toward(r: RiverMap, steps: Float32Array, b: Boat, at: { x: number; y: n
   return d > 1e-6 ? { x: dx / d, y: dy / d } : null;
 }
 
+/** Where a ship lies at a berth: its middle, across the berths it spans, clear of the quay by its beam. */
+function lieAt(p: Port, k: number, cls: number): { x: number; y: number; lie: number } {
+  const c = classOf(cls), a = p.berths[k], z = p.berths[k + c.span - 1] ?? a;
+  // Toward the quay from the berth's tile, a unit vector.
+  const qx = a.x - a.tx, qy = a.y - a.ty, m = Math.hypot(qx, qy) || 1;
+  const off = Math.max(0, c.beam / 2 - 0.2);
+  return { x: (a.x + z.x) / 2 - (qx / m) * off, y: (a.y + z.y) / 2 - (qy / m) * off, lie: Math.atan2(qx / m, -qy / m) };
+}
+
 const nearestBerth = (p: Port, b: Boat) => {
   let best = p.berths[0], bestD = Infinity;
   for (const k of p.berths) {
@@ -144,6 +204,30 @@ const nearestBerth = (p: Port, b: Boat) => {
   }
   return best;
 };
+
+/** The river a point is on, or beside: a boat hard against a bank is still on its river. */
+function riverNear(r: RiverMap, x: number, y: number): number {
+  const tx = Math.round(x), ty = Math.round(y);
+  return riverAt(r, tx, ty) || riverAt(r, tx + 1, ty) || riverAt(r, tx - 1, ty) || riverAt(r, tx, ty + 1) || riverAt(r, tx, ty - 1);
+}
+
+/**
+ * For a boat pushed out of its channel — against a bank, or into the
+ * shallows — the way back into it: toward the nearest tile round it that has
+ * a way out. Without it such a boat has no downstream, and sits there.
+ */
+function backToChannel(r: RiverMap, b: Boat, cls: number): { x: number; y: number } | null {
+  const field = r.toExitOf[cls] ?? r.toExit;
+  const tx = Math.round(b.x), ty = Math.round(b.y);
+  let best: { x: number; y: number } | null = null, bestD = Infinity;
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const nx = tx + dx, ny = ty + dy;
+    if (nx < 0 || ny < 0 || nx >= r.w || ny >= r.h || !Number.isFinite(field[ny * r.w + nx])) continue;
+    const d = Math.hypot(nx - b.x, ny - b.y);
+    if (d < bestD) { best = { x: (nx - b.x) / (d || 1), y: (ny - b.y) / (d || 1) }; bestD = d; }
+  }
+  return best;
+}
 
 /**
  * The way a boat under way should go: to its berth, or to its port's nearest
@@ -154,10 +238,11 @@ export const trafficSteer = (t: Traffic): Steer | undefined => {
   if (!r) return undefined;
   return (b: Boat) => {
     const port = b.route?.length ? t.ports.get(b.route[0]) : undefined;
-    if (!port) return downstream(r, b.x, b.y);
+    const cls = b.cls ?? 0;
+    if (!port) return downstream(r, b.x, b.y, cls) ?? backToChannel(r, b, cls);
     const berth = b.berth !== undefined ? port.berths[b.berth] : undefined;
-    if (berth) return toward(r, berth.steps, b, berth);
-    return toward(r, port.steps, b, nearestBerth(port, b));
+    if (berth) return toward(r, berth.stepsOf(cls), b, lieAt(port, b.berth!, cls));
+    return toward(r, port.stepsOf(cls), b, nearestBerth(port, b));
   };
 };
 
@@ -167,6 +252,8 @@ function castOff(t: Traffic, b: Boat): void {
   b.moor = null;
   b.dockLeft = 0;
   b.berth = undefined;
+  b.lie = undefined;
+  b.waited = 0;
   if (port !== undefined) t.queues.set(port, (t.queues.get(port) ?? []).filter((id) => id !== b.id));
 }
 
@@ -185,34 +272,52 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
     const port = t.ports.get(b.route[0]);
     // A port that has gone, or lost its river, is not called at.
     if (!port || (b.berth !== undefined && !port.berths[b.berth])) { castOff(t, b); continue; }
+    const cls = b.cls ?? 0;
     if ((b.dockLeft ?? 0) > 0) {
       b.dockLeft! -= dt;
-      if (b.dockLeft! <= 0) { t.calls.push(port.id); castOff(t, b); }
+      if (b.dockLeft! <= 0) { t.calls.push({ port: port.id, berth: b.berth ?? 0, cls }); castOff(t, b); }
       continue;
     }
     if (b.berth === undefined) {
       const near = nearestBerth(port, b);
-      if (Math.hypot(near.x - b.x, near.y - b.y) >= WAIT_AT) { b.moor = null; continue; }
-      // NEAR IT: in the queue, and a berth when one is free and it is next.
       const q = t.queues.get(port.id) ?? [];
+      // Not near it yet, and not already waiting off it at anchor.
+      if (!q.includes(b.id) && Math.hypot(near.x - b.x, near.y - b.y) >= WAIT_AT * Math.max(1, classOf(cls).length)) { b.moor = null; continue; }
+      // NEAR IT: in the queue, and a berth when one is free and it is next.
       if (!q.includes(b.id)) q.push(b.id);
       t.queues.set(port.id, q);
-      const held = new Set(
-        f.boats.filter((o) => o.route?.[0] === port.id && o.berth !== undefined).map((o) => o.berth!),
-      );
-      const next = q.find((id) => live.get(id)?.berth === undefined);
-      const free = port.berths.map((_, k) => k).filter((k) => !held.has(k));
-      if (next !== b.id || !free.length) { b.moor ??= { x: b.x, y: b.y }; continue; }
+      const held = new Set<number>();
+      for (const o of f.boats) {
+        if (o.route?.[0] !== port.id || o.berth === undefined) continue;
+        for (let j = 0; j < classOf(o.cls).span; j++) held.add(o.berth + j);
+      }
+      // IN THE ORDER THEY CAME: a ship waiting for two berths side by side is
+      // not passed by every boat behind it, or it would never get them.
+      const waiting = q.filter((id) => live.get(id)?.berth === undefined);
+      const next = waiting[0];
+      const free = berthsFor(port, cls).filter((k) => {
+        for (let j = 0; j < classOf(cls).span; j++) if (held.has(k + j)) return false;
+        return true;
+      });
+      if (next !== b.id || !free.length) {
+        // AT ANCHOR, in the line, and not for ever. @see PATIENCE
+        b.waited = (b.waited ?? 0) + dt;
+        if (b.waited > PATIENCE) { t.turned.push(port.id); castOff(t, b); continue; }
+        b.moor = port.anchorage[waiting.indexOf(b.id)] ?? b.moor ?? { x: b.x, y: b.y };
+        continue;
+      }
       free.sort((m, n) =>
         Math.hypot(port.berths[m].x - b.x, port.berths[m].y - b.y)
         - Math.hypot(port.berths[n].x - b.x, port.berths[n].y - b.y));
       b.berth = free[0];
       b.moor = null;
     }
-    const berth = port.berths[b.berth];
-    if (Math.hypot(berth.x - b.x, berth.y - b.y) < TIE_UP_AT) {
-      b.moor = { x: berth.x, y: berth.y };
-      b.dockLeft = port.dock / t.rush;
+    const at = lieAt(port, b.berth, cls);
+    if (Math.hypot(at.x - b.x, at.y - b.y) < TIE_UP_AT * Math.max(1, classOf(cls).length)) {
+      b.moor = { x: at.x, y: at.y };
+      // Along the quay, whichever way round is nearer how it came.
+      b.lie = Math.cos(at.lie - b.heading) >= 0 ? at.lie : at.lie + Math.PI;
+      b.dockLeft = (port.dock * classOf(cls).dock) / t.rush;
     }
   }
 }
@@ -221,10 +326,10 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
  * The port on a river a new boat would be turned round soonest at: the boats
  * already bound for each, plus this one, a berth's worth at a time.
  */
-function pickPort(t: Traffic, f: Fleet, river: number): Port | null {
+function pickPort(t: Traffic, f: Fleet, river: number, cls = 0): Port | null {
   let best: Port | null = null, bestWait = Infinity;
   for (const p of t.ports.values()) {
-    if (p.river !== river) continue;
+    if (p.river !== river || p.takes < cls) continue;
     const bound = f.boats.filter((b) => b.route?.[0] === p.id).length;
     const wait = Math.ceil((bound + 1) / p.berths.length) * p.dock;
     if (wait < bestWait) { best = p; bestWait = wait; }
@@ -261,8 +366,15 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     const left = (t.untilSpawn.get(river) ?? FIRST_SPAWN) - dt;
     t.untilSpawn.set(river, left);
     if (left > 0) continue;
-    t.untilSpawn.set(river, Math.min(SPAWN_SLOWEST, Math.max(SPAWN_FASTEST, 1 / cap.perSecond)) / t.rush);
-    const under = f.boats.filter((b) => b.motor > 0 && riverAt(r, Math.round(b.x), Math.round(b.y)) === river);
+    // By the berth-time of what is sent: a ship takes six boats' worth. @see MIX
+    let most = 0;
+    for (const p of t.ports.values()) if (p.river === river) most = Math.max(most, p.takes);
+    let each = 0;
+    for (const k of MIX) { const c = classOf(Math.min(most, k)); each += (c.dock * c.span) / MIX.length; }
+    // And a fifth slower again: getting alongside and away takes berth-time too.
+    each *= most ? 1.2 : 1;
+    t.untilSpawn.set(river, Math.min(SPAWN_SLOWEST, Math.max(SPAWN_FASTEST, each / cap.perSecond)) / t.rush);
+    const under = f.boats.filter((b) => b.motor > 0 && riverNear(r, b.x, b.y) === river);
     if (under.length >= MAX_BASE + MAX_PER_BERTH * cap.berths) continue;
     const sources = r.sources.filter((s) => s.river === river);
     if (!sources.length) continue;
@@ -278,16 +390,20 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
       y: at.y + (at.y === 0 ? SPAWN_IN : at.y === g.h - 1 ? -SPAWN_IN : 0),
     };
     if (f.boats.some((b) => Math.hypot(b.x - s.x, b.y - s.y) < SPAWN_CLEAR)) continue;
-    const port = pickPort(t, f, river);
-    const boat = addBoat(f, c, s.x, s.y);
+    // WHAT COMES: boats, and as the river's ports can take them, coasters
+    // and ships among them — as big as there is a port and a channel for.
+    let cls = Math.min(most, MIX[t.sent % MIX.length]);
+    while (cls > 0 && r.reach[at.y * r.w + at.x] <= cls) cls--;
+    const port = pickPort(t, f, river, cls);
+    const boat = addBoat(f, c, s.x, s.y, cls) ?? (cls ? addBoat(f, c, s.x, s.y) : null);
     if (!boat) continue;
     t.sent++;
     boat.motor = RIVER_MOTOR;
-    boat.route = port ? [port.id] : [];
+    boat.route = port && port.takes >= (boat.cls ?? 0) ? [port.id] : [];
     // Every other one bound for a Market Maker's port its own freighter.
     const ps = port ? g.structures.get(port.id) : undefined;
     if (ps && notable("market") && inAiDistrictNow(g, ps.x, ps.y)) boat.ai = t.sent % 2 === 0;
-    const way = downstream(r, s.x, s.y);
+    const way = downstream(r, s.x, s.y, boat.cls ?? 0);
     if (way) boat.heading = Math.atan2(way.y, way.x);
   }
 }

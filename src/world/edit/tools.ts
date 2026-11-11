@@ -32,6 +32,7 @@ export type ToolId =
   | "boat"
   | "placeStructure"
   | "demolish"
+  | "dredge"
   | "inspect";
 
 /** Tools that write the `height` layer rather than a material. */
@@ -246,6 +247,7 @@ export function strokeLabel(s: Stroke, n: number): string {
     s.tool === "sink" ? "sink" :
     s.tool === "pipe" ? "pipe" :
     s.tool === "sewer" ? "sewer" :
+    s.tool === "dredge" ? "dredge" :
     isHeightTool(s.tool) ? s.tool :
     "paint";
   const shape = s.brush === "point" ? "" : ` ${s.brush}`;

@@ -37,7 +37,7 @@ import { create } from "zustand";
 
 import { waterMetaSaw } from "../world/debug/water-meta";
 import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
-import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_FIT, createGrid, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_FIT, createGrid, edited, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { LEVEE, structureDef } from "../world/structures/def";
@@ -76,7 +76,8 @@ import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
 import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
-import { boreCost, buildCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
+import { boreCost, buildCost, dredgeCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
+import { dredgeCells } from "../world/boats/quay";
 import { planNode } from "../world/sewers/lay";
 import { sewersUnderground } from "../world/sewers/convert";
 import { lateralStrokePlan, sewerStrokePlan } from "../world/sewers/tool";
@@ -1167,6 +1168,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (!s0) return;
     // What a road stroke cost, for taking it back. @see undoLastBuild
     let roadPaid = 0;
+    let dredged: { x: number; y: number }[] = [];
     let pumpAfter: WorldState["pumpOffer"] = null;
     // DEMOLISH ON A PIPE OR A ROAD lifts it. @see demolishLifts
     const lifts = s0.tool === "demolish" && st.playing ? demolishLifts(st.grid, s0.anchor) : null;
@@ -1369,6 +1371,19 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
           b.set("fluid", c.x, c.y, st.fluidMaterial);
         }
       }
+    } else if (s0.tool === "dredge") {
+      // THE RIVER BED, a half step down along the drag — paid a tile, the
+      // whole stroke or none of it. The water does the rest. @see dredgeCells
+      dredged = dredgeCells(st.grid, cells);
+      if (!dredged.length) { set({ stroke: null, ...(st.playing ? { notice: { text: "Dredge a river bed", at: Date.now() } } : {}) }); return; }
+      if (st.playing) {
+        const price = dredgeCost(dredged.length);
+        if (!spendForBuild(price)) {
+          set({ stroke: null, notice: { text: `Not enough money to dredge ${dredged.length} tiles: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
+          return;
+        }
+      }
+      for (const c of dredged) b.set("height", c.x, c.y, st.grid.height[idx(st.grid, c.x, c.y)] - 1);
     } else if (isRoadTool(s0.tool)) {
       const value = s0.tool === "eraseRoad" ? VOID_MATERIAL : PAVED_MATERIAL;
       // ROAD COSTS MONEY in the game, a tile at a time — new tiles only, and
@@ -1440,6 +1455,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (!cmd) { set({ stroke: null }); return; }   // no-op click adds no history
     if (pumpAfter) set({ pumpOffer: pumpAfter });
     const touched = commit(st.grid, history, cmd);
+    // DREDGED: the standing water is that much deeper over the bed. @see steadyRivers
+    for (const c of dredged) st.grid.pool[idx(st.grid, c.x, c.y)]++;
+    if (dredged.length) edited(st.grid);
     if (roadPaid > 0) recordBuild(cmd, roadPaid);
     // The columns stand on the terrain, so the terrain moving moves them. Done
     // after the commit, on the grid the command actually produced.

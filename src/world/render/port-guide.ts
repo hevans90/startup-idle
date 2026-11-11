@@ -16,7 +16,9 @@ import { riverAt } from "../boats/river";
 import { cellDiamond } from "./overlays";
 import { cellToWorld } from "../iso";
 
-const BANK = 0x5fe3ff;
+/** A bank's light, by the biggest ship that can come alongside: boat, coaster, ship. */
+const BANK = [0x5fe3ff, 0x7cfc9a, 0xffd166];
+const GROUNDS = 0xff6b6b;
 const BERTH = 0x8fd0ff;
 const CHANNEL = 0x7cfc9a;
 const GATE = 0x7cfc9a;
@@ -24,9 +26,9 @@ const NO_GATE = 0xffc857;
 
 export type PortGuide = {
   /** Light these bank tiles; none clears them. */
-  banks: (g: Grid, cells: readonly number[], scale: number) => void;
-  /** Show what a port standing here would be; null clears it. */
-  ghost: (g: Grid, port: { at: Rect; facing: Facing } | null, scale: number) => void;
+  banks: (g: Grid, cells: readonly { i: number; cls: number }[], scale: number) => void;
+  /** Show what a port standing here would be, for ships up to class `top`; null clears it. */
+  ghost: (g: Grid, port: { at: Rect; facing: Facing; top: number } | null, scale: number) => void;
   destroy: () => void;
 };
 
@@ -41,17 +43,17 @@ export function createPortGuide(overlay: Container): PortGuide {
   let banksKey = "", ghostKey = "";
   return {
     banks(g, cells, scale) {
-      const key = `${g.rev}|${scale}|${cells.length}|${cells[0] ?? -1}|${cells[cells.length - 1] ?? -1}`;
+      const key = `${g.rev}|${scale}|${cells.length}|${cells[0]?.i ?? -1}|${cells[cells.length - 1]?.i ?? -1}|${cells.reduce((n, c) => n + c.cls, 0)}`;
       if (key === banksKey) return;
       banksKey = key;
       banks.clear();
-      for (const i of cells) {
+      for (const { i, cls } of cells) {
         banks.poly(cellDiamond(i % g.w, (i / g.w) | 0, g.height[i], scale));
-        banks.fill({ color: BANK, alpha: 0.42 });
+        banks.fill({ color: BANK[cls] ?? BANK[0], alpha: 0.42 });
       }
     },
     ghost(g, port, scale) {
-      const key = port ? `${g.rev}|${scale}|${port.at.x},${port.at.y},${port.at.w},${port.at.h},${port.facing}` : "";
+      const key = port ? `${g.rev}|${scale}|${port.at.x},${port.at.y},${port.at.w},${port.at.h},${port.facing},${port.top}` : "";
       if (key === ghostKey) return;
       ghostKey = key;
       ghost.clear();
@@ -61,11 +63,14 @@ export function createPortGuide(overlay: Container): PortGuide {
       // THE WAY IN, to the middle of the quay, under the berths.
       const mid = quay[(quay.length - 1) >> 1];
       const way = channelTo(rivers, { x: mid.wx, y: mid.wy });
-      way.forEach((c, k) => {
-        const { wx, wy } = cellToWorld(c.x, c.y, surface(g, c.x, c.y), scale);
-        if (k) ghost.lineTo(wx, wy); else ghost.moveTo(wx, wy);
-      });
-      if (way.length > 1) ghost.stroke({ color: CHANNEL, width: 2, alpha: 0.7 });
+      // Green where the biggest ship the port takes floats, red where it grounds.
+      for (let k = 1; k < way.length; k++) {
+        const a = way[k - 1], c = way[k];
+        const p = cellToWorld(a.x, a.y, surface(g, a.x, a.y), scale), q = cellToWorld(c.x, c.y, surface(g, c.x, c.y), scale);
+        const floats = rivers.reach[c.y * g.w + c.x] > port.top && rivers.reach[a.y * g.w + a.x] > port.top;
+        ghost.moveTo(p.wx, p.wy).lineTo(q.wx, q.wy);
+        ghost.stroke({ color: floats ? CHANNEL : GROUNDS, width: 2, alpha: 0.75 });
+      }
       // THE BERTHS: the water a boat lies on, one a tile of quay.
       for (const q of quay) {
         if (!riverAt(rivers, q.wx, q.wy)) continue;

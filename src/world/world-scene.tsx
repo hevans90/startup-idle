@@ -83,7 +83,8 @@ import type { RenderCtx } from "./structures/render";
 import { AI_BUILDINGS, structureDef } from "./structures/def";
 import { planUpgrade, quayBanks, strokeFootprint as structureFootprint, validatePlacement } from "./structures/place";
 import { createPortGuide, type PortGuide } from "./render/port-guide";
-import type { Facing, Rect as PortRect } from "./boats/quay";
+import { dredgeCells, type Facing, type Rect as PortRect } from "./boats/quay";
+import { SHIP_CLASSES } from "./boats/classes";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
 import { setCollapsed } from "./structures/tiles-renderer";
@@ -2609,10 +2610,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const under = s0.tool === "placeStructure" ? structureAt(grid, s0.head.x, s0.head.y) : -1;
       const plan = under >= 0 ? planUpgrade(grid, under, rules) : null;
       // What a seaport standing here would be, for its berths, gate and way in. @see createPortGuide
-      let port: { at: PortRect; facing: Facing } | null = null;
+      let port: { at: PortRect; facing: Facing; top: number } | null = null;
+      /** The biggest ship a port of this size takes, by number. */
+      const topOf = (berths = 1) => SHIP_CLASSES.reduce((n, c, k) => (c.tier <= berths ? k : n), 0);
       if (plan) {
         const { w, h } = plan.at;
-        if (plan.facing) port = { at: plan.at, facing: plan.facing };
+        if (plan.facing) port = { at: plan.at, facing: plan.facing, top: topOf(plan.to.port?.berths) };
         cells = footprintCells(plan.x, plan.y, w, h);
         valid = (_g, x, y) => plan.cells[(y - plan.y) * w + (x - plan.x)] ?? { ok: false };
       } else if (s0.tool === "placeStructure" && lotLine(useWorldStore.getState(), s0)) {
@@ -2630,10 +2633,16 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const at = check.at;
           cells = footprintCells(at.x, at.y, at.w, at.h);
           valid = (_g, x, y) => check.cells[(y - at.y) * at.w + (x - at.x)] ?? { ok: false };
-          if (check.facing) port = { at, facing: check.facing };
+          if (check.facing) port = { at, facing: check.facing, top: topOf(def.port?.berths) };
         }
       }
       portGuideRef.current?.ghost(grid, port, scale);
+
+      // DREDGING: the tiles of river bed the drag would take down. @see dredgeCells
+      if (s0.tool === "dredge") {
+        const can = new Set(dredgeCells(grid, cells).map((c) => `${c.x},${c.y}`));
+        valid = (_g, x, y) => ({ ok: can.has(`${x},${y}`) });
+      }
 
       // THE HOLOGRAM of what the click puts down: the building itself, red where it cannot go. @see createHolograms
       const holos: HoloSpec[] = [];
@@ -3085,9 +3094,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // company's money; in the editor, shown and never paid. @see portCallFee
       if (traffic.calls.length) {
         const st = useWorldStore.getState(), now = performance.now();
-        for (const id of traffic.calls.splice(0)) {
+        for (const call of traffic.calls.splice(0)) {
+          const id = call.port;
           const s = st.grid.structures.get(id);
-          let fee = s ? portCallFee(s.def) : null;
+          // By the size of ship that called. @see SHIP_CLASSES
+          let fee = s ? portCallFee(s.def, undefined, call.cls) : null;
           // A PORT UNDER WATER takes no trade. @see portShut
           if (fee === null || portShut(id)) continue;
           // REGULAR ROUTES, won by serving convoys, add to every call. @see ROUTE_BONUS

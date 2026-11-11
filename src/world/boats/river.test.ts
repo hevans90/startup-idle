@@ -200,7 +200,7 @@ describe("river traffic", () => {
       stepTraffic(t, f, g, c, 1 / 30);
       stepFleet(f, c, 1 / 30, trafficSteer(t));
       if (t.calls.length && firstAt < 0) firstAt = k / 30;
-      calls = calls.concat(t.calls.splice(0));
+      calls = calls.concat(t.calls.splice(0).map((c) => c.port));
     }
     expect(calls.length).toBeGreaterThan(0);
     expect(calls.every((id) => id === portId)).toBe(true);

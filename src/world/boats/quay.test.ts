@@ -81,7 +81,7 @@ describe("placing a seaport", () => {
 
   test("the banks it could go on are both sides of the river, and nowhere inland", () => {
     const g = alongY();
-    const lit = new Set(quayBanks(g, T2));
+    const lit = new Set(quayBanks(g, T2).map((b) => b.i));
     expect(lit.has(idx(g, 5, 10))).toBe(true);
     expect(lit.has(idx(g, 10, 10))).toBe(true);
     expect([...lit].every((i) => i % g.w === 5 || i % g.w === 10)).toBe(true);

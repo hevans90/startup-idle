@@ -30,6 +30,7 @@
  */
 import { wantDepth, type ColumnField } from "../../fluid/columns";
 import { COLUMNS_PER_TILE } from "../water/field";
+import { classOf } from "./classes";
 
 export type Boat = {
   id: number;
@@ -64,6 +65,12 @@ export type Boat = {
   dockLeft?: number;
   /** Which of that port's berths it has been given, once it has one. */
   berth?: number;
+  /** Which size of ship it is; a boat when absent. @see SHIP_CLASSES */
+  cls?: number;
+  /** The way it lies while tied up, radians: along its quay. */
+  lie?: number;
+  /** Seconds it has waited off its port for a berth. @see traffic */
+  waited?: number;
   /** One of the Machine's freighters: violet, crewless, a light at the bow. @see Market Maker */
   ai?: boolean;
 };
@@ -131,23 +138,23 @@ export function sampleWater(c: ColumnField, x: number, y: number): Sample {
 }
 
 /** Whether a boat could float with its middle here. */
-const floats = (c: ColumnField, x: number, y: number) => {
+const floats = (c: ColumnField, x: number, y: number, draft = DRAFT) => {
   if (x < -0.5 || y < -0.5 || x > c.nx / COLUMNS_PER_TILE - 0.5 || y > c.ny / COLUMNS_PER_TILE - 0.5) {
     return false;
   }
-  return sampleWater(c, x, y).depth > DRAFT;
+  return sampleWater(c, x, y).depth > draft;
 };
 
 /** Put a boat on the water at tile (x, y), if there is water enough there. */
-export function addBoat(f: Fleet, c: ColumnField, x: number, y: number): Boat | null {
-  if (!floats(c, x, y)) return null;
+export function addBoat(f: Fleet, c: ColumnField, x: number, y: number, cls = 0): Boat | null {
+  if (!floats(c, x, y, classOf(cls).draft)) return null;
   const s = sampleWater(c, x, y);
   const boat: Boat = {
     id: f.next++, x, y, vx: 0, vy: 0,
     // Facing down the screen and to the right, the way the art faces.
     heading: Math.PI / 4,
     z: s.surface, vz: 0, pitch: 0, roll: 0, afloat: true,
-    phase: (f.next * 2.399) % (Math.PI * 2), motor: 0,
+    phase: (f.next * 2.399) % (Math.PI * 2), motor: 0, ...(cls ? { cls } : {}),
   };
   f.boats.push(boat);
   return boat;
@@ -200,7 +207,7 @@ export function stepFleet(f: Fleet, c: ColumnField, dt: number, steer?: Steer): 
   const e = 1 / COLUMNS_PER_TILE;
   for (const b of f.boats) {
     const s = sampleWater(c, b.x, b.y);
-    b.afloat = s.depth > DRAFT;
+    b.afloat = s.depth > classOf(b.cls).draft;
     const sx = (sampleWater(c, b.x + e, b.y).surface - sampleWater(c, b.x - e, b.y).surface) / (2 * e);
     const sy = (sampleWater(c, b.x, b.y + e).surface - sampleWater(c, b.x, b.y - e).surface) / (2 * e);
 
@@ -245,8 +252,10 @@ export function stepFleet(f: Fleet, c: ColumnField, dt: number, steer?: Steer): 
       const a = f.boats[i], o = f.boats[j];
       const dx = o.x - a.x, dy = o.y - a.y;
       const d = Math.hypot(dx, dy);
-      if (d >= KEEP_APART || d < 1e-6) continue;
-      const push = (KEEP_APART - d) * 2;
+      // By their lengths: a ship keeps more water round it than a boat.
+      const apart = KEEP_APART * (classOf(a.cls).length + classOf(o.cls).length) / (2 * BOAT_LENGTH);
+      if (d >= apart || d < 1e-6) continue;
+      const push = (apart - d) * 2;
       const ux = dx / d, uy = dy / d;
       a.vx -= ux * push; a.vy -= uy * push;
       o.vx += ux * push; o.vy += uy * push;
@@ -256,10 +265,18 @@ export function stepFleet(f: Fleet, c: ColumnField, dt: number, steer?: Steer): 
   for (const b of f.boats) {
     // MOVE, an axis at a time, and not into water too shallow to float in:
     // a boat drifting onto a shore slides along it rather than stopping dead.
+    const draft = classOf(b.cls).draft;
     const nx = b.x + b.vx * h;
-    if (floats(c, nx, b.y)) b.x = nx; else b.vx = 0;
+    if (floats(c, nx, b.y, draft)) b.x = nx; else b.vx = 0;
     const ny = b.y + b.vy * h;
-    if (floats(c, b.x, ny)) b.y = ny; else b.vy = 0;
+    if (floats(c, b.x, ny, draft)) b.y = ny; else b.vy = 0;
+
+    // TIED UP ALONGSIDE, it is hauled round to lie along its quay.
+    if (b.moor && b.lie !== undefined) {
+      const d = Math.atan2(Math.sin(b.lie - b.heading), Math.cos(b.lie - b.heading));
+      b.heading += Math.sign(d) * Math.min(Math.abs(d), TURN * 0.6 * h);
+      continue;
+    }
 
     // TURN to face the drift, at a boat's pace and not at once.
     const speed = Math.hypot(b.vx, b.vy);
@@ -277,10 +294,10 @@ export function stepFleet(f: Fleet, c: ColumnField, dt: number, steer?: Steer): 
  * high it rides and how it is tilted are the water's to say, and they come
  * back from it within a frame or two of loading. @see serializeWorld
  */
-export type SavedBoat = { x: number; y: number; heading: number; motor?: number };
+export type SavedBoat = { x: number; y: number; heading: number; motor?: number; cls?: number };
 
 export const saveFleet = (f: Fleet): SavedBoat[] =>
-  f.boats.map((b) => ({ x: b.x, y: b.y, heading: b.heading, ...(b.motor ? { motor: b.motor } : {}) }));
+  f.boats.map((b) => ({ x: b.x, y: b.y, heading: b.heading, ...(b.motor ? { motor: b.motor } : {}), ...(b.cls ? { cls: b.cls } : {}) }));
 
 /**
  * Put saved boats back on a fresh field's water.
@@ -295,8 +312,9 @@ export function restoreFleet(f: Fleet, c: ColumnField, saved: readonly SavedBoat
     const w = sampleWater(c, s.x, s.y);
     f.boats.push({
       id: f.next++, x: s.x, y: s.y, vx: 0, vy: 0, heading: s.heading,
-      z: w.surface, vz: 0, pitch: 0, roll: 0, afloat: w.depth > DRAFT,
+      z: w.surface, vz: 0, pitch: 0, roll: 0, afloat: w.depth > classOf(s.cls).draft,
       phase: (f.next * 2.399) % (Math.PI * 2), motor: s.motor ?? 0,
+      ...(s.cls === 1 || s.cls === 2 ? { cls: s.cls } : {}),
     });
   }
 }

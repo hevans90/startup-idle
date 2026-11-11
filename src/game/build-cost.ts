@@ -9,6 +9,7 @@
  * in them cost to hire; it grows from there, by the needs met near it.
  * @see world/agents/services
  */
+import { classOf } from "../world/boats/classes";
 import Decimal from "break_infinity.js";
 
 import { hasLots, housedBy } from "./housing";
@@ -172,12 +173,13 @@ const callsAMinute = (p: { berths: number; dockSeconds: number }) => (p.berths *
  *
  * Null for anything that is not a port.
  */
-export function portCallFee(defId: string, income = safeIncome()): number | null {
+export function portCallFee(defId: string, income = safeIncome(), cls = 0): number | null {
   const port = structureDef(defId)?.port;
   if (!port) return null;
   const tier = Math.min(3, Math.max(1, port.berths));
   const live = Number.isFinite(income) && income > 0 ? income * CALL_SECONDS[tier] : 0;
-  return Math.max(CALL_FLOOR[tier], live);
+  // A BIGGER SHIP pays for the berth-time it takes, and a little over. @see SHIP_CLASSES
+  return Math.max(CALL_FLOOR[tier], live) * classOf(cls).pay;
 }
 const CALL_SECONDS: Record<number, number> = { 1: 0.5, 2: 0.75, 3: 1 };
 const CALL_FLOOR: Record<number, number> = { 1: 4, 2: 8, 3: 16 };
@@ -198,6 +200,17 @@ export function roadCost(tiles: number): Decimal {
   return new Decimal(Math.round(each * tiles));
 }
 const ROAD_FLOOR = 2;
+
+/**
+ * WHAT DREDGING COSTS: a tile of river bed taken down a half step. Dearer
+ * than road — it is the way to bring bigger ships to a port. @see dredgeCells
+ */
+export function dredgeCost(tiles: number): Decimal {
+  const each = Math.max(DREDGE_FLOOR, safeIncome() * DREDGE_INCOME_SECONDS);
+  return new Decimal(Math.round(each * tiles));
+}
+const DREDGE_FLOOR = 12;
+const DREDGE_INCOME_SECONDS = 1.5;
 const ROAD_INCOME_SECONDS = 0.25;
 
 /** WHAT PIPE COSTS: as road, a tile at a time, at twice the price — it is dug in. @see the Pipe tool */
