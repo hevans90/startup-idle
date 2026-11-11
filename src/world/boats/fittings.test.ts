@@ -12,7 +12,7 @@ import { mapRiver, poolDepthOf } from "./river";
 import {
   MATERIALS_OFF, TRADE_A_CALL, TRADE_LASTS, creditTrade, ferrySpeed, hardwareMult, materialsMult, resetTrade, stepTrade, tradeLevel, yachtValuation,
 } from "./trade";
-import { berthsFor, createTraffic, fitsFor, portsOf, stepTraffic, trafficSteer, type Call } from "./traffic";
+import { berthsFor, cargoAt, createTraffic, fitsFor, liftAt, portsOf, stepTraffic, trafficSteer, type Call } from "./traffic";
 
 function river(depth: number, w = 40): Grid {
   const g = createGrid(w, 18, 1);
@@ -87,6 +87,35 @@ describe("a berth's fitting", () => {
     const q = portsOf(shallow, mapRiver(shallow, poolDepthOf(shallow))).get(b.id)!;
     expect(q.accepts).toEqual([false, false, false]);
     expect(calls(shallow, 60)).toEqual([]);
+  });
+});
+
+describe("a ship's cargo, worked by the cranes", () => {
+  test("a crane berth empties her a third a lift, as each lift picks it up", () => {
+    expect(cargoAt("crane", 0)).toBe(1);
+    expect(cargoAt("crane", 0.04)).toBe(1);
+    expect(cargoAt("crane", 0.1)).toBeCloseTo(2 / 3, 6);
+    expect(cargoAt("crane", 0.5)).toBeCloseTo(1 / 3, 6);
+    expect(cargoAt("crane", 0.9)).toBe(0);
+    expect(cargoAt("crane", 1)).toBe(0);
+    expect(liftAt("crane", 0.5)).toMatchObject({ n: 1, loading: false });
+  });
+
+  test("a trading quay and a gantry take most off and put it back, so she sails full", () => {
+    for (const fit of ["trade", "gantry"]) {
+      expect(cargoAt(fit, 0)).toBe(1);
+      expect(cargoAt(fit, 0.45)).toBeCloseTo(1 / 3, 6);
+      expect(liftAt(fit, 0.45).loading).toBe(false);
+      expect(liftAt(fit, 0.55).loading).toBe(true);
+      // Back aboard as each lift sets it down.
+      expect(cargoAt(fit, 0.55)).toBeCloseTo(1 / 3, 6);
+      expect(cargoAt(fit, 0.72)).toBeCloseTo(2 / 3, 6);
+      expect(cargoAt(fit, 1)).toBe(1);
+    }
+  });
+
+  test("a ferry and a yacht have none to work", () => {
+    expect([cargoAt("ferry", 0.5), cargoAt("pontoon", 0.5)]).toEqual([1, 1]);
   });
 });
 

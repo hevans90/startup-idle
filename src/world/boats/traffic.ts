@@ -91,26 +91,40 @@ export type Port = {
   anchorage: { x: number; y: number }[];
 };
 
-/** How far through a call the unloading is done, for a ship that then loads again. */
-const UNLOADED = 0.5;
-/** What is left aboard a ship that is to load again, at its emptiest. */
-const KEPT = 1 / 3;
+/** Lifts a crane makes to empty a ship; and, for one that loads again, to part-empty it and to fill it. */
+const LIFTS = 3;
+const SWAP = 2;
+/** How far through a lift the cargo leaves where it was picked up, and reaches where it is set down. @see seaport-renderer */
+export const PICKED = 0.15;
+export const SET_DOWN = 0.7;
+
+/**
+ * THE LIFT a ship's crane is on, `at` of the way through its call: which one,
+ * how far through it, and whether it is loading. At a cargo crane or a
+ * hardware berth three lifts empty the ship; at a trading quay or a gantry
+ * two take most off and two put as much back, so it sails as full as it came.
+ * A ferry and a yacht have no cargo to work.
+ */
+export function liftAt(fit: string, at: number): { n: number; phase: number; loading: boolean } {
+  const lifts = fit === "crane" || fit === "hardware" ? LIFTS : SWAP * 2;
+  const q = Math.min(lifts - 1e-6, Math.max(0, at) * lifts);
+  const n = Math.floor(q);
+  return { n, phase: q - n, loading: lifts !== LIFTS && n >= SWAP };
+}
 
 /**
  * How much cargo is aboard a ship `at` of the way through its call, nought
- * to one. At a cargo crane or a hardware berth it is all landed; at a
- * trading quay or a gantry most comes off, and as much goes back on, so it
- * sails as full as it came. A ferry and a yacht carry none to work.
+ * to one, in thirds: a third goes as each lift picks it up, and comes as each
+ * sets it down — so the ship is seen to empty and fill as the crane works.
  */
 export function cargoAt(fit: string, at: number): number {
-  const p = Math.min(1, Math.max(0, at));
-  if (fit === "crane" || fit === "hardware") return 1 - p;
   if (fit === "ferry" || fit === "pontoon") return 1;
-  return p < UNLOADED ? 1 - (1 - KEPT) * (p / UNLOADED) : KEPT + (1 - KEPT) * ((p - UNLOADED) / (1 - UNLOADED));
+  const { n, phase, loading } = liftAt(fit, at);
+  if (at >= 1) return fit === "crane" || fit === "hardware" ? 0 : 1;
+  const off = loading ? SWAP : n + (phase >= PICKED ? 1 : 0);
+  const on = loading ? n - SWAP + (phase >= SET_DOWN ? 1 : 0) : 0;
+  return (LIFTS - off + on) / LIFTS;
 }
-
-/** Whether a ship that far through its call is being loaded, not unloaded. */
-export const loadingAt = (fit: string, at: number) => fit !== "crane" && fit !== "hardware" && at >= UNLOADED;
 
 /** A call completed: at which port and berth, by what size of ship, come for what fitting. */
 export type Call = { port: number; berth: number; cls: number; fit: string };
@@ -215,7 +229,8 @@ export function portsOf(g: Grid, r: RiverMap): Map<number, Port> {
     // WHERE SHIPS WAIT: back up the way in from the middle of the quay.
     const mid = spots[(spots.length - 1) >> 1];
     const way = channelTo(r, { x: mid.tx, y: mid.ty }).reverse();
-    self.anchorage = way.slice(ANCHOR_FROM, ANCHOR_FROM + ANCHORAGE);
+    // Two tiles apart: a ship at anchor is longer than a tile.
+    self.anchorage = way.slice(ANCHOR_FROM).filter((_, k) => k % 2 === 0).slice(0, ANCHORAGE);
     out.set(s.id, self);
   }
   return out;
@@ -332,7 +347,8 @@ function stepCalls(t: Traffic, f: Fleet, dt: number): void {
         const at = 1 - b.dockLeft! / b.dockFor, fit = b.fit ?? "trade";
         const was = b.load ?? 1;
         b.load = cargoAt(fit, at);
-        if (lands(fit) && b.load < was) landCargo(t.yards, port.id, (was - b.load) * classOf(cls).dock * classOf(cls).span / (1 - cargoAt(fit, UNLOADED)), port.berths.length);
+        // A third of its cargo a lift; the call's whole weight over the lifts that land.
+        if (lands(fit) && b.load < was) landCargo(t.yards, port.id, (classOf(cls).dock * classOf(cls).span) / (fit === "gantry" ? SWAP : LIFTS), port.berths.length);
       }
       continue;
     }
@@ -480,8 +496,8 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
   }
 }
 
-/** A ship being worked at a berth: where it lies, how big it is, how far through its call, and whether it is loading. */
-export type Worked = { x: number; y: number; z: number; cls: number; at: number; loading: boolean; cargo: boolean };
+/** A ship being worked at a berth: where it lies and heads, how big it is, the lift its crane is on, and whether it has cargo to work. */
+export type Worked = { x: number; y: number; z: number; heading: number; cls: number; lift: number; phase: number; loading: boolean; cargo: boolean };
 
 /**
  * How each berth of a port stands, in order along its quay: WORKING with a
@@ -496,7 +512,8 @@ export function portWork(t: Traffic, f: Fleet, port: number, berths: number, fit
   for (const b of f.boats) {
     if (b.route?.[0] !== port || b.berth === undefined || (b.dockLeft ?? 0) <= 0 || !b.dockFor) continue;
     const at = 1 - b.dockLeft! / b.dockFor, fit = b.fit ?? "trade";
-    const ship: Worked = { x: b.x, y: b.y, z: b.z, cls: b.cls ?? 0, at, loading: loadingAt(fit, at), cargo: fit !== "ferry" && fit !== "pontoon" };
+    const lift = liftAt(fit, at);
+    const ship: Worked = { x: b.x, y: b.y, z: b.z, heading: b.heading, cls: b.cls ?? 0, lift: lift.n, phase: lift.phase, loading: lift.loading, cargo: fit !== "ferry" && fit !== "pontoon" };
     for (let j = 0; j < classOf(b.cls).span; j++) if (out[b.berth + j]) out[b.berth + j] = { state: "working", ship };
   }
   return out;

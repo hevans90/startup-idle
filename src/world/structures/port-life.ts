@@ -5,8 +5,12 @@
  * asks. Nothing here knows either. @see seaport-renderer, portWork
  */
 export type BerthState = "free" | "working" | "blocked";
-/** A ship alongside, in tile coordinates and half steps: how big, how far through its call, loading or unloading, and whether it has cargo to work. */
-export type ShipAt = { x: number; y: number; z: number; cls: number; at: number; loading: boolean; cargo: boolean };
+/**
+ * A ship alongside, in tile coordinates and half steps: where it lies and
+ * heads, how big it is, which lift its crane is on and how far through it,
+ * loading or unloading, and whether it has cargo to work. @see liftAt
+ */
+export type ShipAt = { x: number; y: number; z: number; heading: number; cls: number; lift: number; phase: number; loading: boolean; cargo: boolean };
 export type PortLife = { berths: { state: BerthState; ship?: ShipAt }[]; yard: number; night: number };
 
 let source: ((port: number) => PortLife | null) | null = null;
