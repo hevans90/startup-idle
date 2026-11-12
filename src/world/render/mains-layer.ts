@@ -196,6 +196,12 @@ const STATE_COLOUR: Record<MainState, number> = {
   flowing: 0x3fe08a, full: 0x5fb7ff, "no-head": WARN, unpaid: WARN, dry: 0xe5484d, "no-source": 0xe5484d, "no-outlet": 0xe5484d, burst: 0xe5484d, "backed-up": 0xe5484d,
 };
 
+/** How the Pipes view draws a network's line, by its state: whole, broken, or dots. The list's key says the same. */
+export function overlayLine(state: MainState | undefined): "whole" | "broken" | "dots" {
+  if (!state || state === "flowing" || state === "full") return "whole";
+  return state === "no-head" || state === "unpaid" ? "broken" : "dots";
+}
+
 export type MainsLayer = {
   /** Rebuild the tubes when the mains, the scale or the tier of detail for `zoom`, the viewport's, change. */
   sync: (g: Grid, scale: number, zoom?: number) => void;
@@ -562,19 +568,28 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     for (const net of list) {
       const r = mainReportAt(g, net.cells[0] % g.w, (net.cells[0] / g.w) | 0);
       const colour = r ? STATE_COLOUR[r.state] : 0x8796a8;
+      // NOT BY COLOUR ALONE: a line whole while it works, broken where it needs help, dots where it has stopped. @see overlayLine
+      const line = overlayLine(r?.state);
       // ALONG THE TUBES: each cell's middle lines, round its bends and up its climbs.
       for (const i of net.cells) {
         const x = i % g.w, y = (i / g.w) | 0;
         const paths = routes.get(i) ?? [];
         for (const path of paths) {
-          for (const [k, [u, v, h]] of path.entries()) {
-            const p = P(s, u, v, h / ZT);
-            if (k === 0) flow.moveTo(p[0], p[1]); else flow.lineTo(p[0], p[1]);
+          // Broken: the middle of each tile's length, a gap at every join. Dots: its middle point.
+          const n = path.length, from = line === "whole" ? 0 : Math.floor(n * 0.25), to = line === "whole" ? n : Math.max(from + 2, Math.ceil(n * 0.75));
+          if (line === "dots") { const [u, v, h] = path[n >> 1], c = P(s, u, v, h / ZT); flow.circle(c[0], c[1], w * 0.45); continue; }
+          for (let k = from; k < Math.min(n, to); k++) {
+            const [u, v, h] = path[k], p = P(s, u, v, h / ZT);
+            if (k === from) flow.moveTo(p[0], p[1]); else flow.lineTo(p[0], p[1]);
           }
         }
         if (!paths.length) { const a = P(s, x, y, levelAt(g, x, y)); flow.circle(a[0], a[1], w * 0.6); }
       }
-      flow.stroke({ color: colour, width: w * (net.bore > 1 ? 1.5 : 1.1), cap: "round", join: "round", alpha: 0.95 });
+      // THICKER the more of what it could carry it is carrying.
+      const share = r && r.capacity > 0 ? Math.max(0, Math.min(1, r.flow / r.capacity)) : 0;
+      const wide = w * (net.bore > 1 ? 1.3 : 1) * (0.75 + 0.7 * share);
+      if (line === "dots") flow.fill({ color: colour, alpha: 0.95 });
+      else flow.stroke({ color: colour, width: wide, cap: "round", join: "round", alpha: 0.95 });
     }
     // EACH BUILDING THAT DRINKS, its tank as a ring: full round, empty none.
     const ringAt = new Map<number, [number, number]>();

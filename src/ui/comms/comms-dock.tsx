@@ -18,6 +18,8 @@ import { CommsLog } from "./comms-log";
 import { useTicking } from "../../hooks/use-ticking";
 import { KIND_PLURAL } from "../../molecules/leaders-panel";
 import { liveTownProblems, type TownProblem } from "../../world/play/town-problems";
+import { pipeFaults, type PipeRow } from "../../world/pipes/overview";
+import { showMe } from "../../world/play/map-focus";
 
 /** The most cards it shows at once. */
 export const DOCK_MOST = 3;
@@ -50,6 +52,23 @@ function ProblemCard({ p }: { p: TownProblem }) {
   );
 }
 
+/** A PIPE GONE WRONG: a main dry, a sewer up in the street — what, which, and Show. @see pipeFaults */
+function PipeFaultCard({ r }: { r: PipeRow }) {
+  const show = () => {
+    const st = useWorldStore.getState();
+    // The Pipes view on its side, and the camera there.
+    st.setWaterOverlay(r.kind === "main");
+    st.setSewerView(r.kind !== "main");
+    showMe({ x: r.cell % st.grid.w, y: Math.floor(r.cell / st.grid.w) });
+  };
+  return (
+    <Card tone={r.tone === "bad" ? "bad" : "warn"} className="w-[min(24rem,calc(100vw-1rem))]"
+      title={<span className="text-[10px] uppercase tracking-widest">{r.kind === "main" ? "Water main" : "Sewer"}: {r.title}</span>}>
+      <p className="flex items-center justify-between gap-2"><span title={r.text}>{r.joins}</span><Button size="sm" onClick={show}>Show</Button></p>
+    </Card>
+  );
+}
+
 /**
  * WHAT COMMS SHOWS, in order of what needs you most, and how many more there
  * are: the objective, what the AI asks, events, reports; `DOCK_MOST` at most.
@@ -72,6 +91,9 @@ export function CommsDock({ most = DOCK_MOST }: { most?: number }) {
   const logged = useCommsStore((s) => s.log.length);
   useTicking(1000);
   const problems = liveTownProblems().problems;
+  // And the pipes that have gone wrong, with the town's other troubles.
+  const playing = useWorldStore((s) => s.playing);
+  const faults = playing ? pipeFaults(useWorldStore.getState().grid) : [];
   const [open, setOpen] = useState(false);
   // What has run its time, taken down.
   useEffect(() => {
@@ -84,8 +106,9 @@ export function CommsDock({ most = DOCK_MOST }: { most?: number }) {
     ...events.map((e) => [`event:${e.id}`, <EventCard e={e} />] as const),
     ...reports.map((r) => [`report:${r.id}`, <ReportCard e={r} />] as const),
     ...problems.map((p) => [`problem:${p.kind}`, <ProblemCard p={p} />] as const),
+    ...faults.map((r) => [`problem:pipe:${r.key}`, <PipeFaultCard r={r} />] as const),
   ]);
-  const { shown: keys, hidden } = dockItems({ objective, offer, events: events.map((e) => e.id), reports: reports.map((r) => r.id), problems: problems.map((p) => p.kind) }, most);
+  const { shown: keys, hidden } = dockItems({ objective, offer, events: events.map((e) => e.id), reports: reports.map((r) => r.id), problems: [...faults.map((r) => `pipe:${r.key}`), ...problems.map((p) => p.kind)] }, most);
   const shown = keys.map((key) => ({ key, node: nodes.get(key) ?? null }));
   const has = (key: string) => keys.includes(key);
 

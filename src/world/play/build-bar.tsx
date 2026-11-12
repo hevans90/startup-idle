@@ -313,18 +313,13 @@ export function BuildBar({ className }: { className?: string }) {
         {ICONS.earnings}
         <span className="@max-6xl:hidden">Earnings</span>
       </button>
-      {mainsOpen && (
-        <button type="button" title="Show every water main by what it is doing, each tank, and the water: on too while the Pipe tool is in hand"
-          onClick={() => setWaterOverlay(!waterOverlay)} className={twMerge(TOOL, (waterOverlay || tool === "pipe") && TOOL_ON)}>
+      {(mainsOpen || sewersOpen) && (
+        <button type="button" title="Every pipe by what it is doing, and a list of them: water or sewers. On too with the Pipe or Sewer tool in hand"
+          aria-pressed={waterOverlay || sewerView}
+          onClick={() => { const on = waterOverlay || sewerView; setWaterOverlay(!on && mainsOpen); setSewerView(!on && !mainsOpen); }}
+          className={twMerge(TOOL, (waterOverlay || sewerView || tool === "pipe" || tool === "sewer") && TOOL_ON)}>
           {ICONS.water}
-          <span className="@max-6xl:hidden">Water</span>
-        </button>
-      )}
-      {sewersOpen && (
-        <button type="button" title="See under the ground: the sewers at their depth, which way they fall"
-          onClick={() => setSewerView(!sewerView)} className={twMerge(TOOL, sewerView && TOOL_ON)}>
-          {ICONS.sewer}
-          <span className="@max-6xl:hidden">Sewers</span>
+          <span className="@max-6xl:hidden">Pipes</span>
         </button>
       )}
       {model && (

@@ -13,6 +13,7 @@ import { LeaderPlacement } from "./leader-placement";
 import { LinkedOut } from "../../molecules/linkedout";
 import { useLinkedOutStore } from "../../state/linkedout.store";
 import { TopStreets } from "./top-streets";
+import { PipeList } from "./pipe-list";
 import { DesireReadout } from "./desire-readout";
 import { PlaceReadout } from "./place-readout";
 import { useEffect } from "react";
@@ -95,6 +96,7 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
           <CommsDock most={1} />
           <LandmarksPanel className="w-full" />
           <TopStreets />
+            <PipeList />
         </div>
       ) : (
         <>
@@ -102,6 +104,7 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
           <div className="absolute left-2 top-9 z-10 flex max-h-[calc(100%-9rem)] flex-col items-start gap-2 overflow-y-auto">
             <LandmarksPanel />
             <TopStreets />
+            <PipeList />
           </div>
           {/* COMMS: the objective, what the AI asks, events, reports, a hint — three at most, the rest in the log. @see CommsDock */}
           <div className="absolute right-2 top-9 z-20">
