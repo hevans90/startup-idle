@@ -32,7 +32,7 @@ import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
 import { LATERAL_IRON, LATERAL_R } from "./mains-layer";
 import { portsOf, type PortCell } from "../water/ports";
-import { MATERIAL, ZT, box as plainBox, disc, made, pipeCell, pipeMesh, hring, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
+import { MATERIAL, ZT, box as plainBox, disc, footing, made, pipeCell, pipeMesh, hring, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 /** The fittings' scale, from a slim tube's radius, tile units; how much fatter a widened bore is. */
@@ -61,6 +61,8 @@ const BRICK = 0x9a4f3a, ROOF = 0x5a5d62;
 const CONCRETE = 0xb8b4aa, CONCRETE_DARK = 0x8a867c, PIER = 0x9a958a;
 /** The dark down a grate, and inside a pipe's mouth. */
 const PIT = 0x0c0e10;
+/** What an outfall has poured, dried on the concrete under its mouth. */
+const STAIN = 0x5c4630;
 
 export type SewerLayer = {
   /** Draw again if the sewers, the ground or the scale changed; show the underground or not. */
@@ -89,8 +91,22 @@ type BoxArgs = Parameters<typeof plainBox>;
 const concreteBox = (...a: BoxArgs) => made(MATERIAL.concrete, () => plainBox(...a));
 const brickBox = (...a: BoxArgs) => made(MATERIAL.brick, () => plainBox(...a));
 
-/** A MANHOLE COVER, cast iron, flush with the ground at a tile's middle: its rim, its plate, and the pattern cast in it — a ring and a cross. */
-function cover(m: PipeMesh, s: number, x: number, y: number, z: number) {
+/**
+ * THE SURROUND a cover or a grate is set in: a square of concrete flush with
+ * the ground, a darker joint round its edge, so the ironwork sits in
+ * something made and not in the grass. `a` is half its width, tiles.
+ */
+export function surround(m: PipeMesh, s: number, x: number, y: number, z: number, a: number) {
+  const h = z * ZT;
+  meshBox(m, s, x - a - 0.018, y - a - 0.018, h - SKIN, x + a + 0.018, y + a + 0.018, h + SKIN * 0.25, solid(CONCRETE_DARK));
+  meshBox(m, s, x - a, y - a, h - SKIN, x + a, y + a, h + SKIN * 0.5, solid(CONCRETE));
+}
+/** Half the width of a cover's surround and of a grate's, tiles. */
+export const COVER_SURROUND = 0.25, GRATE_SURROUND = 0.32;
+
+/** A MANHOLE COVER, cast iron, set in its surround, flush with the ground at a tile's middle: its rim, its plate, and the pattern cast in it — a ring and a cross. */
+export function cover(m: PipeMesh, s: number, x: number, y: number, z: number) {
+  surround(m, s, x, y, z, COVER_SURROUND);
   const h = z * ZT + SKIN, r = 0.17;
   hring(m, s, x, y, h, 0, r * 1.14, solid(IRON_RIM), 20);
   hring(m, s, x, y, h + SKIN, 0, r, solid(IRON), 20);
@@ -100,7 +116,8 @@ function cover(m: PipeMesh, s: number, x: number, y: number, z: number) {
 }
 
 /** A STORM DRAIN'S GRATE, flush with the ground: a square iron frame, dark under it, bars across. @see SEWER_GRATE */
-function grate(m: PipeMesh, s: number, x: number, y: number, z: number) {
+export function grate(m: PipeMesh, s: number, x: number, y: number, z: number) {
+  surround(m, s, x, y, z, GRATE_SURROUND);
   const h = z * ZT + SKIN, k = 0.24, bar = 0.014;
   meshBox(m, s, x - k * 1.14, y - k * 1.14, h - SKIN, x + k * 1.14, y + k * 1.14, h + SKIN, solid(IRON_RIM));
   meshBox(m, s, x - k, y - k, h, x + k, y + k, h + SKIN * 1.5, solid(PIT));
@@ -112,12 +129,29 @@ function grate(m: PipeMesh, s: number, x: number, y: number, z: number) {
   meshBox(m, s, x - bar, y - k, h + SKIN, x + bar, y + k, h + SKIN * 4.5, solid(IRON));
 }
 
-/** A SPAN'S PIER, concrete, from the ground up to under the tube: a shaft, and a cap the tube sits on. Before its tube, which lies over it. */
-function pier(m: PipeMesh, s: number, x: number, y: number, ground: number, under: number) {
+/** A SPAN'S PIER, concrete, from its footing on the ground up to under the tube: a shaft, and a cap the tube sits on. Before its tube, which lies over it. */
+export function pier(m: PipeMesh, s: number, x: number, y: number, ground: number, under: number) {
   const h0 = ground * ZT, cap = 0.03;
   if (under - cap <= h0) return;
-  concreteBox(m, s, x - 0.05, y - 0.05, h0, x + 0.05, y + 0.05, under - cap, solid(PIER));
+  const top = footing(m, s, x - 0.05, y - 0.05, x + 0.05, y + 0.05, h0);
+  concreteBox(m, s, x - 0.05, y - 0.05, top, x + 0.05, y + 0.05, under - cap, solid(PIER));
   meshBox(m, s, x - 0.1, y - 0.1, under - cap, x + 0.1, y + 0.1, under, solid(CONCRETE_DARK));
+}
+
+/**
+ * A PORTAL, where a span meets the bank: a concrete collar on the bank's
+ * face that the tube comes out of, in place of a tube cut off against the
+ * earth. At (u, v, h) on the tube's line, the tube running along (dx, dy)
+ * out of the bank; `r` its radius. Before its tube, which comes out of it.
+ */
+export function portal(m: PipeMesh, s: number, u: number, v: number, h: number, dx: number, dy: number, r: number) {
+  const across = r + 0.07, deep = 0.045, lip = 0.02;
+  // Along the tube it is thin; across it, wider than the tube; a coping over it.
+  const [au, av] = dx !== 0 ? [deep, across] : [across, deep];
+  concreteBox(m, s, u - au, v - av, h - r - 0.07, u + au, v + av, h + r + 0.07, solid(CONCRETE));
+  meshBox(m, s, u - au - lip, v - av - lip, h + r + 0.07, u + au + lip, v + av + lip, h + r + 0.1, solid(CONCRETE_DARK));
+  // The dark it comes out of, on the face toward the span.
+  disc(m, s, u + dx * (deep + 0.002), v + dy * (deep + 0.002), h, dx, dy, 0, r * 1.12, solid(PIT), 12);
 }
 
 /**
@@ -139,20 +173,41 @@ function liftStation(m: PipeMesh, s: number, x: number, y: number, ground: numbe
 
 /**
  * A HEADWALL, concrete, where a sewer pours out: a block on the bank with a
- * coping on it, and the pipe out of its face toward (dx, dy), dark inside.
- * Toward the camera's far sides the wall hides the pipe, so it goes in first.
+ * coping on it, the pipe out of its face toward (dx, dy), dark inside; an
+ * APRON under the pipe out to the bank's edge; and a STAIN down the wall and
+ * along the apron under the mouth, in the colour of what it pours. Toward
+ * the camera's far sides the wall hides the pipe, so that goes in first.
  */
-function headwall(m: PipeMesh, s: number, x: number, y: number, ground: number, dx: number, dy: number, r: number) {
-  const a = 0.26, h0 = (ground - 0.4) * ZT, top = (ground + 0.7) * ZT, z = (ground + MOUTH) * ZT + r;
+export function headwall(m: PipeMesh, s: number, x: number, y: number, ground: number, dx: number, dy: number, r: number) {
+  const a = 0.26, g0 = ground * ZT, h0 = (ground - 0.4) * ZT, top = (ground + 0.7) * ZT, z = (ground + MOUTH) * ZT + r;
   const behind = dx < 0 || dy < 0;
+  // Out from the wall's face to the tile's edge: a rectangle `w` either side of the pipe's line.
+  const out = (from: number, to: number, w: number): [number, number, number, number] => {
+    const [u0, u1] = dx !== 0 ? [x + dx * from, x + dx * to] : [x - w, x + w];
+    const [v0, v1] = dy !== 0 ? [y + dy * from, y + dy * to] : [y - w, y + w];
+    return [Math.min(u0, u1), Math.min(v0, v1), Math.max(u0, u1), Math.max(v0, v1)];
+  };
+  const apron = () => {
+    const [u0, v0, u1, v1] = out(a, 0.5, 0.2);
+    concreteBox(m, s, u0, v0, g0 - 0.03, u1, v1, g0 + 0.012, solid(CONCRETE));
+    // What it pours has run along it.
+    const [su0, sv0, su1, sv1] = out(a, 0.5, r * 0.7);
+    meshBox(m, s, su0, sv0, g0 + 0.012, su1, sv1, g0 + 0.0135, solid(STAIN));
+  };
   const pipe = () => {
     solidTube(m, s, x, y, z, x + dx * 0.58, y + dy * 0.58, z, r, solid(CONCRETE_DARK), 12);
     hoopEnd(m, s, x + dx * 0.58, y + dy * 0.58, z, dx, dy, r);
   };
-  if (behind) pipe();
+  if (behind) { apron(); pipe(); }
   concreteBox(m, s, x - a, y - a, h0, x + a, y + a, top, solid(CONCRETE));
   meshBox(m, s, x - a - 0.025, y - a - 0.025, top, x + a + 0.025, y + a + 0.025, top + 0.1 * ZT, solid(CONCRETE_DARK));
-  if (!behind) pipe();
+  if (!behind) {
+    // And down the wall under the mouth, where the wall's face is one the camera sees.
+    const [u0, v0, u1, v1] = out(a, a + 0.003, r * 0.7);
+    meshBox(m, s, u0, v0, g0, u1, v1, z - r * 0.6, solid(STAIN));
+    apron();
+    pipe();
+  }
 }
 /** The open end of a headwall's pipe: its lip, and the dark of its bore. Seen only where it faces the camera. */
 function hoopEnd(m: PipeMesh, s: number, u: number, v: number, h: number, dx: number, dy: number, r: number) {
@@ -267,8 +322,16 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           limbs.push({ dx, dy, zf: (lvl + drawnAt(g, s, j)) / 2 });
         }
         const r = TRUNK_R * (g.sewer[i] & SEWER_BORE ? BORE_WIDE : 1);
-        // A SPAN'S PIER first: its tube lies over it.
-        if (s.kind[i] === SEWER_KIND.span) pier(meshOf(spans, b), scale, x, y, g.height[i], lvl * ZT - r);
+        // A SPAN'S PIER first: its tube lies over it. And its PORTAL, where it comes out of a bank
+        // the camera sees the face of: the bank on its far side.
+        if (s.kind[i] === SEWER_KIND.span) {
+          pier(meshOf(spans, b), scale, x, y, g.height[i], lvl * ZT - r);
+          for (const l of limbs) {
+            const j = idx(g, x + l.dx, y + l.dy);
+            if (s.kind[j] === SEWER_KIND.span || l.dx + l.dy > 0) continue;
+            portal(meshOf(spans, b), scale, x + l.dx * 0.47, y + l.dy * 0.47, l.zf * ZT, -l.dx, -l.dy, r);
+          }
+        }
         pipeCell(meshOf(s.kind[i] === SEWER_KIND.span ? spans : tubes, b), scale, x, y, lvl, limbs, {
           r, colour, sides: TRUNK_SIDES, flanges: (x + y) % 2 === 0, bolts: false, end: null, material: MATERIAL.iron,
         });

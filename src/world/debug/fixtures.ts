@@ -23,7 +23,7 @@ import { derivedRamp } from "../roads/ramp-derive";
 import { gamePipeRun, layPipe } from "../water/pipes";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import {
-  edited, fillTerrain, idx, inBounds, recomputeHeightRange, setDeck, setInflow, setSource, type Grid,
+  MAIN_BORE, SEWER_GRATE, edited, fillTerrain, idx, inBounds, recomputeHeightRange, setDeck, setInflow, setSource, type Grid,
 } from "../grid";
 
 export type FixtureId =
@@ -31,7 +31,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "streets" | "traffic" | "cranes" | "shoal";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "streets" | "traffic" | "cranes" | "shoal";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -777,6 +777,51 @@ export function buildSewers(g: Grid, material: number) {
 }
 
 /**
+ * THE PIPE YARD: one of every piece a pipe is drawn with, on one map, to look
+ * at them by. The `sewers` fixture's ground and trunk — an outfall's headwall
+ * at the pond, a span on piers over the valley with a portal at its far bank,
+ * a lift station up the hill, manholes, a connection dropping into one — and
+ * with them: a storm drain's grate; and a WATER MAIN from a pump at the pond
+ * to a Data Centre's inlet, on saddles along the ground, on frames where it
+ * rides high over the valley, over a road on a frame that spans it, a
+ * stretch of it widened (a reducer at either end), a stub teed off it and
+ * capped, a bend or two, and the outlet's valve at the wall.
+ * @see plans/pipe-network.md phase 9
+ */
+export function buildPipeYard(g: Grid, material: number) {
+  buildSewers(g, material);
+  const row = Math.round(g.h / 2);
+  const wet = (x: number, y: number) => inBounds(g, x, y) && g.pool[idx(g, x, y)] > 0;
+  // A grate on one of the trunk's manholes.
+  if (inBounds(g, 31, row) && g.sewerFit[idx(g, 31, row)]) g.sewer[idx(g, 31, row)] |= SEWER_GRATE;
+  // A road across the main's way, on the flat between the valley and the hill.
+  for (let y = row - 16; y <= row - 5; y++) if (inBounds(g, 21, y)) g.paved[idx(g, 21, y)] = 1;
+  // The Data Centre the main feeds, past the hill.
+  const dc = structureDef("datacentre");
+  const cmd = dc && inBounds(g, 40, row - 13) ? placeCommand(g, { ...dc, placement: undefined }, 38, row - 13) : null;
+  if (cmd) commit(g, createHistory(), cmd);
+  const built = [...g.structures.values()].find((b) => b.def === "datacentre");
+  const inlet = built && portsOf(g, built).find((p) => p.port.fluid === "water");
+  // THE MAIN, from the pond's bank: north a way, then east along one row to the inlet.
+  const y0 = row - 10;
+  const route = inlet && inBounds(g, 9, row - 3) ? [
+    ...Array.from({ length: row - 3 - y0 + 1 }, (_, k) => ({ x: 9, y: row - 3 - k })),
+    ...Array.from({ length: inlet.x - 9 }, (_, k) => ({ x: 10 + k, y: y0 })),
+    ...Array.from({ length: Math.abs(inlet.y - y0) }, (_, k) => ({ x: inlet.x, y: y0 + Math.sign(inlet.y - y0) * (k + 1) })),
+  ] : null;
+  const plan = route && planMain(g, route, wet, true);
+  if (plan && !("refused" in plan)) {
+    layMain(g, plan.cells);
+    // A stretch of it widened, on the flat before the valley.
+    for (let x = 11; x <= 13; x++) g.main[idx(g, x, y0)] |= MAIN_BORE;
+    // A stub teed off it and left capped, past the road.
+    const stub = planMain(g, [0, 1, 2].map((k) => ({ x: 23, y: y0 - k })), wet, false);
+    if (!("refused" in stub)) layMain(g, stub.cells);
+  }
+  edited(g);
+}
+
+/**
  * PORTS: every building with a port, in two rows on flat ground — the far
  * row with its ports open, the near row with a short main joined to each,
  * out from the port and capped. To look at outlets on. @see nozzle
@@ -1120,7 +1165,7 @@ export function buildCulvert(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, streets: 48, traffic: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, streets: 48, traffic: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1132,7 +1177,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "streets", "traffic", "cranes", "shoal",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "streets", "traffic", "cranes", "shoal",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1173,6 +1218,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "bigtown": buildBigTown(g, material); recomputeHeightRange(g); return;
     case "sewers": buildSewers(g, material); recomputeHeightRange(g); return;
     case "ports": buildPorts(g, material); recomputeHeightRange(g); return;
+    case "pipeyard": buildPipeYard(g, material); recomputeHeightRange(g); return;
     case "traffic": buildTraffic(g, material); recomputeHeightRange(g); return;
   }
 }

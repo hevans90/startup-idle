@@ -815,7 +815,8 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     // A SADDLE: a footing, and on it a block the tube lies in — its cheeks up either side of the tube, which is drawn over its middle.
     const [u0, v0, u1, v1] = saddle(at, r), top = footing(m, s, u0, v0, u1, v1, g);
     box(m, s, u0, v0, top, u1, v1, Math.max(top, h - r * 0.15), concrete);
-    strap = at.along !== null && h - r > top;
+    // None over a window: the glass there is written over it each frame, and a band would show through it.
+    strap = at.along !== null && h - r > top && !(look.window ?? 0);
   } else if (support === "frame" && limbs.length && look.verges) {
     // OVER A ROAD: a leg at either edge of it, the beam right across under the
     // tube — under its lowest point, where it climbs. The far leg behind the traffic.
