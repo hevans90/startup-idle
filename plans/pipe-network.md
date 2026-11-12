@@ -1,6 +1,6 @@
 # One pipe network, solved beside the water
 
-**Status:** in progress, begun 2026-11-11; what is built is listed under "Built so far" at the end. It goes ahead of what is left of the seaport plan (`plans/seaports.md`, "Left to do, after the pipes"): the slop loader there stands on this plan's graph and solver. Written from a read of `src/fluid`, `src/world/water`, `src/world/sewers`, `src/world/slop` and the water docs. Nothing was measured for this plan: every timing below is quoted from `WATER-PLAN.md`. Claims read from code and not yet run as a test are tagged [read]. Extended the same day with the look (§6, from the fixtures in the browser) and where a sewer may go (§7).
+**Status:** in progress, begun 2026-11-11; what is built is listed under "Built so far" at the end. It goes ahead of what is left of the seaport plan (`plans/seaports.md`, "Left to do, after the pipes"): the slop loader there stands on this plan's graph and solver. Written from a read of `src/fluid`, `src/world/water`, `src/world/sewers`, `src/world/slop` and the water docs. Nothing was measured for this plan: every timing below is quoted from `WATER-PLAN.md`. Claims read from code and not yet run as a test are tagged [read]. Extended the same day with the look (§6, from the fixtures in the browser) and where a sewer may go (§7). Extended 2026-11-12 with ports on the building (item 17b, §6, phase 9b).
 
 ## Why
 
@@ -49,6 +49,7 @@ The aim is one pipe network solved as real flow, on the device beside the water,
 15. **Water mains are hard to see.** Pale thin steel on bright grass, with supports a few pixels tall.
 16. **Two techniques.** The sewers' surface pieces (covers, piers, lift stations, headwalls) and some tubes are still `Graphics` boxes and strokes (17 draw calls' worth of shapes in `sewer-layer.ts`), lit by hand-picked colours beside meshes lit by the shader.
 17. **State is drawn, not shaded.** Chevrons and state colours are rebuilt as shapes when they change.
+17b. **A workplace's slop port is an out-building.** [read, `structures/projects/entries.ts`; added 2026-11-12] The Vibe studio and the Vibe Coder Studio each get a concrete service housing from the wall out to the edge of the plot (`drawEntries`: a box, a cap, a coloured band, a vent), with the outlet bolted to its face. It is a grey shed stuck on the front of a building it does not match, and it looks terrible. The AI's buildings and the processors do not have one: their outlets are flanged straight onto a wall drawn for them (`direct`, `portSetback`), and the main runs on past the plot's edge to meet it.
 
 ### Placement
 
@@ -158,6 +159,15 @@ Still procedural, still one lit mesh a band (`pipe-mesh.ts`, `pipe-gpu.ts`), sti
 - **A lateral at its manhole:** a drop bend with a collar, into a concrete surround with the cover set in it.
 - **A span at the bank:** a concrete portal the tube comes out of, in place of the cut wedge.
 - **An outfall:** a headwall with an apron, and a stain down it in the colour of what it pours.
+
+**Ports on the building, not beside it** (asked for 2026-11-12). Every port is flanged straight onto its building's own geometry, as the AI's buildings' already are. No out-buildings.
+
+- `direct(port)` becomes true for every port, and `drawEntries` with its housing (box, cap, band, vent, `ENTRY_W`, `ENTRY_H`) is deleted. A workplace's slop outlet is then placed the way a water inlet is: `portSetback` puts the outlet's plate on the wall behind the port (`wallBehind`), and the connection runs in from the plot's edge to it.
+- **Each building is drawn with a wall there for it**, which is what made the AI's work. For the Vibe studio and the Vibe Coder Studio, in their looks (`structures/projects/looks.ts`): a ground-level face of the building's own mass behind the port, at least the outlet's plate wide and high, in the building's own material. Where the port now faces a forecourt or a recess (`wallBehind` falling back on `NO_WALL`), either the port moves along the face to where the wall is (`Port.at`), or the look gains a plinth or service bay that is part of the building — same material, same base line, under the same roof — not a box in front of it.
+- **The outlet says what it is by itself**: the plate, spigot and flange (`outlet` in `pipe-mesh.ts`), cast iron for slop and steel for water, with the fluid's colour on the plate as now. The band the housing wore goes with the housing.
+- **The run from the plot's edge to the wall** crosses the building's own plot: drawn as the connection's tube on a saddle or two (§ "Standing on the ground"), sorted with the building so the wall hides what is behind it. A deep setback gets a short straight run, never a second structure.
+- **Nothing in the rules moves.** A port is still the tile in front of its face (`portTiles`), so routing, the lit connect points, the spill at a full tank's port, saves and the AI are untouched. This is drawing only.
+- **Any building given ports later** takes the same rule: no port without a wall drawn for it. `entries.test.ts` is rewritten to hold that for every def with ports.
 
 **The glass sections: real glass, real liquid.** The one place the look leaves the flat three tones, on purpose: this is where the player watches the fluid, so it is shaded to look real. Taken to mean the see-through lengths of a run; a building's ports get the same liquid where they show any.
 
@@ -301,6 +311,7 @@ Decided 2026-11-11:
 | 7 | **Look: one technique** | Sewer surface pieces and the last `Graphics` tubes onto the lit mesh; brick and concrete materials | Fixtures by eye at three zooms, day and night |
 | 8 | **Look: material and joints** | The two vertex floats; iron and steel detail; flanges with bolts, reducers, collars, caps, valves | `pipe-mesh.test` for each piece; gpu render time before and after |
 | 9 | **Look: ground and ends** | Saddles with straps, contact stain, frames, manhole surrounds, portals, headwalls | A pipe yard fixture with one of every piece |
+| 9b | **Look: ports on the building** | Every port flanged straight onto its building: `direct` for all, `drawEntries` and the housing deleted, a wall drawn behind each workplace's slop port, the run in from the plot's edge on saddles | `?fixture=ports` by eye at three zooms, day and night, every building with ports from both camera-facing sides; `entries.test` rewritten: every def with ports has a wall behind each, and none draws a housing; a connection still joins, drains and spills at the same tile |
 | 10 | **Look: state and distance** | Per-link state buffer, shader chevrons, depth shading underground, levels of detail | `_buildInstructions` flat while water runs |
 | 11 | **Look: glass and liquid** | Windows fewer and longer; the glass shader (rim, reflections, far wall, collars); liquid by level and depth; water and slop flow; fronts and films; `pipeLiveDrawable` and `windowGlass` deleted. Same lines in WGSL and GLSL | A glass gallery fixture: empty, quarter, half, full; still, slow, fast; water, slop, a mix; runs along `u`, along `v` and climbing; filling and emptying. By eye at three zooms, day and night; gpu render time before and after |
 
@@ -313,7 +324,7 @@ Decided 2026-11-11:
 
 Phases 1–2 stand on their own. Phase 3 is what lets floods and pipes interact. Phase 4 is independent and could go first.
 
-Phases 6–9 need nothing from 1–5 and can go at any time; 6 is a day's work and stands alone. Phases 10 and 11 draw real fill and speed, so they want phase 2 at least; before that they can read today's reports (flow or none) through the same buffer, with the level fixed. Mixtures in the glass want phase 4.
+Phases 6–9b need nothing from 1–5 and can go at any time; 9b stands alone and wants nothing from 7–9 but the saddles, which it can do without at first; 6 is a day's work and stands alone. Phases 10 and 11 draw real fill and speed, so they want phase 2 at least; before that they can read today's reports (flow or none) through the same buffer, with the level fixed. Mixtures in the glass want phase 4.
 
 Phases 12–16 need nothing from the solver and can go first; 13 is the one a player would feel most. Phase 17 wants phase 1.
 
