@@ -16,7 +16,7 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField, setWaterEdge, stepWater } from "./field";
 import { totalWater } from "../../fluid/columns";
-import { findMains, layMain, mainFillAt, mainReports, planMain, runMains, solveMain, waterInMains } from "./mains";
+import { findMains, layMain, mainFillAt, mainReportsFor, planMain, runMains, solveMain, waterInMains } from "./mains";
 import { createPipeNets, findPipeNets } from "./pipe-net";
 import { runPipes } from "./pipes";
 
@@ -78,7 +78,7 @@ describe("a main with more than one run and one outlet", () => {
       stepWater(f, 1 / 60);
       if (n >= frames / 2) for (const [id, t] of allTanks()) got.set(id, (got.get(id) ?? 0) + t.level);
     }
-    return { f, each: [...got.values()].map((v) => v / (seconds / 2)), report: [...mainReports().values()][0] };
+    return { f, each: [...got.values()].map((v) => v / (seconds / 2)), report: [...mainReportsFor(g).values()][0] };
   }
   const branch = (g: Grid, dcX: number) => {
     building(g, dcX - 2, 6);

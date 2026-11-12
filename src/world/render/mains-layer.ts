@@ -28,7 +28,7 @@ import { NEIGHBOUR } from "../../iso/dir";
 import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_FIT, idx, inBounds, rampDir, rampRise, structureAt, type Grid } from "../grid";
 import { allTanks } from "../projects/cooling";
 import { HEIGHT_UNIT, HH, HW, surfaceHeight } from "../iso";
-import { findMains, joined, mainReportAt, mainReports, type MainState } from "../water/mains";
+import { findMains, joined, mainLiveAt, mainReportAt, mainReportsFor, type MainState } from "../water/mains";
 import { portsOf, type PortCell } from "../water/ports";
 import { sayOf, type Say } from "../water/main-says";
 import { pointerRead } from "../debug/pointer-at";
@@ -497,7 +497,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       const f = tank.capacity > 0 ? tank.level / tank.capacity : 0;
       all.push({ text: `${Math.round(100 * f)}%`, colour: 0xffffff, at: [c[0], c[1] - 13 * px], rank: f < 0.25 ? 3 : 2 });
     }
-    for (const r of mainReports().values()) {
+    for (const r of mainReportsFor(g).values()) {
       for (const it of r.intakes) {
         const x = it.cell % g.w, y = (it.cell / g.w) | 0;
         const c = P(s, x, y, levelAt(g, x, y));
@@ -742,7 +742,23 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         // at the main's speed while it flows, standing still in a full one,
         // nothing in a dry one. @see isGlass
         // A sewer shows its slop only while some moves. @see solveSewer
-        if ((state === "flowing" || state === "full") && r && (!net.sewer || r.flow > 0)) {
+        // A WATER MAIN SHOWS WHAT IS IN IT: each window as full as the pipe behind it
+        // stands, its streaks going the way and at the speed that run is carrying —
+        // so a main just laid fills along its length, and one cut off stands. @see mainLiveAt
+        const solved = !net.sewer && net.cells.some((i) => mainLiveAt(g, i) !== null);
+        if (solved) {
+          for (const i of net.cells) {
+            const x = i % g.w, y = (i / g.w) | 0;
+            if (!isGlass(g, x, y)) continue;
+            const live = mainLiveAt(g, i);
+            if (!live || live.fill < 0.04) continue;
+            const speed = live.flow > 0.1 ? 0.35 + Math.min(2, live.flow) * 0.6 : 0;
+            const way = live.dir[0] + live.dir[1] > 0 ? 1 : -1;
+            const marks = speed > 0 ? [0, 1, 2].map((k) => way * (-1.1 + 2.2 * ((((t * speed + k / 3) % 1) + 1) % 1))) : [];
+            fills.set(i, { colour: WATER, mark: STREAK, lumps: false, marks, level: live.fill });
+          }
+        }
+        if (!solved && (state === "flowing" || state === "full") && r && (!net.sewer || r.flow > 0)) {
           const speed = state === "flowing" ? 0.35 + Math.min(2, r.flow) * 0.6 : 0;
           for (const i of net.cells) {
             const x = i % g.w, y = (i / g.w) | 0;
@@ -768,6 +784,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
             const marks = speed > 0 ? [0, 1, 2].map((k) => way * (-1.1 + 2.2 * ((((t * speed + k / 3) % 1) + 1) % 1))) : [];
             fills.set(i, { colour: WATER, mark: STREAK, lumps: false, marks });
           }
+        }
+        {
           // THE INTAKE DRAWING: a slow swirl in the water at its mouth.
           if (state === "flowing") {
             for (const q of net.intakes) {

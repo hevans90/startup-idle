@@ -159,7 +159,26 @@ export function solveSewer(g: Grid, net: MainNet): MainReport {
 }
 
 /** A water network as the solver holds it: its model, the water in it (null till first run), and its steady flow as last worked out. */
-type Solved = { model: WaterModel; state: WaterState | null; steady: { sig: string; flow: Steady; age: number } | null };
+type Solved = {
+  model: WaterModel; state: WaterState | null; steady: { sig: string; flow: Steady; age: number } | null;
+  /**
+   * What each link has been carrying, evened out over a second or two. A shut
+   * main's water rocks back and forth in it for ever, a tenth of a unit each
+   * way, and that is not a main carrying anything: this is what is shown. @see mainLiveAt
+   */
+  mean?: Float64Array;
+};
+/** Seconds a link's flow is evened out over, for what is shown. */
+const MEAN_OVER = 1.5;
+/** A frame's flows folded into each link's mean. */
+function fold(s: Solved, dt: number) {
+  if (!s.state || !(dt > 0)) return;
+  if (!s.mean || s.mean.length !== s.state.flow.length) { s.mean = Float64Array.from(s.state.flow); return; }
+  const k = Math.min(1, dt / MEAN_OVER);
+  for (let i = 0; i < s.mean.length; i++) s.mean[i] += (s.state.flow[i] - s.mean[i]) * k;
+}
+/** Where a graph node or link is held: which network's model, and its place in it. */
+type Where = { node: Map<number, [Solved, number]>; link: Map<number, [Solved, number]> };
 /**
  * THE NETWORKS AS PACKED FOR THE DEVICE, while it owns the water: which
  * upload this is, where each network's nodes, links, intakes and outlets
@@ -180,7 +199,7 @@ type Packed = {
   /** What each network is carrying, smoothed: answers come back a frame or three apart. */
   shown: Map<number, number>;
 };
-const solvedFor = new WeakMap<Grid, { rev: number; nets: Map<number, Solved>; packed?: Packed | null }>();
+const solvedFor = new WeakMap<Grid, { rev: number; nets: Map<number, Solved>; packed?: Packed | null; where?: Where }>();
 let packs = 0;
 
 /**
@@ -363,6 +382,64 @@ export function mainFillAt(g: Grid, cell: number): number | null {
   return null;
 }
 
+/**
+ * THE WATER IN A MAIN AT A TILE, as the solver holds it: how full the pipe
+ * stands there, nought to one — between two nodes, by how far along the run
+ * it is — what the run carries a second, and which way that is going, a
+ * step to the next tile (nought, nought where it stands still). Null where
+ * no water main has been solved. FOR THE TUBES: what a window shows is what
+ * is in the pipe behind it. @see plans/pipe-network.md §5
+ */
+export type MainLive = { fill: number; flow: number; dir: readonly [number, number] };
+export function mainLiveAt(g: Grid, cell: number): MainLive | null {
+  const entry = solvedFor.get(g);
+  if (!entry || entry.rev !== g.rev) return null;
+  const graph = pipeGraph(g);
+  if (!entry.where) {
+    const where: Where = { node: new Map(), link: new Map() };
+    for (const s of entry.nets.values()) {
+      s.model.nodes.forEach((id, k) => where.node.set(id, [s, k]));
+      s.model.links.forEach((l, k) => where.link.set(l.graph, [s, k]));
+    }
+    entry.where = where;
+  }
+  const step = (from: number, to: number): [number, number] => [(to % g.w) - (from % g.w), ((to / g.w) | 0) - ((from / g.w) | 0)];
+  /** A node's fill: an intake holds none of its own, so it is as full as the pipe it feeds. */
+  const fillAt = (s: Solved, k: number): number => {
+    if (!s.state) return 0;
+    if (s.model.intakeAt[k] < 0) return fillOf(s.model, s.state, k);
+    let most = 0;
+    for (const l of s.model.links) if (l.a === k || l.b === k) most = Math.max(most, fillOf(s.model, s.state, l.a === k ? l.b : l.a));
+    return most;
+  };
+  const n = graph.nodeAt.main[cell];
+  if (n >= 0) {
+    const at = entry.where.node.get(n);
+    if (!at || !at[0].state) return null;
+    const [s, k] = at;
+    // WHICH WAY: out along the run that takes most from it; at an end, on the way it came.
+    let flow = 0, dir: [number, number] = [0, 0], out = false;
+    s.model.links.forEach((l, li) => {
+      if (l.a !== k && l.b !== k) return;
+      const q = (s.mean ?? s.state!.flow)[li] * (l.a === k ? 1 : -1), cells = graph.links[l.graph].cells;
+      if (cells.length < 2 || q === 0) return;
+      const beside = l.a === k ? cells[1] : cells[cells.length - 2];
+      if (q > 0 && (!out || q > flow)) { flow = q; dir = step(cell, beside); out = true; }
+      else if (q < 0 && !out && -q > flow) { flow = -q; dir = step(beside, cell); }
+    });
+    return { fill: fillAt(s, k), flow, dir };
+  }
+  const li = graph.linkAt.main[cell], at = li >= 0 ? entry.where.link.get(li) : undefined;
+  if (!at || !at[0].state) return null;
+  const [s, k] = at, l = s.model.links[k], cells = graph.links[li].cells, p = cells.indexOf(cell);
+  const q = (s.mean ?? s.state!.flow)[k], t = p / (cells.length - 1);
+  return {
+    fill: fillAt(s, l.a) * (1 - t) + fillAt(s, l.b) * t,
+    flow: Math.abs(q),
+    dir: q > 0 ? step(cell, cells[p + 1]) : q < 0 ? step(cell, cells[p - 1]) : [0, 0],
+  };
+}
+
 /** What the solver needs told of a network this frame: its intakes' water, and what each outlet feeds. */
 function surroundings(g: Grid, field: WaterField, m: WaterModel) {
   const waters = m.intakes.map((t) => intakeWater(g, field, t.cell));
@@ -519,7 +596,10 @@ export function runMains(field: WaterField, g: Grid, dt: number, pumps: MainPump
     }
     const solved = flows.get(net.cells[0]);
     const burst = burstAt !== null && of[burstAt] === net.id;
-    if (solved) out.set(net.cells[0], packed ? runOnDevice(g, field, net, solved, packed, dt, pumps, burst) : runSolved(g, field, net, solved, dt, pumps, burst));
+    if (solved) {
+      out.set(net.cells[0], packed ? runOnDevice(g, field, net, solved, packed, dt, pumps, burst) : runSolved(g, field, net, solved, dt, pumps, burst));
+      fold(solved, dt);
+    }
   }
   // THE FRAME, to the device: what each outlet may be given and whether each pump runs. Its pass runs once for it.
   if (packed && dt > 0) packed.port.frame(packed.frame, dt);
@@ -536,8 +616,8 @@ export function mainReportAt(g: Grid, x: number, y: number): MainReport | null {
   return id >= 0 && list[id] ? reports.get(list[id].cells[0]) ?? null : null;
 }
 
-/** Every network's report from the last frame. */
-export const mainReports = (): ReadonlyMap<number, MainReport> => reports;
+/** A network's report from the last frame; null before its first. */
+export const mainReportOf = (g: Grid, net: MainNet): MainReport | null => (g === reportGrid ? reports.get(net.cells[0]) ?? null : null);
 /** And only if they were for this map: none for another. */
 export const mainReportsFor = (g: Grid): ReadonlyMap<number, MainReport> => (g === reportGrid ? reports : new Map());
 

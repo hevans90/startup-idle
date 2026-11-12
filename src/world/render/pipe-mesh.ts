@@ -772,7 +772,11 @@ const UP = (() => {
 })();
 
 /** What a window shows: its fill's colour; marks along it, -1 to 1, in their colour — streaks on water, or lumps in slop. */
-export type WindowFill = { colour: number; marks: readonly number[]; mark: number; lumps: boolean };
+export type WindowFill = {
+  colour: number; marks: readonly number[]; mark: number; lumps: boolean;
+  /** How full the pipe behind it stands, nought to one; left out, full. */
+  level?: number;
+};
 /** The fill inside the glass, and a streak's length and a lump's size, shares of the tube's radius. */
 const FILL_R = 0.8, STREAK = 1.1, STREAK_R = 0.16, LUMP_R = 0.28;
 
@@ -797,7 +801,8 @@ export function windowGlass(
   const tu = UP[0] - d * du, tv = UP[1] - d * dv, th = UP[2] - d * dh, tl = Math.hypot(tu, tv, th) || 1;
   const top = [tu / tl, tv / tl, th / tl];
   if (fill) {
-    const a = at(-1), b = at(1), rf = r * FILL_R;
+    // A pipe part full shows a thinner run of it: never so thin it is lost.
+    const a = at(-1), b = at(1), rf = r * FILL_R * (0.35 + 0.65 * Math.min(1, fill.level ?? 1));
     tube(m, s, a[0], a[1], a[2], b[0], b[1], b[2], rf, solid(fill.colour), sides);
     const mark = solid(fill.mark), half = (STREAK * rf) / Math.max(1e-6, len - 2 * inset);
     for (const k of fill.marks) {

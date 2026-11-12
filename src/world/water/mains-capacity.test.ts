@@ -20,7 +20,7 @@ import { allTanks, resetCooling, stepCooling, tankFor } from "../projects/coolin
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField, setWaterEdge, stepWater } from "./field";
-import { findMains, layMain, mainReports, mainsToPorts, pipesToMains, planMain, runMains } from "./mains";
+import { findMains, layMain, mainReportsFor, mainsToPorts, pipesToMains, planMain, runMains } from "./mains";
 
 afterEach(resetCooling);
 
@@ -87,7 +87,7 @@ describe("what one main carries", () => {
 
 describe("the singularity fixture's mains", () => {
   /** The fixture, entered into play: its old pipes made mains, run on to the buildings' inlets, its water settled, its tanks run. */
-  function played(): { g: Grid; reports: ReturnType<typeof mainReports> } {
+  function played(): { g: Grid; reports: ReturnType<typeof mainReportsFor> } {
     const g = createGrid(64, 64, 1);
     applyFixture(g, "singularity", 1);
     pipesToMains(g);
@@ -99,7 +99,7 @@ describe("the singularity fixture's mains", () => {
       for (const t of allTanks().values()) t.level = 0;
       runMains(f, g, 1 / 60);
     }
-    return { g, reports: mainReports() };
+    return { g, reports: mainReportsFor(g) };
   }
 
   test("each carries water, a pump's or gravity's, into the building it was laid to", () => {

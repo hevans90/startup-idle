@@ -26,7 +26,7 @@ import { MAX_RESERVOIRS, reservoirs } from "../world/ai/reservoir";
 import { applyFixture } from "../world/debug/fixtures";
 import { createGrid, type Grid } from "../world/grid";
 import { resetCooling, stepCooling, tankFor } from "../world/projects/cooling";
-import { runMains } from "../world/water/mains";
+import { stepPipes } from "../world/pipes/tick";
 import { runSources, stepWater } from "../world/water/field";
 import { resetAllGameStores } from "./reset-game-stores";
 
@@ -135,7 +135,7 @@ export function simulateTakeover(run: TakeoverRun, rand: () => number = Math.ran
     stepCooling(g, agents, false, 1);
     const n = run.waterSteps ?? 1;
     // As the scene runs a frame of water: the springs, the mains, the flow. @see world-scene
-    if (f) for (let k = 0; k < n; k++) { runSources(f, g, 1 / n); runMains(f, g, 1 / n); stepWater(f, 1 / n); }
+    if (f) for (let k = 0; k < n; k++) { runSources(f, g, 1 / n); stepPipes(g, f, 1 / n); stepWater(f, 1 / n); }
     const share = cooledShare(g);
     dry = share < SHORT ? dry + 1 : 0;
     report.dryest = Math.max(report.dryest, dry);

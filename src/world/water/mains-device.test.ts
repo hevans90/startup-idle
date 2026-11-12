@@ -16,7 +16,7 @@ import { resetCooling, stepCooling, tankFor } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField, setWaterEdge, stepWater, type WaterField } from "./field";
-import { layMain, mainReports, planMain, runMains, waterInMains } from "./mains";
+import { layMain, mainReportsFor, planMain, runMains, waterInMains } from "./mains";
 
 afterEach(resetCooling);
 
@@ -82,7 +82,7 @@ describe("the mains on the device", () => {
     expect(t.level).toBeCloseTo(3, 4);
     // Every drop the device let out reached the tank: none in the air, none twice.
     expect(delivered(twin)).toBeCloseTo(3, 4);
-    expect([...mainReports().values()][0].state).toBe("full");
+    expect([...mainReportsFor(g).values()][0].state).toBe("full");
   }, 30_000);
 
   test("no water is made or lost between the lake, the pipe and the tank", () => {

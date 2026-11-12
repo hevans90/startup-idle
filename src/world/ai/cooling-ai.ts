@@ -12,7 +12,7 @@ import { tankFor } from "../projects/cooling";
 import { depthAt } from "../water/field";
 import { layPipePath } from "../play/build-actions";
 import { routePipe, type PipeRoute } from "./pipe-route";
-import { findMains, mainReports, outletBuilding, planMain, previewMain } from "../water/mains";
+import { findMains, mainReportOf, outletBuilding, planMain, previewMain } from "../water/mains";
 import { skillOf } from "../../state/training.store";
 import { RESERVOIR, reservoirs } from "./reservoir";
 
@@ -92,9 +92,8 @@ export function waterThatLasts(g: Grid, wet: (x: number, y: number) => boolean, 
     if (at) bodies[body[idx(g, at[0], at[1])]].inflow += g.source[i];
   }
   // WHAT IS DRAWN FROM EACH: every main's capacity, on the body its intake stands in or beside.
-  const reports = mainReports();
   for (const net of findMains(g).list) {
-    const r = reports.get(net.id);
+    const r = mainReportOf(g, net);
     const draw = r ? r.capacity : NEW_DRAW;
     for (const i of net.intakes) {
       const x = i % g.w, y = (i - x) / g.w;

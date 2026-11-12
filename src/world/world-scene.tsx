@@ -151,7 +151,7 @@ import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { CLEANERS_PER_TILE, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
 import { dryUp, mopAll, ring, sludgeAt, sludgedHouses } from "./events/sludge";
-import { emptyFull, slopSpike, stepSlop, tanksOf } from "./slop/tanks";
+import { emptyFull, slopSpike, tanksOf } from "./slop/tanks";
 import { slopRate } from "../game/slop";
 import { convoyTally, tallyCall, townMood } from "./events/town-events";
 import { createDirector, dueFollowUp, eventStarted, pickEvent, queueFollowUp, tickDirector } from "./events/director";
@@ -192,7 +192,7 @@ import { MAIN_END, footprintCells, idx, inBounds, structureAt, surfaceHeightAt, 
 import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
-import { runPipes } from "./water/pipes";
+import { stepPipes } from "./pipes/tick";
 import { allTanks, hoseFor, onMains, setHeat, stepCooling, tankFor, wateredShare } from "./projects/cooling";
 import { HEAT_THIRST, OVERHEAT_SHARE } from "./events/defs/heatwave";
 import { CLEAN_RECORD } from "./events/defs/inspector";
@@ -270,7 +270,7 @@ import { serviceOf } from "./agents/services";
 /** The services a Holo-Concierge stands at: those in the AI's district. @see game/machine "concierge" */
 const conciergesOf = (g: import("./grid").Grid) =>
   [...g.structures.values()].filter((s) => !s.build && serviceOf(s.def) && inAiDistrictNow(g, s.x, s.y)).map((s) => ({ x: s.x, y: s.y + s.h }));
-import { breakableCell, planMain, previewSewer, runMains, setBackedUp, setBurst } from "./water/mains";
+import { breakableCell, planMain, previewSewer, setBackedUp, setBurst } from "./water/mains";
 import { mainStroke } from "./water/main-stroke";
 import { pipeKindOf, strokeRoute } from "./pipes/stroke-route";
 import { BLACKOUT_RADIUS } from "./events/defs/blackout";
@@ -3079,10 +3079,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       let sw = section("water: sync, sources, pipes");
       solverRef.current?.sync(field.columns);
       runSources(field, grid, dt);
-      // PUMP HOUSES are paid for while they run, in the game. @see runPumps
-      runPipes(field, grid, dt, useWorldStore.getState().playing ? PAID_PUMPS : undefined);
-      // THE WATER MAINS: the game's pipes, solved and delivered. @see runMains
-      runMains(field, grid, dt, useWorldStore.getState().playing ? PAID_PUMPS : undefined);
+      // EVERY PIPE, in one call: the editor's spouts, the water mains solved and
+      // delivered, and in the game the slop — made by who sits at the vibe
+      // workplaces' desks, drained by the sewers, spilled when a tank is full.
+      // Pumps and lift stations are paid for while they run, in the game. @see stepPipes
+      {
+        const playing = useWorldStore.getState().playing, roads = getNetwork();
+        stepPipes(grid, field, dt, {
+          pumps: playing ? PAID_PUMPS : undefined,
+          slop: playing && roads ? { desks: liveSeating(grid, roads).desks, perCoder: slopRate() } : null,
+        });
+      }
       // THE SLOP IN THE WATER, carried and diluted by it. @see stepPollution
       stepPollution(field, dt);
       // The columns the boats will read, asked for before the step uploads
@@ -3305,9 +3312,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           { const e = section("tick: arrivals"); stepArrivals(arrivals, st.grid, net, getTown(), owned, fake ? {} : useSessionStore.getState().remoteBeds ?? {}, dt); e(); }
           if (arrivals.moved.length) useWorldStore.getState().housingMoved(arrivals.moved.splice(0));
         }
-        // THE SLOP TANKS at the vibe workplaces, filled by what the vibe coders
-        // at their desks make, drained by the sewers, spilling when full. @see stepSlop
-        if (st.playing) stepSlop(st.grid, st.getWaterField(), liveSeating(st.grid, net).desks, slopRate(), dt, PAID_PUMPS.pay);
         // EVENTS, in the game: the director's look twice a second, and what
         // an event under way does to the map. @see world/events
         const sEvents = section("tick: leaders, events, flood");

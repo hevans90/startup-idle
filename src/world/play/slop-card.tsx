@@ -12,7 +12,7 @@ import { useWorldStore } from "../../state/world.store";
 import { InfoPop } from "../../ui/InfoPop";
 import { tanksOf } from "../slop/tanks";
 import { structureDef } from "../structures/def";
-import { mainReports } from "../water/mains";
+import { mainReportsFor } from "../water/mains";
 import { showMe } from "./map-focus";
 
 /** Tanks the slop card lists one by one; past this, it sums them up and lists only the worst. */
@@ -29,7 +29,7 @@ export function SlopCard() {
   useTicking(500);
   const grid = useWorldStore((s) => s.grid);
   const tanks = tanksOf(grid);
-  const drained = new Set([...mainReports().values()].flatMap((r) => (r.sewer && r.state === "flowing" ? r.sewer.sources : [])));
+  const drained = new Set([...mainReportsFor(grid).values()].flatMap((r) => (r.sewer && r.state === "flowing" ? r.sewer.sources : [])));
   const rows = [...tanks.entries()]
     .map(([id, t]) => ({ id, t, s: grid.structures.get(id), full: t.capacity > 0 ? t.level / t.capacity : 0, sewered: drained.has(id) }))
     .filter((r) => r.s);
