@@ -13,7 +13,11 @@
  */
 import { surfaceAt, wantDepth, addWater } from "../../fluid/columns";
 import { isDrinker } from "../../game/cooling";
-import { pumpLift, sewerFlow } from "../../game/mains";
+import { PUMP_MOST, pumpLift, sewerFlow } from "../../game/mains";
+import {
+  H_GEN, H_INTAKES, H_LINKS, H_NODES, H_OUTLETS, INTAKE_WORDS, LINK_WORDS, NODE_WORDS, OUTLET_FRAME, OUTLET_WORDS,
+  pipeOffsets, type PipePort,
+} from "../../fluid/gpu/pipes";
 import { coolingKept } from "../../game/pollution";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, MAIN_STUB, SEWER_FIT, VOID, edited, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
@@ -28,7 +32,7 @@ import { pipeGraph, type MainNet } from "../pipes/graph";
 import type { MainReport, MainState } from "../pipes/report";
 import { runsOf, type PipeProfile } from "../pipes/profile";
 import {
-  SLOT, emptyWater, fillOf, settledWater, steadyFlow, stepWater as stepPipes, waterHeld, waterModel,
+  SLOT, emptyWater, fillOf, floorOf, settledWater, steadyFlow, stepWater as stepPipes, waterHeld, waterModel,
   type Steady, type WaterEnv, type WaterModel, type WaterState,
 } from "../pipes/hydraulics";
 
@@ -156,7 +160,28 @@ export function solveSewer(g: Grid, net: MainNet): MainReport {
 
 /** A water network as the solver holds it: its model, the water in it (null till first run), and its steady flow as last worked out. */
 type Solved = { model: WaterModel; state: WaterState | null; steady: { sig: string; flow: Steady; age: number } | null };
-const solvedFor = new WeakMap<Grid, { rev: number; nets: Map<number, Solved> }>();
+/**
+ * THE NETWORKS AS PACKED FOR THE DEVICE, while it owns the water: which
+ * upload this is, where each network's nodes, links, intakes and outlets
+ * start in the packed whole, and — an outlet at a time — what the device has
+ * been GRANTED to deliver and what it was last seen to have delivered.
+ * @see fluid/gpu/pipes, packMains
+ */
+type Packed = {
+  port: PipePort;
+  gen: number;
+  at: Map<number, { n: number; l: number; i: number; o: number }>;
+  off: ReturnType<typeof pipeOffsets>;
+  granted: Float64Array;
+  seen: Float64Array;
+  frame: Float32Array;
+  /** Intakes in all: the frame's block has a word for each, then its outlets'. */
+  intakes: number;
+  /** What each network is carrying, smoothed: answers come back a frame or three apart. */
+  shown: Map<number, number>;
+};
+const solvedFor = new WeakMap<Grid, { rev: number; nets: Map<number, Solved>; packed?: Packed | null }>();
+let packs = 0;
 
 /**
  * Every water network's model, by the cell it starts at: kept till the map
@@ -196,6 +221,130 @@ function solvedNets(g: Grid, field: WaterField): Map<number, Solved> {
   for (const [c, v] of carried) addWater(field.columns, columnOf(c % g.w) + mid, columnOf((c / g.w) | 0) + mid, v);
   solvedFor.set(g, { rev: g.rev, nets });
   return nets;
+}
+
+/**
+ * EVERY WATER NETWORK PACKED INTO ONE BUFFER for the device: the header, the
+ * block the host rewrites a frame, the device's own block as it should start
+ * — each node's water and each link's flow as the host last had them, a map
+ * first seen full and settled — and the networks end to end. Null where they
+ * are more than the buffer holds: then the host goes on solving them.
+ */
+function packMains(g: Grid, field: WaterField, nets: Map<number, Solved>, port: PipePort): Packed | null {
+  let N = 0, L = 0, I = 0, O = 0;
+  for (const s of nets.values()) { N += s.model.nodes.length; L += s.model.links.length; I += s.model.intakes.length; O += s.model.outlets.length; }
+  const off = pipeOffsets(N, L, I, O);
+  if (off.words > port.words) return null;
+  const all = new Float32Array(off.scratch), at: Packed["at"] = new Map();
+  const gen = ++packs;
+  all[H_NODES] = N; all[H_LINKS] = L; all[H_INTAKES] = I; all[H_OUTLETS] = O; all[H_GEN] = gen;
+  all[off.dyn] = gen;
+  const nx = field.columns.nx, mid = Math.floor(COLUMNS_PER_TILE / 2);
+  let n = 0, l = 0, i = 0, o = 0;
+  for (const [key, s] of nets) {
+    const m = s.model;
+    at.set(key, { n, l, i, o });
+    const sur = surroundings(g, field, m), envNow = sur.env(true, sur.outs.map((x) => x.building >= 0));
+    if (!s.state) s.state = settledWater(m, envNow);
+    if (Number.isNaN(s.state.floor)) s.state.floor = floorOf(envNow);
+    m.nodes.forEach((_, k) => {
+      all[off.held + n + k] = s.state!.held[k];
+      const w = off.nodes + (n + k) * NODE_WORDS;
+      all[w] = m.full[k]; all[w + 1] = s.state!.floor; all[w + 2] = m.intakeAt[k] >= 0 ? i + m.intakeAt[k] : -1;
+    });
+    m.links.forEach((link, k) => {
+      all[off.flow + l + k] = s.state!.flow[k];
+      const w = off.links + (l + k) * LINK_WORDS;
+      all[w] = n + link.a; all[w + 1] = n + link.b; all[w + 2] = link.loss;
+    });
+    m.intakes.forEach((t, k) => {
+      const w = off.intakes + (i + k) * INTAKE_WORDS;
+      all[w] = n + t.node;
+      // A pump moves only so much and lifts so far; a plain intake, all the head gives.
+      all[w + 1] = t.pump ? PUMP_MOST * t.bore : 1e30;
+      all[w + 2] = t.pump ? pumpLift() : 0;
+      // The columns it may draw from: its own tile's and the four beside it. @see intakeWater
+      const x = t.cell % g.w, y = (t.cell / g.w) | 0;
+      [[0, 0], ...SIDES.map((side) => NEIGHBOUR[side])].forEach(([dx, dy], c) => {
+        all[w + 3 + c] = inBounds(g, x + dx, y + dy) ? (columnOf(y + dy) + mid) * nx + columnOf(x + dx) + mid : -1;
+      });
+    });
+    m.outlets.forEach((out, k) => {
+      const w = off.outlets + (o + k) * OUTLET_WORDS;
+      all[w] = n + out.node; all[w + 1] = Number.isFinite(sur.outs[k].sill) ? sur.outs[k].sill : 1e30; all[w + 2] = out.loss; all[w + 3] = out.most;
+    });
+    n += m.nodes.length; l += m.links.length; i += m.intakes.length; o += m.outlets.length;
+  }
+  port.load(all);
+  return { port, gen, at, off, granted: new Float64Array(O), seen: new Float64Array(O), frame: new Float32Array(I + OUTLET_FRAME * O), intakes: I, shown: new Map() };
+}
+
+/**
+ * One frame of a water network SOLVED ON THE DEVICE: the host says what each
+ * outlet may be given and whether the pumps run, takes what the device was
+ * last seen to have delivered into the tanks, and reports. The water itself
+ * moves over there, on the depth the device holds. @see runSolved, its twin
+ */
+function runOnDevice(g: Grid, field: WaterField, net: MainNet, s: Solved, p: Packed, dt: number, pumps: MainPumps, burst: boolean): MainReport {
+  const m = s.model, place = p.at.get(net.cells[0])!;
+  const sur = surroundings(g, field, m), { outs, env } = sur;
+  const fed = outs.map((o) => o.building >= 0);
+  const wants = outs.some((o) => o.building >= 0 && tankRoom(o.building) > 0);
+  let pumping = true, unpaid = false;
+  let all = steadyOf(s, env(true, fed), dt);
+  if (all.pumped.some(Boolean) && wants && !burst && !pumps.pay(dt)) { pumping = false; unpaid = true; all = steadyOf(s, env(false, fed), dt); }
+  const { report, kept } = describeMain(field, net, m, sur, all, pumping, unpaid);
+  // WHAT CAME BACK: only an answer to this upload. One in the air when the map changed is another network's.
+  const back = p.port.latest(), fresh = back !== null && back[0] === p.gen ? back : null;
+  let arrived = 0;
+  if (fresh) {
+    const base = p.off.dyn;
+    m.nodes.forEach((_, k) => { s.state!.held[k] = fresh[p.off.held - base + place.n + k]; });
+    m.links.forEach((_, k) => { s.state!.flow[k] = fresh[p.off.flow - base + place.l + k]; });
+  }
+  m.outlets.forEach((_, k) => {
+    const j = place.o + k;
+    if (fresh) {
+      // The count is kept whole and part: read as one number here, where doubles have the room.
+      const at = p.off.delivered - p.off.dyn + 2 * j, seen = fresh[at] + fresh[at + 1];
+      const more = seen - p.seen[j];
+      // Fouled water cools less: a tank is given so much the less of what left the pipe.
+      if (more > 0 && outs[k].building >= 0) fillTank(outs[k].building, more * kept);
+      if (more > 0) arrived += more;
+      p.seen[j] = seen;
+    }
+    // GRANT what its tank has room for that is not already on its way: never more than fits.
+    const room = outs[k].building >= 0 && !burst && kept > 0 ? tankRoom(outs[k].building) / kept : 0;
+    const coming = p.granted[j] - p.seen[j];
+    if (room > coming) p.granted[j] += room - coming;
+    // Its words in the frame's block, after every intake's.
+    const f = p.intakes + OUTLET_FRAME * j;
+    p.frame[f] = fed[k] && !burst ? 1 : 0;
+    p.frame[f + 1] = Math.floor(p.granted[j]);
+    p.frame[f + 2] = p.granted[j] - Math.floor(p.granted[j]);
+  });
+  m.intakes.forEach((_, k) => { p.frame[place.i + k] = pumping ? 1 : 0; });
+  if (burst) {
+    // BURST: what it would carry drawn as ever, and poured out at the joint — by the host's hand, as arrivals. @see setBurst
+    const { columns } = field;
+    let left = report.capacity * dt, poured = 0;
+    const order = sur.waters.filter((w): w is NonNullable<typeof w> => !!w).sort((a, b) => b.surface - a.surface);
+    for (const w of order) {
+      if (left <= 0) break;
+      const got = Math.min(left, columns.depth[w.column]);
+      if (got > 0) { addWater(columns, w.column % columns.nx, (w.column / columns.nx) | 0, -got); left -= got; poured += got; }
+    }
+    const mid = Math.floor(COLUMNS_PER_TILE / 2), bx = burstAt! % g.w, by = (burstAt! / g.w) | 0;
+    if (poured > 0) addWater(columns, columnOf(bx) + mid, columnOf(by) + mid, poured);
+    return { ...report, state: "burst", outlets: report.outlets.map((o) => ({ ...o, capacity: 0 })) };
+  }
+  // What it is carrying, evened out over a quarter of a second: an answer does not come back every frame.
+  const was = p.shown.get(net.cells[0]) ?? 0;
+  const now = fresh && dt > 0 ? was + ((arrived * kept) / dt - was) * Math.min(1, dt / 0.25) : was;
+  p.shown.set(net.cells[0], now);
+  report.flow = now;
+  if (report.state === "flowing" && !wants) report.state = "full";
+  return report;
 }
 
 /** All the water standing in a map's mains, for sums that must not lose any. */
@@ -353,6 +502,11 @@ export function runMains(field: WaterField, g: Grid, dt: number, pumps: MainPump
   const out = new Map<number, MainReport>();
   // Made again for a map just edited even with no main left on it: what a lifted run held is put down. @see solvedNets
   const flows = solvedNets(g, field);
+  // ON THE DEVICE, while it owns the water: packed for it when the map, or the device, is new. @see packMains
+  const entry = solvedFor.get(g)!, port = field.columns.pipes;
+  if (!port) entry.packed = null;
+  else if (!entry.packed || entry.packed.port !== port) entry.packed = flows.size ? packMains(g, field, flows, port) : null;
+  const packed = entry.packed ?? null;
   for (const net of list) {
     // A SEWER carries what the tanks last gave it, until they say again this frame. @see stepSlop
     if (net.sewer) {
@@ -364,8 +518,11 @@ export function runMains(field: WaterField, g: Grid, dt: number, pumps: MainPump
       continue;
     }
     const solved = flows.get(net.cells[0]);
-    if (solved) out.set(net.cells[0], runSolved(g, field, net, solved, dt, pumps, burstAt !== null && of[burstAt] === net.id));
+    const burst = burstAt !== null && of[burstAt] === net.id;
+    if (solved) out.set(net.cells[0], packed ? runOnDevice(g, field, net, solved, packed, dt, pumps, burst) : runSolved(g, field, net, solved, dt, pumps, burst));
   }
+  // THE FRAME, to the device: what each outlet may be given and whether each pump runs. Its pass runs once for it.
+  if (packed && dt > 0) packed.port.frame(packed.frame, dt);
   reports = out;
   reportOf = of;
   reportGrid = g;

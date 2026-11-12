@@ -334,7 +334,7 @@ export type WaterState = {
 export const emptyWater = (m: WaterModel): WaterState => ({ held: new Float64Array(m.nodes.length), flow: new Float64Array(m.links.length), floor: NaN });
 
 /** The level everything in a system is measured up from: under its lowest floor and its lowest water, by a pipe and a little. */
-function floorOf(env: WaterEnv): number {
+export function floorOf(env: WaterEnv): number {
   let low = Infinity;
   env.sill.forEach((s) => { if (Number.isFinite(s)) low = Math.min(low, s); });
   env.surface.forEach((s) => { if (s !== null) low = Math.min(low, s); });

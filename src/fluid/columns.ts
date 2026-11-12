@@ -510,6 +510,13 @@ export type ColumnField = {
    * @see gatherWanted
    */
   wanted: { at: Int32Array; n: number } | null;
+  /**
+   * THE MAINS' SEAT ON THE DEVICE, while it owns the water: the host packs
+   * its pipe networks into it and they are solved there, beside the water
+   * they draw from. Null on the CPU path, where the host solves them itself.
+   * @see fluid/gpu/pipes
+   */
+  pipes: import("./gpu/pipes").PipePort | null;
 };
 
 /** Slot zero is the whole map; every other slot starts out empty. */
@@ -633,6 +640,7 @@ export function createColumnField(
     drips: createDrips(nx, ny, layers),
     arrivals: null,
     wanted: null,
+    pipes: null,
   };
 }
 

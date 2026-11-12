@@ -66,6 +66,7 @@ import { drainSpawns } from "./falls";
 import { createAccelerate } from "./accelerate";
 import { createApply, readReduce, reduceSeed } from "./apply";
 import { createArrive } from "./arrive";
+import { createPipes } from "./pipes";
 import { createCliffs } from "./cliffs";
 import { createCalm } from "./calm";
 import { createDiffuse } from "./diffuse";
@@ -358,6 +359,7 @@ export function createGpuWater(
   f.wanted = { at: new Int32Array(WANT_MAX), n: 0 };
   const passes = {
     arrive: createArrive(device),
+    pipes: createPipes(device),
     spill: createSpill(device),
     cliffs: createCliffs(device),
     diffuse: createDiffuse(device),
@@ -376,6 +378,7 @@ export function createGpuWater(
     wash: createWashPass(device),
     foam: createFoamPass(device),
   };
+  f.pipes = passes.pipes.port;
 
   // TWO staging buffers, used turn and turn about: a buffer may not be the
   // destination of a copy while it is mapped, so a single one would have to be
@@ -1353,6 +1356,8 @@ export function createGpuWater(
     // WHAT THE HOST POURED, first, so the cliff index and everything after it
     // sees water that arrived this frame rather than next.
     passes.arrive.encode(enc, state, arriveN);
+    // THE MAINS, on the water as it stands with this frame's pours in it: what they draw is gone before the first substep moves any.
+    if (on("pipes")) passes.pipes.encode(enc, state);
     passes.cliffs.encode(enc, state);
 
     let calmFirst = true;
@@ -1537,6 +1542,7 @@ export function createGpuWater(
         if (e) console.error("WATER: the frame did not validate —", e.message);
       });
     } else device.queue.submit([enc.finish()]);
+    passes.pipes.readback();
     stale++;
     frame.encodeMs = performance.now() - enc0 - frame.uploadMs;
     return true;
@@ -1578,6 +1584,8 @@ export function createGpuWater(
       state.stamps = null;
       f.arrivals = null;
       f.wanted = null;
+      f.pipes = null;
+      passes.pipes.destroy();
       // THE SHEETS TOO, which nothing else will ever do: `sheetTo(null)` is the
       // only other door and it has never had a caller. The pass holds four
       // buffers of its own, so every scene rebuild left a set behind — and a
