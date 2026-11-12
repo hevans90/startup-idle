@@ -13,8 +13,9 @@ import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { fluidIndexOf } from "../water/materials";
 import { backedUpCell, mainReportsFor } from "../water/mains";
 import { portsOf } from "../water/ports";
-import { pourAt, type WaterField } from "../water/field";
-import { fluidAt, ring } from "../events/sludge";
+import { wantDepth } from "../../fluid/columns";
+import { COLUMNS_PER_TILE, depthAt, drainAt, pourAt, type WaterField } from "../water/field";
+import { ring } from "../events/sludge";
 import { stepSewers } from "../sewers/flow";
 
 /** A workplace's tank: what it holds and can, what it fills by a second, and whether it is spilling. */
@@ -45,23 +46,83 @@ export function emptyFull(g: Grid): void {
 
 /** Water deep enough on a tile for what is let out beside it to go into. */
 const WET = 0.5;
+/**
+ * How deep the water on a tile is, half steps, on the ground storey: its
+ * deepest column that is more water than slop. By its strength, not by what
+ * the column is called: slop just let into a lake has not been mixed in yet.
+ */
+function mostlyWater(field: WaterField, x: number, y: number): number {
+  const c = field.columns;
+  let most = 0;
+  for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
+    const cx = x * COLUMNS_PER_TILE + dx, cy = y * COLUMNS_PER_TILE + dy;
+    if (cx >= c.nx || cy >= c.ny) continue;
+    const i = cy * c.nx + cx;
+    if (c.foul[i] < 0.5 && c.depth[i] > most) most = c.depth[i];
+  }
+  return most;
+}
+
 /** The water beside or on a tile, deepest first, or null: where an outfall or a spill goes in. Water, not sludge already spilt. */
 function waterBy(g: Grid, field: WaterField, x: number, y: number): { x: number; y: number } | null {
   let best: { x: number; y: number } | null = null, most = WET;
   for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
     if (!inBounds(g, x + dx, y + dy)) continue;
-    const d = fluidAt(field, x + dx, y + dy, fluidIndexOf("water"));
+    const d = mostlyWater(field, x + dx, y + dy);
     if (d >= most) { most = d; best = { x: x + dx, y: y + dy }; }
   }
   return best;
 }
 
-/** Put slop out at a tile: into the water beside it if there is any, or onto the ground. */
-export function release(g: Grid, field: WaterField, x: number, y: number, amount: number) {
+/**
+ * Put what a sewer carries out at a tile: into the water beside it if there
+ * is any, or onto the ground. `strength` is how much of it is slop; the rest
+ * is storm water, and goes out as water.
+ */
+export function release(g: Grid, field: WaterField, x: number, y: number, amount: number, strength = 1) {
   if (!(amount > 0)) return;
+  if (strength < 1) {
+    const at = waterBy(g, field, x, y) ?? { x, y };
+    pourAt(field, at.x, at.y, amount * SPILL_DEPTH * (1 - Math.max(0, strength)), fluidIndexOf("water"));
+    amount *= Math.max(0, strength);
+    if (!(amount > 0)) return;
+  }
   // ONE THING, wherever it goes: slop, poured. In water it mixes and the water carries it. @see ColumnField.foul
   const at = waterBy(g, field, x, y) ?? { x, y };
   pourAt(field, at.x, at.y, amount * SPILL_DEPTH, fluidIndexOf("slop"));
+}
+
+/** How high the water's surface stands on a tile, in the ground's half steps: its highest wet column's; −∞ where it is dry. */
+function surfaceOn(field: WaterField, x: number, y: number): number {
+  const c = field.columns;
+  let top = -Infinity;
+  for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
+    const cx = x * COLUMNS_PER_TILE + dx, cy = y * COLUMNS_PER_TILE + dy;
+    if (cx >= c.nx || cy >= c.ny) continue;
+    const i = cy * c.nx + cx;
+    wantDepth(c, i);
+    if (c.depth[i] > c.params.dryDepth) top = Math.max(top, c.ground[i] + c.depth[i]);
+  }
+  return top;
+}
+
+/** Take so much depth off a tile's standing water: what went, as a depth over the tile, and how much of it was slop. */
+function drainTile(field: WaterField, x: number, y: number, depth: number): { depth: number; strength: number } {
+  const c = field.columns;
+  const sum = () => {
+    let d = 0, m = 0;
+    for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
+      const cx = x * COLUMNS_PER_TILE + dx, cy = y * COLUMNS_PER_TILE + dy;
+      if (cx >= c.nx || cy >= c.ny) continue;
+      const i = cy * c.nx + cx;
+      d += c.depth[i]; m += c.depth[i] * c.foul[i];
+    }
+    return { d, m };
+  };
+  const was = sum();
+  drainAt(field, x, y, depth);
+  const now = sum();
+  return { depth: (was.d - now.d) / (COLUMNS_PER_TILE * COLUMNS_PER_TILE), strength: was.d > 0 ? was.m / was.d : 0 };
 }
 
 /**
@@ -136,7 +197,13 @@ export function stepSlop(
     pay, backedUp: backedUpCell(),
     room: roomLeft,
     take: (id, amount) => taken.set(id, (taken.get(id) ?? 0) + amount),
-    release: (x, y, amount) => { if (field) release(g, field, x, y, amount); },
+    release: (x, y, amount, strength) => { if (field) release(g, field, x, y, amount, strength); },
+    // STORM DRAINS and drowned outfalls ask the water itself. @see SEWER_GRATE
+    ...(field ? {
+      standing: (x: number, y: number) => depthAt(field, x, y),
+      drain: (x: number, y: number, depth: number) => drainTile(field, x, y, depth),
+      surface: (x: number, y: number) => surfaceOn(field, x, y),
+    } : {}),
   });
   // SPILLED, a full tank, at its port — or, built over, out of the nearest
   // gap round the building: it goes somewhere.

@@ -398,6 +398,13 @@ export const MAIN_BORE = 16, MAIN_AI = 32, MAIN_SEWER = 64, MAIN_STUB = 128;
 export const SEWER_FIT = { node: 1, outfall: 2, inlet: 3 } as const;
 /** Flags on a sewer's cell, above its `DIR` joins: its bore widened; laid by the AI. */
 export const SEWER_BORE = 16, SEWER_AI = 32;
+/**
+ * And a GRATE on its manhole: a STORM DRAIN. Water standing in the street
+ * goes down it, as much as the trunk can take. A manhole in every other way
+ * — a connection still comes down into it — so it is a flag on the tile and
+ * not a fitting of its own. @see world/sewers/flow, planStormDrain
+ */
+export const SEWER_GRATE = 64;
 
 /** The invert of the pipe on a cell — where its floor is. See {@link Grid.pipeZ}. */
 export const pipeInvertAt = (g: Grid, x: number, y: number) =>

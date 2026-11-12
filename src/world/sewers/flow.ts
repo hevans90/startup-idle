@@ -18,7 +18,8 @@
  * @see solveSewers, pipeGraph, stepSlop, plans/pipe-network.md §2
  */
 import { sewerFlow } from "../../game/mains";
-import { SEWER_BORE, SEWER_FIT, type Grid } from "../grid";
+import { SPILL_DEPTH } from "../../game/slop";
+import { SEWER_BORE, SEWER_FIT, SEWER_GRATE, type Grid } from "../grid";
 import { pipeGraph, type SewerNet } from "../pipes/graph";
 import type { SewerReport } from "../pipes/report";
 import { sewerSources, type MainNet } from "../water/mains";
@@ -43,8 +44,24 @@ export type SewerHooks = {
   /** Room a processor has left this frame, and what it takes of it. */
   room: (building: number) => number;
   take: (building: number, amount: number) => void;
-  /** Put slop out at a tile: into the water, or onto the street. */
-  release: (x: number, y: number, amount: number) => void;
+  /**
+   * Put what a sewer carries out at a tile: into the water, or onto the
+   * street. `strength` is how much of it is slop, nought to one — the rest
+   * is storm water. Left out, all slop.
+   */
+  release: (x: number, y: number, amount: number, strength?: number) => void;
+  /**
+   * STORM DRAINS, where the map has water to ask: how deep it stands on a
+   * tile, half steps; and take so much of that off it — what was taken, and
+   * how much of it was slop. And how high the water's surface stands on a
+   * tile, in the ground's own half steps (−∞ where it is dry): an outfall is
+   * drowned by that, not by depth — its bank slopes into the river it pours
+   * into. Left out, a grate takes nothing and no outfall is ever under water.
+   * @see SEWER_GRATE, OUTFALL_CLEAR
+   */
+  standing?: (x: number, y: number) => number;
+  surface?: (x: number, y: number) => number;
+  drain?: (x: number, y: number, depth: number) => { depth: number; strength: number };
   /** A manhole backed up, passing nothing on: the event's. */
   backedUp: number | null;
 };
@@ -62,6 +79,20 @@ export const SEWER_HOLDS = 0.25;
 /** Slop a manhole's shaft holds over its pipe before it comes up in the street. */
 export const SHAFT_HOLDS = 0.5;
 
+/** The most a storm drain takes a second, in the sewers' own units; and the puddle it leaves, half steps. */
+export const STORM_RATE = 2;
+export const STORM_LEAST = 0.08;
+/**
+ * AN OUTFALL UNDER WATER. Its mouth stands `OUTFALL_CLEAR` half steps over
+ * its bank, so a river lapping at the bank, or a lake brim-full, does not
+ * trouble it; water whose surface stands higher than that on its tile drowns
+ * it, and it passes less the deeper, until `DROWNED` more stops it altogether.
+ */
+export const OUTFALL_CLEAR = 1;
+export const DROWNED = 2;
+/** Half steps a unit of what a sewer carries stands as, over one tile. @see game/slop SPILL_DEPTH */
+const UNIT_DEPTH = SPILL_DEPTH;
+
 /** One trunk network made ready to run: its nodes from the top down, each with the one way down it has. */
 type Trunk = {
   net: SewerNet;
@@ -69,6 +100,8 @@ type Trunk = {
   cells: number[];
   full: Float64Array;
   manhole: Uint8Array;
+  /** Whether its manhole has a grate: a storm drain. */
+  storm: Uint8Array;
   exit: Uint8Array;
   /** The node each drains into (−1 for an exit, or one that drains nowhere), what that run carries a second, and whether a lift station is on it. */
   down: Int32Array;
@@ -82,7 +115,11 @@ type Trunk = {
   wide: boolean;
 };
 
-const trunksFor = new WeakMap<Grid, { rev: number; trunks: Trunk[]; held: Map<number, number> }>();
+/**
+ * What stands in each node, by its tile: `held` all of it, `water` the part
+ * of that which is storm water. The rest is slop.
+ */
+const trunksFor = new WeakMap<Grid, { rev: number; trunks: Trunk[]; held: Map<number, number>; water: Map<number, number> }>();
 
 /**
  * Every trunk network as nodes with storage, off the pipe graph and the
@@ -90,18 +127,18 @@ const trunksFor = new WeakMap<Grid, { rev: number; trunks: Trunk[]; held: Map<nu
  * over. What stood in a tile that is no longer a node is handed back to be
  * put out there. @see pipeGraph, solveSewers
  */
-function trunksOf(g: Grid, release: (x: number, y: number, amount: number) => void) {
+function trunksOf(g: Grid, release: SewerHooks["release"]) {
   const was = trunksFor.get(g);
   if (was && was.rev === g.rev) return was;
   const graph = pipeGraph(g), s = solveSewers(g);
   const trunks: Trunk[] = [];
-  const kept = new Map<number, number>();
+  const kept = new Map<number, number>(), wet = new Map<number, number>();
   for (const net of s.nets) {
     const ids = graph.nodes.filter((n) => n.layer === "trunk" && s.of[n.cell] === net.id && s.drains[n.cell]).map((n) => n.id);
     const at = new Map(ids.map((id, k) => [id, k]));
     const n = ids.length;
     const t: Trunk = {
-      net, cells: ids.map((id) => graph.nodes[id].cell), full: new Float64Array(n), manhole: new Uint8Array(n), exit: new Uint8Array(n),
+      net, cells: ids.map((id) => graph.nodes[id].cell), full: new Float64Array(n), manhole: new Uint8Array(n), storm: new Uint8Array(n), exit: new Uint8Array(n),
       down: new Int32Array(n).fill(-1), carries: new Float64Array(n), lifted: new Uint8Array(n), order: [],
       lifts: net.cells.filter((i) => s.kind[i] === SEWER_KIND.lift), least: Infinity, wide: net.cells.every((i) => (g.sewer[i] & SEWER_BORE) !== 0),
     };
@@ -109,6 +146,7 @@ function trunksOf(g: Grid, release: (x: number, y: number, amount: number) => vo
     ids.forEach((id, k) => {
       const fit = g.sewerFit[t.cells[k]];
       t.manhole[k] = fit === SEWER_FIT.node ? 1 : 0;
+      t.storm[k] = t.manhole[k] && (g.sewer[t.cells[k]] & SEWER_GRATE) !== 0 ? 1 : 0;
       t.exit[k] = fit === SEWER_FIT.outfall || fit === SEWER_FIT.inlet ? fit : 0;
       for (const l of graph.nodes[id].links) {
         const link = graph.links[l];
@@ -129,11 +167,11 @@ function trunksOf(g: Grid, release: (x: number, y: number, amount: number) => vo
     const far = new Int32Array(n).fill(-1);
     const reach = (k: number): number => (far[k] >= 0 ? far[k] : (far[k] = t.down[k] >= 0 ? reach(t.down[k]) + 1 : 0));
     t.order = ids.map((_, k) => k).sort((a, b) => reach(b) - reach(a));
-    for (const c of t.cells) if (was?.held.has(c)) kept.set(c, was.held.get(c)!);
+    for (const c of t.cells) if (was?.held.has(c)) { kept.set(c, was.held.get(c)!); if (was.water.has(c)) wet.set(c, was.water.get(c)!); }
     trunks.push(t);
   }
-  if (was) for (const [c, v] of was.held) if (!kept.has(c) && v > 0) release(c % g.w, (c / g.w) | 0, v);
-  const out = { rev: g.rev, trunks, held: kept };
+  if (was) for (const [c, v] of was.held) if (!kept.has(c) && v > 0) release(c % g.w, (c / g.w) | 0, v, 1 - (was.water.get(c) ?? 0) / v);
+  const out = { rev: g.rev, trunks, held: kept, water: wet };
   trunksFor.set(g, out);
   return out;
 }
@@ -142,7 +180,14 @@ function trunksOf(g: Grid, release: (x: number, y: number, amount: number) => vo
 export function slopInSewers(g: Grid): number {
   let n = 0;
   for (const v of trunksFor.get(g)?.held.values() ?? []) n += v;
-  return n;
+  return n - waterInSewers(g) / UNIT_DEPTH;
+}
+
+/** All the storm water standing in a map's trunks, in half steps over a tile, as the water itself is counted. */
+export function waterInSewers(g: Grid): number {
+  let n = 0;
+  for (const v of trunksFor.get(g)?.water.values() ?? []) n += v;
+  return n * UNIT_DEPTH;
 }
 
 /** How full the trunk stands under a tile that is one of its nodes, nought to one; null where there is none. For the tubes. */
@@ -169,14 +214,14 @@ export function stepSewers(g: Grid, tanks: ReadonlyMap<number, { level: number }
   // IN STEPS OF ITS OWN: a long frame's slop landing on a manhole all at once would be over its shaft before any of it moved on.
   const steps = Math.max(1, Math.ceil(dt / SEWER_STEP - 1e-9)), h = dt / steps;
   if (steps === 1) { frame(g, tanks, dt, hooks); return; }
-  const sum = new Map<number, { inflow: number; delivered: number; spilled: number; worst: SewerReport["state"] }>();
+  const sum = new Map<number, { inflow: number; delivered: number; spilled: number; storm: number; worst: SewerReport["state"] }>();
   const taken = new Map<number, number>();
   const RANK: Record<SewerReport["state"], number> = { "no-exit": 0, idle: 1, flowing: 2, surcharged: 3, unpaid: 4, "backed-up": 5 };
   for (let k = 0; k < steps; k++) {
     frame(g, tanks, h, hooks);
     for (const [id, r] of reports) {
-      const t = sum.get(id) ?? { inflow: 0, delivered: 0, spilled: 0, worst: r.state };
-      t.inflow += r.trunk.inflow / steps; t.delivered += r.trunk.delivered / steps; t.spilled += r.trunk.spilled / steps;
+      const t = sum.get(id) ?? { inflow: 0, delivered: 0, spilled: 0, storm: 0, worst: r.state };
+      t.inflow += r.trunk.inflow / steps; t.delivered += r.trunk.delivered / steps; t.spilled += r.trunk.spilled / steps; t.storm += (r.trunk.storm ?? 0) / steps;
       if (RANK[r.state] > RANK[t.worst]) t.worst = r.state;
       sum.set(id, t);
     }
@@ -186,6 +231,7 @@ export function stepSewers(g: Grid, tanks: ReadonlyMap<number, { level: number }
   for (const [id, r] of reports) {
     const t = sum.get(id)!;
     r.trunk.inflow = t.inflow; r.trunk.delivered = t.delivered; r.trunk.spilled = t.spilled; r.flow = t.delivered; r.state = t.worst;
+    if (t.storm > 0) r.trunk.storm = t.storm;
   }
   intake = taken;
 }
@@ -195,7 +241,7 @@ export const SEWER_STEP = 1 / 30;
 
 function frame(g: Grid, tanks: ReadonlyMap<number, { level: number }>, dt: number, hooks: SewerHooks): void {
   const s = solveSewers(g);
-  const all = trunksOf(g, hooks.release), held = all.held;
+  const all = trunksOf(g, hooks.release), held = all.held, water = all.water;
   const out = new Map<number, SewerReport>();
   const into = new Map<number, number>();
   for (const net of s.nets) {
@@ -225,6 +271,23 @@ function frame(g: Grid, tanks: ReadonlyMap<number, { level: number }>, dt: numbe
 
   for (const t of all.trunks) {
     const net = t.net, r = out.get(net.id)!, n = t.cells.length;
+    // DOWN THE STORM DRAINS: what stands in the street over a grate, as fast as a drain takes it and no more
+    // than its pipe and shaft have room for — it never brings up what it took down. Only where the sewer
+    // ends in water: rain has nowhere to go in one that ends at a processor.
+    if (hooks.standing && hooks.drain && net.exits.some((e) => g.sewerFit[e] === SEWER_FIT.outfall)) {
+      for (let k = 0; k < n; k++) {
+        if (!t.storm[k]) continue;
+        const cell = t.cells[k], x = cell % g.w, y = (cell / g.w) | 0;
+        const room = t.full[k] + SHAFT_HOLDS - (held.get(cell) ?? 0);
+        const want = Math.min(STORM_RATE * dt, room, (hooks.standing(x, y) - STORM_LEAST) / UNIT_DEPTH);
+        if (!(want > 1e-9)) continue;
+        const got = hooks.drain(x, y, want * UNIT_DEPTH), units = got.depth / UNIT_DEPTH;
+        if (!(units > 0)) continue;
+        held.set(cell, (held.get(cell) ?? 0) + units);
+        water.set(cell, (water.get(cell) ?? 0) + units * (1 - got.strength));
+        r.trunk.storm = (r.trunk.storm ?? 0) + units / dt;
+      }
+    }
     let inflow = 0, standing = 0;
     for (const i of net.nodes) inflow += into.get(i) ?? 0;
     for (const c of t.cells) standing += held.get(c) ?? 0;
@@ -233,8 +296,15 @@ function frame(g: Grid, tanks: ReadonlyMap<number, { level: number }>, dt: numbe
     // ITS LIFTS, paid for while there is slop in it; one unpaid stops them all.
     let lifting = true;
     for (let k = 0; k < t.lifts.length && lifting; k++) lifting = hooks.pay(dt);
-    const has = t.cells.map((c) => held.get(c) ?? 0);
+    const has = t.cells.map((c) => held.get(c) ?? 0), wat = t.cells.map((c) => water.get(c) ?? 0);
     const outfalls = net.exits.filter((e) => g.sewerFit[e] === SEWER_FIT.outfall);
+    // A DROWNED OUTFALL passes less the deeper the water stands over it, and under `DROWNED` of it nothing:
+    // what it cannot let out stays in the pipe, and the sewer backs up behind it. @see DROWNED
+    const open = (cell: number) => (hooks.surface ? Math.max(0, 1 - Math.max(0, hooks.surface(cell % g.w, (cell / g.w) | 0) - g.height[cell] - OUTFALL_CLEAR) / DROWNED) : 1);
+    /** The most an outfall lets out this frame: all of it in the open, a share of what the trunk carries when drowned. */
+    const lets = (cell: number) => { const o = open(cell); return o >= 1 ? Infinity : (Number.isFinite(t.least) ? t.least : 1) * dt * o; };
+    const letsAt = new Float64Array(n).fill(Infinity);
+    for (let k = 0; k < n; k++) if (t.exit[k] === SEWER_FIT.outfall) letsAt[k] = lets(t.cells[k]);
     // WHAT A RUN PASSES ON: what it carries when full, and less in proportion while its node is part full —
     // so a sewer stands as full as it is loaded, and slop takes a moment to come down it.
     const carries = (k: number) => (t.cells[k] === hooks.backedUp ? 0 : t.lifted[k] && !lifting ? 0
@@ -243,7 +313,7 @@ function frame(g: Grid, tanks: ReadonlyMap<number, { level: number }>, dt: numbe
     const takes = new Float64Array(n), passes = new Float64Array(n);
     for (let j = n - 1; j >= 0; j--) {
       const k = t.order[j];
-      if (t.exit[k] === SEWER_FIT.outfall) { takes[k] = Infinity; continue; }
+      if (t.exit[k] === SEWER_FIT.outfall) { takes[k] = letsAt[k] === Infinity ? Infinity : Math.max(0, t.full[k] - has[k]) + letsAt[k]; continue; }
       if (t.exit[k] === SEWER_FIT.inlet) {
         // A processor takes what it has room for; with an outfall on the network the rest goes out there.
         const p = portsAt(g, t.cells[k], "slop", "in")[0];
@@ -261,37 +331,56 @@ function frame(g: Grid, tanks: ReadonlyMap<number, { level: number }>, dt: numbe
       sends[k] = Math.min(passes[k], takes[d]);
       takes[d] -= sends[k];
     }
-    for (let k = 0; k < n; k++) if (sends[k] > 0) { has[k] -= sends[k]; has[t.down[k]] += sends[k]; }
+    // The storm water in it goes with the rest, in the share it is of it.
+    const share = has.map((v, k) => (v > 0 ? Math.min(1, wat[k] / v) : 0));
+    for (let k = 0; k < n; k++) if (sends[k] > 0) {
+      has[k] -= sends[k]; has[t.down[k]] += sends[k];
+      wat[k] -= sends[k] * share[k]; wat[t.down[k]] += sends[k] * share[k];
+    }
     // AT THE EXITS: a processor first, as much as it takes; an outfall, all of it.
-    let spilt = 0, over = 0;
+    let spilt = 0, over = 0, overWet = 0;
     for (let k = 0; k < n; k++) {
       if (!t.exit[k] || has[k] <= 0) continue;
       const cell = t.cells[k];
       if (t.exit[k] === SEWER_FIT.inlet) {
+        // A processor takes the slop in it, and none of the water.
         const p = portsAt(g, cell, "slop", "in")[0];
-        const got = p ? Math.min(has[k], hooks.room(p.building)) : 0;
+        const got = p ? Math.min(Math.max(0, has[k] - wat[k]), hooks.room(p.building)) : 0;
         if (got > 0) { hooks.take(p!.building, got); has[k] -= got; r.trunk.delivered += got / dt; }
-        if (outfalls.length) { over += has[k]; has[k] = 0; }
+        // The rest out of the network's outfalls, as much as they let out between them.
+        if (outfalls.length) {
+          const most = outfalls.reduce((m, e) => m + lets(e), 0) - over;
+          const goes = Math.min(has[k], Math.max(0, most)), w = has[k] > 0 ? wat[k] * (goes / has[k]) : 0;
+          over += goes; overWet += w; has[k] -= goes; wat[k] -= w;
+        }
       } else {
-        hooks.release(cell % g.w, (cell / g.w) | 0, has[k]);
-        r.trunk.delivered += has[k] / dt;
-        has[k] = 0;
+        const goes = Math.min(has[k], letsAt[k]), w = wat[k] * (goes / has[k]);
+        if (goes > 0) hooks.release(cell % g.w, (cell / g.w) | 0, goes, 1 - w / goes);
+        r.trunk.delivered += goes / dt;
+        has[k] -= goes; wat[k] -= w;
       }
     }
     if (over > 0) {
-      for (const e of outfalls) hooks.release(e % g.w, (e / g.w) | 0, over / outfalls.length);
+      // Shared by how much each lets out; in the open, evenly.
+      const each = outfalls.map((e) => lets(e)), free = each.filter((v) => v === Infinity).length;
+      const sum = each.reduce((m, v) => m + (v === Infinity ? 0 : v), 0);
+      outfalls.forEach((e, j) => {
+        const part = free ? (each[j] === Infinity ? 1 / free : 0) : sum > 0 ? each[j] / sum : 0;
+        if (part > 0) hooks.release(e % g.w, (e / g.w) | 0, over * part, 1 - overWet / over);
+      });
       r.trunk.delivered += over / dt;
     }
     // WHAT A NODE CANNOT HOLD comes up: a manhole's over its shaft, any other's over its pipe.
     for (let k = 0; k < n; k++) {
       const most = t.full[k] + (t.manhole[k] ? SHAFT_HOLDS : 0);
       if (has[k] > most + 1e-12) {
-        const cell = t.cells[k];
-        hooks.release(cell % g.w, (cell / g.w) | 0, has[k] - most);
-        spilt += has[k] - most;
-        has[k] = most;
+        const cell = t.cells[k], up = has[k] - most, w = wat[k] * (up / has[k]);
+        hooks.release(cell % g.w, (cell / g.w) | 0, up, 1 - w / up);
+        spilt += up;
+        has[k] = most; wat[k] -= w;
       }
       if (has[k] > 0) held.set(t.cells[k], has[k]); else held.delete(t.cells[k]);
+      if (has[k] > 0 && wat[k] > 1e-12) water.set(t.cells[k], Math.min(has[k], wat[k])); else water.delete(t.cells[k]);
     }
     r.trunk.spilled = spilt / dt;
     r.flow = r.trunk.delivered;

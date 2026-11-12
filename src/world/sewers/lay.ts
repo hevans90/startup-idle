@@ -5,7 +5,7 @@
  * it while you drag, and the stroke lays what it says. @see solve, plans/underground-sewers.md §3–4
  */
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { MAIN_END, SEWER_AI, SEWER_FIT, VOID, idx, inBounds, structureAt, type Grid } from "../grid";
+import { SEWER_GRATE, MAIN_END, SEWER_AI, SEWER_FIT, VOID, idx, inBounds, structureAt, type Grid } from "../grid";
 import { hasMain, planMain, type MainCell } from "../water/mains";
 import { portsAt } from "../water/ports";
 import { LATERAL_REACH, NODE_EVERY, SEWER_KIND, hasSewer, solveSewers, type SewerSolve } from "./solve";
@@ -247,6 +247,24 @@ export function planNode(g: Grid, c: Cell): { refused: string } | { cell: number
   if (g.sewerFit[i]) return { refused: "It has one already" };
   if (solveSewers(g).kind[i] !== SEWER_KIND.buried) return { refused: "A manhole needs ground under it" };
   return { cell: i };
+}
+
+/**
+ * A STORM DRAIN, on a sewer already laid: a grate on a manhole — one there
+ * already, or put in with it — where the trunk has ground over it and runs
+ * down to water. Refused, with why, as a string. @see SEWER_GRATE
+ */
+export function planStormDrain(g: Grid, c: Cell): { refused: string } | { cell: number; manhole: boolean } {
+  if (!inBounds(g, c.x, c.y)) return { refused: "Off the map" };
+  const i = idx(g, c.x, c.y);
+  if (!hasSewer(g, i)) return { refused: "A storm drain goes on a sewer" };
+  if (g.sewer[i] & SEWER_GRATE) return { refused: "It has one already" };
+  if (g.sewerFit[i] && g.sewerFit[i] !== SEWER_FIT.node) return { refused: "A storm drain goes on a manhole, not where the sewer ends" };
+  const s = solveSewers(g);
+  if (s.kind[i] !== SEWER_KIND.buried) return { refused: "A storm drain needs ground under it" };
+  // Rain has to go somewhere: a processor takes slop, not water.
+  if (!s.nets[s.of[i]]?.exits.some((e) => g.sewerFit[e] === SEWER_FIT.outfall)) return { refused: "A storm drain needs a sewer that ends in water" };
+  return { cell: i, manhole: g.sewerFit[i] === SEWER_FIT.node };
 }
 
 /** A lateral to lay: its tiles as a main's, the manhole it reaches, the workplaces it drains, and whether that manhole's network has an exit. */

@@ -17,7 +17,7 @@
 import { Graphics, type Container, type Geometry, type Mesh, type Shader } from "pixi.js";
 
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { SEWER_BORE, SEWER_FIT, idx, structureAt, type Grid } from "../grid";
+import { SEWER_BORE, SEWER_FIT, SEWER_GRATE, idx, structureAt, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import type { SewerPlan } from "../sewers/lay";
 import { sewerReportsFor } from "../sewers/flow";
@@ -94,6 +94,21 @@ function cover(gfx: Graphics, x: number, y: number, z: number, scale: number) {
   gfx.ellipse(cx, cy, rx * 0.66, ry * 0.66).stroke({ color: IRON_DARK, width: Math.max(0.6, scale), alpha: 0.9 });
   gfx.moveTo(cx - rx * 0.66, cy).lineTo(cx + rx * 0.66, cy).stroke({ color: IRON_DARK, width: Math.max(0.6, scale * 0.8), alpha: 0.8 });
   gfx.moveTo(cx, cy - ry * 0.66).lineTo(cx, cy + ry * 0.66).stroke({ color: IRON_DARK, width: Math.max(0.6, scale * 0.8), alpha: 0.8 });
+}
+
+/** A STORM DRAIN'S GRATE, flush with the ground: a square iron frame, dark under it, bars across. @see SEWER_GRATE */
+function grate(gfx: Graphics, x: number, y: number, z: number, scale: number) {
+  const k = 0.26, corner = (du: number, dv: number) => at(x, y, z, scale, du, dv);
+  const quad = (r: number) => [corner(-r, -r), corner(r, -r), corner(r, r), corner(-r, r)].flat();
+  gfx.poly(quad(k * 1.14)).fill({ color: IRON_RIM });
+  gfx.poly(quad(k)).fill({ color: 0x0c0e10 });
+  // Its bars, across the fall of the street.
+  for (let b = -3; b <= 3; b++) {
+    const v = (b / 3.5) * k, p = corner(-k, v), q = corner(k, v);
+    gfx.moveTo(p[0], p[1]).lineTo(q[0], q[1]).stroke({ color: IRON, width: Math.max(0.8, scale * 1.5) });
+  }
+  const p = corner(0, -k), q = corner(0, k);
+  gfx.moveTo(p[0], p[1]).lineTo(q[0], q[1]).stroke({ color: IRON, width: Math.max(0.8, scale * 1.5) });
 }
 
 type Drawn = Graphics | Mesh<Geometry, Shader>;
@@ -295,7 +310,7 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           if (!behind) pipe();
         }
         // A NODE: its cover at the surface; its shaft is with the tubes.
-        if (fit === SEWER_FIT.node) cover(take(flush, bands.pavedOf, b), x, y, ground, scale);
+        if (fit === SEWER_FIT.node) ((g.sewer[i] & SEWER_GRATE) !== 0 ? grate : cover)(take(flush, bands.pavedOf, b), x, y, ground, scale);
       }
     }
   }

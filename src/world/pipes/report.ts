@@ -23,7 +23,11 @@ export type SewerState = "flowing" | "idle" | "no-exit" | "surcharged" | "backed
 export type PipeState = MainState | SewerState;
 
 /** What only a trunk has to say: slop a second in at its manholes, put somewhere, and brought up in the street; its lift stations by cell. */
-export type TrunkFlow = { inflow: number; delivered: number; spilled: number; lifts: number[] };
+export type TrunkFlow = {
+  inflow: number; delivered: number; spilled: number; lifts: number[];
+  /** What its storm drains took down this frame, a second; left out with none. */
+  storm?: number;
+};
 
 export type PipeReport<S extends PipeState = PipeState> = {
   state: S;

@@ -6,7 +6,7 @@ import { resetCooling } from "../projects/cooling";
 import { stepSlop, tanksOf } from "../slop/tanks";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
-import { createWaterField } from "../water/field";
+import { stepWater, createWaterField } from "../water/field";
 import { layMain, planMain, runMains, sewerStubs } from "../water/mains";
 import { foulingIn } from "../water/pollution";
 import { sewersUnderground } from "./convert";
@@ -62,7 +62,7 @@ describe("an old above-ground sewer", () => {
     sewersUnderground(g);
     const field = createWaterField(g);
     const desks = new Map([[a, { used: 1 }], [b, { used: 1 }]]);
-    for (let k = 0; k < 120; k++) { runMains(field, g, 1); stepSlop(g, field, desks, 0.4, 1); }
+    for (let k = 0; k < 120; k++) { runMains(field, g, 1); stepSlop(g, field, desks, 0.4, 1); stepWater(field, 1); }
     expect(tanksOf(g).get(a)!.spilling).toBe(false);
     expect(tanksOf(g).get(b)!.spilling).toBe(false);
     expect(foulingIn(field)).toBeGreaterThan(0);

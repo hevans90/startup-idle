@@ -111,6 +111,8 @@ export type Stroke = {
   sewer?: boolean;
   /** With the Sewer tool, a lateral from a slop port to a manhole, not a trunk. @see planLateral */
   lateral?: boolean;
+  /** A point of the Sewer tool that puts a storm drain's grate, not a plain manhole. @see planStormDrain */
+  grate?: boolean;
   /**
    * A pipe laid by CLICKS, not a held drag: its start and each corner pinned
    * since, in order. The route runs through them to `head`, and the stroke

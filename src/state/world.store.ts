@@ -37,7 +37,7 @@ import { create } from "zustand";
 
 import { waterMetaSaw } from "../world/debug/water-meta";
 import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
-import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_FIT, createGrid, edited, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_FIT, SEWER_GRATE, createGrid, edited, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { LEVEE, structureDef } from "../world/structures/def";
@@ -82,7 +82,7 @@ import { boreCost, buildCost, dredgeCost, pipeCost, roadCost, spendForBuild, upg
 import { dredgeCells } from "../world/boats/quay";
 import { fitsTier, fitting } from "../world/boats/fittings";
 import { agentsOpen } from "../game/agents";
-import { planNode } from "../world/sewers/lay";
+import { planNode, planStormDrain } from "../world/sewers/lay";
 import { sewersUnderground } from "../world/sewers/convert";
 import { lateralStrokePlan, laysConnection, sewerStrokePlan } from "../world/sewers/tool";
 import { formatCurrency } from "../utils/money-utils";
@@ -633,6 +633,8 @@ type WorldState = {
   toggleStrokePump: () => void;
   /** A manhole on a trunk at a tile, as a click of the Sewer tool on one used to put: for the trunk's card. @see planNode */
   addManholeAt: (c: Cell) => void;
+  /** A storm drain on a trunk at a tile: a grate on its manhole, the manhole put in with it if there is none. @see planStormDrain */
+  addStormDrainAt: (c: Cell) => void;
   doUndo: () => void;
   doRedo: () => void;
   loadGrid: (g: Grid, palette?: (string | null)[], boats?: readonly SavedBoat[]) => void;
@@ -1212,6 +1214,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     set({ stroke: { tool: "sewer", brush: "point", anchor: c, head: c } });
     get().endStroke();
   },
+  addStormDrainAt: (c) => {
+    set({ stroke: { tool: "sewer", brush: "point", anchor: c, head: c, grate: true } });
+    get().endStroke();
+  },
 
   endStroke: () => {
     const st = get();
@@ -1312,9 +1318,17 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if (s0.lateral) {
         // Laid above.
       } else if (!plan) {
-        const n = planNode(g, s0.head);
-        if ("refused" in n) { refuse(n.refused); return; }
-        b.set("sewerFit", s0.head.x, s0.head.y, SEWER_FIT.node);
+        if (s0.grate) {
+          // A STORM DRAIN: the grate, and the manhole under it if there was none.
+          const d = planStormDrain(g, s0.head);
+          if ("refused" in d) { refuse(d.refused); return; }
+          if (!d.manhole) b.set("sewerFit", s0.head.x, s0.head.y, SEWER_FIT.node);
+          b.set("sewer", s0.head.x, s0.head.y, g.sewer[d.cell] | SEWER_GRATE);
+        } else {
+          const n = planNode(g, s0.head);
+          if ("refused" in n) { refuse(n.refused); return; }
+          b.set("sewerFit", s0.head.x, s0.head.y, SEWER_FIT.node);
+        }
       } else {
         const refused = "refused" in plan ? plan.refused : plan.problem?.reason;
         if (refused || "refused" in plan) { refuse(refused ?? ""); return; }

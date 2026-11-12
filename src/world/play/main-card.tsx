@@ -31,7 +31,7 @@ import { pumpUpkeep } from "../../game/cooling";
 import { useGeneratorStore } from "../../state/generators.store";
 import { SAYS, sayOf } from "../water/main-says";
 import { lateralsOf, sewerReportsFor } from "../sewers/flow";
-import { planNode } from "../sewers/lay";
+import { planNode, planStormDrain } from "../sewers/lay";
 import { hasSewer, solveSewers } from "../sewers/solve";
 import type { SewerState } from "../pipes/report";
 
@@ -226,15 +226,17 @@ export function TrunkInfo() {
   const drains = new Set(lateralsOf(g).filter((l) => l.node !== null && solve.of[l.node] === net.id).flatMap((l) => l.sources)).size;
   const lifts = r?.trunk.lifts.length ?? 0;
   const manhole = !("refused" in planNode(g, looked));
+  const storm = !("refused" in planStormDrain(g, looked));
   return (
     <Card tone={say.tone} onClose={() => setShut(looked.n)} className="w-80" title={<>{wide ? "Wide sewer" : "Sewer"} · {net.cells.length} tiles</>}>
       <p className={TONE[say.tone]}>{say.text}</p>
       <p className="tabular-nums" title={r ? `${r.flow.toFixed(2)} slop a second of the ${r.capacity.toFixed(2)} it carries` : undefined}>
         Drains {drains} workplace{drains === 1 ? "" : "s"}{lifts > 0 && <> · {lifts} lift station{lifts === 1 ? "" : "s"}</>}
       </p>
-      {manhole && (
+      {(manhole || storm) && (
         <div className="mt-0.5 flex flex-wrap gap-1">
-          <Button size="sm" onClick={() => st.addManholeAt(looked)} title="Where a workplace's connection comes down into it">Add a manhole here</Button>
+          {manhole && <Button size="sm" onClick={() => st.addManholeAt(looked)} title="Where a workplace's connection comes down into it">Add a manhole here</Button>}
+          {storm && <Button size="sm" onClick={() => st.addStormDrainAt(looked)} title="A grate: water standing in the street here goes down it, as much as the sewer can take">Add a storm drain here</Button>}
         </div>
       )}
       <PipeProfileStrip profile={sewerProfile(g, solve, g.sewerFit, i)} />
