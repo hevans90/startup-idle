@@ -112,3 +112,34 @@ describe("levels of detail, kept", () => {
   });
 });
 
+describe("what is drawn over the mains every frame", () => {
+  test("is always batched, and has a number for every point: a sign drawn alone blinked, and a point that is no number is drawn as rubbish", async () => {
+    const { Container, Graphics } = await import("pixi.js");
+    const { createBandLayer } = await import("./bands");
+    const { createMainsLayer } = await import("./mains-layer");
+    const { createWaterField } = await import("../water/field");
+    const { runMains, mainReportAt } = await import("../water/mains");
+    const { DIR } = await import("../../iso/dir");
+    const g = createGrid(12, 6);
+    for (let x = 2; x <= 8; x++) g.main[idx(g, x, 2)] = (x > 2 ? DIR.N : 0) | (x < 8 ? DIR.S : 0);
+    g.rev++;
+    // A main joined to nothing cannot deliver: it gets a warning sign.
+    runMains(createWaterField(g), g, 1 / 30);
+    expect(mainReportAt(g, 4, 2)?.state).toBe("no-source");
+    const overlay = new Container(), bands = createBandLayer(g.w, g.h), layer = createMainsLayer(bands, overlay);
+    layer.sync(g, 1, 1);
+    layer.tick(g, 1, 1000);
+    const drawn = overlay.children.filter((c): c is InstanceType<typeof Graphics> => c instanceof Graphics);
+    const flow = drawn.find((c) => c.context.instructions.length > 0)!;
+    expect(flow).toBeDefined();
+    // The sign alone is past the 400 vertices at which Pixi would stop batching it.
+    expect(flow.context.batchMode).toBe("batch");
+    const points = flow.context.instructions.flatMap((k) => {
+      const path = (k.data as { path?: { shapePath: { shapePrimitives: { shape: { points?: number[] } }[] } } }).path;
+      return path ? path.shapePath.shapePrimitives.flatMap((p) => p.shape.points ?? []) : [];
+    });
+    expect(points.length).toBeGreaterThan(0);
+    expect(points.every((v) => Number.isFinite(v))).toBe(true);
+    layer.destroy();
+  });
+});

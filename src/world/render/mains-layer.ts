@@ -365,6 +365,10 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   };
   const flow = new Graphics();
   flow.eventMode = "none";
+  // ALWAYS BATCHED. It is drawn again every frame, and a warning sign's round joins alone take it past the
+  // 400 vertices at which Pixi stops batching a shape and draws it by itself — and drawn that way, rebuilt
+  // every frame, it showed on every other frame only: the sign blinked at the refresh rate.
+  flow.context.batchMode = "batch";
   overlay.addChild(flow);
   // The Water overlay's numbers, a pool of them, read again twice a second.
   const words = new Container();
@@ -912,8 +916,10 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
             for (const q of net.intakes) {
               const x = q % g.w, y = (q / g.w) | 0, c = P(scale, x, y, levelAt(g, x, y) - 0.3);
               for (let k = 0; k < 2; k++) {
-                const a = t * 2.2 + k * Math.PI;
-                flow.arc(c[0], c[1], w * (1.1 + k * 0.5), a, a + 1.6);
+                const a = t * 2.2 + k * Math.PI, rr = w * (1.1 + k * 0.5);
+                // STARTED WHERE IT STARTS: an arc with no point before it is joined to wherever the last path ended —
+                // and after a stroke of arcs alone Pixi has that as no number at all, which the device draws as rubbish.
+                flow.moveTo(c[0] + Math.cos(a) * rr, c[1] + Math.sin(a) * rr).arc(c[0], c[1], rr, a, a + 1.6);
                 flow.stroke({ color: 0xe8f6ff, width: Math.max(0.6, w * 0.12), alpha: 0.7 });
               }
             }

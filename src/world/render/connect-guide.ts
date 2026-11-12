@@ -34,12 +34,16 @@ export function createConnectGuide(overlay: Container): ConnectGuide {
   gfx.eventMode = "none";
   gfx.zIndex = 996;
   gfx.visible = false;
+  // Always batched: redrawn as the pointer moves, and past 400 vertices Pixi draws a shape alone, where one
+  // redrawn every frame shows on every other frame only. @see mains-layer's flow
+  gfx.context.batchMode = "batch";
   overlay.addChild(gfx);
   // THE SUGGESTED ROUTES, under the rings.
   const lines = new Graphics();
   lines.eventMode = "none";
   lines.zIndex = 995;
   lines.visible = false;
+  lines.context.batchMode = "batch";
   overlay.addChild(lines);
   let was = "", wasWays = "";
   return {
@@ -83,7 +87,8 @@ export function createConnectGuide(overlay: Container): ConnectGuide {
           gfx.ellipse(cx, cy, r * 0.95, r * 0.5);
           gfx.stroke({ color: here ? HELD : RING, width: here ? 3 : 2, alpha: here ? 1 : 0.55 });
           if (want > 0.05) {
-            gfx.arc(cx, cy, r * 0.62, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * want);
+            // Started where it starts: a bare arc is joined to wherever the last path ended. @see mains-layer's swirl
+            gfx.moveTo(cx, cy - r * 0.62).arc(cx, cy, r * 0.62, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * want);
             gfx.stroke({ color: THIRSTY, width: 3, alpha: 0.95 });
           }
         } else {
