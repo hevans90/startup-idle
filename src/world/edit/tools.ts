@@ -111,6 +111,14 @@ export type Stroke = {
   sewer?: boolean;
   /** With the Sewer tool, a lateral from a slop port to a manhole, not a trunk. @see planLateral */
   lateral?: boolean;
+  /**
+   * A pipe laid by CLICKS, not a held drag: its start and each corner pinned
+   * since, in order. The route runs through them to `head`, and the stroke
+   * stays in hand between clicks. @see strokeRoute
+   */
+  pins?: readonly Cell[];
+  /** A main whose water stands too low is laid with a pump unless the player says not. @see mainStroke */
+  noPump?: boolean;
 };
 
 const clampCell = (g: Grid, c: Cell): Cell => ({

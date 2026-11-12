@@ -46,14 +46,16 @@ const open = (g: Grid, x: number, y: number) => inBounds(g, x, y) && structureAt
  * tile — and through another sewer only at its ends. A drag into water stops
  * at the bank. Null where there is no way. Pure.
  */
-export function routeSewer(g: Grid, from: Cell, to: Cell, wet: (x: number, y: number) => boolean): Cell[] | null {
+export function routeSewer(g: Grid, from: Cell, to: Cell, wet: (x: number, y: number) => boolean, avoid?: ReadonlySet<number>): Cell[] | null {
   if (!inBounds(g, from.x, from.y) || !inBounds(g, to.x, to.y)) return null;
   if (from.x === to.x && from.y === to.y) return open(g, from.x, from.y) ? [from] : null;
   const n = g.w * g.h, start = idx(g, from.x, from.y), goal = idx(g, to.x, to.y);
   const free = (i: number) => {
     const x = i % g.w, y = (i / g.w) | 0;
     if (!open(g, x, y)) return false;
-    return i === start || i === goal || !hasSewer(g, i);
+    if (i === start) return true;
+    if (avoid?.has(i)) return false;
+    return i === goal || !hasSewer(g, i);
   };
   if (!free(start) || !free(goal)) return null;
   const cost = new Float64Array(n * 4).fill(Infinity);

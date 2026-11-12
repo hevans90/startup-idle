@@ -156,7 +156,7 @@ export type MainsLayer = {
   /** Rebuild the tubes when the mains, the scale or the tier of detail for `zoom`, the viewport's, change. */
   sync: (g: Grid, scale: number, zoom?: number) => void;
   /** The water moving in them, this frame; and the main being dragged out, a ghost of itself. */
-  tick: (g: Grid, scale: number, now: number, preview?: readonly { x: number; y: number }[] | null, ok?: boolean, water?: boolean, hover?: { x: number; y: number } | null) => void;
+  tick: (g: Grid, scale: number, now: number, preview?: readonly { x: number; y: number }[] | null, ok?: boolean, water?: boolean, hover?: { x: number; y: number } | null, pumpAt?: { x: number; y: number } | null) => void;
   destroy: () => void;
 };
 
@@ -645,7 +645,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       // The lengths over each band's traffic from the band behind it: under that band's own mains, which meet them.
       for (const [band, n] of nears) place(n, bands.dynamicOf[band], PIPE_Z - 0.01);
     },
-    tick(g, scale, now, preview, ok = true, overlayOn = false, hover = null) {
+    tick(g, scale, now, preview, ok = true, overlayOn = false, hover = null, pumpAt = null) {
       flow.clear();
       const t = now / 1000;
       /** What each window shows this frame; one not here is dry. */
@@ -666,6 +666,16 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
           const p = P(scale, c.x, c.y, levelAt(g, c.x, c.y));
           flow.circle(p[0], p[1], ow * 0.8);
           flow.fill({ color: colour, alpha: 0.8 });
+        }
+        // THE PUMP IT WOULD BE LAID WITH, at its intake: the sign for one, a ring with a wedge in it.
+        if (pumpAt) {
+          const p = P(scale, pumpAt.x, pumpAt.y, levelAt(g, pumpAt.x, pumpAt.y)), r = ow * 2.2;
+          flow.circle(p[0], p[1], r);
+          flow.fill({ color: 0x0c1418, alpha: 0.85 });
+          flow.circle(p[0], p[1], r);
+          flow.stroke({ color: colour, width: ow * 0.45, alpha: 0.95 });
+          flow.poly([p[0] - r * 0.45, p[1] - r * 0.55, p[0] + r * 0.6, p[1], p[0] - r * 0.45, p[1] + r * 0.55]);
+          flow.fill({ color: colour, alpha: 0.95 });
         }
       }
       const { list } = findMains(g);

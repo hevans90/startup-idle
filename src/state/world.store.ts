@@ -43,7 +43,9 @@ import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { LEVEE, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
 import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
-import { findMains, hasMain, mainsToPorts, pipesToMains, planMain, previewMain, previewSewer, routeMain } from "../world/water/mains";
+import { findMains, hasMain, mainsToPorts, pipesToMains, planMain, previewSewer } from "../world/water/mains";
+import { mainStroke } from "../world/water/main-stroke";
+import { strokeRoute } from "../world/pipes/stroke-route";
 import { DIR, NEIGHBOUR } from "../iso/dir";
 import {
   OPEN_EDGE_DEFAULT, POUR_AMOUNT, SOURCE_RATE, createWaterField, depthAt, drainAt, pourAt,
@@ -621,6 +623,17 @@ type WorldState = {
   /** Commits the drag as ONE undoable command. */
   endStroke: () => void;
   cancelStroke: () => void;
+  /**
+   * A PIPE LAID BY CLICKS: `startPins` turns the stroke in hand into one that
+   * stays between clicks, its start pinned; `pinStroke` pins a corner where
+   * the pointer is; `unpinStroke` takes the last back, and the stroke with
+   * the first. `toggleStrokePump` lays a main with or without the pump it
+   * needs. @see Stroke.pins, mainStroke
+   */
+  startPins: () => void;
+  pinStroke: () => void;
+  unpinStroke: () => void;
+  toggleStrokePump: () => void;
   doUndo: () => void;
   doRedo: () => void;
   loadGrid: (g: Grid, palette?: (string | null)[], boats?: readonly SavedBoat[]) => void;
@@ -1178,6 +1191,20 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
   cancelStroke: () => set({ stroke: null }),
 
+  startPins: () => set((st) => (st.stroke && !st.stroke.pins ? { stroke: { ...st.stroke, pins: [st.stroke.anchor] } } : {})),
+  pinStroke: () => set((st) => {
+    const s0 = st.stroke;
+    if (!s0?.pins) return {};
+    const last = s0.pins[s0.pins.length - 1];
+    return last.x === s0.head.x && last.y === s0.head.y ? {} : { stroke: { ...s0, pins: [...s0.pins, s0.head] } };
+  }),
+  unpinStroke: () => set((st) => {
+    const s0 = st.stroke;
+    if (!s0?.pins) return {};
+    return s0.pins.length > 1 ? { stroke: { ...s0, pins: s0.pins.slice(0, -1) } } : { stroke: null };
+  }),
+  toggleStrokePump: () => set((st) => (st.stroke ? { stroke: { ...st.stroke, noPump: !st.stroke.noPump } } : {})),
+
   endStroke: () => {
     const st = get();
     const s0 = st.stroke;
@@ -1185,7 +1212,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // What a road stroke cost, for taking it back. @see undoLastBuild
     let roadPaid = 0;
     let dredged: { x: number; y: number }[] = [];
-    let pumpAfter: WorldState["pumpOffer"] = null;
     // DEMOLISH ON A PIPE OR A ROAD lifts it. @see demolishLifts
     const lifts = s0.tool === "demolish" && st.playing ? demolishLifts(st.grid, s0.anchor) : null;
     if (lifts) {
@@ -1302,15 +1328,16 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       // A SEWER the same way, priced alike, its cells marked as one. @see previewSewer
       const wet = mainWet(st.grid), sewer = !!s0.sewer;
       const what = sewer ? "sewer" : "main";
-      const route = s0.path ?? routeMain(st.grid, s0.anchor, s0.head, wet, sewer);
+      // The same working-out the ghost and the card showed: its route through its pins, its pump, its whole price. @see mainStroke
+      const m = sewer ? null : mainStroke(st.grid, water, s0, wet, !aiActing());
+      const route = m ? m.route : strokeRoute(st.grid, s0, wet, "connection");
       if (!route) { set({ stroke: null, notice: { text: `No way through for a ${what}: round buildings, off the water`, at: Date.now() } }); return; }
-      const plan = planMain(st.grid, route, wet, !sewer && !!s0.pump, sewer);
+      const plan = m ? (m.refused ? { refused: m.refused } : { cells: m.cells }) : planMain(st.grid, route, wet, false, true);
       if ("refused" in plan) { set({ stroke: null, notice: { text: plan.refused, at: Date.now() } }); return; }
-      const look = sewer ? { ...previewSewer(st.grid, plan.cells), needsPump: false } : previewMain(st.grid, water, plan.cells, !!s0.pump);
-      const pumpPrice = s0.pump && !sewer ? buildCost("pump")?.toNumber() ?? 0 : 0;
-      const price = pipeCost(look.fresh).plus(pumpPrice);
+      const fresh = m ? m.fresh : previewSewer(st.grid, plan.cells).fresh;
+      const price = pipeCost(fresh).plus(m ? m.price.pump : 0);
       if (price.gt(0) && !spendForBuild(price)) {
-        set({ stroke: null, notice: { text: `Not enough money for ${look.fresh} tiles of ${what}: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
+        set({ stroke: null, notice: { text: `Not enough money for ${fresh} tiles of ${what}${m?.pump ? " and its pump" : ""}: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
         return;
       }
       // The AI's own mains are marked, to be drawn in its violet; a sewer's, as a sewer.
@@ -1319,11 +1346,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         const i = idx(st.grid, c.x, c.y);
         b.set("main", c.x, c.y, st.grid.main[i] | c.join | (hasMain(st.grid, i) ? 0 : mark));
         if (c.end) b.set("mainEnd", c.x, c.y, c.end);
-      }
-      // NO HEAD: offered a pump, there and then. @see acceptPump
-      const intake = plan.cells.find((c) => c.end === MAIN_END.intake);
-      if (look.needsPump && intake && !aiActing()) {
-        pumpAfter = { x: intake.x, y: intake.y, price: buildCost("pump")?.toNumber() ?? 0, why: look.problem ?? "" };
       }
     } else if (s0.tool === "eraseRoad" && st.playing && st.liftPipe) {
       // LIFTING PIPE, not road: the mains on these tiles come up, and a
@@ -1474,7 +1496,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
 
     const cmd = b.build(strokeLabel(s0, cells.length));
     if (!cmd) { set({ stroke: null }); return; }   // no-op click adds no history
-    if (pumpAfter) set({ pumpOffer: pumpAfter });
     const touched = commit(st.grid, history, cmd);
     // DREDGED: the standing water is that much deeper over the bed. @see steadyRivers
     for (const c of dredged) st.grid.pool[idx(st.grid, c.x, c.y)]++;

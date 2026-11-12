@@ -12,7 +12,7 @@ import { pollutionOf } from "../water/pollution";
 import { planLateral, planSewer, routeSewer } from "./lay";
 import { lateralsOf, sewerFillAt, sewerReportsFor, slopInSewers, stepSewers, type SewerHooks } from "./flow";
 import { lateralReach } from "./reach";
-import { lateralStrokePlan } from "./tool";
+import { lateralStrokePlan, sewerStrokePlan } from "./tool";
 import { solveSewers } from "./solve";
 
 /** A lake down the west edge, ground at 2 (or `ground(x)`), and a vibe office whose slop port is at (12, 4). */
@@ -106,6 +106,20 @@ describe("a lateral keeps off the roads", () => {
     const stroke = (head: { x: number; y: number }) => ({ tool: "sewer" as const, brush: "line" as const, anchor: { x: 12, y: 4 }, head });
     expect(lateralStrokePlan(g, stroke({ x: 12, y: 9 }), wetOf(g))!.plan).toEqual({ refused: "A sewer connection can't cross a road" });
     expect(lateralStrokePlan(g, stroke({ x: 12, y: 7 }), wetOf(g))!.plan).toEqual({ refused: "A sewer connection can't end in a road: lay a trunk into the block" });
+  });
+
+  test("laid by clicks, a connection and a trunk run through the corners pinned", () => {
+    const { g } = below();
+    const pins = [{ x: 12, y: 4 }, { x: 14, y: 6 }];
+    const lat = lateralStrokePlan(g, { tool: "sewer", brush: "line", lateral: true, anchor: pins[0], head: { x: 12, y: 9 }, pins }, wetOf(g))!;
+    expect(lat.route!.some((c) => c.x === 14 && c.y === 6)).toBe(true);
+    expect(lat.route!.at(-1)).toEqual({ x: 12, y: 9 });
+    // Round by (14, 6) is seven tiles, past a connection's reach of six: said, not laid.
+    expect("refused" in lat.plan ? lat.plan.refused : "").toMatch(/Longer than/);
+    const trunkPins = [{ x: 3, y: 12 }, { x: 8, y: 11 }];
+    const t = sewerStrokePlan(g, { tool: "sewer", brush: "line", anchor: trunkPins[0], head: { x: 16, y: 12 }, pins: trunkPins }, wetOf(g))!;
+    expect("refused" in t).toBe(false);
+    if (!("refused" in t)) expect(t.cells.some((c) => c.x === 8 && c.y === 11)).toBe(true);
   });
 
   test("a water main still crosses a road", () => {

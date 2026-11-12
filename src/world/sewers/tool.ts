@@ -7,7 +7,8 @@ import { buildCost, pipeCost } from "../../game/build-cost";
 import type { Stroke } from "../edit/tools";
 import { VOID, idx, inBounds, type Grid } from "../grid";
 import { routeMain } from "../water/mains";
-import { planLateral, planSewer, routeSewer, type LateralPlan, type SewerPlan } from "./lay";
+import { strokeKey, strokeRoute } from "../pipes/stroke-route";
+import { planLateral, planSewer, type LateralPlan, type SewerPlan } from "./lay";
 
 type Cell = { x: number; y: number };
 
@@ -17,11 +18,12 @@ let last: { g: Grid; rev: number; key: string; plan: SewerStrokePlan } | null = 
 
 /** What the Sewer tool's stroke would lay, or why not; null for a click (a node, or nothing). */
 export function sewerStrokePlan(g: Grid, s: Stroke, wet: (x: number, y: number) => boolean, ai = false): SewerStrokePlan | null {
-  if (s.anchor.x === s.head.x && s.anchor.y === s.head.y && !s.path) return null;
+  if (s.anchor.x === s.head.x && s.anchor.y === s.head.y && !s.path && !((s.pins?.length ?? 0) > 1)) return null;
   const unit = pipeCost(1).toNumber(), liftPrice = buildCost("pump")?.toNumber() ?? 0;
-  const key = `${s.anchor.x},${s.anchor.y},${s.head.x},${s.head.y},${unit},${liftPrice},${ai}`;
+  const key = `${strokeKey(s)},${unit},${liftPrice},${ai}`;
   if (last && last.g === g && last.rev === g.rev && last.key === key && !s.path) return last.plan;
-  const route = s.path ? [...s.path] : routeSewer(g, s.anchor, s.head, wet);
+  // Through its pins, if it is being laid by clicks. @see strokeRoute
+  const route = strokeRoute(g, s, wet, "trunk");
   const plan: SewerStrokePlan = route
     ? planSewer(g, route, wet, { unit, liftPrice, ai })
     : { refused: "No way through for a sewer: round buildings" };
@@ -33,10 +35,10 @@ let lastLateral: { g: Grid; rev: number; key: string; route: Cell[] | null; plan
 
 /** What a Lateral stroke would lay — its route, and the plan or why not; null for a click. */
 export function lateralStrokePlan(g: Grid, s: Stroke, wet: (x: number, y: number) => boolean): { route: Cell[] | null; plan: LateralPlan | { refused: string } } | null {
-  if (s.anchor.x === s.head.x && s.anchor.y === s.head.y && !s.path) return null;
-  const key = `${s.anchor.x},${s.anchor.y},${s.head.x},${s.head.y}`;
+  if (s.anchor.x === s.head.x && s.anchor.y === s.head.y && !s.path && !((s.pins?.length ?? 0) > 1)) return null;
+  const key = strokeKey(s);
   if (lastLateral && lastLateral.g === g && lastLateral.rev === g.rev && lastLateral.key === key && !s.path) return lastLateral;
-  const route = s.path ? [...s.path] : routeMain(g, s.anchor, s.head, wet, true);
+  const route = strokeRoute(g, s, wet, "connection");
   // WHY THERE IS NO WAY: an end in a road, a street across it, or just buildings and water. @see planLateral
   const paved = (c: Cell) => inBounds(g, c.x, c.y) && g.paved[idx(g, c.x, c.y)] !== VOID;
   const blocked = paved(s.anchor) || paved(s.head) ? "A sewer connection can't end in a road: lay a trunk into the block"

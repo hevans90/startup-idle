@@ -477,7 +477,7 @@ export function snapToPort(g: Grid, c: { x: number; y: number }, wet: (x: number
  */
 export function routeMain(
   g: Grid, from: { x: number; y: number }, to: { x: number; y: number },
-  wet: (x: number, y: number) => boolean, sewer = false,
+  wet: (x: number, y: number) => boolean, sewer = false, avoid?: ReadonlySet<number>,
 ): { x: number; y: number }[] | null {
   if (!inBounds(g, from.x, from.y) || !inBounds(g, to.x, to.y)) return null;
   from = snapToPort(g, from, wet, sewer ? "slop" : "water");
@@ -489,7 +489,10 @@ export function routeMain(
     if (structureAt(g, x, y) >= 0) return false;
     // A SEWER CONNECTION keeps off the roads, its ends too: it goes round a street or finds no way. A water main crosses on a frame.
     if (sewer && g.paved[i] !== VOID) return false;
-    if (i === start || i === goal) return true;
+    if (i === start) return true;
+    // The stretches of this run already pinned down: it does not cross itself. @see strokeRoute
+    if (avoid?.has(i)) return false;
+    if (i === goal) return true;
     return !wet(x, y) && !hasMain(g, i);
   };
   if (!free(start) || !free(goal)) return null;
@@ -551,6 +554,8 @@ export function routeMain(
  */
 export function previewMain(g: Grid, field: WaterField | null, plan: readonly MainCell[], pump = false): {
   fresh: number; flow: number; head: number; ends: string[]; problem: string | null; needsPump: boolean;
+  /** The building it would feed, by id; −1 for none. */
+  building: number;
 } {
   const fresh = plan.filter((c) => !hasMain(g, idx(g, c.x, c.y))).length;
   const nets = findMains(g);
@@ -590,7 +595,7 @@ export function previewMain(g: Grid, field: WaterField | null, plan: readonly Ma
     : flow > 0 ? null
     : needsPump ? `The water ${gravity < 0 ? `is ${Math.round(-gravity) / 2} slabs below` : "is level with"} the building's floor: it needs a pump`
     : "The water is too far below the building, even for a pump";
-  return { fresh, flow, head: Number.isFinite(head) ? head : 0, ends, problem, needsPump };
+  return { fresh, flow, head: Number.isFinite(head) ? head : 0, ends, problem, needsPump, building };
 }
 
 /**

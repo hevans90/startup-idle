@@ -113,8 +113,8 @@ const ROAD_TOOLS = new Set<ToolId>(["paintRoad", "demolish"]);
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "inspect", label: "Look", hint: "Pan and look round the town; click a building to open it" },
   { id: "paintRoad", label: "Road", hint: "Drag to lay road" },
-  { id: "pipe", label: "Pipe", hint: "Drag from water to the Data Centre or an AI building to lay a water main: it finds its own way" },
-  { id: "sewer", label: "Sewer", hint: "Drag from water or a processor to lay a sewer underground; click one to add a manhole" },
+  { id: "pipe", label: "Pipe", hint: "Drag from water to the Data Centre or an AI building to lay a water main; or click, click to pin corners, and click the end. Right-click takes a corner back" },
+  { id: "sewer", label: "Sewer", hint: "Drag from water or a processor to lay a sewer underground, or click and pin its corners; click one laid to add a manhole" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road, a park anywhere; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "dredge", label: "Dredge", hint: "Drag along a river to deepen it, for bigger ships" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to lift it" },

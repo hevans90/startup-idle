@@ -1,9 +1,11 @@
 /**
- * World v2 — THE MAIN BEFORE IT IS LAID, and the pump after: a card while the
- * Pipe tool is dragged, saying what the main will cost, what each end is,
- * what it will carry — or why it won't, before you let go — and, once a
- * main is down that cannot lift its water, the pump it needs, one click
- * away. @see previewMain, acceptPump, plans/pipes-overhaul.md §2
+ * World v2 — THE MAIN BEFORE IT IS LAID: a card while the Pipe tool has a
+ * main in hand, dragged or laid by clicks, saying the whole of what it will
+ * cost — its pump and what that costs to run included — what each end is,
+ * and what it brings against what the building needs, or why it won't,
+ * before it is laid. The pump is chosen here, not offered afterwards; a main
+ * already down that cannot lift its water is still offered one from its own
+ * card. @see mainStroke, acceptPump, plans/pipe-network.md §8
  */
 import { coolingKept } from "../../game/pollution";
 import { twMerge } from "tailwind-merge";
@@ -20,7 +22,11 @@ import { boreCost, buildCost } from "../../game/build-cost";
 import { useTicking } from "../../hooks/use-ticking";
 import { MAIN_BORE, MAIN_END, idx, inBounds } from "../grid";
 import { structureDef } from "../structures/def";
-import { findMains, hasMain, mainReportAt, planMain, previewMain, previewSewer, routeMain, type MainReport } from "../water/mains";
+import { findMains, hasMain, mainReportAt, planMain, previewSewer, type MainReport } from "../water/mains";
+import { mainStroke } from "../water/main-stroke";
+import { strokeRoute } from "../pipes/stroke-route";
+import { pumpUpkeep } from "../../game/cooling";
+import { useGeneratorStore } from "../../state/generators.store";
 import { SAYS, sayOf } from "../water/main-says";
 
 const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
@@ -44,11 +50,11 @@ export function MainCard() {
   if (!stroke || stroke.tool !== "pipe") return null;
   const st = useWorldStore.getState();
   const wet = mainWet(st.grid), sewer = !!stroke.sewer;
-  const route = routeMain(st.grid, stroke.anchor, stroke.head, wet, sewer);
-  if (!route) return <p className={twMerge(CARD, "text-bad")}>No way through for a {sewer ? "sewer" : "main"}: round buildings, off the water</p>;
-  const plan = planMain(st.grid, route, wet, false, sewer);
-  if ("refused" in plan) return <p className={twMerge(CARD, "text-bad")}>{plan.refused}</p>;
   if (sewer) {
+    const route = strokeRoute(st.grid, stroke, wet, "connection");
+    if (!route) return <p className={twMerge(CARD, "text-bad")}>No way through for a sewer: round buildings, off the water</p>;
+    const plan = planMain(st.grid, route, wet, false, true);
+    if ("refused" in plan) return <p className={twMerge(CARD, "text-bad")}>{plan.refused}</p>;
     // A SEWER: what it drains into what, and what it can carry.
     const look = previewSewer(st.grid, plan.cells);
     return (
@@ -59,15 +65,34 @@ export function MainCard() {
       </div>
     );
   }
-  const look = previewMain(st.grid, st.getWaterField(), plan.cells);
-  const price = pipeCost(look.fresh).toNumber();
+  // THE WHOLE OF IT, as it will be laid and charged: its pump and what that costs to run included. @see mainStroke
+  const m = mainStroke(st.grid, st.getWaterField(), stroke, wet);
+  if (m.refused || !m.look) return <p className={twMerge(CARD, "text-bad")}>{m.refused}</p>;
+  const look = m.look, need = m.need;
+  const upkeep = pumpUpkeep(useGeneratorStore.getState().getMoneyPerSecond());
   return (
-    <div className={CARD}>
-      <p className="flex justify-between gap-4 tabular-nums"><b>Water main · {look.fresh} tiles</b><span>{formatCurrency(price)}</span></p>
+    <div className={twMerge(CARD, "min-w-56")}>
+      <p className="flex justify-between gap-4 tabular-nums"><b>Water main · {m.fresh} tiles</b><span>{formatCurrency(m.price.total)}</span></p>
       <p className="text-fg-muted">{look.ends.join(" → ")}</p>
-      {look.problem
-        ? <p className={look.needsPump ? "text-warn" : "text-bad"}>{look.problem}{look.needsPump ? " — you can add one when it's laid" : ""}</p>
-        : <p className="text-good">≈ {look.flow.toFixed(2)} a second · cools about {agentsCooled(look.flow)} agents</p>}
+      {look.problem ? <p className={look.needsPump ? "text-warn" : "text-bad"}>{look.problem}</p>
+        : need ? (
+          <p className="flex items-center gap-2 tabular-nums" title={`≈ ${look.flow.toFixed(2)} a second`}>
+            <span className={need.share >= 1 ? "text-good" : "text-warn"}>
+              {need.agents > 0 ? `Cools ${need.cooled} of ${need.agents} agents` : `${Math.round(need.share * 100)}% of what it needs`}
+            </span>
+            <span className="h-1 min-w-10 flex-1 bg-surface-3 dark:bg-surface-3">
+              <span className={twMerge("block h-full", need.share >= 1 ? "bg-good dark:bg-good" : "bg-warn dark:bg-warn")} style={{ width: `${Math.round(need.share * 100)}%` }} />
+            </span>
+          </p>
+        ) : <p className="text-good">≈ {look.flow.toFixed(2)} a second · cools about {agentsCooled(look.flow)} agents</p>}
+      {m.wantsPump && (
+        <p className="mt-0.5 flex items-center justify-between gap-2 tabular-nums">
+          <Button size="sm" variant={m.pump ? "primary" : undefined} onClick={st.toggleStrokePump} title="The water stands too low to reach the building without one (P)">
+            {m.pump ? "With a pump" : "No pump"}
+          </Button>
+          {m.pump && <span className="text-fg-muted" title="What the pump costs to run">{formatCurrency(m.price.pump)} + {formatCurrency(upkeep)}/s</span>}
+        </p>
+      )}
     </div>
   );
 }

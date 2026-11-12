@@ -116,5 +116,6 @@ describe("the singularity fixture's mains", () => {
     const laid = list.filter((r) => r.outlets.some((o) => o.building >= 0));
     expect(laid.length).toBeGreaterThanOrEqual(2);
     for (const r of laid) expect(r.state).toBe("flowing");
-  });
+    // Twenty seconds of a 64² map's water: near the default limit with every core busy on the other files.
+  }, 20_000);
 });

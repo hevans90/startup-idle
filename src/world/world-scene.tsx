@@ -83,6 +83,8 @@ import type { RenderCtx } from "./structures/render";
 import { AI_BUILDINGS, structureDef } from "./structures/def";
 import { planUpgrade, quayBanks, strokeFootprint as structureFootprint, validatePlacement } from "./structures/place";
 import { createPortGuide, type PortGuide } from "./render/port-guide";
+import { createConnectGuide, type ConnectGuide } from "./render/connect-guide";
+import { connectPointsKept } from "./pipes/connect-points";
 import { dredgeCells, type Facing, type Rect as PortRect } from "./boats/quay";
 import { SHIP_CLASSES, classOf } from "./boats/classes";
 import { fitting } from "./boats/fittings";
@@ -186,7 +188,7 @@ import "./structures/project-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
-import { footprintCells, idx, inBounds, structureAt, surfaceHeightAt, surfaceSampler, wetSurfaceSampler, type Grid, type Structure } from "./grid";
+import { MAIN_END, footprintCells, idx, inBounds, structureAt, surfaceHeightAt, surfaceSampler, wetSurfaceSampler, type Grid, type Structure } from "./grid";
 import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { pourAt, runSources, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
@@ -268,7 +270,9 @@ import { serviceOf } from "./agents/services";
 /** The services a Holo-Concierge stands at: those in the AI's district. @see game/machine "concierge" */
 const conciergesOf = (g: import("./grid").Grid) =>
   [...g.structures.values()].filter((s) => !s.build && serviceOf(s.def) && inAiDistrictNow(g, s.x, s.y)).map((s) => ({ x: s.x, y: s.y + s.h }));
-import { breakableCell, planMain, previewMain, previewSewer, routeMain, runMains, setBackedUp, setBurst } from "./water/mains";
+import { breakableCell, planMain, previewSewer, runMains, setBackedUp, setBurst } from "./water/mains";
+import { mainStroke } from "./water/main-stroke";
+import { pipeKindOf, strokeRoute } from "./pipes/stroke-route";
 import { BLACKOUT_RADIUS } from "./events/defs/blackout";
 import { QUAKE_DAMAGED, QUAKE_MS } from "./events/defs/earthquake";
 import { createMainsLayer, type MainsLayer } from "./render/mains-layer";
@@ -283,12 +287,32 @@ function mainPreview(): [readonly { x: number; y: number }[] | null, boolean] {
     return l?.route ? [l.route, !("refused" in l.plan)] : [null, true];
   }
   if (!st.playing || !s0 || s0.tool !== "pipe") return [null, true];
-  const wet = mainWet(st.grid), sewer = !!s0.sewer;
-  const route = routeMain(st.grid, s0.anchor, s0.head, wet, sewer);
-  if (!route) return [null, true];
-  const plan = planMain(st.grid, route, wet, false, sewer);
-  if ("refused" in plan) return [route, false];
-  return [route, !(sewer ? previewSewer(st.grid, plan.cells) : previewMain(st.grid, st.getWaterField(), plan.cells)).problem];
+  const wet = mainWet(st.grid);
+  if (s0.sewer) {
+    const route = strokeRoute(st.grid, s0, wet, "connection");
+    if (!route) return [null, true];
+    const plan = planMain(st.grid, route, wet, false, true);
+    return [route, !("refused" in plan) && !previewSewer(st.grid, plan.cells).problem];
+  }
+  // The same working-out the card shows and the stroke lays. @see mainStroke
+  const m = mainStroke(st.grid, st.getWaterField(), s0, wet);
+  return m.route ? [m.route, !m.refused && !m.look?.problem] : [null, true];
+}
+/** Where the main in hand would be laid with a pump: its intake's tile, or null. @see mainStroke */
+function previewPump(): { x: number; y: number } | null {
+  const st = useWorldStore.getState(), s0 = st.stroke;
+  if (!st.playing || !s0 || s0.tool !== "pipe" || s0.sewer) return null;
+  const m = mainStroke(st.grid, st.getWaterField(), s0, mainWet(st.grid));
+  const at = m.pump ? m.cells.find((c) => c.end === MAIN_END.pump) : undefined;
+  return at ? { x: at.x, y: at.y } : null;
+}
+/** Whether the pipe in hand is complete where the pointer is — joined at both ends, and it would carry — so a click there lays it. */
+function strokeComplete(g: Grid, s0: Stroke): boolean {
+  const st = useWorldStore.getState(), wet = mainWet(g);
+  if (s0.tool === "sewer" && s0.lateral) { const l = lateralStrokePlan(g, s0, wet); return !!l && !("refused" in l.plan); }
+  if (s0.tool === "sewer") { const p = sewerStrokePlan(g, s0, wet); return !!p && !("refused" in p) && !p.problem && p.exit; }
+  if (s0.sewer) return false;
+  return mainStroke(g, st.getWaterField(), s0, wet).complete;
 }
 /** The sewer being dragged with the Sewer tool, as it would be laid; null if it can't be. @see sewerStrokePlan */
 function sewerGhost(): SewerPlan | null {
@@ -298,6 +322,7 @@ function sewerGhost(): SewerPlan | null {
   return p && !("refused" in p) ? p : null;
 }
 import { lateralStrokePlan, sewerStrokePlan } from "./sewers/tool";
+import { hasSewer } from "./sewers/solve";
 import { busiestNode } from "./sewers/flow";
 import type { SewerPlan } from "./sewers/lay";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
@@ -482,6 +507,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const heatRef = useRef<DesireHeat | null>(null);
   /** Where a seaport goes, with one in hand. @see createPortGuide */
   const portGuideRef = useRef<PortGuide | null>(null);
+  const connectRef = useRef<ConnectGuide | null>(null);
   /** The boats, drawn among the movers of the bands. @see world/boats */
   const boatRef = useRef<BoatLayer | null>(null);
   /** The water mains, drawn. @see createMainsLayer */
@@ -1682,6 +1708,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         cursorRef.current = createBuildCursor(overlayRoot.current, bl);
         heatRef.current = createDesireHeat(overlayRoot.current);
         portGuideRef.current = createPortGuide(overlayRoot.current);
+        connectRef.current = createConnectGuide(overlayRoot.current);
         // WHAT EACH PORT IS DOING, for its cranes, lamps and lights. @see port-life
         setPortLife((id) => {
           const g = useWorldStore.getState().grid, ps = g.structures.get(id);
@@ -1771,6 +1798,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       heatRef.current = null;
       portGuideRef.current?.destroy();
       portGuideRef.current = null;
+      connectRef.current?.destroy();
+      connectRef.current = null;
       streetHeatRef.current?.destroy();
       streetHeatRef.current = null;
       aiLayerRef.current?.destroy();
@@ -2012,7 +2041,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       st.setHoverBuilding(null);
       st.setHover(null);
       st.setPointer(null);
-      st.cancelStroke();
+      // A pipe being laid by clicks stays in hand: the pointer leaves the map to reach its card.
+      if (!st.stroke?.pins) st.cancelStroke();
     };
 
     // Left button paints. pixi-viewport keeps left-drag pan, so a paint drag
@@ -2024,6 +2054,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // OVER A BUILDING THAT OPENS SOMETHING, any tool's press is such a click
     // on it: the building takes the click. @see clickTakesOver
     let lookFrom: { x: number; y: number; cell: { x: number; y: number } | null; open?: boolean; veto?: boolean } | null = null;
+    // Where a click on a pipe being laid by clicks went down. @see Stroke.pins
+    let pinPress: { x: number; y: number } | null = null;
+    /**
+     * A CLICK ON A PIPE BEING LAID BY CLICKS: on an end that completes it —
+     * joined at both ends, and it would carry — it is laid; on the corner
+     * just pinned, it is laid as it stands; anywhere else is a corner pinned.
+     */
+    const pinnedClick = () => {
+      const st = useWorldStore.getState(), s0 = st.stroke;
+      if (!s0?.pins) return;
+      const last = s0.pins[s0.pins.length - 1];
+      if ((last.x === s0.head.x && last.y === s0.head.y && s0.pins.length > 1) || strokeComplete(st.grid, s0)) st.endStroke();
+      else st.pinStroke();
+    };
     // FINGERS DOWN: a second one makes it a pinch, not a stroke.
     const touches = new Set<number>();
     const onDown = (e: FederatedPointerEvent) => {
@@ -2031,8 +2075,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         touches.add(e.pointerId);
         if (touches.size > 1) { useWorldStore.getState().cancelStroke(); lookFrom = null; return; }
       }
-      if (e.button !== 0) return;
       const st = useWorldStore.getState();
+      // A PIPE BEING LAID BY CLICKS: the right button takes its last pin back; the left is a click on it, answered when let go. @see pinnedClick
+      if (st.stroke?.pins) {
+        if (e.button === 2) st.unpinStroke();
+        else if (e.button === 0) pinPress = { x: e.global.x, y: e.global.y };
+        return;
+      }
+      if (e.button !== 0) return;
       // A takeover pressed on is refused, whatever the tool, if let go there.
       const veto = vetoCell(e);
       if (veto) {
@@ -2061,6 +2111,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       touches.delete(e.pointerId);
       if (pinching) return;
       const st = useWorldStore.getState();
+      if (pinPress) {
+        // Let go where it went down: a click. Dragged away, it was the camera's.
+        if (Math.hypot(e.global.x - pinPress.x, e.global.y - pinPress.y) <= LOOK_CLICK_SLOP) pinnedClick();
+        pinPress = null;
+        return;
+      }
       if (lookFrom?.veto) {
         // REFUSED: called off, remembered, and answered. @see recordVeto
         const moved = Math.hypot(e.global.x - lookFrom.x, e.global.y - lookFrom.y);
@@ -2084,8 +2140,30 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
       }
       lookFrom = null;
-      if (st.stroke) st.endStroke();
+      // A CLICK WITH A PIPE TOOL, in the game, starts a pipe laid by clicks: it stays in hand, its start pinned.
+      // (On a trunk already laid, the Sewer tool's click is a manhole there, as before.)
+      const s0 = st.stroke;
+      if (s0 && st.playing && !s0.pins && s0.anchor.x === s0.head.x && s0.anchor.y === s0.head.y
+        && (s0.tool === "pipe" || (s0.tool === "sewer" && (s0.lateral || !hasSewer(st.grid, idx(st.grid, s0.head.x, s0.head.y)))))) {
+        st.startPins();
+        return;
+      }
+      // A pipe being laid by clicks is ended by a click on it and nothing else: a button let go is not one. @see pinnedClick
+      if (st.stroke && !st.stroke.pins) st.endStroke();
     };
+    /** Escape drops a pipe in hand, Enter lays it as it stands, P lays a main with or without its pump. */
+    const onKey = (ev: KeyboardEvent) => {
+      const t = ev.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const st = useWorldStore.getState(), s0 = st.stroke;
+      if (!s0 || !st.playing || (s0.tool !== "pipe" && s0.tool !== "sewer")) return;
+      if (ev.key === "Escape" && s0.pins) { ev.stopPropagation(); st.cancelStroke(); }
+      else if (ev.key === "Enter" && s0.pins) st.endStroke();
+      else if (ev.key.toLowerCase() === "p" && s0.tool === "pipe" && !s0.sewer) st.toggleStrokePump();
+    };
+    window.addEventListener("keydown", onKey, true);
+    const noMenu = (ev: Event) => { if (useWorldStore.getState().stroke?.pins) ev.preventDefault(); };
+    window.addEventListener("contextmenu", noMenu);
     vp.eventMode = "static";
     vp.on("pointermove", onMove);
     vp.on("pointerleave", onLeave);
@@ -2093,6 +2171,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     vp.on("pointerup", onUp);
     vp.on("pointerupoutside", onUp);
     return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("contextmenu", noMenu);
       vp.off("pointermove", onMove);
       vp.off("pointerleave", onLeave);
       vp.off("pointerdown", onDown);
@@ -3174,7 +3254,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // THE WATER MAINS: their tubes where they changed — or the zoom asks for more or less detail — and the water in them. @see createMainsLayer
       mainsRef.current?.sync(grid, scale, useWorldStore.getState().viewport?.scale.x ?? 1);
       { const st = useWorldStore.getState();
-        mainsRef.current?.tick(grid, scale, performance.now(), ...mainPreview(), st.playing && (st.waterOverlay || st.tool === "pipe"), st.hover);
+        // WHERE THE PIPE IN HAND CAN CONNECT, lit; and where its end has gone. @see connectPoints
+        {
+          const s0 = st.stroke, piping = st.playing && (st.tool === "pipe" || st.tool === "sewer");
+          const kind = piping ? pipeKindOf(s0 ?? { tool: st.tool, sewer: false, lateral: st.tool === "sewer" && st.sewerLateral }) : null;
+          const points = kind ? connectPointsKept(grid, kind, s0 ? s0.pins?.[0] ?? s0.anchor : undefined) : [];
+          let end = -1;
+          if (kind && s0) { const route = mainPreview()[0]; const c = route?.[route.length - 1]; if (c) end = idx(grid, c.x, c.y); }
+          const slop = kind && kind !== "main" ? tanksOf(grid) : null;
+          connectRef.current?.draw(grid, points, points.map((p) => {
+            if (p.building === undefined) return NaN;
+            const t = slop ? slop.get(p.building) : tankFor(p.building);
+            return t && t.capacity > 0 ? t.level / t.capacity : NaN;
+          }), end, scale);
+        }
+        mainsRef.current?.tick(grid, scale, performance.now(), ...mainPreview(), st.playing && (st.waterOverlay || st.tool === "pipe"), st.hover, previewPump());
         // THE SEWERS: drawn again where they changed; the underground shown, and the ground see-through over it, in its view. @see createSewerLayer
         // On by itself with the Sewer tool in hand, and what it would lay ghosted.
         const underground = st.sewerView || st.tool === "sewer";
