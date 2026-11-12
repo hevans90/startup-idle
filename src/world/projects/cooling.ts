@@ -100,7 +100,7 @@ export function stepCooling(g: Grid, running: number, river: boolean, dt: number
 
 /**
  * Water into a drinker's tank from a pipe: as much of `amount` as there is
- * room for. What it took. @see runPipes
+ * room for. What it took. @see runMains
  */
 export function fillTank(id: number, amount: number): number {
   const now = Date.now();

@@ -45,7 +45,7 @@ export function siteFor(g: Grid, s: Structure, d: District | null): Cell | null 
   const clear = (x: number, y: number) => {
     if (!inBounds(g, x, y)) return false;
     const i = idx(g, x, y);
-    return !g.pool[i] && !g.pipe[i] && !isPaved(g, x, y) && structureAt(g, x, y) < 0 && !(field && depthAt(field, x, y) > 0);
+    return !g.pool[i] && !g.main[i] && !g.mainEnd[i] && !isPaved(g, x, y) && structureAt(g, x, y) < 0 && !(field && depthAt(field, x, y) > 0);
   };
   let best: Cell | null = null, nearest = Infinity;
   for (let y = s.y - REACH; y <= s.y + s.h + REACH; y++) {

@@ -6,7 +6,6 @@ import {
   setTerrain, stampFootprint, structureAt, terrainAt,
 } from "./grid";
 import { RAMP } from "./iso";
-import { layPipe } from "./water/pipes";
 import { applyFixture } from "./debug/fixtures";
 import { deserializeWorld, serializeWorld } from "./io/serialize";
 import { PatchBuilder, commit, createHistory, redo, undo } from "./edit/commands";
@@ -34,8 +33,7 @@ describe("the map says when it has been edited", () => {
   moves("fillTerrain", (g) => fillTerrain(g, 2));
   moves("stampFootprint", (g) =>
     stampFootprint(g, { id: 7, x: 1, y: 1, w: 2, h: 2, kind: "" } as never));
-  moves("layPipe", (g) => layPipe(g, 2, 2, 1));
-  moves("a fixture", (g) => applyFixture(g, "pipes", 1));
+  moves("a fixture", (g) => applyFixture(g, "river", 1));
   moves("a command", (g) => {
     const p = new PatchBuilder(g);
     p.set("source", 3, 3, 8);

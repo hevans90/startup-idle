@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { DIR } from "../../iso/dir";
 import { createFleet, restoreFleet } from "../boats/fleet";
 import {
-  RAMP, createGrid, fillTerrain, idx, pipeAt, rampAt, setDeck, setHeight, setPaved, setRamp,
+  RAMP, createGrid, fillTerrain, idx, rampAt, setDeck, setHeight, setPaved, setRamp,
   setTerrain, setInflow, setSource, sourceAt,
 } from "../grid";
 import { commit, createHistory } from "../edit/commands";
@@ -328,27 +328,26 @@ describe("ramp layer", () => {
   });
 });
 
-describe("pipe layer", () => {
-  test("a pipe keeps the side it points out of", () => {
-    // A facing, not a rate. Which side it sticks out of is the whole of what a
-    // pipe is, so a file that lost it would reload a pipe pointing the wrong
-    // way — which is a pipe filling the wrong pool.
+describe("the old pipe layer", () => {
+  test("a file from before water mains opens with its pipes made mains: joined as they touched, and none written back", () => {
     const grid = createGrid(6, 6, 1);
-    grid.pipe[idx(grid, 2, 3)] = DIR.S;
-    grid.pipe[idx(grid, 4, 1)] = DIR.W;
-    const { grid: back } = fromJSON(toJSON(serializeWorld(grid, PAL)));
-    expect(pipeAt(back, 2, 3)).toBe(DIR.S);
-    expect(pipeAt(back, 4, 1)).toBe(DIR.W);
-    expect(pipeAt(back, 0, 0)).toBe(0);
+    const file = serializeWorld(grid, PAL);
+    expect(file.pipe).toBeUndefined();
+    // As such a file had them: a facing a cell, base64 of bytes.
+    const old = new Uint8Array(36);
+    old[idx(grid, 2, 3)] = DIR.S; old[idx(grid, 3, 3)] = DIR.S;
+    file.pipe = btoa(String.fromCharCode(...old));
+    const { grid: back } = fromJSON(toJSON(file));
+    // S is x+1: the two touch, and are one run capped at its open end.
+    expect(back.main[idx(back, 2, 3)]).toBe(DIR.S);
+    expect(back.main[idx(back, 3, 3)]).toBe(DIR.N);
+    expect(back.mainEnd[idx(back, 3, 3)]).not.toBe(0);
+    expect(serializeWorld(back, PAL).pipe).toBeUndefined();
   });
 
-  test("a file written before pipes existed still opens, with none", () => {
-    const grid = createGrid(6, 6, 1);
-    grid.pipe[idx(grid, 2, 3)] = DIR.S;
-    const file = serializeWorld(grid, PAL);
-    delete file.pipe;
-    const { grid: back } = deserializeWorld(JSON.parse(JSON.stringify(file)));
-    expect(back.pipe.some((v) => v !== 0)).toBe(false);
+  test("a file with none still opens, with no mains", () => {
+    const { grid: back } = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(createGrid(6, 6, 1), PAL))));
+    expect(back.main.some((v) => v !== 0)).toBe(false);
   });
 });
 

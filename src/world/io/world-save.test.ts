@@ -12,9 +12,8 @@ import {
   clearSaved, hasSaved, loadSaved, retireRunSave, saveNow, saveSoon, setSaveSlot, suspendSaving,
 } from "./world-save";
 import { serializeWorld } from "./serialize";
-import { createGrid, fillTerrain, idx, setHeight } from "../grid";
+import { MAIN_END, createGrid, fillTerrain, idx, setHeight } from "../grid";
 import { createWaterField, pourAt } from "../water/field";
-import { layPipe } from "../water/pipes";
 import { DIR } from "../../iso/dir";
 
 const PALETTE = { terrain: [null, "grass.png"], paved: [null] } as const;
@@ -25,7 +24,8 @@ function world(w = 8, h = 8) {
   fillTerrain(grid, 1);
   setHeight(grid, 2, 2, 6);
   grid.paved[idx(grid, 3, 3)] = 1;
-  layPipe(grid, 5, 5, DIR.E);
+  grid.main[idx(grid, 5, 5)] = DIR.E;
+  grid.mainEnd[idx(grid, 5, 5)] = MAIN_END.cap;
   const field = createWaterField(grid);
   pourAt(field, 1, 1, 4, 1);
   return { grid, field };
@@ -56,7 +56,8 @@ describe("the map comes back", () => {
     expect(g.h).toBe(8);
     expect(g.height[idx(g, 2, 2)]).toBe(6);
     expect(g.paved[idx(g, 3, 3)]).toBe(1);
-    expect(g.pipe[idx(g, 5, 5)]).toBe(DIR.E);
+    expect(g.main[idx(g, 5, 5)]).toBe(DIR.E);
+    expect(g.mainEnd[idx(g, 5, 5)]).toBe(MAIN_END.cap);
     expect(back!.palette.terrain[1]).toBe("grass.png");
   });
 

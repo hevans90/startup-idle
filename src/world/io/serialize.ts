@@ -23,6 +23,7 @@ import { restoreTanks, tankLevels } from "../slop/tanks";
 import { serviceDef } from "../agents/needs";
 import { startLadder, unlockedOf } from "../agents/unlocks";
 import { setSuggestOpen, suggestOpen } from "../pipes/suggest";
+import { pipesToMains } from "../water/mains";
 
 export const WORLD_FILE_VERSION = 1;
 
@@ -97,22 +98,11 @@ export type WorldFile = {
   deck?: string;
   deckZ?: string;
   /**
-   * base64 Uint8Array of pipe facings; 0 where there is no pipe.
-   *
-   * OPTIONAL on read for the same reason as the rest: a file written before
-   * pipes existed has none, and none is what `createGrid` gives.
+   * THE OLD PIPES, read and never written: base64 Uint8Array of facings, 0
+   * where there was none, in a file from before water mains. Made mains on
+   * load. Their levels (`pipeZ`) are not read at all. @see pipesToMains
    */
   pipe?: string;
-  /**
-   * base64 Int8Array of pipe INVERTS — where each pipe's floor sits.
-   *
-   * Optional beside `pipe` and for the same reason: a map written before pipes
-   * had a level of their own has none, and none decodes as zero, which is the
-   * map floor. Reading one of those back, a run laid on high ground would
-   * arrive buried under it; there is no version of this that is right for
-   * every old map, and every old map with a pipe on it is a test fixture.
-   */
-  pipeZ?: string;
   /** base64 Uint8Arrays of the WATER MAINS: the sides each joins, and its end fittings. Optional: older maps have none. */
   main?: string;
   mainEnd?: string;
@@ -249,8 +239,6 @@ export function serializeWorld(
     deck: encodeU8(grid.deck),
     deckZ: encodeI8(grid.deckZ),
     inflow: encodeI8(grid.inflow),
-    pipe: encodeU8(grid.pipe),
-    pipeZ: encodeI8(grid.pipeZ),
     // Only where there is a main: most maps have none, and two empty layers are 11KB of nothing.
     ...(grid.main.some(Boolean) || grid.mainEnd.some(Boolean) ? { main: encodeU8(grid.main), mainEnd: encodeU8(grid.mainEnd) } : {}),
     // Likewise the sewers under the ground.
@@ -361,8 +349,6 @@ export function deserializeWorld(
   if (typeof f.deck === "string") grid.deck.set(decodeU8(f.deck, n));
   if (typeof f.deckZ === "string") grid.deckZ.set(decodeI8(f.deckZ, n));
   if (typeof f.inflow === "string") grid.inflow.set(decodeI8(f.inflow, n));
-  if (typeof f.pipe === "string") grid.pipe.set(decodeU8(f.pipe, n));
-  if (typeof f.pipeZ === "string") grid.pipeZ.set(decodeI8(f.pipeZ, n));
   if (typeof f.main === "string") grid.main.set(decodeU8(f.main, n));
   if (typeof f.mainEnd === "string") grid.mainEnd.set(decodeU8(f.mainEnd, n));
   if (typeof f.sewer === "string") grid.sewer.set(decodeU8(f.sewer, n));
@@ -375,6 +361,8 @@ export function deserializeWorld(
     stampFootprint(grid, s);
     if (s.id >= grid.nextStructureId) grid.nextStructureId = s.id + 1;
   }
+  // A MAP FROM BEFORE MAINS has the old pipes in it: made mains here, once, and not kept. @see pipesToMains
+  if (typeof f.pipe === "string") pipesToMains(grid, decodeU8(f.pipe, n));
   // A SEAPORT FROM BEFORE PORTS FACED THE WATER is given the side its water is on. @see facePorts
   facePorts(grid, (s) => !!structureDef(s.def)?.port);
   recomputeHeightRange(grid);

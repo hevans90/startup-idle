@@ -16,10 +16,9 @@ import {
   FIXTURE_IDS, FIXTURE_SIZE, OCCLUDER_GAP, OCCLUDER_HEIGHT, applyFixture, buildOccluder, buildRampFan, buildZiggurat, type FixtureId,
 } from "./fixtures";
 import {
-  COLUMNS_PER_TILE, createWaterField, depthAt, runSources, stepWater, totalVolume, waterInPipes, wetTiles,
+  COLUMNS_PER_TILE, createWaterField, depthAt, runSources, stepWater, totalVolume, wetTiles,
 } from "../water/field";
 import { canCopyOut } from "../../fluid/gpu/state";
-import { PIPE_D, pipeLevelAt, runPipes } from "../water/pipes";
 
 const world = (w = 48, h = 48) => createGrid(w, h, 1);
 
@@ -260,143 +259,6 @@ describe("road fixtures", () => {
     setPaved(g, 10, 14, 0);
     expect(componentCount(createNetwork(g))).toBe(2);   // now two arcs
   });
-});
-
-describe("the pipes fixture", () => {
-  /**
-   * The fixture exists to be WATCHED, and what it is worth is that the four
-   * things a pipe does happen in order and inside a minute. So this runs it
-   * and checks the order — which is also the only end-to-end test there is of
-   * the whole chain, from a tap on a map through a network to a drop in the
-   * air and back again.
-   */
-  const world64 = () => {
-    const g = createGrid(64, 64);
-    applyFixture(g, "pipes", 1);
-    const field = createWaterField(g);
-    const mid = Math.round(g.h / 2);
-    const len = Math.min(20, Math.round(g.w * 0.35));
-    const drop = 4 + len;
-    const run = (seconds: number) => {
-      for (let n = 0; n < Math.round(seconds * 60); n++) {
-        runSources(field, g, 1 / 60);
-        runPipes(field, g, 1 / 60);
-        stepWater(field, 1 / 60);
-      }
-    };
-    return {
-      g, field, run, mid, drop,
-      spout: () => pipeLevelAt(g, field, drop - 1, mid),
-      branch: () => pipeLevelAt(g, field, Math.round((7 + drop) / 2), mid - 2),
-      pocket: () => depthAt(field, drop + 1, mid),
-    };
-  };
-
-  test("fills, drips, pressurises, floods and then backs up — in that order", () => {
-    const w = world64();
-    const invert = 14;                             // the foot of the channel
-
-    // 1. It FILLS. Nothing is in it when the map loads, because a pipe makes
-    //    no water; what goes in comes from the channel it is lying in.
-    expect(waterInPipes(w.field, w.g)).toBe(0);
-    w.run(10);
-    expect(waterInPipes(w.field, w.g)).toBeGreaterThan(10);
-
-    // 2. It DRIPS, and the capped branch has nowhere to go so it PRESSURISES:
-    //    a dead end fills to its crown and then stands above it, which is a
-    //    head and not a volume.
-    expect(w.field.columns.drips.live).toBeGreaterThan(0);
-    expect(w.branch()).toBeGreaterThan(invert + PIPE_D);
-
-    // 3. The pocket below FILLS, from the drops and the channel together.
-    w.run(20);
-    expect(w.pocket()).toBeGreaterThan(5);
-
-    // 4. And once it is over the spout, the spout DROWNS: it stops dripping,
-    //    and the level inside the pipe comes up to the level outside it,
-    //    because through a drowned hole the two are one body of water.
-    w.run(40);
-    expect(w.pocket()).toBeGreaterThan(PIPE_D);
-    expect(w.spout()).toBeGreaterThan(invert + PIPE_D);
-    // The pocket's floor is the map's, at nought, so its depth IS its surface
-    // — and the level inside the pipe has come up to meet it.
-    expect(w.spout()).toBeCloseTo(w.pocket(), 0);
-    expect(w.field.columns.drips.live).toBe(0);
-  }, 20000);
-
-  test("and it makes no water of its own — only what its tap puts in", () => {
-    // The pipes themselves are not a source, and the check is arithmetic: one
-    // tile of spring at `SPRING` a second over its sixteen columns, times
-    // three taps, and nothing else anywhere.
-    const w = world64();
-    const taps = [...w.g.source].filter((r) => r > 0).length;
-    w.run(20);
-    expect(totalVolume(w.field, w.g)).toBeCloseTo(taps * 8 * 16 * 20, 0);
-  }, 20000);
-});
-
-describe("the culvert fixture", () => {
-  /**
-   * Two pockets in solid rock, and a pipe under the rock between them.
-   *
-   * The one thing a surface pipe could never do, set up so that there is no
-   * other explanation available: the right-hand pocket has no tap, and the
-   * rock between the two is taller than either pocket can ever fill, so over
-   * the ground they are separate worlds and the terrain solver is right about
-   * that. Anything that arrives on the right came through the pipe.
-   */
-  const world = () => {
-    const g = createGrid(64, 64);
-    applyFixture(g, "culvert", 1);
-    const field = createWaterField(g);
-    const mid = Math.round(g.h / 2), half = Math.round(g.w / 2);
-    const pool = (x0: number, x1: number) => {
-      let sum = 0;
-      for (let y = mid - 3; y <= mid + 3; y++) for (let x = x0; x <= x1; x++) sum += depthAt(field, x, y);
-      return sum;
-    };
-    return {
-      g, field, mid, half,
-      run: (seconds: number) => {
-        for (let n = 0; n < Math.round(seconds * 60); n++) {
-          runSources(field, g, 1 / 60);
-          runPipes(field, g, 1 / 60);
-          stepWater(field, 1 / 60);
-        }
-      },
-      left: () => pool(half - 11, half - 4),
-      right: () => pool(half + 4, half + 7),
-    };
-  };
-
-  test("the run is buried, and the rock it is under is unbroken", () => {
-    const w = world();
-    const under = w.g.height[w.mid * w.g.w + w.half];
-    expect(w.g.pipeZ[w.mid * w.g.w + w.half]).toBe(0);
-    expect(under).toBeGreaterThan(20);            // and the pipe is beneath it
-    // No gap anywhere in the ridge: every cell of it is high, on every row, so
-    // there is no surface route between the two at any depth of water.
-    for (let y = 0; y < w.g.h; y++) {
-      for (let x = w.half - 2; x <= w.half + 2; x++) {
-        expect(w.g.height[y * w.g.w + x]).toBe(under);
-      }
-    }
-  });
-
-  test("and water crosses it, which over the ground is impossible", () => {
-    const w = world();
-    expect(w.right()).toBe(0);
-    w.run(70);
-    expect(w.left()).toBeGreaterThan(0);          // the tap has filled its own
-    expect(w.right()).toBeGreaterThan(0.5);       // and this can only be the pipe
-  }, 30000);
-
-  test("and nothing is made on the way — only what the tap put in", () => {
-    const w = world();
-    const taps = [...w.g.source].filter((r) => r > 0).length;
-    w.run(20);
-    expect(totalVolume(w.field, w.g)).toBeCloseTo(taps * 8 * 16 * 20, 0);
-  }, 30000);
 });
 
 describe("a fixture can start with water in it", () => {

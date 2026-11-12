@@ -329,7 +329,7 @@ export const RACK: StructureDef = {
 /**
  * A PUMP HOUSE: on the water's edge, it pushes water up the pipe that meets
  * it — `PUMP_HEAD` higher than the water stands — for money a second while it
- * runs. Sold once the Data Centre stands. @see runPipes, game/cooling
+ * runs. Sold once the Data Centre stands. @see runMains, game/cooling
  */
 export const PUMP: StructureDef = {
   id: "pump", name: "Pump house", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" },

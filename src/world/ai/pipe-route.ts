@@ -5,7 +5,7 @@
  * floor the route is a gravity run; if not, its shore end is a PUMP HOUSE,
  * when one pump's lift is enough. Pure: a grid and what is the company's in, a
  * route out, valid as the Pipe tool and the pump's placement judge it.
- * @see gamePipeRun, runPumps, plans/datacentre-water.md §6
+ * @see planMain, plans/datacentre-water.md §6
  */
 import { PUMP_HEAD } from "../../game/cooling";
 import { hasMain } from "../water/mains";

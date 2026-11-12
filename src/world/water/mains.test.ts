@@ -203,22 +203,23 @@ describe("a burst main", () => {
 
 describe("the old pipes", () => {
   test("become mains joined as they were, each opening fitted as it behaved, a pump house becoming a pump intake", async () => {
-    const { layPipe } = await import("./pipes");
     const { DIR } = await import("../../iso/dir");
     const { g } = lakeside(-2);
     commit(g, createHistory(), placeCommand(g, structureDef("pump")!, 4, 5)!);
+    // The old layer as a file had it: a facing a cell.
     // On this map N is x−1, S x+1 and E y−1: the run faces the pump at its west end, the Data Centre at its east, over its inlet.
-    for (let x = 5; x <= 19; x++) layPipe(g, x, 5, x === 5 ? DIR.N : x === 19 ? DIR.E : DIR.S, 0);
+    const old = new Uint8Array(g.w * g.h);
+    for (let x = 5; x <= 19; x++) old[idx(g, x, 5)] = x === 5 ? DIR.N : x === 19 ? DIR.E : DIR.S;
     // A second run touching the first: the old pipes joined it, so the mains do.
-    layPipe(g, 10, 6, DIR.W, 0);
-    expect(pipesToMains(g)).toBe(true);
-    expect(g.pipe.some(Boolean)).toBe(false);
+    old[idx(g, 10, 6)] = DIR.W;
+    expect(pipesToMains(g, old)).toBe(true);
     expect(g.mainEnd[idx(g, 4, 5)]).toBe(MAIN_END.pump);
     expect([...g.structures.values()].some((s) => s.def === "pump")).toBe(false);
     expect(g.mainEnd[idx(g, 19, 5)]).toBe(MAIN_END.outlet);
     expect(g.mainEnd[idx(g, 10, 6)]).toBe(MAIN_END.cap);
     expect(findMains(g).list.length).toBe(1);
-    expect(pipesToMains(g)).toBe(false);
+    // A file with none in it changes nothing.
+    expect(pipesToMains(g, new Uint8Array(g.w * g.h))).toBe(false);
   });
 });
 

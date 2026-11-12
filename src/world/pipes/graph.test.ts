@@ -4,7 +4,7 @@ import { DIR } from "../../iso/dir";
 import { applyFixture, FIXTURE_SIZE } from "../debug/fixtures";
 import { MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_BORE, SEWER_FIT, createGrid, edited, idx, type Grid } from "../grid";
 import { solveSewers } from "../sewers/solve";
-import { findMains, pipesToMains } from "../water/mains";
+import { findMains } from "../water/mains";
 import { NODE_SPACING, hasPipe, pipeGraph, type PipeGraph, type PipeLayer } from "./graph";
 
 const SIDE_OF = (dx: number, dy: number) => (dx === -1 ? "N" : dx === 1 ? "S" : dy === -1 ? "E" : "W");
@@ -146,8 +146,6 @@ describe("the one pipe graph", () => {
     test(`the ${id} fixture: every pipe on it in the graph, and the old networks read off it`, () => {
       const n = FIXTURE_SIZE[id] ?? 64, g = createGrid(n, n, 1);
       applyFixture(g, id, 1);
-      // Its pipes are the editor's spouts until play turns them into mains. @see pipesToMains
-      if (id === "singularity") pipesToMains(g);
       const gr = pipeGraph(g);
       sound(g, gr);
       expect(gr.links.length).toBeGreaterThan(0);

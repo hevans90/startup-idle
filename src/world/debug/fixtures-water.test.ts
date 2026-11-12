@@ -9,7 +9,7 @@ import { applyFixture, type FixtureId } from "./fixtures";
 import { createWaterField, depthAt, runSources, stepWater, wetTiles } from "../water/field";
 
 /** The presets that come with their own water. */
-const WATER_FIXTURES: FixtureId[] = ["river", "cascade", "lake", "islands", "pipes", "plunge"];
+const WATER_FIXTURES: FixtureId[] = ["river", "cascade", "lake", "islands", "plunge"];
 
 describe("the water fixtures", () => {
   /** Run a preset's own taps and flow for a while, as the scene does. */

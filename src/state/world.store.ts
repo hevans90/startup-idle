@@ -42,8 +42,7 @@ import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { LEVEE, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
-import { facingFor, pipeGrade, PIPE_FACINGS } from "../world/water/pipes";
-import { findMains, hasMain, mainsToPorts, pipesToMains, planMain, previewSewer } from "../world/water/mains";
+import { findMains, hasMain, mainsToPorts, planMain, previewSewer } from "../world/water/mains";
 import { mainStroke } from "../world/water/main-stroke";
 import { strokeRoute } from "../world/pipes/stroke-route";
 import { DIR, NEIGHBOUR } from "../iso/dir";
@@ -804,11 +803,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   gen: START_GEN,
   playing: false,
   setPlaying: (playing) => {
-    // INTO PLAY, the old pipes become mains: the game's pipes are mains now,
-    // and the old ones are only the editor's spouts. @see pipesToMains
-    // And mains laid before buildings had inlets are run on to them. @see mainsToPorts
+    // INTO PLAY, mains laid before buildings had inlets are run on to them. @see mainsToPorts
     // And sewers laid above ground go under it. @see sewersUnderground
-    if (playing && (+pipesToMains(get().grid, mainWet(get().grid)) | +mainsToPorts(get().grid, mainWet(get().grid)) | +sewersUnderground(get().grid))) {
+    if (playing && (+mainsToPorts(get().grid, mainWet(get().grid)) | +sewersUnderground(get().grid))) {
       set({ playing, revision: get().revision + 1 });
       return;
     }
@@ -1268,7 +1265,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     let roadPaid = 0;
     let dredged: { x: number; y: number }[] = [];
     // DEMOLISH ON A PIPE OR A ROAD lifts it. @see demolishLifts
-    const lifts = s0.tool === "demolish" && st.playing ? demolishLifts(st.grid, s0.anchor) : null;
+    // In the editor a pipe only: Demolish there has never taken up a road.
+    const under = s0.tool === "demolish" ? demolishLifts(st.grid, s0.anchor) : null;
+    const lifts = st.playing || under === "pipe" ? under : null;
     if (lifts) {
       const kept = st.liftPipe;
       set({ tool: "eraseRoad", liftPipe: lifts === "pipe", stroke: { ...s0, tool: "eraseRoad", brush: "line" } });
@@ -1384,8 +1383,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
           if (plan.staged.sewerFit[i] !== g.sewerFit[i]) b.set("sewerFit", c.x, c.y, plan.staged.sewerFit[i]);
         }
       }
-    } else if (isPipeTool(s0.tool) && st.playing) {
-      // THE PIPE TOOL, in the game: a WATER MAIN, routed from where the drag
+    } else if (isPipeTool(s0.tool)) {
+      // THE PIPE TOOL, in the game and in the editor alike — there it costs nothing: a WATER MAIN, routed from where the drag
       // went down to where it is — or along a route given — its ends fitted
       // to what they reach, paid a tile at a time for the new tiles and for a
       // pump if it has one. All or none. @see planMain, routeMain, pipeCost
@@ -1400,7 +1399,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if ("refused" in plan) { set({ stroke: null, notice: { text: plan.refused, at: Date.now() } }); return; }
       const fresh = m ? m.fresh : previewSewer(st.grid, plan.cells).fresh;
       const price = pipeCost(fresh).plus(m ? m.price.pump : 0);
-      if (price.gt(0) && !spendForBuild(price)) {
+      if (st.playing && price.gt(0) && !spendForBuild(price)) {
         set({ stroke: null, notice: { text: `Not enough money for ${fresh} tiles of ${what}${m?.pump ? " and its pump" : ""}: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
         return;
       }
@@ -1413,7 +1412,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         // CARRIED ON FROM AN OPEN END: its cap comes off, the run going through. @see planMain
         else if (c.join && st.grid.mainEnd[i] === MAIN_END.cap) b.set("mainEnd", c.x, c.y, 0);
       }
-    } else if (s0.tool === "eraseRoad" && st.playing && st.liftPipe) {
+    } else if (s0.tool === "eraseRoad" && st.liftPipe) {
       // LIFTING PIPE, not road: the mains on these tiles come up, and a
       // neighbour left with an open end is capped. @see demolishLifts
       const on = new Set(cells.map((c) => idx(st.grid, c.x, c.y)));
@@ -1434,32 +1433,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
           b.set("main", nx, ny, had & ~back);
           if (!b.peek("mainEnd", nx, ny)) b.set("mainEnd", nx, ny, MAIN_END.cap);
         }
-      }
-    } else if (isPipeTool(s0.tool)) {
-      // A facing, not a rate. Placed pointing at the LOWEST neighbour, which is
-      // the side it would actually drip off — a pipe pointing into a hillside
-      // is not a thing anyone means to place — and a second click on a cell
-      // that already has one turns it to the next facing instead of placing it
-      // again, which is the only way to say "not that side" with one tool.
-      for (const c of cells) {
-        const had = st.grid.pipe[idx(st.grid, c.x, c.y)];
-        const next = had
-          ? PIPE_FACINGS[(PIPE_FACINGS.indexOf(had as 1 | 2 | 4 | 8) + 1) % PIPE_FACINGS.length]
-          : facingFor(st.grid, c.x, c.y);
-        b.set("pipe", c.x, c.y, next);
-        b.set("fluid", c.x, c.y, st.fluidMaterial);
-        // A new length of pipe CONTINUES the grade of the run it is joining,
-        // and only drops to the ground where the ground has fallen below it.
-        // That one rule is the whole of laying a buried main: a run lies on
-        // the ground while the ground behaves, burrows under anything that
-        // rises in front of it, and comes back up to daylight wherever the
-        // ground falls away. Nothing to set, nothing to choose — which is the
-        // only version of this that survives being drawn with a mouse.
-        //
-        // Re-clicking an existing pipe turns it and leaves its level alone: a
-        // pipe already laid has a grade, and cycling which way it opens is not
-        // a reason to re-lay it.
-        if (!had) b.set("pipeZ", c.x, c.y, pipeGrade(st.grid, c.x, c.y));
       }
     } else if (isWaterTool(s0.tool)) {
       // Water is LIVE state, not a layer, so pouring is not a cell patch — see

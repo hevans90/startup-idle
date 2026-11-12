@@ -6,14 +6,14 @@
  * build the exact awkward cases on demand, so "the cursor lands on the wrong
  * cell" becomes reproducible.
  */
-import { DIR, NEIGHBOUR } from "../../iso/dir";
+import { NEIGHBOUR } from "../../iso/dir";
 import { mapRiver, poolDepthOf } from "../boats/river";
 import { SERVICE_DEFS } from "../agents/needs";
 import { startLadder } from "../agents/unlocks";
 import { pinBeauty } from "../agents/beauty";
 import { commit, createHistory } from "../edit/commands";
 import {
-  AI_BUILDINGS, DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, PUMP, RACK, SEAPORTS, SERVICES, structureDef, type StructureDef,
+  AI_BUILDINGS, DERELICT, LAB, LEVEE, OFFICES, PROJECT_BUILDINGS, RACK, SEAPORTS, SERVICES, structureDef, type StructureDef,
 } from "../structures/def";
 import { placeCommand, validatePlacement } from "../structures/place";
 import { planLateral } from "../sewers/lay";
@@ -21,7 +21,6 @@ import { layMain, planMain, routeMain } from "../water/mains";
 import { setGlassOverride, type GlassTold } from "../render/glass-state";
 import { portsOf } from "../water/ports";
 import { derivedRamp } from "../roads/ramp-derive";
-import { gamePipeRun, layPipe } from "../water/pipes";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import {
   MAIN_BORE, SEWER_GRATE, edited, fillTerrain, idx, inBounds, recomputeHeightRange, setDeck, setInflow, setSource, type Grid,
@@ -30,7 +29,7 @@ import {
 export type FixtureId =
   | "flat" | "ziggurat" | "occluder" | "rampFan"
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
-  | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
+  | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
   | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal";
 
@@ -54,7 +53,8 @@ const clear = (g: Grid, material: number) => {
   g.fluid.fill(0);
   g.pool.fill(0);
   g.deckPool.fill(0);
-  g.pipe.fill(0);
+  g.main.fill(0);
+  g.mainEnd.fill(0);
 };
 
 /**
@@ -1092,131 +1092,6 @@ export function buildIslands(g: Grid, material: number) {
 }
 
 /**
- * A pipe carrying water down a channel into a pocket that eventually drowns it.
- *
- * Everything a pipe does, on one map that runs itself, in about half a minute.
- * A spring feeds a walled CHANNEL; a run of pipe lying along the channel has
- * its uphill end open under the flow, so it DRAWS, and its downhill end open
- * over the drop at the far end, so it DISCHARGES — in drops, fourteen half
- * steps, into the pocket below. A branch off the middle of the run is turned
- * back into itself, which is how an end is capped, so it fills and then has
- * nowhere to go. And the pocket is SMALL and walled, so it fills: give it half
- * a minute and the water outside the spout rises above the spout, the head
- * reverses, the run backs up and the whole thing goes under PRESSURE — the
- * capped branch included, drawn pale. Four behaviours, in order, without
- * touching anything.
- *
- * The channel carries water to the same drop the pipe does, and that is not a
- * compromise but the honest arrangement: a pipe lying ON the ground cannot be
- * the only way out of anything, because whatever it crosses to get out, water
- * can cross too. It also cannot be higher than the surface feeding it, which
- * is why the run lies IN the channel rather than climbing out of one — see the
- * note about running UNDER the ground in `world/water/pipes`.
- */
-export function buildPipes(g: Grid, material: number) {
-  clear(g, material);
-  const mid = Math.round(g.h / 2);
-  const LANE = 2;                                 // half the channel's width
-  const x0 = 4;
-  const len = Math.min(20, Math.round(g.w * 0.35));
-  const drop = x0 + len;                          // where the channel ends
-  const pocket = Math.min(g.w - 3, drop + 3);
-  const TOP = 20, FOOT = 14, WALL = 30;
-
-  // The channel SLOPES, so the water runs down it rather than ponding along
-  // it: a level channel of this length takes minutes to reach its own end,
-  // and the whole point of the fixture is that you can watch it happen.
-  const bed = (x: number) =>
-    Math.round(TOP - ((TOP - FOOT) * (x - x0)) / Math.max(1, len - 1));
-  for (let y = 0; y < g.h; y++) {
-    for (let x = 0; x < g.w; x++) {
-      const lane = Math.abs(y - mid) <= LANE;
-      const channel = lane && x >= x0 && x < drop;
-      const basin = lane && x >= drop && x <= pocket;
-      set(g, x, y, channel ? bed(x) : basin ? 0 : WALL);
-    }
-  }
-  // Three taps across the head of the channel, so it runs properly rather than
-  // seeping — the pocket below has to fill while somebody is watching.
-  for (let d = -1; d <= 1; d++) tap(g, x0, mid + d, SPRING);
-
-  // The run, lying along the channel and descending with it. `S` is
-  // `(x + 1, y)`, so a cell facing S points at the next one along and is an
-  // interior joint; only the two ends open on anything at all.
-  const from = x0 + 3;
-  for (let x = from; x < drop; x++) layPipe(g, x, mid, DIR.S);
-  layPipe(g, from, mid, DIR.N, g.pipeZ[idx(g, from, mid)]);             // the intake, back up the channel
-
-  // And the capped branch. `E` is `(x, y - 1)`, so this runs across the
-  // channel, and its last cell turned back down it is an end with no opening.
-  const tee = Math.round((from + drop) / 2);
-  for (let d = 1; d <= LANE; d++) layPipe(g, tee, mid - d, DIR.E);
-  layPipe(g, tee, mid - LANE, DIR.W, g.pipeZ[idx(g, tee, mid - LANE)]);
-}
-
-/**
- * Two basins either side of a ridge, joined UNDER it.
- *
- * The thing a surface pipe can never do, and the reason pipes have a level of
- * their own. Over the ground these two are separate worlds: the ridge between
- * them is taller than either basin can fill, so no amount of water in one ever
- * reaches the other, and the terrain solver is right about that. A run laid
- * from the floor of the left basin keeps that grade all the way across — it is
- * buried under twenty-odd half steps of rock in the middle — and the two
- * become one body of water that levels out.
- *
- * This is a culvert, or an inverted siphon, and it is worth naming which: the
- * pipe goes UNDER the obstacle, and its water is pushed up the far side by the
- * head behind it. A true siphon goes OVER, holds itself up by suction, and
- * this scheme cannot do one and should not pretend to — a free surface cannot
- * be at less than nothing.
- *
- * Nothing chooses the burial. `layPipe` takes the lower of the ground it is on
- * and the run it is joining, so a ridge in the way simply fails to lift it.
- */
-export function buildCulvert(g: Grid, material: number) {
-  clear(g, material);
-  const mid = Math.round(g.h / 2);
-  const half = Math.round(g.w / 2);
-  const LANE = 3, ROCK = 16, RIDGE = 26;
-  // Two pockets in solid rock, and nothing between them but rock. Small on
-  // purpose: a basin the size of the map takes minutes to show a level, and a
-  // fixture nobody will sit through is a fixture nobody will run.
-  // Close together, because a pipe has RESISTANCE: thirty cells of it throttle
-  // the flow to a trickle however much head is behind it, and the fixture then
-  // shows a full pipe and a dry pocket, which is true and useless.
-  const leftFrom = half - 11, leftTo = half - 4;
-  // The receiving pocket is the SMALLER of the two, so that what crosses shows
-  // as a level rather than as a film. A pipe passes a few units a second
-  // against a spring's sixteen or more — that is not a fault in either, it is
-  // what a hole of that size does — so the demonstration has to be the water
-  // arriving somewhere, not the two coming level.
-  const rightFrom = half + 4, rightTo = half + 7;
-
-  for (let y = 0; y < g.h; y++) {
-    for (let x = 0; x < g.w; x++) {
-      const lane = Math.abs(y - mid) <= LANE;
-      const basin = lane && ((x >= leftFrom && x <= leftTo) || (x >= rightFrom && x <= rightTo));
-      // A RIDGE across the middle, standing above the rock either side of it,
-      // so that what the pipe is going under is unmistakable — and so the
-      // pockets are shallow enough to see into, which a hole sunk the ridge's
-      // full depth is not.
-      const crest = Math.abs(x - half) <= 2;
-      set(g, x, y, basin ? 0 : crest ? RIDGE : ROCK);
-    }
-  }
-  // One tap, in the left pocket. The right one has no water of its own, so
-  // anything that ever appears in it came through the pipe.
-  tap(g, leftFrom + 1, mid, SPRING);
-
-  // Laid from the left pocket's floor, eastward, straight through the rock.
-  // `S` is `(x + 1, y)`, so every cell but the last points at the next, and
-  // only the two ends open on anything.
-  for (let x = leftFrom + 1; x <= rightTo - 1; x++) layPipe(g, x, mid, DIR.S);
-  layPipe(g, leftFrom + 1, mid, DIR.N, g.pipeZ[idx(g, leftFrom + 1, mid)]);
-}
-
-/**
  * Fixtures that want a map of their own size, rather than the one on screen.
  *
  * A rig is a size as much as it is a shape: `brink` is five tiles because five
@@ -1233,7 +1108,7 @@ export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, br
  */
 export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
-  "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
+  "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
   "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal",
 ];
@@ -1264,8 +1139,6 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "cascade": buildCascade(g, material); recomputeHeightRange(g); return;
     case "lake": buildLake(g, material); recomputeHeightRange(g); return;
     case "islands": buildIslands(g, material); recomputeHeightRange(g); return;
-    case "pipes": buildPipes(g, material); recomputeHeightRange(g); return;
-    case "culvert": buildCulvert(g, material); recomputeHeightRange(g); return;
     case "plunge": buildPlunge(g, material); recomputeHeightRange(g); return;
     case "waterfall": buildWaterfall(g, material); recomputeHeightRange(g); return;
     case "brink": buildBrink(g, material); recomputeHeightRange(g); return;
@@ -1489,11 +1362,11 @@ export function buildSingularity(g: Grid, material: number, cx: number, cy: numb
   const house = structureDef("kit:intern.t1");
   for (let hx = x0 + 1; hx < x1; hx += 2) { put(house, hx, rows[0] - 1); put(house, hx, rows[0] + 1); }
 
-  // THE PIPES, laid as the Pipe tool lays them: each end facing what it should.
-  const lay = (cells: { x: number; y: number }[]) => {
-    const run = gamePipeRun(g, cells);
-    if ("refused" in run) return;
-    for (const c of run) layPipe(g, c.x, c.y, c.facing, c.z);
+  // THE MAINS, laid as the Pipe tool lays them: each end fitted to what it reaches.
+  const wet = (x: number, y: number) => g.pool[idx(g, x, y)] > 0;
+  const lay = (cells: { x: number; y: number }[], pump = false) => {
+    const plan = planMain(g, cells, wet, pump);
+    if (!("refused" in plan)) layMain(g, plan.cells);
   };
   const line = (x0: number, y0: number, x1: number, y1: number) => {
     const out: { x: number; y: number }[] = [];
@@ -1501,23 +1374,22 @@ export function buildSingularity(g: Grid, material: number, cx: number, cy: numb
     for (let x = x0, y = y0; ; x += dx, y += dy) { out.push({ x, y }); if (x === x1 && y === y1) break; }
     return out;
   };
-  // From the pond, east along the terrace and down its edge, then south into the Data Centre.
+  // From the pond, east along the terrace and down its edge, then south and round the Data Centre's corner to its inlet.
   const dc = [...g.structures.values()].find((s) => s.def === "datacentre");
   if (dc) {
-    const px = dc.x + 1, py = P.y0 + 3;
-    lay([...line(P.x1 + 1, py, px, py), ...line(px, py + 1, px, dc.y - 1)]);
+    const px = dc.x + 1, py = P.y0 + 3, side = dc.x + dc.w;
+    lay([...line(P.x1 + 1, py, px, py), ...line(px, py + 1, px, dc.y - 1), ...line(px + 1, dc.y - 1, side, dc.y - 1), ...line(side, dc.y, side, dc.y + 1)]);
   }
-  // From the canal, a pump house each, north to the GPU farm — and to a tile short of the spire.
+  // From the canal, a pump each, north to the GPU farm — and to a tile short of the spire, which so feeds nothing.
   const farm = [...g.structures.values()].find((s) => s.def === "gpu-farm");
   const spire = [...g.structures.values()].find((s) => s.def === "compute-spire");
   const bank = C.y0 - 1;
   if (farm) {
-    put(PUMP, farm.x + 1, bank);
-    lay(line(farm.x + 1, bank - 1, farm.x + 1, farm.y + 1));
+    // Up to the farm's wall and along it to its inlet.
+    lay([...line(farm.x + 1, bank, farm.x + 1, farm.y + 1), { x: farm.x, y: farm.y + 1 }], true);
   }
   if (spire) {
-    put(PUMP, spire.x, bank);
-    lay(line(spire.x, bank - 1, spire.x, spire.y + 2));
+    lay(line(spire.x, bank, spire.x, spire.y + 2), true);
   }
 }
 

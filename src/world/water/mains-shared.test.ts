@@ -17,8 +17,6 @@ import { placeCommand } from "../structures/place";
 import { createWaterField, setWaterEdge, stepWater } from "./field";
 import { totalWater } from "../../fluid/columns";
 import { findMains, layMain, mainFillAt, mainReportsFor, planMain, runMains, solveMain, waterInMains } from "./mains";
-import { createPipeNets, findPipeNets } from "./pipe-net";
-import { runPipes } from "./pipes";
 
 afterEach(resetCooling);
 
@@ -150,15 +148,4 @@ describe("a main with more than one run and one outlet", () => {
     // To the water's own precision: its depths are single floats.
     expect(all()).toBeCloseTo(start, 4);
   }));
-});
-
-describe("the editor's spouts in the game's tick", () => {
-  test("a map with no spouts is left at once: nothing is found to run", () => {
-    const { g } = yard();
-    const f = createWaterField(g);
-    expect(findPipeNets(g, createPipeNets(g.w, g.h)).count).toBe(0);
-    // A pump that would throw if asked: with no pipe end to fill, none is.
-    runPipes(f, g, 1 / 60, { pay: () => { throw new Error("a pump ran with no spouts"); } });
-    expect(f.spilled).toBe(g.rev);
-  });
 });

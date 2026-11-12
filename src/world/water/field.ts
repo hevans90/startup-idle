@@ -31,9 +31,6 @@ const basinOf = (g: Grid, id: number): number => {
   const s = g.structures.get(id);
   return (s && structureDef(s.def)?.basin) ?? 0;
 };
-import {
-  createPipeNets, findPipeNets, pipeCellCount, type PipeNets,
-} from "./pipe-net";
 
 /**
  * Columns per map tile, per axis.
@@ -95,35 +92,6 @@ export type WaterField = {
   /** Map size in TILES, so a resize can be detected. */
   w: number;
   h: number;
-  /**
-   * How much of a drop each cell's pipe has grown so far.
-   *
-   * Live state and not map data: a pipe is a thing you placed, and how far
-   * through its next drop it happens to be is the simulation's business. One
-   * number per cell because a nozzle's whole state is how much it is holding.
-   */
-  held: Float32Array;
-  /**
-   * Water standing IN the pipes, per cell.
-   *
-   * Live state and not map data, the same as depth: a pipe is a thing you
-   * placed, what happens to be lying in it is the simulation's business. Per
-   * cell rather than per network so that joining two runs and cutting one are
-   * both free — see the note in `pipes.ts`.
-   */
-  pipe: Float32Array;
-  /**
-   * Discharge on the edge between two pipe cells: the `+x` edge of each cell
-   * and its `+y` edge, the same layout the solver uses for its own fluxes.
-   *
-   * This is the MOMENTUM, and it is the whole of why the water in a pipe can
-   * slosh — a level without one settles and cannot overshoot.
-   */
-  pipeFlux: Float32Array;
-  /** The networks, rebuilt from the grid when the map changes. @see findPipeNets */
-  nets: PipeNets;
-  /** The `grid.rev` the orphans were last swept at. @see spillOrphaned */
-  spilled: number;
   /**
    * THE CELLS THAT HAVE A SPRING OR A DRAIN ON THEM, and nothing else.
    *
@@ -188,11 +156,6 @@ export function createWaterField(
     fieldRev: 0,
     w: grid.w,
     h: grid.h,
-    held: new Float32Array(grid.w * grid.h),
-    pipe: new Float32Array(grid.w * grid.h),
-    pipeFlux: new Float32Array(grid.w * grid.h * 2),
-    nets: createPipeNets(grid.w, grid.h),
-    spilled: -1,
     taps: emptyCellList(grid.w * grid.h),
   };
   // Each fluid keeps its own momentum differently — the only thing that makes
@@ -900,13 +863,10 @@ export function wetTiles(field: WaterField): number {
 /**
  * Every drop the map is holding, wherever it happens to be.
  *
- * Columns, water in the air off a lip, drops in flight — and now what is
- * standing in the pipes and what is hanging at their mouths. A conservation
- * check is only worth anything if it counts ALL of it: water that moves into
- * a pipe has not been destroyed, and a total that stopped counting it would
- * report a leak every time a drain worked.
+ * Columns, water in the air off a lip, drops in flight. What stands in the
+ * mains and the sewers is theirs to count. @see waterInMains, waterInSewers
  */
-export const totalVolume = (field: WaterField, grid: Grid, onTheMap?: number) =>
+export const totalVolume = (field: WaterField, _grid: Grid, onTheMap?: number) =>
   // EVERY STOREY, which `totalWater` does on its own now: a depth array is
   // as long as the field has slots, and water standing on a bridge is at an
   // index further down the same array. It used to be a second field and a
@@ -919,47 +879,5 @@ export const totalVolume = (field: WaterField, grid: Grid, onTheMap?: number) =>
     // five thousand columns and a hundred and thirty thousand edges every
     // tick to work out a number somebody has already worked out. The DROPS
     // still come from here: the drip list is the host's own.
-    : onTheMap + waterInDrips(field.columns.drips))
-  + waterInPipes(field, grid) + waterAtMouths(field, grid);
+    : onTheMap + waterInDrips(field.columns.drips));
 
-/**
- * Every drop standing in a pipe anywhere on the map.
- *
- * OVER THE PIPE CELLS, which is where the only non-zero entries can be —
- * water gets into `pipe` by flowing along a run, and every cell of a run
- * carries pipe. Both of these ran down the whole four thousand cell array
- * every frame for a readout in the corner of the screen.
- *
- * EXCEPT WITH AN EDIT OUTSTANDING, which is the one moment the two disagree.
- * Cut a run and its middle cell is off the networks at once while the water
- * standing in it is still there, waiting for the sweep — so the list is short
- * by that cell, and a total taken from it would report the water as lost. The
- * flag the sweep keeps says exactly when that can be true, and while it is,
- * this walks the array as it always did. {@link spillOrphaned} clears it on
- * the next step and the list is exact again.
- *
- * TAKES THE GRID for that comparison, which also rules out the version of
- * this that reads nought on a map whose networks nobody has built yet.
- */
-export function waterInPipes(field: WaterField, grid: Grid): number {
-  return overPipes(field, grid, field.pipe);
-}
-
-/** What is hanging at the mouths, grown but not yet let go. @see waterInPipes */
-export function waterAtMouths(field: WaterField, grid: Grid): number {
-  return overPipes(field, grid, field.held);
-}
-
-/** Sum a per-cell array over the pipes, by whichever route is exact. */
-function overPipes(field: WaterField, grid: Grid, of: Float32Array): number {
-  let sum = 0;
-  if (field.spilled !== grid.rev) {
-    for (let i = 0; i < of.length; i++) sum += of[i];
-    return sum;
-  }
-  const nets = findPipeNets(grid, field.nets);
-  const { cells } = nets;
-  const upto = pipeCellCount(nets);
-  for (let k = 0; k < upto; k++) sum += of[cells[k]];
-  return sum;
-}

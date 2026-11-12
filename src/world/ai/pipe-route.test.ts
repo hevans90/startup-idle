@@ -5,7 +5,7 @@ import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx, setHeight, type Grid } from "../grid";
 import { structureDef } from "../structures/def";
 import { placeCommand, validatePlacement } from "../structures/place";
-import { gamePipeRun } from "../water/pipes";
+import { planMain } from "../water/mains";
 import { routePipe } from "./pipe-route";
 
 /** Water down column 1 standing `top` high; a Data Centre at x 10–12, y 6–8 on ground `floor`. */
@@ -29,7 +29,7 @@ describe("a pipe's route", () => {
     expect(r.pipe[0].x).toBe(2);                         // beside the water
     const end = r.pipe[r.pipe.length - 1];
     expect(end.x === 9 || end.y === 5 || end.y === 9).toBe(true);
-    expect(gamePipeRun(g, r.pipe, wet(g))).not.toHaveProperty("refused");
+    expect(planMain(g, r.pipe, wet(g))).not.toHaveProperty("refused");
   });
 
   test("ends at a pump house where the water stands below it, within a pump's lift", () => {

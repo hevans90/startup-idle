@@ -288,7 +288,8 @@ function mainPreview(): [readonly { x: number; y: number }[] | null, boolean] {
     const l = lateralStrokePlan(st.grid, s0, mainWet(st.grid));
     return l?.route ? [l.route, !("refused" in l.plan)] : [null, true];
   }
-  if (!st.playing || !s0 || s0.tool !== "pipe") return [null, true];
+  // In the editor too: its Pipe tool lays the same main, for nothing.
+  if (!s0 || s0.tool !== "pipe") return [null, true];
   const wet = mainWet(st.grid);
   if (s0.sewer) {
     const route = strokeRoute(st.grid, s0, wet, "connection");
@@ -303,7 +304,7 @@ function mainPreview(): [readonly { x: number; y: number }[] | null, boolean] {
 /** Where the main in hand would be laid with a pump: its intake's tile, or null. @see mainStroke */
 function previewPump(): { x: number; y: number } | null {
   const st = useWorldStore.getState(), s0 = st.stroke;
-  if (!st.playing || !s0 || s0.tool !== "pipe" || s0.sewer) return null;
+  if (!s0 || s0.tool !== "pipe" || s0.sewer) return null;
   const m = mainStroke(st.grid, st.getWaterField(), s0, mainWet(st.grid));
   const at = m.pump ? m.cells.find((c) => c.end === MAIN_END.pump) : undefined;
   return at ? { x: at.x, y: at.y } : null;
@@ -2729,7 +2730,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           })()
         : strokeFootprint(grid, lifting ? { ...s0, brush: "line" } : s0, brushRadius);
       // A MAIN, in the game, shows its route — drawn by the mains layer — not the straight line it is dragged along. @see mainPreview
-      if (s0.tool === "pipe" && useWorldStore.getState().playing) cells = [...(mainPreview()[0] ?? [])];
+      if (s0.tool === "pipe") cells = [...(mainPreview()[0] ?? [])];
       // A SEWER, its route.
       if (s0.tool === "sewer" && s0.lateral) cells = [...(mainPreview()[0] ?? [])];
       else if (s0.tool === "sewer") { const p = sewerGhost(); if (p) cells = p.cells.map((c) => ({ x: c.x, y: c.y })); }
@@ -3114,7 +3115,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       let sw = section("water: sync, sources, pipes");
       solverRef.current?.sync(field.columns);
       runSources(field, grid, dt);
-      // EVERY PIPE, in one call: the editor's spouts, the water mains solved and
+      // EVERY PIPE, in one call: the water mains solved and
       // delivered, and in the game the slop — made by who sits at the vibe
       // workplaces' desks, drained by the sewers, spilled when a tank is full.
       // Pumps and lift stations are paid for while they run, in the game. @see stepPipes

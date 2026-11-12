@@ -62,8 +62,6 @@ const FIXTURES: [FixtureId, string][] = [
   ["cascade", "cascade"],
   ["lake", "lake"],
   ["islands", "islands"],
-  ["pipes", "pipes"],
-  ["culvert", "culvert"],
   ["plunge", "plunge"],
   ["waterfall", "waterfall"],
   ["brink", "brink (5²)"],
@@ -150,7 +148,7 @@ export function EditPanel() {
       if (r > 0) springs++;
       else if (r < 0) sinks++;
     }
-    for (const p of grid.pipe) if (p) pipes++;
+    for (let i = 0; i < grid.main.length; i++) if (grid.main[i] || grid.mainEnd[i]) pipes++;
     return { springs, sinks, pipes };
     // `revision` is the dependency that matters and the one the rule cannot
     // see: an edit mutates the grid's typed arrays in place, so the object it
@@ -244,7 +242,7 @@ export function EditPanel() {
         <button type="button" onClick={() => setTool("sink")}
           className={`${BTN} ${tool === "sink" ? ON : OFF}`}>sink (;)</button>
         <button type="button" onClick={() => setTool("pipe")}
-          title="a pipe on the side of a cell — drips over whatever is beyond it. Click again to turn it."
+          title="a water main: drag from water to a building that drinks"
           className={`${BTN} ${tool === "pipe" ? ON : OFF}`}>pipe (&apos;)</button>
         <button type="button" onClick={() => setTool("boat")}
           title="click on water to put a boat on it; click a boat to take it off"

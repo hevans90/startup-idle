@@ -204,56 +204,19 @@ export type Grid = {
    * A FLAG, not a material, because the material is already {@link paved}'s:
    * a deck IS a paved cell, and saying what it is made of twice is two things
    * to keep in step. This says only that the paved surface here is in the air,
-   * and {@link deckZ} says how far up. Same split as {@link pipe} and
-   * {@link pipeZ}: the thing, and the level it runs at.
+   * and {@link deckZ} says how far up: the thing, and the level it runs at.
    */
   deck: Uint8Array;
   /**
    * The height a {@link deck} sits at, absolute, in half steps.
    *
-   * Absolute rather than a clearance above the ground, for the reason
-   * {@link pipeZ} is: a bridge has a LEVEL, and it keeps it while the land
+   * Absolute rather than a clearance above the ground: a bridge has a LEVEL, and it keeps it while the land
    * does whatever it likes underneath. That is what makes it a bridge — dig
    * the channel deeper and the span stays where it was.
    */
   deckZ: Int8Array;
   /** {@link RAMP} direction per cell; 0 = level. */
   ramp: Uint8Array;
-  /**
-   * A PIPE on the side of a cell: which way it points, or 0 for none.
-   *
-   * One of `DIR`'s bits, so a pipe is a cell plus a facing. It hangs at the top
-   * of that face and drips over whatever is beyond it — which is why it is a
-   * facing and not just a cell: a spring wells up out of the ground, a pipe
-   * sticks out of a wall and the side it sticks out of is the whole point.
-   *
-   * The RATE is not here. A spring's is, because a spring can be anything from
-   * a seep to a river and the number is the interesting part; a pipe is a
-   * pipe, and how often it drips comes out of the one rate every pipe has
-   * against the size a drop lets go at. See `fluid/drips`.
-   */
-  pipe: Uint8Array;
-  /**
-   * The INVERT of the pipe on a cell: the height its floor sits at, absolute.
-   *
-   * Absolute, and not a depth below the ground, because that is the whole of
-   * what lets a pipe run UNDER anything. A depth below the surface follows the
-   * surface, so a run crossing a ridge climbs the ridge and is stopped by it
-   * exactly as a surface pipe is; an invert of its own keeps its grade while
-   * the ground does whatever it likes over the top. That is also what a buried
-   * main IS — a thing with a level, that you then landscape around.
-   *
-   * It follows that there is no "buried" flag and does not need to be one. A
-   * pipe is buried when the ground beside it happens to be higher than its
-   * invert, which is a question you ask at the moment you need the answer, and
-   * it means that raising ground over a pipe buries it and lowering ground out
-   * from under one leaves it exposed — both of which are what actually happens
-   * when you dig.
-   *
-   * Only meaningful where {@link pipe} is set. Signed, because a pipe may run
-   * below the map's own floor.
-   */
-  pipeZ: Int8Array;
   /**
    * A WATER MAIN on a cell, the game's pipe: the sides it joins its
    * neighbours on, `DIR` bits. Joined only where a stroke joins it — two runs
@@ -304,7 +267,7 @@ export type Grid = {
  * Say that the map has changed.
  *
  * Every write to a layer array goes through here — the setters below,
- * {@link fillTerrain}, `layPipe`, `applyPatches`, the fixtures and the
+ * {@link fillTerrain}, `layMain`, `applyPatches`, the fixtures and the
  * loader. Anything derived from the grid that is kept between frames
  * remembers the `rev` it was built at and rebuilds when it does not match.
  */
@@ -328,8 +291,6 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     deck: new Uint8Array(n),
     deckZ: new Int8Array(n),
     ramp: new Uint8Array(n),
-    pipe: new Uint8Array(n),
-    pipeZ: new Int8Array(n),
     main: new Uint8Array(n),
     mainEnd: new Uint8Array(n),
     sewer: new Uint8Array(n),
@@ -371,9 +332,6 @@ export function setFluid(g: Grid, x: number, y: number, v: number) {
 export const sourceAt = (g: Grid, x: number, y: number) =>
   inBounds(g, x, y) ? g.source[idx(g, x, y)] : 0;
 
-/** Which way the pipe on a cell points, or 0 where there is none. */
-export const pipeAt = (g: Grid, x: number, y: number) =>
-  inBounds(g, x, y) ? g.pipe[idx(g, x, y)] : 0;
 
 /**
  * A main's end fittings: drawing from water, with a pump, feeding a building,
@@ -406,9 +364,6 @@ export const SEWER_BORE = 16, SEWER_AI = 32;
  */
 export const SEWER_GRATE = 64;
 
-/** The invert of the pipe on a cell — where its floor is. See {@link Grid.pipeZ}. */
-export const pipeInvertAt = (g: Grid, x: number, y: number) =>
-  inBounds(g, x, y) ? g.pipeZ[idx(g, x, y)] : 0;
 
 
 /** Structure id occupying a cell, or −1. */

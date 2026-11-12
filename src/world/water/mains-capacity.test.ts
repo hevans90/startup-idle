@@ -20,7 +20,7 @@ import { allTanks, resetCooling, stepCooling, tankFor } from "../projects/coolin
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField, setWaterEdge, stepWater } from "./field";
-import { findMains, layMain, mainReportsFor, mainsToPorts, pipesToMains, planMain, runMains } from "./mains";
+import { findMains, layMain, mainReportsFor, mainsToPorts, planMain, runMains } from "./mains";
 
 afterEach(resetCooling);
 
@@ -90,7 +90,6 @@ describe("the singularity fixture's mains", () => {
   function played(): { g: Grid; reports: ReturnType<typeof mainReportsFor> } {
     const g = createGrid(64, 64, 1);
     applyFixture(g, "singularity", 1);
-    pipesToMains(g);
     mainsToPorts(g, (x, y) => g.pool[idx(g, x, y)] > 0);
     const f = createWaterField(g);
     stepCooling(g, 40, false, 0);

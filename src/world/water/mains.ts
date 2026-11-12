@@ -1024,23 +1024,24 @@ export function mainProfile(g: Grid, field: WaterField | null, at: number, pumps
 }
 
 /**
- * THE OLD PIPES, MADE MAINS: a map laid with the game's old pipes — cells
- * with a facing, joined to whatever pipe touched them — gets mains in their
- * place, joined exactly as they were (every pair of touching cells), and each
- * old opening fitted as it behaved: into a building that drinks an outlet, at
- * a pump house a pump intake, at water an intake, else a cap. The old cells
- * are cleared. Whether anything changed. @see plans/pipes-overhaul.md §5
+ * THE OLD PIPES, MADE MAINS: a map SAVED with the old pipes — `old`, a
+ * facing a cell, each joined to whatever pipe touched it — gets mains in
+ * their place, joined exactly as they were (every pair of touching cells),
+ * and each old opening fitted as it behaved: into a building that drinks an
+ * outlet, at a pump house a pump intake, at water an intake, else a cap.
+ * The old pipes are nowhere but in such a file: this is the only place they
+ * are read. Whether anything changed. @see deserializeWorld, plans/pipes-overhaul.md §5
  */
-export function pipesToMains(g: Grid, wet: (x: number, y: number) => boolean = (x, y) => g.pool[idx(g, x, y)] > 0): boolean {
+export function pipesToMains(g: Grid, old: Uint8Array, wet: (x: number, y: number) => boolean = (x, y) => g.pool[idx(g, x, y)] > 0): boolean {
   let changed = false;
-  for (let i = 0; i < g.pipe.length; i++) {
-    const facing = g.pipe[i];
+  for (let i = 0; i < old.length; i++) {
+    const facing = old[i];
     if (!facing) continue;
     const x = i % g.w, y = (i / g.w) | 0;
     let mask = 0;
     for (const side of SIDES) {
       const [dx, dy] = NEIGHBOUR[side];
-      if (inBounds(g, x + dx, y + dy) && g.pipe[idx(g, x + dx, y + dy)]) mask |= DIR[side];
+      if (inBounds(g, x + dx, y + dy) && old[idx(g, x + dx, y + dy)]) mask |= DIR[side];
     }
     g.main[i] |= mask;
     // An opening: a facing with no pipe across it.
@@ -1077,8 +1078,6 @@ export function pipesToMains(g: Grid, wet: (x: number, y: number) => boolean = (
         break;
       }
     }
-    g.pipe.fill(0);
-    g.pipeZ.fill(0);
     edited(g);
   }
   return changed;
