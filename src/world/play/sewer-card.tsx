@@ -32,10 +32,10 @@ export function SewerCard() {
     return (
       <div className={CARD}>
         <p className="flex justify-between gap-4 tabular-nums">
-          <b>Lateral · {l.plan.fresh} tiles</b><span>{formatCurrency(pipeCost(l.plan.fresh).toNumber())}</span>
+          <b>Connection · {l.plan.fresh} tiles</b><span>{formatCurrency(pipeCost(l.plan.fresh).toNumber())}</span>
         </p>
         {names.length > 0 && <p className="text-fg-muted">Drains the {names.join(", the ")}</p>}
-        {l.plan.exit ? <p className="text-good">{sewerFlow().toFixed(2)} slop/s into the sewer</p>
+        {l.plan.exit ? <p className="text-good" title={`Up to ${sewerFlow().toFixed(2)} slop a second`}>Into the sewer</p>
           : <p className="text-warn" title="Its slop goes nowhere till that sewer pours into water or feeds a processor">That sewer has no exit yet</p>}
       </div>
     );
@@ -60,7 +60,7 @@ export function SewerCard() {
         </p>
       )}
       {plan.problem ? <p className="text-bad">{plan.problem.reason}</p>
-        : plan.exit ? <p className="text-good" title="The least it carries anywhere on the way to its exit">{plan.capacity.toFixed(2)} slop/s to its exit</p>
+        : plan.exit ? <p className="text-good" title={`Carries up to ${plan.capacity.toFixed(2)} slop a second: the least anywhere on the way to its exit`}>Reaches its exit</p>
         : <p className="text-warn" title="Its manholes serve nothing till it pours into water or feeds a processor">No exit yet</p>}
     </div>
   );

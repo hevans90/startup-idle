@@ -32,6 +32,7 @@ const REFUSAL: Record<string, string> = {
   "quay off the water": "Quay must be on the water",
   "too high above the water": "Too high above the water",
   "no road at the gate": "Needs a road behind it",
+  "No manhole in reach": "No manhole in reach",
   blocked: "Can't build here",
 };
 

@@ -20,7 +20,7 @@ import { useEffect, useState } from "react";
 
 import { boreCost, buildCost } from "../../game/build-cost";
 import { useTicking } from "../../hooks/use-ticking";
-import { MAIN_BORE, MAIN_END, idx, inBounds } from "../grid";
+import { MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_BORE, idx, inBounds } from "../grid";
 import { structureDef } from "../structures/def";
 import { findMains, hasMain, mainReportAt, planMain, previewSewer, type MainReport } from "../water/mains";
 import { mainStroke } from "../water/main-stroke";
@@ -28,6 +28,10 @@ import { strokeRoute } from "../pipes/stroke-route";
 import { pumpUpkeep } from "../../game/cooling";
 import { useGeneratorStore } from "../../state/generators.store";
 import { SAYS, sayOf } from "../water/main-says";
+import { lateralsOf, sewerReportsFor } from "../sewers/flow";
+import { planNode } from "../sewers/lay";
+import { hasSewer, solveSewers } from "../sewers/solve";
+import type { SewerState } from "../pipes/report";
 
 const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
 
@@ -61,7 +65,7 @@ export function MainCard() {
       <div className={CARD}>
         <p className="flex justify-between gap-4 tabular-nums"><b>Sewer · {look.fresh} tiles</b><span>{formatCurrency(pipeCost(look.fresh).toNumber())}</span></p>
         <p className="text-fg-muted">{look.ends.join(" → ")}</p>
-        {look.problem ? <p className="text-bad">{look.problem}</p> : <p className="text-good">Carries up to {look.capacity.toFixed(2)} slop a second</p>}
+        {look.problem ? <p className="text-bad">{look.problem}</p> : <p className="text-good" title={`Carries up to ${look.capacity.toFixed(2)} slop a second`}>Joined up</p>}
       </div>
     );
   }
@@ -84,7 +88,7 @@ export function MainCard() {
               <span className={twMerge("block h-full", need.share >= 1 ? "bg-good dark:bg-good" : "bg-warn dark:bg-warn")} style={{ width: `${Math.round(need.share * 100)}%` }} />
             </span>
           </p>
-        ) : <p className="text-good">≈ {look.flow.toFixed(2)} a second · cools about {agentsCooled(look.flow)} agents</p>}
+        ) : <p className="text-good" title={`≈ ${look.flow.toFixed(2)} a second`}>Cools about {agentsCooled(look.flow)} agents</p>}
       {m.wantsPump && (
         <p className="mt-0.5 flex items-center justify-between gap-2 tabular-nums">
           <Button size="sm" variant={m.pump ? "primary" : undefined} onClick={st.toggleStrokePump} title="The water stands too low to reach the building without one (P)">
@@ -111,9 +115,12 @@ export function MainInfo() {
   const tool = useWorldStore((s) => s.tool);
   const [shut, setShut] = useState<number | null>(null);
   useEffect(() => { setShut(null); }, [looked?.n]);
-  if (!playing || !looked || shut === looked.n || tool !== "inspect") return null;
+  if (!playing || !looked || shut === looked.n) return null;
   const st = useWorldStore.getState(), g = st.grid;
   if (!inBounds(g, looked.x, looked.y) || !hasMain(g, idx(g, looked.x, looked.y))) return null;
+  // LOOKED AT, or clicked with its own tool in hand: a water main's with Pipe, a connection's with Sewer.
+  const slop = (g.main[idx(g, looked.x, looked.y)] & MAIN_SEWER) !== 0;
+  if (tool !== "inspect" && tool !== (slop ? "sewer" : "pipe")) return null;
   const r = mainReportAt(g, looked.x, looked.y);
   if (!r) return null;
   const net = findMains(g).list[findMains(g).of[idx(g, looked.x, looked.y)]];
@@ -131,8 +138,10 @@ export function MainInfo() {
     <Card tone={say.tone} onClose={() => setShut(looked.n)} className="w-80" title={<>{r.bore > 1 ? "Wide water main" : "Water main"} · {r.length} tiles</>}>
       <p className={TONE[say.tone]}>{say.text}</p>
       <p className="tabular-nums">
-        {r.flow > 0 ? `${r.flow.toFixed(2)} a second · cools ${agentsCooled(r.flow)} agents` : `Could carry ${r.capacity.toFixed(2)} a second`}
-        {r.intakes.some((k) => k.surface !== null) && <> · head {(r.head / 2).toFixed(1)} slabs</>}
+        <span title={`${r.flow.toFixed(2)} a second of the ${r.capacity.toFixed(2)} it could carry`}>
+          {r.flow > 0 ? `Cools ${agentsCooled(r.flow)} agents` : `Could cool ${agentsCooled(r.capacity)} agents`}
+        </span>
+        {r.intakes.some((k) => k.surface !== null) && <> · water {Math.abs(r.head / 2).toFixed(1)} slabs {r.head >= 0 ? "above" : "below"} the floor</>}
       </p>
       <p className="text-fg-muted">
         {r.intakes.length ? r.intakes.map((k) => `${k.pump ? "Pump" : "Intake"}${k.surface === null ? " (dry)" : k.fouled >= 0.05 ? ` (${Math.round(k.fouled * 100)}% fouled: cools ${Math.round(coolingKept(k.fouled) * 100)}%)` : ""}`).join(", ") : "No intake"}
@@ -162,9 +171,9 @@ function SewerInfo({ r, at, onClose }: { r: MainReport; at: { x: number; y: numb
   const from = r.sewer!.sources.map(nameOf);
   const to = lateral ? ["a manhole"] : [...r.outlets.map((o) => nameOf(o.building)), ...r.sewer!.outfalls.map(() => "the water")];
   return (
-    <Card tone={say.tone} onClose={onClose} className="w-80" title={<>{r.bore > 1 ? "Wide " : ""}{lateral ? (r.bore > 1 ? "lateral" : "Lateral") : r.bore > 1 ? "sewer" : "Sewer"} · {r.length} tiles</>}>
+    <Card tone={say.tone} onClose={onClose} className="w-80" title={<>{r.bore > 1 ? "Wide " : ""}{lateral ? (r.bore > 1 ? "connection" : "Connection") : r.bore > 1 ? "sewer" : "Sewer"} · {r.length} tiles</>}>
       <p className={TONE[say.tone]}>{say.text}</p>
-      <p className="tabular-nums">Carries up to {r.capacity.toFixed(2)} slop a second</p>
+      <p className="tabular-nums" title={`Carries up to ${r.capacity.toFixed(2)} slop a second`}>Drains {from.length} workplace{from.length === 1 ? "" : "s"}</p>
       <p className="text-fg-muted">{from.length ? from.join(", ") : "No workplace"}{" → "}{to.length ? to.join(", ") : "nothing"}</p>
       <div className="mt-0.5 flex flex-wrap gap-1">
         {narrow > 0 && (
@@ -172,6 +181,58 @@ function SewerInfo({ r, at, onClose }: { r: MainReport; at: { x: number; y: numb
         )}
         <Button size="sm" variant="danger" confirm="Lift it? Press again" onClick={() => st.liftMainAt(at)}>Lift it</Button>
       </div>
+    </Card>
+  );
+}
+
+/** A trunk's state, said plainly. @see SewerState */
+const TRUNK_SAYS: Record<SewerState, { text: string; tone: "good" | "warn" | "bad" }> = {
+  flowing: { text: "Carrying slop to its exit", tone: "good" },
+  idle: { text: "Nothing in it", tone: "good" },
+  "no-exit": { text: "No exit yet: it must pour into water or feed a processor", tone: "warn" },
+  surcharged: { text: "More than it carries: coming up at a manhole", tone: "bad" },
+  "backed-up": { text: "Backed up: its slop is coming up at a manhole", tone: "bad" },
+  unpaid: { text: "Its lift station has stopped: not enough money to run it", tone: "bad" },
+};
+
+/**
+ * A TRUNK, LOOKED AT — or clicked with the Sewer tool in hand: what it is
+ * doing, how many workplaces drain into it, and a manhole to be had where it
+ * was clicked. @see sewerReportsFor, planNode
+ */
+export function TrunkInfo() {
+  useTicking(500);
+  const looked = useWorldStore((s) => s.lookedAt);
+  const playing = useWorldStore((s) => s.playing);
+  const tool = useWorldStore((s) => s.tool);
+  useWorldStore((s) => s.revision);
+  const [shut, setShut] = useState<number | null>(null);
+  useEffect(() => { setShut(null); }, [looked?.n]);
+  if (!playing || !looked || shut === looked.n || (tool !== "inspect" && tool !== "sewer")) return null;
+  const st = useWorldStore.getState(), g = st.grid;
+  if (!inBounds(g, looked.x, looked.y)) return null;
+  const i = idx(g, looked.x, looked.y);
+  // A connection lying over it is the nearer thing: its card, not this one.
+  if (!hasSewer(g, i) || hasMain(g, i)) return null;
+  const solve = solveSewers(g), net = solve.nets[solve.of[i]];
+  if (!net) return null;
+  const r = sewerReportsFor(g).get(net.id);
+  const say = TRUNK_SAYS[r?.state ?? (net.exits.length ? "idle" : "no-exit")];
+  const wide = net.cells.every((c) => (g.sewer[c] & SEWER_BORE) !== 0);
+  const drains = new Set(lateralsOf(g).filter((l) => l.node !== null && solve.of[l.node] === net.id).flatMap((l) => l.sources)).size;
+  const lifts = r?.trunk.lifts.length ?? 0;
+  const manhole = !("refused" in planNode(g, looked));
+  return (
+    <Card tone={say.tone} onClose={() => setShut(looked.n)} className="w-80" title={<>{wide ? "Wide sewer" : "Sewer"} · {net.cells.length} tiles</>}>
+      <p className={TONE[say.tone]}>{say.text}</p>
+      <p className="tabular-nums" title={r ? `${r.flow.toFixed(2)} slop a second of the ${r.capacity.toFixed(2)} it carries` : undefined}>
+        Drains {drains} workplace{drains === 1 ? "" : "s"}{lifts > 0 && <> · {lifts} lift station{lifts === 1 ? "" : "s"}</>}
+      </p>
+      {manhole && (
+        <div className="mt-0.5 flex flex-wrap gap-1">
+          <Button size="sm" onClick={() => st.addManholeAt(looked)} title="Where a workplace's connection comes down into it">Add a manhole here</Button>
+        </div>
+      )}
     </Card>
   );
 }

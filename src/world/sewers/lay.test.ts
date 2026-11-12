@@ -115,7 +115,7 @@ describe("placing what makes slop", () => {
   test("needs a live manhole within a lateral's reach of its slop port", () => {
     const { g, wet } = field(30);
     // Nowhere near a sewer: refused.
-    expect(validatePlacement(g, office(), 10, 2, { needsSewer: true })).toMatchObject({ ok: false, reason: "No sewer node in reach" });
+    expect(validatePlacement(g, office(), 10, 2, { needsSewer: true })).toMatchObject({ ok: false, reason: "No manhole in reach" });
     // A trunk from the pond to (12, 4), its end a manhole.
     lay(g, plan(g, wet, { x: 0, y: 4 }, { x: 12, y: 4 }));
     expect(validatePlacement(g, office(), 10, 1, { needsSewer: true }).ok).toBe(true);

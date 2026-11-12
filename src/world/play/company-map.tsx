@@ -35,7 +35,7 @@ import { startCommsBridge } from "../../ui/comms/bridge";
 import { LeaderTags } from "./leader-tags";
 import { PerfHud } from "../debug/perf-hud";
 import { Anchored } from "./anchored";
-import { MainInfo } from "./main-card";
+import { MainInfo, TrunkInfo } from "./main-card";
 import { QuestArcMarkers } from "../../quest-ui/arc";
 
 /** The frame meter over the play view, with `?perf`: what each part of a frame costs. @see PerfHud */
@@ -120,9 +120,10 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
   );
 }
 
-/** The card for what the Look tool last clicked, beside it on the map. */
+/** The card for what the Look tool last clicked — or a pipe clicked with its own tool in hand — beside it on the map. */
 function LookedCard() {
   const looked = useWorldStore((s) => s.lookedAt);
   const tool = useWorldStore((s) => s.tool);
-  return <Anchored at={looked && tool === "inspect" ? looked : null}><MainInfo /><PortCard /></Anchored>;
+  const shown = tool === "inspect" || tool === "pipe" || tool === "sewer";
+  return <Anchored at={looked && shown ? looked : null}><MainInfo /><TrunkInfo /><PortCard /></Anchored>;
 }

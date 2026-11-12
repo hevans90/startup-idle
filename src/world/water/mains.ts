@@ -444,8 +444,11 @@ export function planMain(
 export function layMain(g: Grid, plan: readonly MainCell[], sewer = false): void {
   for (const c of plan) {
     const i = idx(g, c.x, c.y);
+    const had = g.main[i] !== 0 || g.mainEnd[i] !== 0;
     g.main[i] |= c.join | (sewer ? MAIN_SEWER : 0);
     if (c.end) g.mainEnd[i] = c.end;
+    // Carried on from an open end: its cap comes off.
+    else if (had && c.join && g.mainEnd[i] === MAIN_END.cap) g.mainEnd[i] = 0;
   }
   edited(g);
 }

@@ -206,7 +206,7 @@ function solve(g: Grid): SewerSolve {
         problems.push({ cell: c, reason: `A span longer than ${SPAN_MOST} tiles` });
       }
     }
-    for (const i of net.nodes) if (kind[i] === SEWER_KIND.span) problems.push({ cell: i, reason: "A node needs ground under it" });
+    for (const i of net.nodes) if (kind[i] === SEWER_KIND.span) problems.push({ cell: i, reason: "A manhole needs ground under it" });
 
     // WITH NO EXIT: lying under the ground, going nowhere.
     for (const i of net.cells) if (!drains[i]) level[i] = ground(i) - COVER;

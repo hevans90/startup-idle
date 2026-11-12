@@ -205,7 +205,7 @@ export function validatePlacement(
   }
 
   // A SEWER IN REACH, for what makes slop. @see sewerInReach
-  if (rules.needsSewer && !sewerInReach(grid, def, ox, oy)) return whole("No sewer node in reach");
+  if (rules.needsSewer && !sewerInReach(grid, def, ox, oy)) return whole("No manhole in reach");
 
   // NEAR A RIVER, likewise: some river tile within reach of the footprint.
   const near = placementOf(def).nearRiver;

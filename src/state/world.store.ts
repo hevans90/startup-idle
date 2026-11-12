@@ -84,7 +84,7 @@ import { fitsTier, fitting } from "../world/boats/fittings";
 import { agentsOpen } from "../game/agents";
 import { planNode } from "../world/sewers/lay";
 import { sewersUnderground } from "../world/sewers/convert";
-import { lateralStrokePlan, sewerStrokePlan } from "../world/sewers/tool";
+import { lateralStrokePlan, laysConnection, sewerStrokePlan } from "../world/sewers/tool";
 import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { DEFAULT_GEN, withDefaults, type GenParams } from "../world/gen/params";
@@ -442,9 +442,6 @@ type WorldState = {
   setLiftPipe: (on: boolean) => void;
   /** Whether the Pipe tool lays a sewer rather than a water main: set by the build bar when only one is open. */
   pipeSewer: boolean;
-  /** The Sewer tool lays laterals, from slop ports to manholes, not trunks. @see planLateral */
-  sewerLateral: boolean;
-  setSewerLateral: (v: boolean) => void;
   setPipeSewer: (on: boolean) => void;
   /**
    * A MAIN JUST LAID that cannot lift its water to the building: where its
@@ -634,6 +631,8 @@ type WorldState = {
   pinStroke: () => void;
   unpinStroke: () => void;
   toggleStrokePump: () => void;
+  /** A manhole on a trunk at a tile, as a click of the Sewer tool on one used to put: for the trunk's card. @see planNode */
+  addManholeAt: (c: Cell) => void;
   doUndo: () => void;
   doRedo: () => void;
   loadGrid: (g: Grid, palette?: (string | null)[], boats?: readonly SavedBoat[]) => void;
@@ -1107,8 +1106,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   setLiftPipe: (liftPipe) => set({ liftPipe }),
   pipeSewer: false,
   setPipeSewer: (pipeSewer) => set({ pipeSewer }),
-  sewerLateral: false,
-  setSewerLateral: (sewerLateral) => set({ sewerLateral }),
   dismissPumpOffer: () => set({ pumpOffer: null }),
   offerPump: (pumpOffer) => set({ pumpOffer }),
   setBerthFit: (id, berth, fit) => {
@@ -1184,10 +1181,17 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
 
   beginStroke: (c) =>
-    set((st) => ({ stroke: { tool: st.tool, brush: st.brush, anchor: c, head: c, ...(st.tool === "sewer" && st.sewerLateral ? { lateral: true } : {}) } })),
+    set((st) => ({ stroke: { tool: st.tool, brush: st.brush, anchor: c, head: c, ...(st.tool === "sewer" && laysConnection(st.grid, c, c) ? { lateral: true } : {}) } })),
 
+  // THE SEWER TOOL WORKS OUT WHAT IT IS LAYING as the stroke moves: a connection or a trunk. @see laysConnection
   updateStroke: (c) =>
-    set((st) => (st.stroke ? { stroke: { ...st.stroke, head: c } } : {})),
+    set((st) => {
+      const s0 = st.stroke;
+      if (!s0) return {};
+      if (s0.tool !== "sewer" || s0.path) return { stroke: { ...s0, head: c } };
+      const { lateral: _was, ...rest } = s0;
+      return { stroke: { ...rest, head: c, ...(laysConnection(st.grid, s0.pins?.[0] ?? s0.anchor, c) ? { lateral: true } : {}) } };
+    }),
 
   cancelStroke: () => set({ stroke: null }),
 
@@ -1204,6 +1208,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     return s0.pins.length > 1 ? { stroke: { ...s0, pins: s0.pins.slice(0, -1) } } : { stroke: null };
   }),
   toggleStrokePump: () => set((st) => (st.stroke ? { stroke: { ...st.stroke, noPump: !st.stroke.noPump } } : {})),
+  addManholeAt: (c) => {
+    set({ stroke: { tool: "sewer", brush: "point", anchor: c, head: c } });
+    get().endStroke();
+  },
 
   endStroke: () => {
     const st = get();
@@ -1285,11 +1293,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const g = st.grid;
       const refuse = (text: string) => set({ stroke: null, notice: { text, at: Date.now() } });
       if (s0.lateral) {
-        const lat = lateralStrokePlan(g, s0, mainWet(g))?.plan ?? { refused: "Drag from a workplace's slop port to a sewer node" };
+        const lat = lateralStrokePlan(g, s0, mainWet(g))?.plan ?? { refused: "Drag from a workplace's slop port to a manhole" };
         if ("refused" in lat) { refuse(lat.refused); return; }
         const price = pipeCost(lat.fresh);
         if (st.playing && price.gt(0) && !spendForBuild(price)) {
-          refuse(`Not enough money for ${lat.fresh} tiles of lateral: ${formatCurrency(price.toNumber())}`);
+          refuse(`Not enough money for ${lat.fresh} tiles of connection: ${formatCurrency(price.toNumber())}`);
           return;
         }
         const mark = (aiActing() ? MAIN_AI : 0) | MAIN_SEWER;
@@ -1297,6 +1305,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
           const i = idx(g, c.x, c.y);
           b.set("main", c.x, c.y, g.main[i] | c.join | (hasMain(g, i) ? 0 : mark));
           if (c.end) b.set("mainEnd", c.x, c.y, c.end);
+          else if (c.join && g.mainEnd[i] === MAIN_END.cap) b.set("mainEnd", c.x, c.y, 0);
         }
       }
       const plan = s0.lateral ? undefined : sewerStrokePlan(g, s0, mainWet(g), aiActing());
@@ -1346,6 +1355,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         const i = idx(st.grid, c.x, c.y);
         b.set("main", c.x, c.y, st.grid.main[i] | c.join | (hasMain(st.grid, i) ? 0 : mark));
         if (c.end) b.set("mainEnd", c.x, c.y, c.end);
+        // CARRIED ON FROM AN OPEN END: its cap comes off, the run going through. @see planMain
+        else if (c.join && st.grid.mainEnd[i] === MAIN_END.cap) b.set("mainEnd", c.x, c.y, 0);
       }
     } else if (s0.tool === "eraseRoad" && st.playing && st.liftPipe) {
       // LIFTING PIPE, not road: the mains on these tiles come up, and a

@@ -245,7 +245,7 @@ export function planNode(g: Grid, c: Cell): { refused: string } | { cell: number
   const i = idx(g, c.x, c.y);
   if (!hasSewer(g, i)) return { refused: "Drag from water or a processor to lay a sewer" };
   if (g.sewerFit[i]) return { refused: "It has one already" };
-  if (solveSewers(g).kind[i] !== SEWER_KIND.buried) return { refused: "A node needs ground under it" };
+  if (solveSewers(g).kind[i] !== SEWER_KIND.buried) return { refused: "A manhole needs ground under it" };
   return { cell: i };
 }
 
@@ -259,12 +259,12 @@ export type LateralPlan = { cells: MainCell[]; fresh: number; node: number; sour
  * a string. @see planMain, lateralReach
  */
 export function planLateral(g: Grid, route: readonly Cell[], wet: (x: number, y: number) => boolean): LateralPlan | { refused: string } {
-  if (route.length < 2) return { refused: "Drag from a workplace's slop port to a sewer node" };
+  if (route.length < 2) return { refused: "Drag from a workplace's slop port to a manhole" };
   const at = (c: Cell) => idx(g, c.x, c.y);
   const isNode = (c: Cell) => g.sewerFit[at(c)] === SEWER_FIT.node;
   const cells = isNode(route[0]) && !isNode(route[route.length - 1]) ? [...route].reverse() : [...route];
   const node = cells[cells.length - 1];
-  if (!isNode(node)) return { refused: "End it at a sewer node" };
+  if (!isNode(node)) return { refused: "End it at a manhole" };
   const port = portsAt(g, at(cells[0]), "slop", "out");
   if (!port.length && !hasMain(g, at(cells[0]))) return { refused: "Start it at a workplace's slop port" };
   // ON EMPTY PLOTS ONLY: this is the guard that counts, whoever found the route. Trunks go under roads; a connection never over one.

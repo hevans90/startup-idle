@@ -98,6 +98,23 @@ export function snapToConnect(g: Grid, c: Cell, points: readonly ConnectPoint[])
   return best ? { x: best.cell % g.w, y: (best.cell / g.w) | 0 } : c;
 }
 
+/**
+ * WHAT A CLICK WITH A PIPE TOOL IS, on a tile: on the middle of a pipe of
+ * the tool's own kind — a water main with Pipe; a connection or a trunk with
+ * Sewer — it SELECTS it. On open ground, on a pipe's open end, or on a
+ * manhole, it STARTS a run there.
+ */
+export function pipeClick(g: Grid, tool: "pipe" | "sewer", c: Cell): "select" | "start" {
+  const i = idx(g, c.x, c.y);
+  const main = g.main[i] !== 0 || g.mainEnd[i] !== 0, slop = (g.main[i] & MAIN_SEWER) !== 0;
+  if (tool === "pipe") return main && !slop && g.mainEnd[i] !== MAIN_END.cap ? "select" : "start";
+  if (main && slop) return "select";
+  if (!hasSewer(g, i) || g.sewerFit[i] === SEWER_FIT.node) return "start";
+  // A trunk's own end, joined on one side only, is carried on from; its middle is the trunk.
+  const joins = [1, 2, 4, 8].filter((b) => g.sewer[i] & b).length;
+  return joins <= 1 && !g.sewerFit[i] ? "start" : "select";
+}
+
 const kept = new WeakMap<Grid, Map<string, { rev: number; points: ConnectPoint[] }>>();
 
 /** `connectPoints`, kept till the map changes: for whoever asks every frame. The bank follows the standing water, not this second's. */

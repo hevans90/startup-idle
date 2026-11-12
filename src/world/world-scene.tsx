@@ -84,7 +84,7 @@ import { AI_BUILDINGS, structureDef } from "./structures/def";
 import { planUpgrade, quayBanks, strokeFootprint as structureFootprint, validatePlacement } from "./structures/place";
 import { createPortGuide, type PortGuide } from "./render/port-guide";
 import { createConnectGuide, type ConnectGuide } from "./render/connect-guide";
-import { connectPointsKept } from "./pipes/connect-points";
+import { connectPointsKept, pipeClick } from "./pipes/connect-points";
 import { dredgeCells, type Facing, type Rect as PortRect } from "./boats/quay";
 import { SHIP_CLASSES, classOf } from "./boats/classes";
 import { fitting } from "./boats/fittings";
@@ -322,7 +322,6 @@ function sewerGhost(): SewerPlan | null {
   return p && !("refused" in p) ? p : null;
 }
 import { lateralStrokePlan, sewerStrokePlan } from "./sewers/tool";
-import { hasSewer } from "./sewers/solve";
 import { busiestNode } from "./sewers/flow";
 import type { SewerPlan } from "./sewers/lay";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
@@ -2143,9 +2142,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // A CLICK WITH A PIPE TOOL, in the game, starts a pipe laid by clicks: it stays in hand, its start pinned.
       // (On a trunk already laid, the Sewer tool's click is a manhole there, as before.)
       const s0 = st.stroke;
-      if (s0 && st.playing && !s0.pins && s0.anchor.x === s0.head.x && s0.anchor.y === s0.head.y
-        && (s0.tool === "pipe" || (s0.tool === "sewer" && (s0.lateral || !hasSewer(st.grid, idx(st.grid, s0.head.x, s0.head.y)))))) {
-        st.startPins();
+      if (s0 && st.playing && !s0.pins && s0.anchor.x === s0.head.x && s0.anchor.y === s0.head.y && (s0.tool === "pipe" || s0.tool === "sewer")) {
+        // ON A PIPE OF ITS OWN KIND, the click selects it: its card opens there, the tool still in hand.
+        // On its open end — or a manhole, for a connection — it is where a new run starts. @see pipeClick
+        if (pipeClick(st.grid, s0.tool, s0.head) === "select") { st.cancelStroke(); st.lookAt(s0.head); }
+        else { useWorldStore.setState({ lookedAt: null }); st.startPins(); }
         return;
       }
       // A pipe being laid by clicks is ended by a click on it and nothing else: a button let go is not one. @see pinnedClick
@@ -3257,11 +3258,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // WHERE THE PIPE IN HAND CAN CONNECT, lit; and where its end has gone. @see connectPoints
         {
           const s0 = st.stroke, piping = st.playing && (st.tool === "pipe" || st.tool === "sewer");
-          const kind = piping ? pipeKindOf(s0 ?? { tool: st.tool, sewer: false, lateral: st.tool === "sewer" && st.sewerLateral }) : null;
-          const points = kind ? connectPointsKept(grid, kind, s0 ? s0.pins?.[0] ?? s0.anchor : undefined) : [];
+          // With the Sewer tool and nothing begun, both of what it lays: a connection's places and a trunk's.
+          const kind = piping && s0 ? pipeKindOf(s0) : piping && st.tool === "pipe" ? "main" as const : null;
+          const from = s0 ? s0.pins?.[0] ?? s0.anchor : undefined;
+          const points = kind ? connectPointsKept(grid, kind, from)
+            : piping ? [...connectPointsKept(grid, "connection"), ...connectPointsKept(grid, "trunk")] : [];
           let end = -1;
           if (kind && s0) { const route = mainPreview()[0]; const c = route?.[route.length - 1]; if (c) end = idx(grid, c.x, c.y); }
-          const slop = kind && kind !== "main" ? tanksOf(grid) : null;
+          const slop = piping && kind !== "main" ? tanksOf(grid) : null;
           connectRef.current?.draw(grid, points, points.map((p) => {
             if (p.building === undefined) return NaN;
             const t = slop ? slop.get(p.building) : tankFor(p.building);

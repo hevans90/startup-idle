@@ -14,7 +14,8 @@ import { mainWet, useWorldStore } from "../../state/world.store";
 import { commit, createHistory } from "../edit/commands";
 import type { Stroke } from "../edit/tools";
 import { MAIN_END, createGrid, fillTerrain, idx, setHeight, type Grid } from "../grid";
-import { connectPoints, snapToConnect } from "../pipes/connect-points";
+import { connectPoints, pipeClick, snapToConnect } from "../pipes/connect-points";
+import { pipeGraph } from "../pipes/graph";
 import { strokeRoute } from "../pipes/stroke-route";
 import { resetCooling, stepCooling, tankFor } from "../projects/cooling";
 import { structureDef } from "../structures/def";
@@ -179,5 +180,36 @@ describe("where a pipe can connect", () => {
     const live = s().grid;
     expect(connectPoints(live, "main", mainWet(live)).some((p) => p.kind === "main-end" && p.cell === idx(live, 12, 9))).toBe(true);
     void g;
+  });
+});
+
+describe("one tool does everything its pipes need", () => {
+  test("a main carried on from its open end loses its cap there; one begun on its middle branches off it", () => {
+    yard();
+    lay(stroke({ anchor: { x: 6, y: 9 }, head: { x: 12, y: 9 } }));
+    let g = s().grid;
+    expect(g.mainEnd[idx(g, 12, 9)]).toBe(MAIN_END.cap);
+    // On from the end: one run, its cap at the new end.
+    lay(stroke({ anchor: { x: 12, y: 9 }, head: { x: 16, y: 9 } }));
+    g = s().grid;
+    expect(g.mainEnd[idx(g, 12, 9)]).toBe(0);
+    expect(g.mainEnd[idx(g, 16, 9)]).toBe(MAIN_END.cap);
+    // Off the middle: a tee, and still one network.
+    lay(stroke({ anchor: { x: 9, y: 9 }, head: { x: 9, y: 12 } }));
+    g = s().grid;
+    const graph = pipeGraph(g);
+    expect(graph.nodes[graph.nodeAt.main[idx(g, 9, 9)]].links).toHaveLength(3);
+    expect(graph.mains.filter((n) => !n.sewer)).toHaveLength(1);
+  });
+
+  test("a click on a main's middle selects it; on its open end, or on open ground, it starts a run", () => {
+    yard();
+    lay(stroke({ anchor: { x: 6, y: 9 }, head: { x: 12, y: 9 } }));
+    const g = s().grid;
+    expect(pipeClick(g, "pipe", { x: 9, y: 9 })).toBe("select");
+    expect(pipeClick(g, "pipe", { x: 12, y: 9 })).toBe("start");
+    expect(pipeClick(g, "pipe", { x: 9, y: 11 })).toBe("start");
+    // The Sewer tool has no business with a water main: a click there starts its own.
+    expect(pipeClick(g, "sewer", { x: 9, y: 9 })).toBe("start");
   });
 });

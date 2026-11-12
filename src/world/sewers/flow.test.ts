@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { commit, createHistory } from "../edit/commands";
-import { MAIN_BORE, MAIN_SEWER, createGrid, fillTerrain, idx, setHeight, type Grid } from "../grid";
+import { MAIN_BORE, MAIN_SEWER, SEWER_FIT, createGrid, fillTerrain, idx, setHeight, type Grid } from "../grid";
 import { resetCooling } from "../projects/cooling";
 import { stepSlop, tanksOf } from "../slop/tanks";
 import { structureDef } from "../structures/def";
@@ -12,7 +12,9 @@ import { pollutionOf } from "../water/pollution";
 import { planLateral, planSewer, routeSewer } from "./lay";
 import { lateralsOf, sewerFillAt, sewerReportsFor, slopInSewers, stepSewers, type SewerHooks } from "./flow";
 import { lateralReach } from "./reach";
-import { lateralStrokePlan, sewerStrokePlan } from "./tool";
+import { lateralStrokePlan, laysConnection, sewerStrokePlan } from "./tool";
+import { pipeClick } from "../pipes/connect-points";
+import { useWorldStore } from "../../state/world.store";
 import { solveSewers } from "./solve";
 
 /** A lake down the west edge, ground at 2 (or `ground(x)`), and a vibe office whose slop port is at (12, 4). */
@@ -65,7 +67,7 @@ describe("a lateral", () => {
   test("is refused without a manhole at an end, or past its reach", () => {
     const { g } = street();
     trunk(g);
-    expect(planLateral(g, [{ x: 12, y: 4 }, { x: 13, y: 4 }], wetOf(g))).toEqual({ refused: "End it at a sewer node" });
+    expect(planLateral(g, [{ x: 12, y: 4 }, { x: 13, y: 4 }], wetOf(g))).toEqual({ refused: "End it at a manhole" });
     const far = Array.from({ length: 9 }, (_, k) => ({ x: 12 + k, y: 12 })).concat([{ x: 20, y: 6 }]);
     expect(planLateral(g, far, wetOf(g))).toHaveProperty("refused");
   });
@@ -161,6 +163,56 @@ describe("a lateral keeps off the roads", () => {
     for (let k = 0; k < 120; k++) { runMains(field, g, 1); stepSlop(g, field, desks, 0.5, 1); }
     expect(tanksOf(g).get(a.id)!.level).toBeLessThan(1);
     expect(mainReportAt(g, 12, 5)?.state).toBe("flowing");
+  });
+});
+
+describe("the Sewer tool works out what it is laying", () => {
+  test("from a slop port, or onto one, a connection; anywhere else, a trunk — and no switch to set", () => {
+    const { g } = street();
+    trunk(g);
+    const port = { x: 12, y: 4 }, manhole = { x: 12, y: 6 }, open = { x: 16, y: 10 };
+    expect(laysConnection(g, port, manhole)).toBe(true);
+    expect(laysConnection(g, manhole, port)).toBe(true);
+    expect(laysConnection(g, manhole, open)).toBe(false);
+    expect(laysConnection(g, open, { x: 20, y: 10 })).toBe(false);
+    // On from a connection already laid is a connection too.
+    lateral(g);
+    expect(laysConnection(g, { x: 12, y: 5 }, open)).toBe(true);
+  });
+
+  test("the stroke says so as it moves: begun at a manhole it is a trunk, until it reaches a slop port", () => {
+    const { g } = street();
+    trunk(g);
+    const s = () => useWorldStore.getState();
+    s().loadGrid(g);
+    s().setPlaying(true);
+    s().setTool("sewer");
+    s().beginStroke({ x: 12, y: 6 });
+    expect(s().stroke!.lateral).toBeUndefined();
+    s().updateStroke({ x: 12, y: 4 });
+    expect(s().stroke!.lateral).toBe(true);
+    s().updateStroke({ x: 16, y: 6 });
+    expect(s().stroke!.lateral).toBeUndefined();
+    s().cancelStroke();
+    s().beginStroke({ x: 12, y: 4 });
+    expect(s().stroke!.lateral).toBe(true);
+    s().setPlaying(false);
+  });
+
+  test("a click on a trunk's middle selects it; on a manhole or its far end, a run starts; its card can add a manhole", () => {
+    const { g } = street();
+    trunk(g);
+    expect(pipeClick(g, "sewer", { x: 8, y: 6 })).toBe("select");
+    expect(pipeClick(g, "sewer", { x: 12, y: 6 })).toBe("start");
+    expect(pipeClick(g, "sewer", { x: 16, y: 10 })).toBe("start");
+    lateral(g);
+    expect(pipeClick(g, "sewer", { x: 12, y: 5 })).toBe("select");
+    const s = () => useWorldStore.getState();
+    s().loadGrid(g);
+    s().setPlaying(true);
+    s().addManholeAt({ x: 8, y: 6 });
+    expect(s().grid.sewerFit[idx(s().grid, 8, 6)]).toBe(SEWER_FIT.node);
+    s().setPlaying(false);
   });
 });
 

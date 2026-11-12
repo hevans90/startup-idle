@@ -504,7 +504,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         // FOULED water cools less, and says so. @see coolingKept
         const fouled = it.surface !== null && it.fouled >= 0.05 ? ` · ${Math.round(it.fouled * 100)}% fouled` : "";
         all.push({
-          text: it.surface === null ? "dry" : `${(it.depth / 2).toFixed(1)} deep${fouled}`,
+          text: it.surface === null ? "dry" : `${(it.depth / 2).toFixed(1)} slabs deep${fouled}`,
           colour: it.surface === null ? 0xff8a8d : fouled ? 0xd9a35a : 0x9fd6ff,
           at: [c[0], c[1] - w * 3.4],
           rank: it.surface === null || fouled ? 3 : 1,
@@ -517,7 +517,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       const mid = net.cells[(net.cells.length / 2) | 0], x = mid % g.w, y = (mid / g.w) | 0;
       const c = P(s, x, y, levelAt(g, x, y));
       const slabs = r.head / 2;
-      all.push({ text: `head ${slabs > 0 ? "+" : ""}${slabs.toFixed(1)}`, colour: STATE_COLOUR[r.state], at: [c[0], c[1] - w * 1.6], rank: r.state === "flowing" || r.state === "full" ? 0 : 3 });
+      all.push({ text: slabs >= 0 ? `${slabs.toFixed(1)} slabs above the floor` : `${(-slabs).toFixed(1)} slabs below the floor`, colour: STATE_COLOUR[r.state], at: [c[0], c[1] - w * 1.6], rank: r.state === "flowing" || r.state === "full" ? 0 : 3 });
     }
     let k = 0;
     for (const it of spaceWords(all, px)) word(k++, it.text, it.colour, it.at, px);

@@ -51,7 +51,7 @@ import { MainCard } from "./main-card";
 import { SewerCard } from "./sewer-card";
 import { InfoPop } from "../../ui/InfoPop";
 import { INFINITY } from "../../utils/time-utils";
-import { FOCUS, Kbd, Segmented, Tile } from "../../ui/console";
+import { FOCUS, Kbd, Tile } from "../../ui/console";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -114,7 +114,7 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "inspect", label: "Look", hint: "Pan and look round the town; click a building to open it" },
   { id: "paintRoad", label: "Road", hint: "Drag to lay road" },
   { id: "pipe", label: "Pipe", hint: "Drag from water to the Data Centre or an AI building to lay a water main; or click, click to pin corners, and click the end. Right-click takes a corner back" },
-  { id: "sewer", label: "Sewer", hint: "Drag from water or a processor to lay a sewer underground, or click and pin its corners; click one laid to add a manhole" },
+  { id: "sewer", label: "Sewer", hint: "Drag from water or a processor to lay a sewer underground; from a workplace's slop port to a manhole, a connection. Or click and pin corners. Click one laid to open it" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road, a park anywhere; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "dredge", label: "Dredge", hint: "Drag along a river to deepen it, for bigger ships" },
   { id: "demolish", label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to lift it" },
@@ -229,8 +229,6 @@ export function BuildBar({ className }: { className?: string }) {
   const waterOverlay = useWorldStore((s) => s.waterOverlay);
   const setWaterOverlay = useWorldStore((s) => s.setWaterOverlay);
   const sewerView = useWorldStore((s) => s.sewerView);
-  const sewerLateral = useWorldStore((s) => s.sewerLateral);
-  const setSewerLateral = useWorldStore((s) => s.setSewerLateral);
   const setSewerView = useWorldStore((s) => s.setSewerView);
 
   // Who the company can hire: the generators it has unlocked. @see getUnlockedGeneratorIds
@@ -348,13 +346,6 @@ export function BuildBar({ className }: { className?: string }) {
       <AiModePanel />
       <MainCard />
       <SewerCard />
-      {/* SEWER: a trunk underground, or a lateral from a workplace to a manhole. @see sewerLateral */}
-      {tool === "sewer" && (
-        <div className={twMerge(PANEL, "flex items-center gap-2 px-2 py-1 text-xs")}>
-          <Segmented label="What the Sewer tool lays" value={sewerLateral ? "lateral" : "trunk"} onChange={(v) => setSewerLateral(v === "lateral")}
-            options={[{ value: "trunk", label: "Trunk" }, { value: "lateral", label: "Lateral" }]} />
-        </div>
-      )}
       {picking && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>
