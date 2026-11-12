@@ -633,7 +633,20 @@ export const SUN: readonly [number, number, number] = (() => {
 /** Concrete, for what a main rests on. */
 export const CONCRETE = 0xc9c4b8;
 /** A saddle's length along the tube; a frame's legs, square, and its beam's depth, tiles. */
-const SADDLE = 0.05, LEG = 0.025, BEAM = 0.025;
+const SADDLE = 0.07, LEG = 0.04, BEAM = 0.04;
+/**
+ * STANDING ON THE GROUND. A support's FOOTING: a slab a little wider than
+ * what stands on it, and so thick. And the CONTACT under it: a thin dark rim
+ * on the ground where the concrete meets it, so a pipe is seen to stand and
+ * not to hover. Only under footings — a dark line under the length of a tube
+ * would be the shadow that was taken out. Its strength is this one number,
+ * nought to one: nought, and there is none.
+ */
+export const FOOTING = 0.03, FOOTING_T = 0.022, CONTACT_OUT = 0.022;
+export const CONTACT = 0.3;
+const CONTACT_DARK = 0x16170f;
+/** A saddle's strap: steel, a little prouder than the tube, so long; and how far a saddle's cheeks stand out past the tube. */
+const STRAP = 0x4a5058, STRAP_R = 1.07, STRAP_T = 0.022, CHEEK = 1.22;
 
 /** One flat face, its four corners in order round it, all facing `n`. */
 function quad(m: PipeMesh, s: number, q: readonly Pt[], nu: number, nv: number, nh: number, colour: number) {
@@ -658,6 +671,18 @@ export function box(m: PipeMesh, s: number, u0: number, v0: number, h0: number, 
 const solidBox = box;
 
 /**
+ * A FOOTING under what stands on (u0, v0)–(u1, v1) at ground `g`: the dark
+ * rim of its contact with the ground, flat, and the slab on it, concrete.
+ * Returns the slab's top, where what it carries starts. @see CONTACT
+ */
+export function footing(m: PipeMesh, s: number, u0: number, v0: number, u1: number, v1: number, g: number): number {
+  const a = FOOTING, c = a + CONTACT_OUT, z = g + 0.0008;
+  if (CONTACT > 0) quad(m, s, [[u0 - c, v0 - c, z], [u1 + c, v0 - c, z], [u1 + c, v1 + c, z], [u0 - c, v1 + c, z]], 0, 0, 1, rgba(CONTACT_DARK, CONTACT));
+  made(MATERIAL.concrete, () => box(m, s, u0 - a, v0 - a, g, u1 + a, v1 + a, g + FOOTING_T, solid(CONCRETE)));
+  return g + FOOTING_T;
+}
+
+/**
  * WHERE A CELL'S MAIN IS HELD UP: under the middle of its run, or of its
  * bend's curve; and which way the tube runs there, if it is straight.
  */
@@ -677,13 +702,15 @@ export type Support = "saddle" | "frame" | "none";
 
 /** A saddle's footprint, (u0, v0, u1, v1): short along the tube, a little narrower than it across. */
 function saddle(at: { u: number; v: number; along: "u" | "v" | null }, r: number): [number, number, number, number] {
-  const du = at.along === "u" ? SADDLE / 2 : r * 0.8, dv = at.along === "v" ? SADDLE / 2 : r * 0.8;
+  // Across the tube it stands out past it either side: the cheeks of its cradle.
+  const du = at.along === "u" ? SADDLE / 2 : r * CHEEK, dv = at.along === "v" ? SADDLE / 2 : r * CHEEK;
   return [at.u - du, at.v - dv, at.u + du, at.v + dv];
 }
 
 /** A frame's two legs over a road running along `road`, far one first: at its edges, clear of the traffic. */
 function vergeLegs(at: { u: number; v: number }, x: number, y: number, road: "u" | "v"): [number, number, number, number][] {
-  const half = LEG / 2, off = 0.5 - LEG;
+  // In from the edge by its footing and the rim round that: all of it on this tile.
+  const half = LEG / 2, off = 0.5 - half - FOOTING - CONTACT_OUT;
   return [-1, 1].map((k) => {
     const cu = road === "u" ? at.u : x + off * k, cv = road === "u" ? y + off * k : at.v;
     return [cu - half, cv - half, cu + half, cv + half];
@@ -782,23 +809,27 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
   const box = (mm: PipeMesh, ss: number, u0: number, v0: number, h0: number, u1: number, v1: number, h1: number, colour: number) =>
     made(MATERIAL.concrete, () => solidBox(mm, ss, u0, v0, h0, u1, v1, h1, colour));
   let nearLeg: [number, number, number, number] | null = null;
+  // A saddle's STRAP goes over the tube, so after it. @see below
+  let strap = false;
   if (support === "saddle" && limbs.length) {
-    const [u0, v0, u1, v1] = saddle(at, r);
-    box(m, s, u0, v0, g, u1, v1, h - r * 0.5, concrete);
+    // A SADDLE: a footing, and on it a block the tube lies in — its cheeks up either side of the tube, which is drawn over its middle.
+    const [u0, v0, u1, v1] = saddle(at, r), top = footing(m, s, u0, v0, u1, v1, g);
+    box(m, s, u0, v0, top, u1, v1, Math.max(top, h - r * 0.15), concrete);
+    strap = at.along !== null && h - r > top;
   } else if (support === "frame" && limbs.length && look.verges) {
     // OVER A ROAD: a leg at either edge of it, the beam right across under the
     // tube — under its lowest point, where it climbs. The far leg behind the traffic.
     const road = look.verges, under = Math.min(h, ...limbs.map((l) => l.zf * ZT)) - r, top = under - BEAM;
     const [farLeg, near] = vergeLegs(at, x, y, road);
-    box(look.back ?? m, s, farLeg[0], farLeg[1], g, farLeg[2], farLeg[3], top, concrete);
-    const span = 0.5 - LEG / 2;
+    box(look.back ?? m, s, farLeg[0], farLeg[1], footing(look.back ?? m, s, farLeg[0], farLeg[1], farLeg[2], farLeg[3], g), farLeg[2], farLeg[3], top, concrete);
+    const span = 0.5 - FOOTING - CONTACT_OUT;
     const [du, dv] = road === "u" ? [BEAM / 2, span] : [span, BEAM / 2];
     const [bu, bv] = road === "u" ? [at.u, y] : [x, at.v];
     box(m, s, bu - du, bv - dv, top, bu + du, bv + dv, under, concrete);
     nearLeg = near;
   } else if (support === "frame" && limbs.length) {
     const [farLeg, near] = legs(at, r), top = h - r - BEAM;
-    box(m, s, farLeg[0], farLeg[1], g, farLeg[2], farLeg[3], top, concrete);
+    box(m, s, farLeg[0], farLeg[1], footing(m, s, farLeg[0], farLeg[1], farLeg[2], farLeg[3], g), farLeg[2], farLeg[3], top, concrete);
     const span = r + LEG * 1.5;
     const [du, dv] = at.along === "u" ? [BEAM / 2, span] : [span, BEAM / 2];
     box(m, s, at.u - du, at.v - dv, top, at.u + du, at.v + dv, h - r, concrete);
@@ -863,8 +894,19 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
   for (const l of limbs) if (!far(l)) reducer(l);
   if (nearLeg) {
     const top = look.verges ? Math.min(h, ...limbs.map((l) => l.zf * ZT)) - r - BEAM : h - r - BEAM;
-    box(m, s, nearLeg[0], nearLeg[1], g, nearLeg[2], nearLeg[3], top, concrete);
+    box(m, s, nearLeg[0], nearLeg[1], footing(m, s, nearLeg[0], nearLeg[1], nearLeg[2], nearLeg[3], g), nearLeg[2], nearLeg[3], top, concrete);
   }
+  // THE STRAP over a saddled tube: a steel band round it, holding it down in its cradle.
+  if (strap) {
+    const run0 = shape(limbs).run[0];
+    hoop(m, s, [at.u, at.v, h], run0.dx, run0.dy, r, r * STRAP_R, STRAP_T, solid(STRAP), sides, midSlopeOf(limbs, z));
+  }
+}
+
+/** How a cell's run slopes through its middle: nought for a bend or a loose end. */
+function midSlopeOf(limbs: readonly Limb[], z: number): number {
+  const { bend, run } = shape(limbs);
+  return !bend && run.length === 2 ? midSlope(z, run[0], 0.5, run[1], 0.5) : 0;
 }
 
 /**

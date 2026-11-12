@@ -527,3 +527,8 @@ None. All were decided on 2026-11-11; each decision is written where it applies:
 - **Seen** (`?fixture=ports` and `?fixture=sewers` in the editor, by day): a steel main with its domed cap, a gasketed flange and a concrete saddle; a cast-iron connection with its joint lines and rust; the brick lift station. **Not seen:** a reducer (no fixture has a part-widened main: tests only), a valve's body up close, and night.
 - **Not done:** the drip stain is under each weld, not under each flange (a flange's place along the run is not the shader's to know); bolt heads are on a flange's face, not round its rim.
 
+**Phase 9 — ground and ends: begun, not finished** (2026-11-12). `render/pipe-mesh.ts`; tests in `pipe-mesh.test.ts`.
+- **Built:** a support's **footing** (a slab a little wider than what stands on it) with the dark **contact** rim on the ground round it, its strength the one number `CONTACT` (a constant, not a uniform; nought turns it off); a **saddle** as a block the tube lies in, its cheeks up either side, with a steel **strap** over the tube; **frames** thicker (`LEG`, `BEAM` 0.04), each leg on a footing, a road frame's legs moved in so the footing stays on its tile.
+- **Not built:** the manhole's concrete surround, the span's portal at the bank, the headwall's apron and stain, a pier's footing, and the pipe yard fixture the guard asks for.
+- **Not seen in the browser at all.** Tests only.
+

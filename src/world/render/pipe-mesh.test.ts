@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import {
-  BEND_R, BOLTS, DOME_OUT, FITTING, FLANGE_T, GASKET, MATERIAL, NEAR_SPLIT, REDUCER, SUN, VALVE_BODY, VIEW, WORDS, ZT,
-  ball, box, cellPaths, dome, elbowPath, flange, made, outlet, pipeCell, pipeMesh, solid, taper, tube, valve, windowGlass, windowSpan, type PipeMesh,
+  BEND_R, BOLTS, CONTACT, DOME_OUT, FITTING, FLANGE_T, FOOTING_T, GASKET, MATERIAL, NEAR_SPLIT, REDUCER, SUN, VALVE_BODY, VIEW, WORDS, ZT,
+  ball, box, cellPaths, dome, elbowPath, flange, footing, made, outlet, pipeCell, pipeMesh, solid, taper, tube, valve, windowGlass, windowSpan, type PipeMesh,
 } from "./pipe-mesh";
 import { pipeFragmentGlsl, pipeShaderSource } from "./pipe-gpu";
 
@@ -74,10 +74,12 @@ describe("a main as a solid", () => {
     // Along v at u = 5, a point's screen x is (5 − v)·HW: the near length lies past the split, give or take the tube's radius.
     const vOf = (mesh: PipeMesh, k: number) => 5 - mesh.f32[k * WORDS] / HW;
     for (let k = 0; k < near.nv; k++) expect(vOf(near, k)).toBeGreaterThan(5 + NEAR_SPLIT - look.r - 1e-6);
-    for (let k = 0; k < m.nv; k++) expect(vOf(m, k)).toBeLessThan(5 + 0.5 + 1e-6);
+    // Nothing of it past the tile's near edge — a footing's corner is off the run's line, by its own half width at most.
+    for (let k = 0; k < m.nv; k++) expect(vOf(m, k)).toBeLessThan(5 + 0.5 + 0.08);
     // The far leg stands at the road's far edge, v = 5 − (½ − its width), not beside the tube in the lane.
     expect(back.nv).toBeGreaterThan(0);
-    for (let k = 0; k < back.nv; k++) expect(back.f32[k * WORDS] / HW).toBeGreaterThan(0.39);
+    // (Its footing and the rim round that reach in a little further than the leg itself.)
+    for (let k = 0; k < back.nv; k++) expect(back.f32[k * WORDS] / HW).toBeGreaterThan(0.28);
   });
 
   test("a window is three lengths, glass between, framed at both ends; a band is a hoop round the middle", () => {
@@ -267,14 +269,44 @@ describe("a main as a solid", () => {
     pipeCell(bare, 1, 5, 5, 4, run, { ...look, flanges: false });
     pipeCell(saddle, 1, 5, 5, 4, run, { ...look, flanges: false, support: "saddle", floor: 0 });
     pipeCell(frame, 1, 5, 5, 4, run, { ...look, flanges: false, support: "frame", floor: 0 });
-    // A box is three faces of four corners.
-    expect(saddle.nv).toBe(bare.nv + 12);
-    // Two legs and a beam.
-    expect(frame.nv).toBe(bare.nv + 3 * 12);
+    // A box is three faces of four corners; a footing, the flat rim of its contact and a slab.
+    const BOX = 12, FOOT = 4 + BOX;
+    // A saddle: its footing, its block, and its strap over the tube — a band and the band's near face.
+    expect(saddle.nv).toBe(bare.nv + FOOT + BOX + 14 + 24);
+    // Two legs, each on a footing, and a beam.
+    expect(frame.nv).toBe(bare.nv + 2 * (FOOT + BOX) + BOX);
     // The near leg — the +v one, left of the run on screen — is written last, after the tube: it stands in front of it.
     let x = 0;
     for (let v = frame.nv - 4; v < frame.nv; v++) x += frame.f32[v * WORDS] / 4;
-    expect(x).toBeCloseTo(-(0.1 + 0.025) * HW, 3);
+    expect(x).toBeCloseTo(-(0.1 + 0.04) * HW, 3);
+  });
+
+  test("a footing has a dark rim on the ground round it, as strong as CONTACT and no stronger", () => {
+    const m = pipeMesh();
+    const top = footing(m, 1, 5, 5, 5.1, 5.1, 0.2);
+    expect(top).toBeCloseTo(0.2 + FOOTING_T, 6);
+    // The rim first: four corners, flat, facing up, see-through by CONTACT; then the slab, solid.
+    for (let v = 0; v < 4; v++) {
+      expect(normalOf(m, v)).toEqual([0, 0, 1]);
+      expect(m.u32[v * WORDS + 5] >>> 24).toBe(Math.round(CONTACT * 255));
+    }
+    for (let v = 4; v < m.nv; v++) expect(m.u32[v * WORDS + 5] >>> 24).toBe(255);
+    // Wider than the slab, which is wider than what stands on it.
+    const xs = (from: number, to: number) => { const a = Array.from({ length: to - from }, (_, k) => m.f32[(from + k) * WORDS]); return Math.max(...a) - Math.min(...a); };
+    expect(xs(0, 4)).toBeGreaterThan(xs(4, m.nv));
+    expect(xs(4, m.nv)).toBeGreaterThan(0.2 * HW);
+  });
+
+  test("a saddle's strap is the last thing on it, over the tube; a bend's saddle has none", () => {
+    const run = [{ dx: -1, dy: 0, zf: 4 }, { dx: 1, dy: 0, zf: 4 }], bend = [{ dx: -1, dy: 0, zf: 4 }, { dx: 0, dy: 1, zf: 4 }];
+    const straight = pipeMesh(), bent = pipeMesh(), bare = pipeMesh();
+    pipeCell(straight, 1, 5, 5, 4, run, { ...look, flanges: false, support: "saddle", floor: 0 });
+    pipeCell(bent, 1, 5, 5, 4, bend, { ...look, flanges: false, support: "saddle", floor: 0 });
+    pipeCell(bare, 1, 5, 5, 4, bend, { ...look, flanges: false });
+    // Steel, not the tube's grey nor the block's concrete.
+    const last = straight.u32[(straight.nv - 1) * WORDS + 5] & 0xffffff;
+    expect(last).not.toBe(straight.u32[5] & 0xffffff);
+    expect(bent.nv).toBe(bare.nv + 4 + 12 + 12);
   });
 
   const ENDS = ["cap", "intake", "pump", "outlet", "drain", "outfall"] as const;
