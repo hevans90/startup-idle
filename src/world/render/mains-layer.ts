@@ -35,11 +35,13 @@ import { pointerRead } from "../debug/pointer-at";
 import type { BandLayer } from "./bands";
 import { lookOf } from "../structures/projects/looks";
 import { portSetback } from "../structures/projects/entries";
-import { destroyPipeDrawable, pipeDrawable, pipeLiveDrawable } from "./pipe-gpu";
+import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
+import { glassDrawable, glassMesh, glassPane, type GlassState } from "./pipe-glass";
+import { glassOverride } from "./glass-state";
 import {
   MATERIAL,
-  FRAME_HALF, K, cellPaths, outlet, pipeCell, pipeMesh, valve, windowGlass, windowSpan, ZT,
-  type Fitting, type Limb, type PipeMesh, type Support, type WindowFill,
+  K, cellPaths, hoop, outlet, pipeCell, pipeMesh, solid, valve, ZT,
+  type Fitting, type Limb, type PipeMesh, type Support,
 } from "./pipe-mesh";
 
 const SIDES = ["N", "E", "S", "W"] as const;
@@ -91,10 +93,8 @@ export const LATERAL_R = TUBE_R * SEWER_WIDE;
 const AI_BAND = 0xb44aff;
 /** A port's nozzle: blue for water, brown for slop. */
 const PORT_COLOUR = { water: 0x3f86c6, slop: 0x7a5230 } as const;
-/** The slop seen in a sewer's glass, and the lumps in it. */
-const SLOP_IN = 0x7a5230, SLOP_LUMP = 0x3f2a18;
-/** The water in a main, and the warning at one that cannot deliver; the light running along it. */
-const WATER = 0x5fb7ff, WARN = 0xf2a33a, STREAK = 0xeaf6ff;
+/** The water in a main, for the overlay's marks, and the warning at one that cannot deliver. */
+const WATER = 0x5fb7ff, WARN = 0xf2a33a;
 const INK = 0x16181c;
 /** A sign opened out: its card's width and padding, screen pixels. */
 const TIP_W = 230, TIP_PAD = 8;
@@ -129,20 +129,61 @@ function warnSign(g: Graphics, x: number, y: number, r: number, foot: number, co
 }
 /** Where an outlet's valve stands on a bend, tiles from the middle toward the wall: on the straight past the elbow. */
 const VALVE_OUT = 0.37;
-/** How much of a window's glass shows over what is in it, 0 to 1. */
-const GLASS_CLEAR = 0.3;
-/** A glass section's tint, and how long it is, tiles. */
-const GLASS_TINT = 0xd9f1ff, GLASS = 0.62;
-/** Glass every fourth tile of a straight run (collars on the others). */
-const isGlass = (g: Grid, x: number, y: number) => {
-  const i = idx(g, x, y);
-  if (!g.main[i] || g.mainEnd[i]) return false;
-  const ns = joined(g, x, y, "N") && joined(g, x, y, "S"), ew = joined(g, x, y, "E") && joined(g, x, y, "W");
-  if (ns === ew || joined(g, x, y, ns ? "E" : "N") || joined(g, x, y, ns ? "W" : "S") || (x + y) % 4 !== 2) return false;
-  // Only where the run is straight in its climb too: glass is a straight length.
-  const [ax, ay] = NEIGHBOUR[ns ? "N" : "W"], z = levelAt(g, x, y);
-  return levelAt(g, x + ax, y + ay) + levelAt(g, x - ax, y - ay) === 2 * z;
-};
+/** A glass section: how long, tiles — a whole tile and a quarter of the one either side. Its collars' steel. */
+export const GLASS_LONG = 1.5;
+const COLLAR = 0x4f565e;
+/** A straight run this long has a window in its middle; a longer one, another every so many tiles. */
+export const GLASS_RUN = 4, GLASS_EVERY = 8;
+
+/** A piece of a glass section on one tile: the way the run goes, from where to where along it (tiles from the tile's middle), and where the whole section begins and ends on the map along that way. */
+export type GlassSpan = { ax: number; ay: number; from: number; to: number; lo: number; hi: number };
+
+/**
+ * WHERE THE GLASS GOES: fewer and longer. One window a tile and a half long
+ * in the middle of each straight run of four tiles or more, and one more
+ * every eight tiles on a long run — so the flow has room to read and the
+ * flanges carry the rhythm along the rest. A run is tiles in a line, joined
+ * end to end and nowhere else, with no fitting on them, of one kind, and
+ * straight in their climb too: glass is a straight length. By tile.
+ */
+export function glassSpans(g: Grid): Map<number, GlassSpan> {
+  const out = new Map<number, GlassSpan>();
+  for (const [ax, ay] of [[1, 0], [0, 1]] as const) {
+    // Which sides are along this way is the map's to say: found from a step, not assumed.
+    const along = SIDES.filter((sd) => Math.abs(NEIGHBOUR[sd][0]) === ax && Math.abs(NEIGHBOUR[sd][1]) === ay);
+    const across = SIDES.filter((sd) => !along.includes(sd));
+    const straight = (x: number, y: number) => {
+      if (!inBounds(g, x, y) || !inBounds(g, x - ax, y - ay) || !inBounds(g, x + ax, y + ay)) return false;
+      const i = idx(g, x, y);
+      if (!g.main[i] || g.mainEnd[i]) return false;
+      if (!along.every((sd) => joined(g, x, y, sd)) || across.some((sd) => joined(g, x, y, sd))) return false;
+      return levelAt(g, x - ax, y - ay) + levelAt(g, x + ax, y + ay) === 2 * levelAt(g, x, y);
+    };
+    const kind = (x: number, y: number) => g.main[idx(g, x, y)] & MAIN_SEWER;
+    const lines = ax ? g.h : g.w, long = ax ? g.w : g.h;
+    for (let line = 0; line < lines; line++) {
+      const at = (k: number): [number, number] => (ax ? [k, line] : [line, k]);
+      for (let k = 0; k < long; k++) {
+        if (!straight(...at(k))) continue;
+        let n = 1;
+        while (k + n < long && straight(...at(k + n)) && kind(...at(k + n)) === kind(...at(k))) n++;
+        if (n >= GLASS_RUN) {
+          const mid = (n - 1) >> 1;
+          for (let c = mid % GLASS_EVERY; c < n; c += GLASS_EVERY) {
+            if (c < 1 || c > n - 2 || Math.abs(c - mid) % GLASS_EVERY) continue;
+            const centre = k + c, lo = centre - GLASS_LONG / 2, hi = centre + GLASS_LONG / 2, q = (GLASS_LONG - 1) / 2;
+            for (const [d, from, to] of [[-1, 0.5 - q, 0.5], [0, -0.5, 0.5], [1, -0.5, -0.5 + q]] as const) {
+              const [x, y] = at(centre + d);
+              out.set(idx(g, x, y), { ax, ay, from, to, lo, hi });
+            }
+          }
+        }
+        k += n - 1;
+      }
+    }
+  }
+  return out;
+}
 /**
  * WHERE THE MAINS GO in a band's movers' tier: over the movers, whose depth
  * is their place in the band, −½ to ½ — under a building site's pieces, the
@@ -286,18 +327,25 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
    * written again each frame, in a render group of its own over the band's
    * tubes; and each window, where it is and how its tube looks.
    */
-  type Pane = { i: number; w0: readonly number[]; w1: readonly number[]; r: number; sewer: boolean; near: number };
-  type Windows = Map<number, { own: Container; write: (m: PipeMesh) => void; panes: Pane[] }>;
+  /**
+   * One tile's piece of a glass section: which window of its band's mesh, its
+   * tile and span, whether a sewer's; and what it keeps between frames — how
+   * far its pattern has been carried, and how high the liquid last stood at
+   * either end, for the film it left.
+   */
+  type Pane = { pane: number; i: number; span: GlassSpan; sewer: boolean; way: number; carried: number; film: [number, number] };
+  type Windows = Map<number, { own: Container; show: (pane: number, st: GlassState) => void; flush: () => void; panes: Pane[] }>;
   let windows: Windows = new Map();
-  const live = pipeMesh(1024);
-  let paneSides = 14, paneInset = 0;
+  /** Where the glass is, for the pipes as they are: by tile. */
+  let spans = new Map<number, GlassSpan>();
+  let glassAt = 0;
   /**
    * ONE SET OF MESHES A LEVEL OF DETAIL, built when a zoom first wants it and
    * KEPT: crossing a threshold shows one set and hides another, as the roads
    * do it, and nothing is destroyed or built again until a pipe is laid or
    * lifted. `drawn`, `windows` and the panes' look above are the set on show.
    */
-  type Level = { drawn: Mesh<Geometry, Shader>[]; windows: Windows; paneSides: number; paneInset: number };
+  type Level = { drawn: Mesh<Geometry, Shader>[]; windows: Windows };
   const levels = new Map<Detail, Level>();
   let base = "";
   const showLevel = (d: Detail) => {
@@ -307,7 +355,7 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       for (const { own } of l.windows.values()) if (own.visible !== on) own.visible = on;
     }
     const l = levels.get(d)!;
-    drawn = l.drawn; windows = l.windows; paneSides = l.paneSides; paneInset = l.paneInset;
+    drawn = l.drawn; windows = l.windows;
   };
   const flow = new Graphics();
   flow.eventMode = "none";
@@ -337,9 +385,51 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   /** Each cell's tube as the middle lines it is swept along, (u, v, h) in tiles: what the Water overlay draws on. */
   const routes = new Map<number, ReturnType<typeof cellPaths>>();
 
-  /** A WINDOW, into this frame's mesh: what is in it, if anything, and its glass over it. */
-  const writePane = (m: PipeMesh, s: number, p: Pane, fill: WindowFill | null) =>
-    windowGlass(m, s, p.w0, p.w1, paneInset, p.r, paneSides, fill, GLASS_TINT, GLASS_CLEAR);
+  /** The level across the bore a pipe so full stands at: −1 dry, 1 its crown; full, past its crown — no surface to see. */
+  const levelOf = (fill: number) => (fill >= 0.985 ? 1.3 : fill < 0.02 ? -1 : -1 + 2 * fill);
+  /**
+   * WHAT EACH WINDOW SHOWS, said to its mesh: a few numbers a vertex written
+   * in place, a band's worth sent up once. Nothing is built. @see pipe-glass
+   */
+  const showGlass = (g: Grid, now: number) => {
+    const dt = Math.min(0.1, Math.max(0, (now - glassAt) / 1000));
+    glassAt = now;
+    const forced = glassOverride();
+    for (const { show, flush, panes } of windows.values()) {
+      for (const p of panes) {
+        const x = p.i % g.w, y = (p.i / g.w) | 0, { ax, ay, from, to } = p.span;
+        let fills: [number, number], speed = 0, way = p.way, slop = 0;
+        const told = forced?.(g, p.i, now / 1000);
+        if (told) {
+          // Told what to show: the gallery's. @see glass-state
+          fills = [told.fill + from * told.tilt, told.fill + to * told.tilt];
+          speed = Math.abs(told.speed); way = told.speed < 0 ? -1 : 1; slop = told.slop;
+        } else if (p.sewer) {
+          // A CONNECTION holds none of its own: it shows slop while it carries any.
+          const r = mainReportAt(g, x, y), q = r && (r.state === "flowing" || r.state === "backed-up") ? r.flow : 0;
+          fills = q > 0 ? [0.2 + 0.25 * Math.min(1, q), 0.2 + 0.25 * Math.min(1, q)] : [0, 0];
+          speed = q > 0 ? 0.12 + Math.min(1, q) * 0.25 : 0;
+          slop = 1;
+        } else {
+          // A WATER MAIN shows what the solver holds: as full as the pipe stands at either end of the piece.
+          const here = mainLiveAt(g, p.i);
+          const prev = mainLiveAt(g, idx(g, x - ax, y - ay))?.fill ?? here?.fill ?? 0, next = mainLiveAt(g, idx(g, x + ax, y + ay))?.fill ?? here?.fill ?? 0;
+          const f = here?.fill ?? 0, at = (k: number) => (k < 0 ? f + (prev - f) * -k : f + (next - f) * k);
+          fills = [at(from), at(to)];
+          if (here && here.flow > 0.1) { speed = 0.35 + Math.min(2, here.flow) * 0.6; way = here.dir[0] * ax + here.dir[1] * ay < 0 ? -1 : 1; }
+          // How fouled the water it draws is: the worst of its intakes'.
+          slop = Math.max(0, ...(mainReportAt(g, x, y)?.intakes.map((k) => k.fouled) ?? [0]));
+        }
+        // CARRIED ALONG, by how fast it goes; kept small, so the patterns keep their grain.
+        p.carried = (p.carried + way * speed * dt) % 4096;
+        // WHAT IT LEFT where it stood: the film drains down toward the level, slop's slowly.
+        const levels = [levelOf(fills[0]), levelOf(fills[1])], drain = (slop > 0.5 ? 0.06 : 0.25) * dt;
+        for (const e of [0, 1] as const) p.film[e] = Math.max(Math.min(1, levels[e]), p.film[e] - drain);
+        show(p.pane, { ends: [{ level: levels[0], film: p.film[0] }, { level: levels[1], film: p.film[1] }], carried: p.carried, speed, slop });
+      }
+      flush();
+    }
+  };
 
   /**
    * The ways a main on a cell is joined out, and the level at each face: the
@@ -417,10 +507,11 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     const own = fit === "pump" && g.structures.get(structureAt(g, x, y))?.def === "pump";
     pipeCell(m, s, x, y, z, out, {
       // FAR OFF the tube is a little thicker, so it holds against the grass, and its strap is left off.
-      r: tubeR(bits) * (d === "far" ? FAR_THICK : 1), colour, sides: DETAIL_SIDES[d], end: own ? null : fit, support, floor, strap: d !== "far",
+      r: tubeR(bits) * (d === "far" ? FAR_THICK : 1), colour, sides: DETAIL_SIDES[d], end: own ? null : fit, support, floor, strap: d !== "far" && !spans.has(i),
       material: sewer ? MATERIAL.iron : MATERIAL.steel,
-      flanges: d !== "far" && (!sewer || (x + y) % 2 === 0), bolts: d === "near", valve: d === "near", band,
-      window: isGlass(g, x, y) ? GLASS / 2 : 0, glass: null, frames: d === "near",
+      // No flange inside a glass section: its far face is one where the tile before it has glass too.
+      flanges: d !== "far" && (!sewer || (x + y) % 2 === 0) && !(spans.get(i)?.from === -0.5), bolts: d === "near", valve: d === "near", band: spans.has(i) ? null : band,
+      window: 0, glass: null, frames: d === "near",
       verges, ...(g.paved[i] ? split : {}),
     });
     // AN OUTLET'S VALVE, on top of the tube: in the middle of a straight, on the length into the wall where it bends.
@@ -591,8 +682,26 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         const x = i % g.w, y = (i / g.w) | 0;
         routes.set(i, cellPaths(x, y, levelAt(g, x, y) * ZT, cellLimbs(g, x, y, joinedPort.get(i)), tubeR(g.main[i])));
       }
-      paneSides = sides;
-      paneInset = d === "near" ? FRAME_HALF : 0;
+      spans = glassSpans(g);
+      // WHICH WAY A CONNECTION'S SLOP GOES along each of its glass tiles: away from the workplace it drains.
+      const sewerWay = new Map<number, number>();
+      for (const net of findMains(g).list) {
+        if (!net.sewer || !net.cells.some((i) => spans.has(i))) continue;
+        const dist = new Map<number, number>(), queue = net.cells.filter((i) => g.mainEnd[i] === MAIN_END.drain);
+        for (const q of queue) dist.set(q, 0);
+        for (let h = 0; h < queue.length; h++) {
+          const i = queue[h], x = i % g.w, y = (i / g.w) | 0;
+          for (const side of SIDES) {
+            if (!joined(g, x, y, side)) continue;
+            const j = idx(g, x + NEIGHBOUR[side][0], y + NEIGHBOUR[side][1]);
+            if (!dist.has(j)) { dist.set(j, dist.get(i)! + 1); queue.push(j); }
+          }
+        }
+        for (const i of net.cells) {
+          const sp = spans.get(i);
+          if (sp) sewerWay.set(i, (dist.get(i + sp.ax + sp.ay * g.w) ?? 0) >= (dist.get(i) ?? 0) ? 1 : -1);
+        }
+      }
       // A BAND AT A TIME: its nozzles, its supports and tubes and fittings.
       const cells = new Map<number, number[]>();
       for (const band of nozzles.keys()) cells.set(band, []);
@@ -659,37 +768,41 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         // ITS WINDOWS last in the band, over all its tubes — IN A RENDER GROUP OF THEIR OWN:
         // written again every frame the water moves, which in the chunk's group rebuilt the
         // draw list of every tile and building in the chunk, every frame. @see BandLayer.dynamicOf
-        const panes: Pane[] = [];
+        // BUILT ONCE: what each shows is written into it in place. @see showGlass
+        const panes: Pane[] = [], gm = glassMesh(), m2 = pipeMesh();
         for (const i of list) {
-          const x = i % g.w, y = (i / g.w) | 0;
-          if (!isGlass(g, x, y)) continue;
-          const z = levelAt(g, x, y), limbs = limbsAt(g, x, y);
-          const [far, near] = limbs[0].dx + limbs[0].dy < 0 ? limbs : [limbs[1], limbs[0]];
-          const [w0, w1] = windowSpan(x, y, z, far, near, GLASS / 2);
-          panes.push({ i, w0, w1, r: tubeR(g.main[i]), sewer: (g.main[i] & MAIN_SEWER) !== 0, near: near.dx + near.dy });
+          const sp = spans.get(i);
+          if (!sp) continue;
+          const x = i % g.w, y = (i / g.w) | 0, { ax, ay, from, to } = sp;
+          const z = levelAt(g, x, y), slope = (levelAt(g, x + ax, y + ay) - levelAt(g, x - ax, y - ay)) / 2;
+          const sewer = (g.main[i] & MAIN_SEWER) !== 0, r = tubeR(g.main[i]) * (d === "far" ? FAR_THICK : 1);
+          const pt = (k: number): [number, number, number] => [x + ax * k, y + ay * k, (z + slope * k) * ZT];
+          const [a, b] = [pt(from), pt(to)];
+          // A hair prouder than the steel it lies over, which it hides.
+          const pane = glassPane(gm, scale, a[0], a[1], a[2], b[0], b[1], b[2], r * 1.012, sp.lo, sp.hi);
+          panes.push({ pane, i, span: sp, sewer, way: sewerWay.get(i) ?? 1, carried: 0, film: [-1, -1] });
+          // ITS COLLAR, steel, where the section ends on this tile: at the end that is not a tile's face.
+          if (d !== "far") for (const k of [from, to]) if (Math.abs(k) !== 0.5) hoop(m2, scale, pt(k), ax, ay, r, r * 1.14, 0.035, solid(COLLAR), sides, slope * ZT);
         }
+        if (m2.ni) place(m2, bands.dynamicOf[band], PIPE_Z + 0.005);
         if (!panes.length) continue;
-        // Room for every window at its fullest: water and its streaks, or slop and its lumps.
-        live.nv = live.ni = 0;
-        for (const p of panes) writePane(live, scale, p, { colour: 0, mark: 0, lumps: p.sewer, marks: p.sewer ? [0, 0] : [0, 0, 0] });
-        const { mesh, write } = pipeLiveDrawable(live.nv, live.ni);
+        const { mesh, show, flush } = glassDrawable(gm);
         const own = new Container({ isRenderGroup: true });
         own.eventMode = "none";
         own.addChild(mesh);
         own.zIndex = PIPE_Z + 0.01;
         bands.dynamicOf[band].addChild(own);
-        windows.set(band, { own, write, panes });
+        windows.set(band, { own, show, flush, panes });
       }
       // The lengths over each band's traffic from the band behind it: under that band's own mains, which meet them.
       for (const [band, n] of nears) place(n, bands.dynamicOf[band], PIPE_Z - 0.01);
-      levels.set(d, { drawn, windows, paneSides, paneInset });
+      levels.set(d, { drawn, windows });
       showLevel(d);
     },
     tick(g, scale, now, preview, ok = true, overlayOn = false, hover = null, pumpAt = null) {
       flow.clear();
       const t = now / 1000;
-      /** What each window shows this frame; one not here is dry. */
-      const fills = new Map<number, WindowFill>();
+      showGlass(g, now);
       // The tube's width on screen, which the water seen through its glass is sized to.
       const w = TUBE_R * 2 * K * scale, ow = OVERLAY_WIDE * HW * 2 * scale;
       if (overlayOn) drawWater(g, scale, ow, now);
@@ -778,53 +891,6 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
             queue.push(j);
           }
         }
-        // THE WATER, seen through each glass section: streaks running downstream
-        // at the main's speed while it flows, standing still in a full one,
-        // nothing in a dry one. @see isGlass
-        // A sewer shows its slop only while some moves. @see solveSewer
-        // A WATER MAIN SHOWS WHAT IS IN IT: each window as full as the pipe behind it
-        // stands, its streaks going the way and at the speed that run is carrying —
-        // so a main just laid fills along its length, and one cut off stands. @see mainLiveAt
-        const solved = !net.sewer && net.cells.some((i) => mainLiveAt(g, i) !== null);
-        if (solved) {
-          for (const i of net.cells) {
-            const x = i % g.w, y = (i / g.w) | 0;
-            if (!isGlass(g, x, y)) continue;
-            const live = mainLiveAt(g, i);
-            if (!live || live.fill < 0.04) continue;
-            const speed = live.flow > 0.1 ? 0.35 + Math.min(2, live.flow) * 0.6 : 0;
-            const way = live.dir[0] + live.dir[1] > 0 ? 1 : -1;
-            const marks = speed > 0 ? [0, 1, 2].map((k) => way * (-1.1 + 2.2 * ((((t * speed + k / 3) % 1) + 1) % 1))) : [];
-            fills.set(i, { colour: WATER, mark: STREAK, lumps: false, marks, level: live.fill });
-          }
-        }
-        if (!solved && (state === "flowing" || state === "full") && r && (!net.sewer || r.flow > 0)) {
-          const speed = state === "flowing" ? 0.35 + Math.min(2, r.flow) * 0.6 : 0;
-          for (const i of net.cells) {
-            const x = i % g.w, y = (i / g.w) | 0;
-            if (!isGlass(g, x, y)) continue;
-            // Downstream: toward the neighbour further from the intake.
-            const d = dist.get(i) ?? 0;
-            let dir: [number, number] = [0, 0];
-            for (const side of SIDES) {
-              if (!joined(g, x, y, side)) continue;
-              const [dx, dy] = NEIGHBOUR[side];
-              if ((dist.get(idx(g, x + dx, y + dy)) ?? 0) > d) dir = [dx, dy];
-            }
-            // Along the window, -1 at its far end to 1 at its near: downstream one way or the other.
-            const way = dir[0] + dir[1] > 0 ? 1 : -1;
-            // A SEWER'S SLOP, and lumps sliding slowly down it.
-            if (net.sewer) {
-              const go = (0.12 + Math.min(1, r.flow) * 0.25) * t;
-              const marks = [0, 1].map((k) => way * (-1 + 2 * ((((go + k / 2) % 1) + 1) % 1)));
-              fills.set(i, { colour: SLOP_IN, mark: SLOP_LUMP, lumps: true, marks });
-              continue;
-            }
-            // THE WATER, and while it flows, streaks of light running down it.
-            const marks = speed > 0 ? [0, 1, 2].map((k) => way * (-1.1 + 2.2 * ((((t * speed + k / 3) % 1) + 1) % 1))) : [];
-            fills.set(i, { colour: WATER, mark: STREAK, lumps: false, marks });
-          }
-        }
         {
           // THE INTAKE DRAWING: a slow swirl in the water at its mouth.
           if (state === "flowing") {
@@ -882,12 +948,6 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
         }
       }
       signTip();
-      // EACH BAND'S WINDOWS, written again: what is in each, and its glass. Far ones first.
-      for (const { write, panes } of windows.values()) {
-        live.nv = live.ni = 0;
-        for (const p of panes) writePane(live, scale, p, fills.get(p.i) ?? null);
-        write(live);
-      }
     },
     destroy() {
       clear();

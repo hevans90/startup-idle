@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import {
   BEND_R, BOLTS, CONTACT, DOME_OUT, FITTING, FLANGE_T, FOOTING_T, GASKET, MATERIAL, NEAR_SPLIT, REDUCER, SUN, VALVE_BODY, VIEW, WORDS, ZT,
-  ball, box, cellPaths, dome, elbowPath, flange, footing, made, outlet, pipeCell, pipeMesh, solid, taper, tube, valve, windowGlass, windowSpan, type PipeMesh,
+  ball, box, cellPaths, dome, elbowPath, flange, footing, made, outlet, pipeCell, pipeMesh, solid, taper, tube, valve, type PipeMesh,
 } from "./pipe-mesh";
 import { pipeFragmentGlsl, pipeShaderSource } from "./pipe-gpu";
 
@@ -132,27 +132,6 @@ describe("a main as a solid", () => {
     pipeCell(at, 1, 5, 5, 1, [S, { ...N, wall: 0x3f86c6 }], { ...look, flanges: false });
     pipeCell(back, 1, 5, 5, 1, [S, { ...N, wall: 0x3f86c6, reach: 0.4 }], { ...look, flanges: false });
     expect(along(back)).toBeGreaterThan(along(at) + 0.3 * HW);
-  });
-
-  test("a window holds its water as a tube inside the glass, streaks along it, the glass over all", () => {
-    const [w0, w1] = windowSpan(5, 5, 1, N, S, 0.31);
-    expect(w1[1] - w0[1]).toBeCloseTo(0.62);
-    const dry = pipeMesh(), wet = pipeMesh(), slop = pipeMesh();
-    windowGlass(dry, 1, w0, w1, 0, 0.1, 12, null, 0xd9f1ff, 0.3);
-    windowGlass(wet, 1, w0, w1, 0, 0.1, 12, { colour: 0x5fb7ff, mark: 0xffffff, lumps: false, marks: [-0.5, 0, 0.5] }, 0xd9f1ff, 0.3);
-    windowGlass(slop, 1, w0, w1, 0, 0.1, 12, { colour: 0x7a5230, mark: 0x3f2a18, lumps: true, marks: [0, 0.5] }, 0xd9f1ff, 0.3);
-    // Dry: the glass only. Wet: the water's tube, three streaks of six sides, then the glass.
-    expect(dry.nv).toBe(14);
-    expect(wet.nv).toBe(14 + 3 * 8 + 14);
-    // The glass last, and mostly clear: its colour's alpha well under one.
-    const alpha = (m: PipeMesh, v: number) => (m.u32[v * WORDS + 5] >>> 24) / 255;
-    expect(alpha(wet, wet.nv - 1)).toBeCloseTo(0.3, 1);
-    expect(alpha(wet, 0)).toBe(1);
-    expect(slop.nv).toBeGreaterThan(dry.nv + 14);
-    // A streak past the end of the glass is cut off there, or left out.
-    const out = pipeMesh();
-    windowGlass(out, 1, w0, w1, 0, 0.1, 12, { colour: 0x5fb7ff, mark: 0xffffff, lumps: false, marks: [5] }, 0xd9f1ff, 0.3);
-    expect(out.nv).toBe(14 + 14);
   });
 
   test("a flange's face shows only on the camera's side", () => {

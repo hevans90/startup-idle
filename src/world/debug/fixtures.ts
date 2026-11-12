@@ -18,6 +18,7 @@ import {
 import { placeCommand, validatePlacement } from "../structures/place";
 import { planLateral } from "../sewers/lay";
 import { layMain, planMain, routeMain } from "../water/mains";
+import { setGlassOverride, type GlassTold } from "../render/glass-state";
 import { portsOf } from "../water/ports";
 import { derivedRamp } from "../roads/ramp-derive";
 import { gamePipeRun, layPipe } from "../water/pipes";
@@ -31,7 +32,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "pipes" | "culvert" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "streets" | "traffic" | "cranes" | "shoal";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -776,6 +777,63 @@ export function buildSewers(g: Grid, material: number) {
   edited(g);
 }
 
+/** The gallery's levels, speeds (tiles a second) and mixes, in the order its columns and rows go. */
+export const GALLERY = {
+  fills: [0, 0.25, 0.5, 1], speeds: [0, 0.3, 1.6], slops: [0, 1, 0.4],
+  /** Where its rows of runs along u start, and how they are spaced; how long a run is. */
+  x0: 2, y0: 3, dx: 8, dy: 3, long: 6,
+} as const;
+
+/**
+ * THE GLASS GALLERY: every state a window can be in, side by side. Short
+ * mains, capped at both ends, each with its one window, and each window TOLD
+ * what to show — no solver could be made to hold them all at once.
+ *
+ *  - nine rows of four, along u: across a row the pipe EMPTY, a QUARTER,
+ *    HALF and FULL; down the rows STILL, SLOW and FAST, for WATER, then
+ *    SLOP, then a MIX of the two;
+ *  - to their right, three runs ALONG V: water, slop and a mix, half full
+ *    and going;
+ *  - below them a run CLIMBING a slope, half full and going;
+ *  - and two that never rest: one FILLING and EMPTYING, the level's front
+ *    running through it, and one the other way about.
+ * @see render/glass-state, plans/pipe-network.md phase 11
+ */
+export function buildGlassGallery(g: Grid, material: number) {
+  clear(g, material);
+  const G = GALLERY, slopeY = G.y0 + 9 * G.dy + 2;
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) set(g, x, y, y === slopeY && x >= G.x0 && x < G.x0 + G.long ? 4 + (x - G.x0) : 4);
+  const told = new Map<number, (t: number) => GlassTold>();
+  /** A main along a line of tiles, capped at both ends; what its window is told, on every tile of it. */
+  const run = (cells: { x: number; y: number }[], say: (t: number) => GlassTold) => {
+    if (!cells.every((c) => inBounds(g, c.x, c.y))) return;
+    const plan = planMain(g, cells, () => false, false);
+    if ("refused" in plan) return;
+    layMain(g, plan.cells);
+    for (const c of cells) told.set(idx(g, c.x, c.y), say);
+  };
+  const alongU = (x: number, y: number) => Array.from({ length: G.long }, (_, k) => ({ x: x + k, y }));
+  const alongV = (x: number, y: number) => Array.from({ length: G.long }, (_, k) => ({ x, y: y + k }));
+  // THE GRID: a mix a block of rows, a speed a row, a level a column.
+  G.slops.forEach((slop, m) => G.speeds.forEach((speed, sp) => G.fills.forEach((fill, f) => {
+    run(alongU(G.x0 + f * G.dx, G.y0 + (m * G.speeds.length + sp) * G.dy), () => ({ fill, tilt: 0, speed, slop }));
+  })));
+  // ALONG V, half full and going.
+  G.slops.forEach((slop, k) => run(alongV(G.x0 + G.fills.length * G.dx + 2 + k * 3, G.y0), () => ({ fill: 0.5, tilt: 0, speed: 0.6, slop })));
+  // CLIMBING.
+  run(alongU(G.x0, slopeY), () => ({ fill: 0.5, tilt: 0, speed: 0.6, slop: 0 }));
+  // FILLING AND EMPTYING: the level rising and falling, its front tilted the way it is going.
+  const tide = (t: number, slop: number, turn: number): GlassTold => {
+    const a = t * 0.5 + turn, rising = Math.cos(a);
+    return { fill: 0.5 + 0.55 * Math.sin(a), tilt: -0.35 * rising, speed: 0.5 * rising, slop };
+  };
+  run(alongU(G.x0 + G.dx, slopeY), (t) => tide(t, 0, 0));
+  run(alongU(G.x0 + 2 * G.dx, slopeY), (t) => tide(t, 1, Math.PI));
+  const w = g.w, h = g.h;
+  setGlassOverride((map, cell, t) => (map.w === w && map.h === h && map.main[cell] ? told.get(cell)?.(t) ?? null : null));
+  edited(g);
+}
+
 /**
  * THE PIPE YARD: one of every piece a pipe is drawn with, on one map, to look
  * at them by. The `sewers` fixture's ground and trunk — an outfall's headwall
@@ -1165,7 +1223,7 @@ export function buildCulvert(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, streets: 48, traffic: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1177,10 +1235,12 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands", "pipes", "culvert",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "streets", "traffic", "cranes", "shoal",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
+  // Only the glass gallery says what its windows show. @see buildGlassGallery
+  setGlassOverride(null);
   // Streets at their own levels only on the fixture that pins them. @see buildStreets
   pinBeauty(null);
   const cx = Math.floor(g.w / 2), cy = Math.floor(g.h / 2);
@@ -1219,6 +1279,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "sewers": buildSewers(g, material); recomputeHeightRange(g); return;
     case "ports": buildPorts(g, material); recomputeHeightRange(g); return;
     case "pipeyard": buildPipeYard(g, material); recomputeHeightRange(g); return;
+    case "glass": buildGlassGallery(g, material); recomputeHeightRange(g); return;
     case "traffic": buildTraffic(g, material); recomputeHeightRange(g); return;
   }
 }

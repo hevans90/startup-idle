@@ -154,7 +154,7 @@ export function tube(
  * face is half turned away — a face that is folds back over the near side
  * and draws a dark streak along it.
  */
-function halfRing(du: number, dv: number, dh: number, half: number): Float64Array {
+export function halfRing(du: number, dv: number, dh: number, half: number): Float64Array {
   const len = Math.hypot(du, dv, dh);
   du /= len; dv /= len; dh /= len;
   // The silhouette: square to the tube and to the line of sight.
@@ -238,7 +238,7 @@ export type PipeLook = {
   /**
    * A straight run's glass window: how far it reaches either side of the
    * middle, tiles; its glass — or `null`, to leave the length open for the
-   * glass and what is in it to be written each frame. @see windowGlass
+   * glass to be drawn over it. @see pipe-glass
    */
   window?: number;
   glass?: number | null;
@@ -920,7 +920,7 @@ function midSlopeOf(limbs: readonly Limb[], z: number): number {
  * short wider length, and its face on the camera's side. A window's frame,
  * a painted band.
  */
-function hoop(m: PipeMesh, s: number, p: readonly number[], du0: number, dv0: number, r: number, rr: number, len: number, colour: number, sides: number, dh0 = 0) {
+export function hoop(m: PipeMesh, s: number, p: readonly number[], du0: number, dv0: number, r: number, rr: number, len: number, colour: number, sides: number, dh0 = 0) {
   const { du, dv, dh } = across3(du0, dv0, dh0), half = len / 2;
   tube(m, s, p[0] - du * half, p[1] - dv * half, p[2] - dh * half, p[0] + du * half, p[1] + dv * half, p[2] + dh * half, rr, colour, sides);
   // One of the two faces is toward the camera; disc draws only that one.
@@ -954,63 +954,6 @@ export function windowSpan(x: number, y: number, z: number, far: Limb, near: Lim
     return [x + l.dx * 0.5 * q, y + l.dy * 0.5 * q, h + (l.zf * ZT - h) * q];
   };
   return [at(far), at(near)];
-}
-
-/** Up the screen, square to the line of sight, in the map's axes: where the top of a tube is seen. @see pipe-gpu */
-const UP = (() => {
-  const c = Math.sqrt(1 - (HH / HW) ** 2);
-  return [-Math.SQRT1_2 * (HH / HW), -Math.SQRT1_2 * (HH / HW), c] as const;
-})();
-
-/** What a window shows: its fill's colour; marks along it, -1 to 1, in their colour — streaks on water, or lumps in slop. */
-export type WindowFill = {
-  colour: number; marks: readonly number[]; mark: number; lumps: boolean;
-  /** How full the pipe behind it stands, nought to one; left out, full. */
-  level?: number;
-};
-/** The fill inside the glass, and a streak's length and a lump's size, shares of the tube's radius. */
-const FILL_R = 0.8, STREAK = 1.1, STREAK_R = 0.16, LUMP_R = 0.28;
-
-/**
- * A WINDOW'S GLASS, AND WHAT IS IN IT, from `w0` to `w1`, written each frame:
- * the water a lit tube inside the glass, streaks of light running along the
- * top of it, or slop with lumps sliding down it; then the glass itself over
- * all of that, tinted and mostly clear. `inset` keeps clear of the frames.
- */
-export function windowGlass(
-  m: PipeMesh, s: number, w0: readonly number[], w1: readonly number[], inset: number,
-  r: number, sides: number, fill: WindowFill | null, glass: number, clear: number,
-) {
-  const len = Math.hypot(w1[0] - w0[0], w1[1] - w0[1], w1[2] - w0[2]);
-  const du = (w1[0] - w0[0]) / len, dv = (w1[1] - w0[1]) / len, dh = (w1[2] - w0[2]) / len;
-  const at = (k: number, lift = 0): Pt => {
-    const q = 0.5 + k * (0.5 - inset / len);
-    return [w0[0] + (w1[0] - w0[0]) * q + top[0] * lift, w0[1] + (w1[1] - w0[1]) * q + top[1] * lift, w0[2] + (w1[2] - w0[2]) * q + top[2] * lift];
-  };
-  // Square to the tube, toward the top of it as the camera sees it.
-  const d = UP[0] * du + UP[1] * dv + UP[2] * dh;
-  const tu = UP[0] - d * du, tv = UP[1] - d * dv, th = UP[2] - d * dh, tl = Math.hypot(tu, tv, th) || 1;
-  const top = [tu / tl, tv / tl, th / tl];
-  if (fill) {
-    // A pipe part full shows a thinner run of it: never so thin it is lost.
-    const a = at(-1), b = at(1), rf = r * FILL_R * (0.35 + 0.65 * Math.min(1, fill.level ?? 1));
-    tube(m, s, a[0], a[1], a[2], b[0], b[1], b[2], rf, solid(fill.colour), sides);
-    const mark = solid(fill.mark), half = (STREAK * rf) / Math.max(1e-6, len - 2 * inset);
-    for (const k of fill.marks) {
-      if (fill.lumps) {
-        const p = at(Math.max(-0.85, Math.min(0.85, k)), rf * 0.35);
-        ball(m, s, p[0], p[1], p[2], r * LUMP_R, mark, Math.max(6, sides >> 1));
-        continue;
-      }
-      // A streak, cut off where the glass ends.
-      const k0 = Math.max(-1, k - half), k1 = Math.min(1, k + half);
-      if (k1 - k0 < half * 0.25) continue;
-      const p = at(k0, rf * 0.7), q = at(k1, rf * 0.7);
-      tube(m, s, p[0], p[1], p[2], q[0], q[1], q[2], r * STREAK_R, mark, Math.max(6, sides >> 1));
-    }
-  }
-  const a = at(-1), b = at(1);
-  tube(m, s, a[0], a[1], a[2], b[0], b[1], b[2], r, rgba(glass, clear), sides);
 }
 
 /** A window's frame, half its length, tiles: what the glass keeps clear of, either end. */
