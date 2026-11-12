@@ -1,53 +1,52 @@
 import { describe, expect, test } from "bun:test";
 // THE BOOKS FIRST, as the game loads them: see projects.test.ts.
 import "../../../game/quests/books";
-import type { Graphics } from "pixi.js";
 
-import { structureDef } from "../def";
-import { ENTRY_H, drawEntries, portSetback, wallBehind } from "./entries";
+import { allStructureDefs, structureDef } from "../def";
+import { along, portSetback, wallAcross, wallBehind } from "./entries";
 import { lookOf } from "./looks";
-import { makePen } from "./pen";
 
-/** A Graphics that only counts what is drawn on it. */
-function counter() {
-  let polys = 0;
-  const g = { poly: () => { polys++; return g; }, fill: () => g } as unknown as Graphics;
-  return { g, polys: () => polys };
-}
-
-const setup = (id: string) => {
-  const def = structureDef(id)!, f = def.footprint;
-  return { def, f, b: lookOf(id, f), ports: def.ports ?? [] };
-};
+/** Every building that has ports, and the two faces the camera sees. */
+const withPorts = allStructureDefs().filter((d) => d.ports?.length);
+const seen = (face: string) => face === "S" || face === "W";
 
 describe("where a pipe goes in", () => {
-  test("an inlet — an AI building's water, a processor's slop — is flanged onto its own wall, however far back", () => {
-    for (const id of ["ai-node", "compute-spire", "gpu-farm", "datacentre", "lattice", "refinery", "dataplant", "contentfarm"]) {
-      const { f, b, ports } = setup(id);
-      for (const p of ports) {
+  test("the buildings with ports are the ones this was written for", () => {
+    expect(withPorts.map((d) => d.id).sort()).toEqual([
+      "ai-node", "compute-spire", "contentfarm", "datacentre", "dataplant", "gpu-farm", "lattice", "office-vibe", "refinery", "studio",
+    ]);
+  });
+
+  test("every port is flanged onto its building's own wall, however far back: none without a wall drawn for it", () => {
+    for (const def of withPorts) {
+      const f = def.footprint, b = lookOf(def.id, f);
+      for (const p of def.ports!.filter((q) => seen(q.face))) {
         const edge = p.face === "S" ? f.w : f.h, back = portSetback(b, f, p);
-        expect(back, id).toBeGreaterThanOrEqual(0);
-        expect(back, id).toBeCloseTo(edge - wallBehind(b, f, p), 6);
-        // A wall stands across it, not just a corner of one: the flange's plate is on it.
-        const a = p.at + 0.5, s = p.face === "S";
-        expect(b.masses.some((m) => (s ? m.v0 + 0.15 <= a && a <= m.v1 - 0.15 : m.u0 + 0.15 <= a && a <= m.u1 - 0.15) && (s ? m.u1 : m.v1) >= edge - back - 1e-6), id).toBe(true);
+        expect(back, def.id).toBeGreaterThanOrEqual(0);
+        expect(back, def.id).toBeLessThan(edge);
+        expect(back, def.id).toBeCloseTo(edge - wallBehind(b, f, p), 6);
+        // A wall stands the width of the outlet's plate, not just a corner of one.
+        expect(wallAcross(b, f, p), `${def.id} ${p.face}${p.at}`).toBe(true);
       }
-      // And no housing is drawn for it.
-      const c = counter();
-      drawEntries(makePen(c.g, 0, 0, 0, 1, null), b, f, ports);
-      expect(c.polys(), id).toBe(0);
     }
   });
 
-  test("a workplace's slop outlet has an entry out to the edge of the plot, its outlet on the face", () => {
+  test("a vibe workplace's slop outlet is on a wing of its own block, flush with its side wall, on a small plot and on the Campus's", () => {
     for (const id of ["office-vibe", "studio"]) {
-      const { f, b, ports } = setup(id);
-      for (const p of ports) expect(portSetback(b, f, p), id).toBe(0);
-      const c = counter();
-      drawEntries(makePen(c.g, 0, 0, 0, 1, null), b, f, ports);
-      expect(c.polys(), id).toBeGreaterThan(ports.length * 6);
+      const def = structureDef(id)!, f = def.footprint, b = lookOf(id, f);
+      const [main, ...wings] = b.masses, p = def.ports![0], a = along(p, f);
+      expect(wings.length, id).toBe(1);
+      const w = wings[0];
+      // Part of the block: touching it, flush with the wall the outlet is on, in its material, and lower than it.
+      expect(w.u1, id).toBeCloseTo(main.u1, 6);
+      expect(Math.min(Math.abs(w.v0 - main.v1), Math.abs(w.v1 - main.v0)), id).toBeLessThan(1e-6);
+      expect(w.wall, id).toBe(main.wall);
+      expect(w.z1, id).toBeLessThan(main.z1);
+      expect(w.v0 <= a + 1e-6 && a <= w.v1 + 1e-6, id).toBe(true);
+      // Inside the plot, with room left in front of the wall for the pipe to come in.
+      expect(w.v0, id).toBeGreaterThanOrEqual(0);
+      expect(w.v1, id).toBeLessThanOrEqual(f.h);
+      expect(portSetback(b, f, p), id).toBeGreaterThan(0.1);
     }
-    // Taller than the outlet's plate, which stands round a main at 1.1 half steps.
-    expect(ENTRY_H).toBeGreaterThan(2);
   });
 });

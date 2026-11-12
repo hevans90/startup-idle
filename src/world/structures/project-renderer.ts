@@ -32,7 +32,6 @@ import { siteAt, topOf, type Site } from "./projects/schedule";
 import {
   OPENING, craneHeight, cranePose, craneRest, drawConfetti, drawFinished, drawSite, drawSky, jibLength,
 } from "./projects/site";
-import { structureDef } from "./def";
 import { registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
 
 type ProjectHandle = StructureHandle & {
@@ -348,7 +347,7 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): 
     if (site) drawSite(p, h.model, f, site, stockOf(s), laidUp(s));
     else {
       if (h.model.lawn && !lawnless) h.model.lawn(p, f);
-      drawFinished(p, h.model, f, structureDef(s.def)?.ports);
+      drawFinished(p, h.model, f);
     }
   });
   placeProps(h, s, ctx, ground);

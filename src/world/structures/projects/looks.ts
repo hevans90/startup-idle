@@ -376,6 +376,20 @@ export function studio(f: Footprint): Building {
     piers: { colour: 0xf8f7f2, every: 0.7, w: 0.06 },
     base: { colour: 0x8f949a, h: 0.12 },
   };
+  // THE SERVICE WING, where its slop goes out: a storey of the same block, flush
+  // with the side wall, standing wherever the main block leaves the outlet's
+  // place bare — past its front corner on a small plot, behind its back one on
+  // the Campus's. The outlet is flanged to the wall the two make. @see entries, SLOP_OUT
+  const out = Math.min(1, f.h - 1) + 0.5, WING = 0.3, WING_IN = 0.34;
+  const wing = (v0: number, v1: number): Mass => ({
+    u0: m.u1 - WING_IN, v0, u1: m.u1, v1, z0: PLINTH.h, z1: PLINTH.h + 1.8, wall: 0xeceae2, storey: 1.8,
+    facade: { kind: "louvres", slat: 0xd3d0c6, every: 0.3, edge: 0.06 },
+    roof: { kind: "parapet", deck: ROOF, rim: 0xeceae2, h: 0.12 },
+    base: { colour: 0x8f949a, h: 0.12 },
+  });
+  const wings: Mass[] = [];
+  if (out + WING > m.v1 + 0.02) wings.push(wing(Math.max(m.v1, out - WING), out + WING));
+  if (out - WING < m.v0 - 0.02) wings.push(wing(out - WING, Math.min(m.v0, out + WING)));
   const mid = (m.u0 + m.u1) / 2;
   const fans = (dp: Pen) => [unit(dp, m.u0 + 0.35, m.v0 + 0.3, m.z1), unit(dp, m.u0 + 0.75, m.v0 + 0.3, m.z1)];
   const live = turning([
@@ -384,13 +398,14 @@ export function studio(f: Footprint): Building {
   ]);
   const deep = f.h - m.v1 > 0.3 || m.v0 > 0.8;
   return {
-    plinth: PLINTH, masses: [m], crane: "tower", live,
+    plinth: PLINTH, masses: [m, ...wings], crane: "tower", live,
     grounds: paved,
     details: (p) => {
       door(p, m, mid, 0.42, 1.2, 0x2c3e48);
       canopy(p, m, mid, 0.8, m.z0 + 1.35, 0xf4f3ee);
       planter(p, mid - 0.62, m.v1 + 0.16, PLINTH.h, 0xff6fb7);
-      planter(p, mid + 0.62, m.v1 + 0.16, PLINTH.h, 0xff6fb7);
+      // The other planter, where the service wing does not stand.
+      if (!wings.some((w) => w.v0 < m.v1 + 0.3 && w.v1 > m.v1 && w.u0 < mid + 0.72)) planter(p, mid + 0.62, m.v1 + 0.16, PLINTH.h, 0xff6fb7);
       fans(p);
       // THE DECK on the roof: timber, a parasol and a table.
       const du0 = m.u0 + 1.0, dv0 = m.v0 + 0.15;
