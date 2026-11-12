@@ -26,6 +26,7 @@ import { nearestPort, portsAt, portsOf, wallAt } from "./ports";
 import type { Port } from "../structures/def";
 import { pipeGraph, type MainNet } from "../pipes/graph";
 import type { MainReport, MainState } from "../pipes/report";
+import { runsOf, type PipeProfile } from "../pipes/profile";
 import {
   SLOT, emptyWater, fillOf, settledWater, steadyFlow, stepWater as stepPipes, waterHeld, waterModel,
   type Steady, type WaterEnv, type WaterModel, type WaterState,
@@ -596,7 +597,7 @@ export function previewMain(g: Grid, field: WaterField | null, plan: readonly Ma
     : sill === null ? "Feeds nothing: end it at an inlet of the Data Centre or one of the AI's buildings"
     : !sources.length ? "Draws from nothing: start it at water"
     : flow > 0 ? null
-    : needsPump ? `The water ${gravity < 0 ? `is ${Math.round(-gravity) / 2} slabs below` : "is level with"} the building's floor: it needs a pump`
+    : needsPump ? `The water ${gravity < 0 ? `is ${Math.round(-gravity) / 2} slab${Math.round(-gravity) === 2 ? "" : "s"} below` : "is level with"} the building's floor: it needs a pump`
     : "The water is too far below the building, even for a pump";
   return { fresh, flow, head: Number.isFinite(head) ? head : 0, ends, problem, needsPump, building };
 }
@@ -608,12 +609,7 @@ export function previewMain(g: Grid, field: WaterField | null, plan: readonly Ma
  * plan's own outlet, if it has one; else all the network would deliver.
  */
 function plannedFlow(g: Grid, field: WaterField, plan: readonly MainCell[], pump: boolean): number {
-  const laid: Grid = { ...g, main: g.main.slice(), mainEnd: g.mainEnd.slice() };
-  for (const c of plan) {
-    const i = idx(g, c.x, c.y);
-    laid.main[i] |= c.join;
-    if (c.end) laid.mainEnd[i] = c.end === MAIN_END.intake && pump ? MAIN_END.pump : c.end;
-  }
+  const laid = laidCopy(g, plan, pump);
   const graph = pipeGraph(laid);
   const at = plan.map((c) => graph.nodeAt.main[idx(g, c.x, c.y)]).find((k) => k >= 0);
   if (at === undefined) return 0;
@@ -626,6 +622,84 @@ function plannedFlow(g: Grid, field: WaterField, plan: readonly MainCell[], pump
   const live = m.intakes.map((t) => intakeWater(laid, field, t.cell)).filter((w): w is NonNullable<typeof w> => !!w).sort((a, b) => b.surface - a.surface)[0];
   const kept = coolingKept(live ? pollutionAt(field, tileOf(live.column % field.columns.nx), tileOf(Math.floor(live.column / field.columns.nx))) : 0);
   return (own >= 0 ? steady.out[own] : steady.out.reduce((n, q) => n + q, 0)) * kept;
+}
+
+/** The map with a planned main laid on a copy of its mains: for asking of a main what it would do, before it is there. */
+export function laidCopy(g: Grid, plan: readonly MainCell[], pump = false): Grid {
+  const laid: Grid = { ...g, main: g.main.slice(), mainEnd: g.mainEnd.slice() };
+  for (const c of plan) {
+    const i = idx(g, c.x, c.y);
+    laid.main[i] |= c.join;
+    if (c.end) laid.mainEnd[i] = c.end === MAIN_END.intake && pump ? MAIN_END.pump : c.end;
+  }
+  return laid;
+}
+
+/**
+ * A WATER MAIN'S PROFILE through a tile of it: from the intake whose water
+ * stands highest to the building it feeds — by way of that tile, where its
+ * network has more than one outlet — with the level its water can rise to at
+ * each tile, off the same steady solve its card quotes. `pumpsOn` false reads
+ * a pump as an intake. Null where the tile has no water main. @see PipeProfile
+ */
+export function mainProfile(g: Grid, field: WaterField | null, at: number, pumpsOn = true): PipeProfile | null {
+  const graph = pipeGraph(g), id = graph.mainOf[at];
+  const net = id >= 0 ? graph.mains[id] : undefined;
+  const node = net?.cells.find((c) => graph.nodeAt.main[c] >= 0);
+  if (!net || net.sewer || node === undefined) return null;
+  const m = waterModel(graph, graph.nodes[graph.nodeAt.main[node]].system);
+  /** Tile by tile along the joins from one tile to another; empty with no way. */
+  const way = (from: number, to: number): number[] => {
+    const prev = new Map<number, number>([[from, -1]]), queue = [from];
+    for (let q = 0; q < queue.length && !prev.has(to); q++) {
+      const i = queue[q], x = i % g.w, y = (i / g.w) | 0;
+      for (const side of SIDES) {
+        if (!joined(g, x, y, side)) continue;
+        const j = idx(g, x + NEIGHBOUR[side][0], y + NEIGHBOUR[side][1]);
+        if (!prev.has(j)) { prev.set(j, i); queue.push(j); }
+      }
+    }
+    const out: number[] = [];
+    for (let c = prev.has(to) ? to : -1; c >= 0; c = prev.get(c)!) out.push(c);
+    return out.reverse();
+  };
+  const sur = field ? surroundings(g, field, m) : null;
+  const steady = sur ? steadyFlow(m, sur.env(pumpsOn, sur.outs.map((o) => o.building >= 0))) : null;
+  // FROM its highest water — else any intake, else its first tile.
+  let from = -1, top = -Infinity;
+  m.intakes.forEach((t, k) => {
+    const w = sur?.waters[k];
+    const h = w ? w.surface + (t.pump && pumpsOn ? pumpLift() : 0) : -1e9 + k;
+    if (h > top) { top = h; from = k; }
+  });
+  const start = from >= 0 ? m.intakes[from].cell : net.cells[0];
+  // TO the building: the outlet the tile asked about lies on the way to, else the first that feeds one, else that tile.
+  const fed = m.outlets.map((o, k) => ({ o, k })).filter(({ k }) => (sur ? sur.outs[k].building >= 0 : true));
+  const through = fed.find(({ o }) => { const w = way(start, o.cell); return w.includes(at); }) ?? fed[0];
+  const cells = way(start, through ? through.o.cell : at);
+  if (cells.length < 2) return null;
+  // THE HEAD at each tile: its node's, or between the two its run lies between.
+  const headAt = new Map<number, number>();
+  if (steady) {
+    m.nodes.forEach((n, k) => headAt.set(graph.nodes[n].cell, steady.head[k]));
+    for (const l of m.links) {
+      const run = graph.links[l.graph].cells, ha = steady.head[l.a], hb = steady.head[l.b];
+      run.forEach((c, k) => { if (!headAt.has(c)) headAt.set(c, ha + ((hb - ha) * k) / (run.length - 1)); });
+    }
+  }
+  const water = from >= 0 ? sur?.waters[from] ?? null : null;
+  const head = cells.map((c) => { const h = water ? headAt.get(c) : undefined; return h === undefined || Number.isNaN(h) ? null : h; });
+  const floor = through && sur && Number.isFinite(sur.outs[through.k].sill) ? sur.outs[through.k].sill : null;
+  // AT FAULT where the water cannot rise to the building's floor: all of it if it never does, else nothing — a main that flows has cleared it.
+  const short = floor !== null && water !== null && !(steady && steady.out[through!.k] > 0);
+  const bad = short ? runsOf(head.map((h) => h === null || h <= floor!)) : [];
+  const lifted = from >= 0 && m.intakes[from].pump && pumpsOn && !!water;
+  return {
+    kind: "main", cells, ground: cells.map((c) => g.height[c]), pipe: cells.map((c) => g.height[c]),
+    head: water ? head : null, source: water ? water.surface : null, floor, spans: null,
+    marks: [...(lifted ? [{ at: 0, kind: "pump" as const }] : []), ...(through ? [{ at: cells.length - 1, kind: "exit" as const }] : [])],
+    bad, reason: bad.length ? "The water cannot rise to the building's floor" : null,
+  };
 }
 
 /**

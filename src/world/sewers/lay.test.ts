@@ -3,7 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { DIR } from "../../iso/dir";
 import { SEWER_FIT, createGrid, fillTerrain, idx, type Grid } from "../grid";
 import { planNode, planSewer, routeSewer, SPAN_PRICE, type SewerPlan } from "./lay";
-import { NODE_EVERY, SEWER_KIND } from "./solve";
+import { NODE_EVERY, SEWER_KIND, solveSewers } from "./solve";
+import { sewerProfile, topOf } from "../pipes/profile";
 import { structureDef } from "../structures/def";
 import { validatePlacement } from "../structures/place";
 
@@ -133,5 +134,60 @@ describe("placing what makes slop", () => {
     const { g, wet } = field(30);
     lay(g, plan(g, wet, { x: 0, y: 4 }, { x: 12, y: 4 }));
     expect(validatePlacement(g, office(), 6, 3)).toMatchObject({ ok: false, reason: "over a sewer" });
+  });
+});
+
+describe("the profile: a sewer from the side", () => {
+  test("under flat ground it lies a slab down and falls toward its exit, its manhole and its outfall marked", () => {
+    const { g, wet } = field();
+    const p = plan(g, wet, { x: 0, y: 4 }, { x: 12, y: 4 });
+    const prof = sewerProfile(p.staged, p.solve, p.staged.sewerFit, topOf(p.solve, p.cells.map((c) => idx(g, c.x, c.y))))!;
+    expect(prof.kind).toBe("sewer");
+    // From the far end down to the bank.
+    expect(prof.cells[0]).toBe(idx(g, 12, 4));
+    expect(prof.cells.at(-1)).toBe(idx(g, 1, 4));
+    for (let k = 1; k < prof.pipe.length; k++) expect(prof.pipe[k]).toBeLessThan(prof.pipe[k - 1]);
+    expect(prof.pipe.every((z, k) => z < prof.ground[k])).toBe(true);
+    expect(prof.marks).toContainEqual({ at: 0, kind: "manhole" });
+    expect(prof.marks).toContainEqual({ at: prof.cells.length - 1, kind: "exit" });
+    expect(prof.bad).toEqual([]);
+    expect(prof.spans!.some(Boolean)).toBe(false);
+  });
+
+  test("a dip is spanned, a hill lifted, and both show where they are", () => {
+    // A dip four tiles wide at x 5–8.
+    const dip = field(30, (x) => (x >= 5 && x <= 8 ? 0 : 4));
+    const d = plan(dip.g, dip.wet, { x: 0, y: 4 }, { x: 14, y: 4 });
+    const dp = sewerProfile(d.staged, d.solve, d.staged.sewerFit, topOf(d.solve, d.cells.map((c) => idx(dip.g, c.x, c.y))))!;
+    expect(d.spans).toBeGreaterThan(0);
+    expect(dp.spans!.filter(Boolean).length).toBe(d.spans);
+    expect(dp.cells.filter((_, k) => dp.spans![k]).every((c) => { const x = c % dip.g.w; return x >= 5 && x <= 8; })).toBe(true);
+    // A hill too high to dig through, at x 6–8.
+    const hill = field(30, (x) => (x >= 6 && x <= 8 ? 12 : 4));
+    const h = plan(hill.g, hill.wet, { x: 0, y: 4 }, { x: 14, y: 4 });
+    const hp = sewerProfile(h.staged, h.solve, h.staged.sewerFit, topOf(h.solve, h.cells.map((c) => idx(hill.g, c.x, c.y))))!;
+    expect(h.lifts.length).toBeGreaterThan(0);
+    expect(hp.marks.filter((m) => m.kind === "lift").map((m) => hp.cells[m.at]).sort()).toEqual([...h.lifts].sort());
+  });
+
+  test("the red stretch is where the solve says the fault is, with its reason", () => {
+    // A dip at x 5–8, spanned. The solve digs under or lifts rather than leave a fault, so one is handed it:
+    // three tiles of the span said to be too long, as it says such things.
+    const { g, wet } = field(30, (x) => (x >= 5 && x <= 8 ? 0 : 4));
+    lay(g, plan(g, wet, { x: 0, y: 4 }, { x: 14, y: 4 }));
+    const on = idx(g, 6, 4);
+    expect(solveSewers(g).kind[on]).toBe(SEWER_KIND.span);
+    const wrong = [idx(g, 7, 4), idx(g, 6, 4), idx(g, 5, 4)];
+    const solve = { ...solveSewers(g), problems: wrong.map((cell) => ({ cell, reason: "A span longer than 8 tiles" })) };
+    const prof = sewerProfile(g, solve, g.sewerFit, idx(g, 14, 4))!;
+    // One stretch, those tiles and no others, and the solve's own words.
+    expect(prof.bad).toHaveLength(1);
+    expect(prof.bad.flatMap(([a, b]) => prof.cells.slice(a, b + 1))).toEqual(wrong);
+    expect(prof.reason).toBe("A span longer than 8 tiles");
+    // And one with no exit says so, with nothing red to point at.
+    for (let i = 0; i < g.sewerFit.length; i++) if (g.sewerFit[i] === SEWER_FIT.outfall) g.sewerFit[i] = 0;
+    g.rev++;
+    const cut = sewerProfile(g, solveSewers(g), g.sewerFit, idx(g, 14, 4))!;
+    expect([cut.bad, cut.reason]).toEqual([[], "No exit yet"]);
   });
 });

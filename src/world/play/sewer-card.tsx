@@ -5,6 +5,9 @@
  * its exit, or why it can't go. A line each; the detail on hover.
  * @see planSewer, plans/underground-sewers.md §3
  */
+import { idx } from "../grid";
+import { sewerProfile, topOf } from "../pipes/profile";
+import { PipeProfileStrip } from "./pipe-profile";
 import { twMerge } from "tailwind-merge";
 
 import { pumpUpkeep } from "../../game/cooling";
@@ -62,6 +65,7 @@ export function SewerCard() {
       {plan.problem ? <p className="text-bad">{plan.problem.reason}</p>
         : plan.exit ? <p className="text-good" title={`Carries up to ${plan.capacity.toFixed(2)} slop a second: the least anywhere on the way to its exit`}>Reaches its exit</p>
         : <p className="text-warn" title="Its manholes serve nothing till it pours into water or feeds a processor">No exit yet</p>}
+      <PipeProfileStrip profile={sewerProfile(plan.staged, plan.solve, plan.staged.sewerFit, topOf(plan.solve, plan.cells.map((c) => idx(g, c.x, c.y))))} />
     </div>
   );
 }

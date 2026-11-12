@@ -22,7 +22,7 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { setWaterEdge, stepWater } from "./field";
 import { mainStroke } from "./main-stroke";
-import { runMains } from "./mains";
+import { mainProfile, mainReportAt, runMains } from "./mains";
 
 const s = () => useWorldStore.getState();
 afterEach(() => { s().setPlaying(false); useMoneyStore.setState({ money: new Decimal(0) }); resetCooling(); });
@@ -211,5 +211,64 @@ describe("one tool does everything its pipes need", () => {
     expect(pipeClick(g, "pipe", { x: 9, y: 11 })).toBe("start");
     // The Sewer tool has no business with a water main: a click there starts its own.
     expect(pipeClick(g, "sewer", { x: 9, y: 9 })).toBe("start");
+  });
+});
+
+describe("the profile: a main from the side", () => {
+  test("flowing by gravity: the water's line falls from the lake to the building, above its floor all the way, and nothing is red", () => {
+    const { g, inlet } = yard();
+    const m = mainStroke(g, s().getWaterField(), stroke({ anchor: { x: 4, y: 5 }, head: inlet }), mainWet(g));
+    const p = m.profile!;
+    expect(p.kind).toBe("main");
+    expect(p.cells).toEqual(m.route!.map((c) => idx(g, c.x, c.y)));
+    expect([p.source, p.floor]).toEqual([5, 0]);
+    // The line starts at the lake's level and only falls.
+    expect(p.head![0]).toBeCloseTo(5, 6);
+    for (let k = 1; k < p.head!.length; k++) expect(p.head![k]!).toBeLessThanOrEqual(p.head![k - 1]! + 1e-9);
+    expect(p.head!.at(-1)!).toBeGreaterThan(p.floor!);
+    expect(p.bad).toEqual([]);
+    expect(p.reason).toBeNull();
+    // The pipe lies on the ground, over the lake's bank and down.
+    expect(p.pipe).toEqual(p.ground);
+    expect(p.ground[0]).toBe(7);
+  });
+
+  test("water too low, no pump: the line lies under the floor the whole way — red, and the reason the card gives", () => {
+    const { g, inlet } = yard(-(PUMP_HEAD / 2));
+    const m = mainStroke(g, s().getWaterField(), stroke({ anchor: { x: 4, y: 5 }, head: inlet, noPump: true }), mainWet(g));
+    const p = m.profile!;
+    expect(m.look!.problem).toMatch(/slabs below the building's floor/);
+    expect(p.source).toBe(-PUMP_HEAD / 2);
+    expect(p.head!.every((h) => h !== null && h < p.floor!)).toBe(true);
+    expect(p.bad).toEqual([[0, p.cells.length - 1]]);
+    expect(p.reason).toBe("The water cannot rise to the building's floor");
+    expect(p.marks.some((k) => k.kind === "pump")).toBe(false);
+  });
+
+  test("with its pump: the line steps up at the intake, clears the floor, and nothing is red", () => {
+    const { g, inlet } = yard(-(PUMP_HEAD / 2));
+    const m = mainStroke(g, s().getWaterField(), stroke({ anchor: { x: 4, y: 5 }, head: inlet }), mainWet(g));
+    const p = m.profile!;
+    expect(p.marks).toContainEqual({ at: 0, kind: "pump" });
+    expect(p.head![0]).toBeCloseTo(p.source! + PUMP_HEAD, 6);
+    expect(p.head!.at(-1)!).toBeGreaterThan(p.floor!);
+    expect(p.bad).toEqual([]);
+  });
+
+  test("a main laid and looked at says the same as its report: red if it reads `no-head`, not if it flows", () => {
+    const { g, dc, inlet } = yard(-(PUMP_HEAD / 2));
+    lay(stroke({ anchor: { x: 4, y: 5 }, head: inlet, noPump: true }));
+    const f = s().getWaterField()!, live = s().grid;
+    runMains(f, live, 1 / 60);
+    expect(mainReportAt(live, 12, 5)!.state).toBe("no-head");
+    expect(mainProfile(live, f, idx(live, 12, 5))!.bad.length).toBe(1);
+    // Given its pump, it flows, and the red is gone.
+    live.mainEnd[idx(live, 4, 5)] = MAIN_END.pump;
+    live.rev++;
+    tankFor(dc)!.level = 0;
+    runMains(f, live, 1 / 60);
+    expect(mainReportAt(live, 12, 5)!.state).toBe("flowing");
+    expect(mainProfile(live, f, idx(live, 12, 5))!.bad).toEqual([]);
+    void g;
   });
 });

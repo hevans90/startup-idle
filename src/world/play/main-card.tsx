@@ -22,7 +22,9 @@ import { boreCost, buildCost } from "../../game/build-cost";
 import { useTicking } from "../../hooks/use-ticking";
 import { MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_BORE, idx, inBounds } from "../grid";
 import { structureDef } from "../structures/def";
-import { findMains, hasMain, mainReportAt, planMain, previewSewer, type MainReport } from "../water/mains";
+import { findMains, hasMain, mainProfile, mainReportAt, planMain, previewSewer, type MainReport } from "../water/mains";
+import { sewerProfile } from "../pipes/profile";
+import { PipeProfileStrip } from "./pipe-profile";
 import { mainStroke } from "../water/main-stroke";
 import { strokeRoute } from "../pipes/stroke-route";
 import { pumpUpkeep } from "../../game/cooling";
@@ -97,6 +99,7 @@ export function MainCard() {
           {m.pump && <span className="text-fg-muted" title="What the pump costs to run">{formatCurrency(m.price.pump)} + {formatCurrency(upkeep)}/s</span>}
         </p>
       )}
+      <PipeProfileStrip profile={m.profile} />
     </div>
   );
 }
@@ -156,6 +159,7 @@ export function MainInfo() {
         )}
         <Button size="sm" variant="danger" confirm="Lift it? Press again" onClick={() => st.liftMainAt(looked)}>Lift it</Button>
       </div>
+      <PipeProfileStrip profile={mainProfile(g, st.getWaterField(), idx(g, looked.x, looked.y))} />
     </Card>
   );
 }
@@ -233,6 +237,7 @@ export function TrunkInfo() {
           <Button size="sm" onClick={() => st.addManholeAt(looked)} title="Where a workplace's connection comes down into it">Add a manhole here</Button>
         </div>
       )}
+      <PipeProfileStrip profile={sewerProfile(g, solve, g.sewerFit, i)} />
     </Card>
   );
 }

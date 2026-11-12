@@ -18,7 +18,8 @@ import { MAIN_END, idx, type Grid } from "../grid";
 import { strokeKey, strokeRoute } from "../pipes/stroke-route";
 import { tankFor } from "../projects/cooling";
 import type { WaterField } from "./field";
-import { findMains, hasMain, mainReportsFor, planMain, previewMain, type MainCell } from "./mains";
+import type { PipeProfile } from "../pipes/profile";
+import { findMains, hasMain, laidCopy, mainProfile, mainReportsFor, planMain, previewMain, type MainCell } from "./mains";
 
 type Cell = { x: number; y: number };
 
@@ -38,6 +39,8 @@ export type MainStroke = {
   fresh: number;
   price: { pipe: number; pump: number; total: number };
   need: MainNeed | null;
+  /** The run from the side, as it would be laid. @see mainProfile */
+  profile: PipeProfile | null;
   /** Both ends joined to something and water would flow: a click here lays it. */
   complete: boolean;
 };
@@ -57,7 +60,7 @@ const KEEP_MS = 200;
 let kept: { g: Grid; rev: number; key: string; at: number; out: MainStroke } | null = null;
 
 function work(g: Grid, field: WaterField | null, s: Stroke, wet: (x: number, y: number) => boolean, auto: boolean): MainStroke {
-  const none = { cells: [], look: null, pump: false, wantsPump: false, fresh: 0, price: { pipe: 0, pump: 0, total: 0 }, need: null, complete: false };
+  const none = { cells: [], look: null, pump: false, wantsPump: false, fresh: 0, price: { pipe: 0, pump: 0, total: 0 }, need: null, profile: null, complete: false };
   const route = strokeRoute(g, s, wet, "main");
   if (!route) return { ...none, route, refused: "No way through for a main: round buildings, off the water" };
   let plan = planMain(g, route, wet, !!s.pump, false);
@@ -75,6 +78,7 @@ function work(g: Grid, field: WaterField | null, s: Stroke, wet: (x: number, y: 
     route, refused: null, cells: plan.cells, look, pump, wantsPump: wantsPump || (pump && !s.pump),
     fresh: look.fresh, price: { pipe, pump: pumpPrice, total: pipe + pumpPrice },
     need: needOf(g, plan.cells, look),
+    profile: route.length > 1 ? mainProfile(laidCopy(g, plan.cells, pump), field, idx(g, route[route.length - 1].x, route[route.length - 1].y)) : null,
     complete: !look.problem && route.length > 1,
   };
 }
