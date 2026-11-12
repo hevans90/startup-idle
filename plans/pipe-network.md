@@ -507,3 +507,23 @@ None. All were decided on 2026-11-11; each decision is written where it applies:
 - **Still shapes:** the chevrons under the ground (phase 10 puts them in the shader) and the reach tint, which are marks laid over things and not things.
 - **Seen** (`?world=1&fixture=sewers`, by day, near and far): the lift station, covers, a grate, the outfall's headwall at the pond, and the span's piers under its tube. **Not seen:** night, and a headwall facing the camera (the fixture's faces away, into its pond).
 
+**Phase 8 — material and joints** (2026-11-12). `render/pipe-mesh.ts`, `render/pipe-gpu.ts`; the layers say what each piece is made of. Tests in `pipe-mesh.test.ts`.
+- **Three floats a vertex, not two.** How far along its run a vertex is, how far across it, and the material. The plan had two and a hash; the material wanted a number of its own that no interpolation can blur. A tube's `along` is its place on the map along the way it runs, counted the same from either end, so a joint line carries on from one tile's length to the next; a wall's is its height, and its `across` its place along the wall. Plain pieces write three noughts.
+- **`made(material, build)`** sets what tubes, sweeps and boxes built inside it are made of. A cell's own tube is of its main's material (`PipeLook.material`); what is fitted to it — flanges, collars, frames, bands — is plain.
+- **In the shader, by material**, each mark a step softened a pixel and one fixed change of colour or tone:
+  - cast iron (sewer connections, trunks): a joint line each tile, a casting seam along it, rust blooming down from the joints;
+  - steel (water mains): a weld bead each two tiles, a faint seam winding round, scuffs along the top, a stain under each weld;
+  - concrete (saddles, legs, piers, headwalls): the lines its boards left, each pour a shade of its own;
+  - brick (the lift station): courses half a brick over from the one below, mortar between, each brick a shade of its own. The courses built as geometry in phase 7 are gone.
+- **It goes away zoomed out**: every mark is scaled by `fine`, which falls to nought as a pipe length shrinks toward a few pixels (`fwidth` of `along`), so nothing crawls.
+- **The same lines in WGSL and GLSL**, the GLSL typed from the same text; the test holds every mark's name in both.
+- **Joints and fittings, as geometry:**
+  - a **flange** is two rings with the gasket's dark line between them, bolts on the face as before;
+  - a **cap** is domed: a crown standing out of the blind flange (`dome`);
+  - a **reducer** where the bore changes (`Limb.meets`, `taper`): the wider length wears a collar and tapers over the last eighth of its tile down to the slimmer one's bore;
+  - a **valve** has a body round the tube and a bonnet under its stem and wheel;
+  - tees and crosses already had their collar.
+- **Render time**, the sewers fixture whole in view: 0.89 ms after against 0.90 before (the HUD's `gpu render`, one reading each). Nine floats a vertex for six.
+- **Seen** (`?fixture=ports` and `?fixture=sewers` in the editor, by day): a steel main with its domed cap, a gasketed flange and a concrete saddle; a cast-iron connection with its joint lines and rust; the brick lift station. **Not seen:** a reducer (no fixture has a part-widened main: tests only), a valve's body up close, and night.
+- **Not done:** the drip stain is under each weld, not under each flange (a flange's place along the run is not the shader's to know); bolt heads are on a flange's face, not round its rim.
+

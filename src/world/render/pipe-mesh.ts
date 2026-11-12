@@ -27,8 +27,37 @@ export const ZT = HEIGHT_UNIT / KZ;
 /** The direction to the camera, (u, v, h). */
 export const VIEW = [Math.SQRT1_2 * (KZ / K), Math.SQRT1_2 * (KZ / K), HH / HW] as const;
 
-/** Floats per vertex: x, y on screen; the normal's u, v, h; the colour, bit-cast. */
-export const WORDS = 6;
+/**
+ * Floats per vertex: x, y on screen; the normal's u, v, h; the colour,
+ * bit-cast; then WHAT IT IS MADE OF, for the shader to draw the detail of:
+ * how far along its run it is, tiles; how far across it — round a tube from
+ * one edge the camera sees to the other, nought to one, or along a wall; and
+ * the material. @see MATERIAL, pipe-gpu
+ */
+export const WORDS = 9;
+
+/**
+ * WHAT A PIECE IS MADE OF. Plain is one flat colour under the light. The
+ * rest are drawn by the shader from where on the piece a pixel is:
+ * - cast iron (sewers): a joint line each pipe length, a casting seam along
+ *   it, rust blooming down from the joints;
+ * - steel (water mains): a weld bead each two lengths, a faint spiral seam,
+ *   scuffs along the top, a stain under each weld;
+ * - concrete: the lines its boards left, a pour at a time;
+ * - brick: courses, half a brick over from the course below.
+ * A tube's `along` is its place on the map along the way it runs, so the
+ * marks carry on from one tile's length to the next. A wall's `along` is its
+ * height and its `across` its place along the wall.
+ */
+export const MATERIAL = { plain: 0, iron: 1, steel: 2, concrete: 3, brick: 4 } as const;
+/** The material being written: set round the pieces that have one. @see made */
+let material = 0;
+/** Build with a material: what `build` writes that takes one — tubes, sweeps, boxes — is made of it. */
+export function made<T>(of: number, build: () => T): T {
+  const was = material;
+  material = of;
+  try { return build(); } finally { material = was; }
+}
 
 /** A pipe mesh being built: its vertices, its triangles, and how much of each is written. */
 export type PipeMesh = { f32: Float32Array; u32: Uint32Array; idx: Uint32Array; nv: number; ni: number };
@@ -57,15 +86,28 @@ function room(m: PipeMesh, v: number, i: number) {
   }
 }
 
-/** One vertex: the point (u, v, h) at scale `s`, its normal, its packed colour. Returns its index. */
-function vert(m: PipeMesh, s: number, u: number, v: number, h: number, nu: number, nv: number, nh: number, colour: number): number {
+/**
+ * One vertex: the point (u, v, h) at scale `s`, its normal, its packed
+ * colour — and, for a piece with a material, where along and across it this
+ * is. Left out, it is plain whatever is being built. Returns its index.
+ */
+function vert(m: PipeMesh, s: number, u: number, v: number, h: number, nu: number, nv: number, nh: number, colour: number, along?: number, across = 0): number {
   const o = m.nv * WORDS;
   m.f32[o] = (u - v) * HW * s;
   m.f32[o + 1] = (u + v) * HH * s - h * KZ * s;
   m.f32[o + 2] = nu; m.f32[o + 3] = nv; m.f32[o + 4] = nh;
   m.u32[o + 5] = colour;
+  // Plain, it says nothing: three noughts.
+  const of = along === undefined ? 0 : material;
+  m.f32[o + 6] = of ? along! : 0; m.f32[o + 7] = of ? across : 0; m.f32[o + 8] = of;
   return m.nv++;
 }
+
+/** A way a tube runs, turned so its marks count the same whichever end it was built from: its largest part positive. */
+const forward = (du: number, dv: number, dh: number) => {
+  const a = Math.abs(du) >= Math.abs(dv) && Math.abs(du) >= Math.abs(dh) ? du : Math.abs(dv) >= Math.abs(dh) ? dv : dh;
+  return a < 0 ? -1 : 1;
+};
 
 const tri = (m: PipeMesh, a: number, b: number, c: number) => {
   m.idx[m.ni++] = a; m.idx[m.ni++] = b; m.idx[m.ni++] = c;
@@ -87,10 +129,13 @@ export function tube(
   const half = sides >> 1, first = m.nv;
   room(m, (half + 1) * 2, half * 6);
   const n = halfRing(du, dv, dh, half);
+  // WHERE ALONG ITS RUN each end is: its place on the map along the way it goes.
+  const len = Math.hypot(du, dv, dh), f = forward(du, dv, dh) / len;
+  const at = material ? (au * du + av * dv + ah * dh) * f : undefined, to = material ? (bu * du + bv * dv + bh * dh) * f : undefined;
   for (let k = 0; k <= half; k++) {
     const nu = n[k * 3], nv = n[k * 3 + 1], nh = n[k * 3 + 2];
-    vert(m, s, au + nu * r, av + nv * r, ah + nh * r, nu, nv, nh, colour);
-    vert(m, s, bu + nu * r, bv + nv * r, bh + nh * r, nu, nv, nh, colour);
+    vert(m, s, au + nu * r, av + nv * r, ah + nh * r, nu, nv, nh, colour, at, k / half);
+    vert(m, s, bu + nu * r, bv + nv * r, bh + nh * r, nu, nv, nh, colour, to, k / half);
   }
   for (let k = 0; k < half; k++) {
     const a0 = first + k * 2, a1 = a0 + 1, b0 = a0 + 2, b1 = a0 + 3;
@@ -166,6 +211,8 @@ export type Limb = {
   dx: number; dy: number; zf: number;
   /** Into a building's port: its fluid's colour; and how far past the cell's face its outlet stands, tiles. */
   wall?: number; reach?: number;
+  /** The radius of the length it meets at that face, tiles, where that differs: the wider of the two tapers down to the other in a reducer. */
+  meets?: number;
 };
 
 /** How a cell's main looks: its radius, tiles; its colours as `0xRRGGBB`; its faces round. */
@@ -173,6 +220,8 @@ export type PipeLook = {
   r: number;
   colour: number;
   sides: number;
+  /** What its tube is made of: the detail the shader draws along it. Plain where left out. @see MATERIAL */
+  material?: number;
   /** The fitting at a loose end; a dome where there is none, or a building of its own stands over it. */
   end?: Fitting | null;
   /** Flanges at its joins, and their bolts. */
@@ -242,6 +291,10 @@ const INTAKE = 0.06;
 
 /** A flange: how much wider than the tube, how thick, tiles; how many bolts round it. */
 export const FLANGE_R = 1.4, FLANGE_T = 0.025, BOLTS = 6;
+/** The gasket's line between a flange's two rings, tiles; a cap's dome, how wide and how far out, in tube radii. */
+export const GASKET = 0.005, DOME_R = 0.8, DOME_OUT = 0.45;
+/** A reducer, where a wide length meets a slim one: how long its taper is, tiles. */
+export const REDUCER = 0.12;
 export const PORT_JOINT = SPIGOT + FLANGE_T / 2;
 /** A bend's radius to its middle line, tiles: most of the half tile, so it reads as a sweep. */
 export const BEND_R = 0.35;
@@ -302,6 +355,59 @@ export function disc(
 }
 
 /**
+ * A DOME standing out of a face at (cu, cv, ch) along the unit axis (du, dv,
+ * dh): `r` across at its foot, `out` high at its crown. Rings from the foot
+ * in to the crown, the far ones first. For a face toward the camera.
+ */
+export function dome(m: PipeMesh, s: number, cu: number, cv: number, ch: number, du: number, dv: number, dh: number, r: number, out: number, colour: number, sides: number) {
+  const { e1u, e1v, e2u, e2v, e2h } = across3(du, dv, dh), rings = 3;
+  room(m, rings * sides + 1, rings * sides * 6);
+  const first = m.nv;
+  for (let q = 0; q < rings; q++) {
+    const t = (q / rings) * (Math.PI / 2), rad = Math.cos(t) * r, up = Math.sin(t) * out, k0 = Math.cos(t), k1 = Math.sin(t);
+    for (let k = 0; k < sides; k++) {
+      const a = (k / sides) * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
+      const ru = e1u * c + e2u * sn, rv = e1v * c + e2v * sn, rh = e2h * sn;
+      vert(m, s, cu + ru * rad + du * up, cv + rv * rad + dv * up, ch + rh * rad + dh * up, ru * k0 + du * k1, rv * k0 + dv * k1, rh * k0 + dh * k1, colour);
+    }
+  }
+  const crown = vert(m, s, cu + du * out, cv + dv * out, ch + dh * out, du, dv, dh, colour);
+  for (let q = 0; q < rings; q++) {
+    for (let k = 0; k < sides; k++) {
+      const a = first + q * sides + k, b = first + q * sides + ((k + 1) % sides);
+      if (q === rings - 1) { tri(m, a, b, crown); continue; }
+      tri(m, a, b, b + sides);
+      tri(m, a, b + sides, a + sides);
+    }
+  }
+}
+
+/**
+ * A TAPER from radius `ra` at (au, av, ah) to `rb` at (bu, bv, bh): the half
+ * of it the camera sees. A reducer, where the bore changes. Plain.
+ */
+export function taper(
+  m: PipeMesh, s: number, au: number, av: number, ah: number, bu: number, bv: number, bh: number,
+  ra: number, rb: number, colour: number, sides: number,
+) {
+  const du = bu - au, dv = bv - av, dh = bh - ah;
+  if (du === 0 && dv === 0 && dh === 0) return;
+  const half = sides >> 1, first = m.nv;
+  room(m, (half + 1) * 2, half * 6);
+  const n = halfRing(du, dv, dh, half);
+  for (let k = 0; k <= half; k++) {
+    const nu = n[k * 3], nv = n[k * 3 + 1], nh = n[k * 3 + 2];
+    vert(m, s, au + nu * ra, av + nv * ra, ah + nh * ra, nu, nv, nh, colour);
+    vert(m, s, bu + nu * rb, bv + nv * rb, bh + nh * rb, nu, nv, nh, colour);
+  }
+  for (let k = 0; k < half; k++) {
+    const a0 = first + k * 2, a1 = a0 + 1, b0 = a0 + 2, b1 = a0 + 3;
+    tri(m, a0, a1, b1);
+    tri(m, a0, b1, b0);
+  }
+}
+
+/**
  * A FLANGE where two lengths are bolted together, at (cu, cv, ch) across an
  * axis (du, dv, dh) — square to the tube, so tilted where it climbs — that
  * points to the camera's side: its rim, its face, and the bolts round the
@@ -314,8 +420,15 @@ export function flange(
   const { du, dv, dh, e1u, e1v, e2u, e2v, e2h } = across3(du0, dv0, dh0);
   const R = r * FLANGE_R, half = FLANGE_T / 2, c = solid(colour);
   const fu = cu + du * half, fv = cv + dv * half, fh = ch + dh * half;
-  tube(m, s, cu - du * half, cv - dv * half, ch - dh * half, fu, fv, fh, R, c, sides);
+  // A PAIR OF RINGS bolted face to face, and the dark line of the gasket squeezed between them. Plain, whatever the tube is.
+  made(MATERIAL.plain, () => {
+    tube(m, s, cu - du * half, cv - dv * half, ch - dh * half, fu, fv, fh, R, c, sides);
+    const gk = GASKET / 2;
+    tube(m, s, cu - du * gk, cv - dv * gk, ch - dh * gk, cu + du * gk, cv + dv * gk, ch + dh * gk, R * 1.004, solid(darker(colour, 0.45)), sides);
+  });
   disc(m, s, fu, fv, fh, du, dv, blind ? 0 : r, R, c, sides, dh);
+  // A BLIND ONE IS DOMED: the cap's crown, standing out of its face.
+  if (blind && facing(du, dv, dh) > 0) dome(m, s, fu, fv, fh, du, dv, dh, r * DOME_R, r * DOME_OUT, solid(darker(colour, 0.88)), sides);
   if (!bolts || facing(du, dv, dh) <= 0) return;
   // THE BOLTS: on the face, between the bore and the rim — round the whole face of a blind one.
   const at = blind ? R * 0.72 : (r + R) / 2, size = Math.max(0.003, (R - r) * 0.36);
@@ -339,13 +452,18 @@ export function sweep(
   const n = path.length, half = sides >> 1, row = half + 1;
   room(m, n * row, (n - 1) * half * 6);
   const first = m.nv;
+  // WHERE ALONG ITS RUN each ring is: from its first point's place on the map, by the path's own length after.
+  const d0 = [path[1][0] - path[0][0], path[1][1] - path[0][1], path[1][2] - path[0][2]], l0 = Math.hypot(d0[0], d0[1], d0[2]) || 1;
+  const way = forward(d0[0], d0[1], d0[2]);
+  let run = ((path[0][0] * d0[0] + path[0][1] * d0[1] + path[0][2] * d0[2]) / l0) * way;
   for (let p = 0; p < n; p++) {
     const a = path[Math.max(0, p - 1)], b = path[Math.min(n - 1, p + 1)];
     const end = ends && (p === 0 ? ends[0] : p === n - 1 ? ends[1] : null);
     const ring = end ? halfRing(end[0], end[1], end[2], half) : halfRing(b[0] - a[0], b[1] - a[1], b[2] - a[2], half);
+    if (p > 0) run += Math.hypot(path[p][0] - path[p - 1][0], path[p][1] - path[p - 1][1], path[p][2] - path[p - 1][2]) * way;
     for (let k = 0; k <= half; k++) {
       const nu = ring[k * 3], nv = ring[k * 3 + 1], nh = ring[k * 3 + 2];
-      vert(m, s, path[p][0] + nu * r, path[p][1] + nv * r, path[p][2] + nh * r, nu, nv, nh, colour);
+      vert(m, s, path[p][0] + nu * r, path[p][1] + nv * r, path[p][2] + nh * r, nu, nv, nh, colour, material ? run : undefined, k / half);
     }
   }
   const depth = (p: number) => facing(path[p][0] + path[p + 1][0], path[p][1] + path[p + 1][1], path[p][2] + path[p + 1][2]);
@@ -520,8 +638,10 @@ const SADDLE = 0.05, LEG = 0.025, BEAM = 0.025;
 /** One flat face, its four corners in order round it, all facing `n`. */
 function quad(m: PipeMesh, s: number, q: readonly Pt[], nu: number, nv: number, nh: number, colour: number) {
   room(m, 4, 6);
-  const a = vert(m, s, q[0][0], q[0][1], q[0][2], nu, nv, nh, colour);
-  for (let k = 1; k < 4; k++) vert(m, s, q[k][0], q[k][1], q[k][2], nu, nv, nh, colour);
+  // A WALL'S MARKS go by its height and its place along it; a top has none.
+  const mark = (p: Pt): [number | undefined, number] => (material && nh === 0 ? [p[2], nu !== 0 ? p[1] : p[0]] : [undefined, 0]);
+  const a = vert(m, s, q[0][0], q[0][1], q[0][2], nu, nv, nh, colour, ...mark(q[0]));
+  for (let k = 1; k < 4; k++) vert(m, s, q[k][0], q[k][1], q[k][2], nu, nv, nh, colour, ...mark(q[k]));
   tri(m, a, a + 1, a + 2);
   tri(m, a, a + 2, a + 3);
 }
@@ -533,6 +653,9 @@ export function box(m: PipeMesh, s: number, u0: number, v0: number, h0: number, 
   quad(m, s, [[u0, v1, h1], [u1, v1, h1], [u1, v1, h0], [u0, v1, h0]], 0, 1, 0, colour);
   quad(m, s, [[u0, v0, h1], [u1, v0, h1], [u1, v1, h1], [u0, v1, h1]], 0, 0, 1, colour);
 }
+
+/** The box, by a name a cell's own `box` — the same, in concrete — does not hide. */
+const solidBox = box;
 
 /**
  * WHERE A CELL'S MAIN IS HELD UP: under the middle of its run, or of its
@@ -601,8 +724,23 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     return [u, v, p[2]];
   });
   // Over a road, the length nearest the camera into the next band's mesh. @see PipeLook.near
-  const sw = (path: readonly Pt[], ends?: readonly [readonly number[] | null, readonly number[] | null]) =>
-    look.near ? sweepSplit(m, look.near, x, y, s, short(path), r, c, sides, ends) : sweep(m, s, short(path), r, c, sides, ends);
+  // THE TUBE ITSELF is of the main's material; what is fitted to it — collars, flanges, frames, bands — is plain.
+  const mat = look.material ?? MATERIAL.plain;
+  const sw = (path: readonly Pt[], ends?: readonly [readonly number[] | null, readonly number[] | null]) => made(mat, () =>
+    look.near ? sweepSplit(m, look.near, x, y, s, short(path), r, c, sides, ends) : sweep(m, s, short(path), r, c, sides, ends));
+  const len = (au: number, av: number, ah: number, bu: number, bv: number, bh: number, colour = c) =>
+    made(mat, () => tube(m, s, au, av, ah, bu, bv, bh, r, colour, sides));
+  // A REDUCER, where this length is the wider of the two that meet at a face: a collar at
+  // its own bore, tapering over the last of the tile down to the slimmer one's.
+  const reducer = (l: Limb) => {
+    if (l.meets === undefined || l.meets >= r - 1e-6 || l.wall !== undefined) return;
+    const [fu, fv, fh] = face(l), k = REDUCER, slope = faceSlope(l, z);
+    const bu = fu - l.dx * k, bv = fv - l.dy * k, bh = fh - slope * k * 0.5, cu = fu - l.dx * k * 1.35, cv = fv - l.dy * k * 1.35, ch = fh - slope * k * 0.675;
+    const dark = solid(darker(look.colour, 0.8));
+    const cone = () => taper(m, s, bu, bv, bh, fu, fv, fh, r * 1.12, l.meets! * 1.04, dark, sides);
+    const band = () => { tube(m, s, cu, cv, ch, bu, bv, bh, r * 1.12, dark, sides); disc(m, s, cu, cv, ch, -l.dx, -l.dy, r, r * 1.12, dark, sides); };
+    if (far(l)) { cone(); band(); } else { band(); cone(); }
+  };
   // A LIMB ALONE, from `from` out of the middle — level there — to its face.
   const length = (l: Limb, from = 0) => {
     const { path, out } = halfPath(x, y, z, l, from, 0, sides);
@@ -624,7 +762,7 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     const stop = stopOf(l), h = l.zf * ZT;
     const end = () => flange(m, s, x + l.dx * stop, y + l.dy * stop, h, -l.dx, -l.dy, r, look.colour, sides, look.bolts !== false, false);
     if (stop <= 0.5) { end(); return; }
-    const on = () => tube(m, s, x + l.dx * 0.5, y + l.dy * 0.5, h, x + l.dx * stop, y + l.dy * stop, h, r, c, sides);
+    const on = () => len(x + l.dx * 0.5, y + l.dy * 0.5, h, x + l.dx * stop, y + l.dy * stop, h);
     if (far(l)) { end(); on(); } else { on(); end(); }
   };
   for (const l of limbs) {
@@ -636,9 +774,13 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     flange(m, s, fu, fv, fh, -l.dx, -l.dy, r, look.colour, sides, look.bolts !== false, false, -faceSlope(l, z));
   }
 
+  for (const l of limbs) if (far(l)) reducer(l);
+
   // WHAT IT STANDS ON: a saddle up to its underside; or the far leg and the beam of a frame, its near leg after the tube.
   const support = look.support ?? "none", g = (look.floor ?? 0) * ZT, concrete = solid(CONCRETE);
   const at = supportAt(x, y, h, limbs);
+  const box = (mm: PipeMesh, ss: number, u0: number, v0: number, h0: number, u1: number, v1: number, h1: number, colour: number) =>
+    made(MATERIAL.concrete, () => solidBox(mm, ss, u0, v0, h0, u1, v1, h1, colour));
   let nearLeg: [number, number, number, number] | null = null;
   if (support === "saddle" && limbs.length) {
     const [u0, v0, u1, v1] = saddle(at, r);
@@ -702,10 +844,10 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     if (win > 0 && run.length === 2 && !stubs.length) {
       // A WINDOW: steel to its far frame, glass between its frames, steel on; then the frames round the joins.
       const [w0, w1] = windowSpan(x, y, z, run[0], run[1], win);
-      tube(m, s, a[0], a[1], a[2], w0[0], w0[1], w0[2], r, c, sides);
+      len(a[0], a[1], a[2], w0[0], w0[1], w0[2]);
       if (look.glass !== null) tube(m, s, w0[0], w0[1], w0[2], w1[0], w1[1], w1[2], r, solid(look.glass ?? 0xcfe6f2), sides);
       if (look.near) sw([w1, b], [[b[0] - w1[0], b[1] - w1[1], b[2] - w1[2]], [b[0] - w1[0], b[1] - w1[1], b[2] - w1[2]]]);
-      else tube(m, s, w1[0], w1[1], w1[2], b[0], b[1], b[2], r, c, sides);
+      else len(w1[0], w1[1], w1[2], b[0], b[1], b[2]);
       const du = w1[0] - w0[0], dv = w1[1] - w0[1], dh = w1[2] - w0[2];
       if (look.frames !== false) for (const p of [w0, w1]) hoop(m, s, p, du, dv, r, r * FRAME_R, FRAME_T, c, sides, dh);
     } else {
@@ -718,6 +860,7 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     for (const l of stubs) if (!far(l)) stub(l);
   }
   for (const l of limbs) if (l.wall !== undefined && !far(l)) wall(l);
+  for (const l of limbs) if (!far(l)) reducer(l);
   if (nearLeg) {
     const top = look.verges ? Math.min(h, ...limbs.map((l) => l.zf * ZT)) - r - BEAM : h - r - BEAM;
     box(m, s, nearLeg[0], nearLeg[1], g, nearLeg[2], nearLeg[3], top, concrete);
@@ -825,9 +968,14 @@ export function windowGlass(
 /** A window's frame, half its length, tiles: what the glass keeps clear of, either end. */
 export const FRAME_HALF = FRAME_T / 2;
 
-/** AN OUTLET'S VALVE: a stem up out of the top of the tube, and a red handwheel on it. */
+/** A valve's body, in tube radii. */
+export const VALVE_BODY = 1.28;
+/** AN OUTLET'S VALVE: its body round the tube, the bonnet on it, a stem up out of that, and a red handwheel. */
 export function valve(m: PipeMesh, s: number, x: number, y: number, h: number, r: number) {
   const top = h + r + 0.035, steel = solid(FITTING.wheel), red = solid(FITTING.valve);
+  // ITS BODY: a bulge round the tube where the gate is, and the bonnet bolted on top of it.
+  ball(m, s, x, y, h, r * VALVE_BODY, solid(darker(FITTING.valve, 0.75)), 14);
+  box(m, s, x - r * 0.55, y - r * 0.55, h + r * 0.75, x + r * 0.55, y + r * 0.55, h + r * 1.12, steel);
   box(m, s, x - 0.006, y - 0.006, h + r * 0.8, x + 0.006, y + 0.006, top, steel);
   hring(m, s, x, y, top, 0.0225, 0.031, red, 16);
   box(m, s, x - 0.009, y - 0.009, top, x + 0.009, y + 0.009, top + 0.005, red);

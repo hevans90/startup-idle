@@ -37,6 +37,7 @@ import { lookOf } from "../structures/projects/looks";
 import { portSetback } from "../structures/projects/entries";
 import { destroyPipeDrawable, pipeDrawable, pipeLiveDrawable } from "./pipe-gpu";
 import {
+  MATERIAL,
   FRAME_HALF, K, cellPaths, outlet, pipeCell, pipeMesh, valve, windowGlass, windowSpan, ZT,
   type Fitting, type Limb, type PipeMesh, type Support, type WindowFill,
 } from "./pipe-mesh";
@@ -383,12 +384,19 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     // A SEWER: cast iron, flanged at every other join, banded brown. The AI's: steel, banded violet.
     const sewer = (bits & MAIN_SEWER) !== 0, ai = (bits & MAIN_AI) !== 0;
     const colour = sewer ? IRON : STEEL;
+    // WHERE THE BORE CHANGES, the length each limb meets: the wider of the two draws the reducer. @see Limb.meets
+    for (const l of out) {
+      if (l.wall !== undefined || !inBounds(g, x + l.dx, y + l.dy)) continue;
+      const next = g.main[idx(g, x + l.dx, y + l.dy)];
+      if (next) l.meets = tubeR(next);
+    }
     const band = (sewer || ai) && (x + y) % 4 === 3 ? (sewer ? SEWER_BAND : AI_BAND) : null;
     // A pump building stands over its own pump: no pump house drawn under it.
     const fit = FITTINGS[end] ?? null;
     const own = fit === "pump" && g.structures.get(structureAt(g, x, y))?.def === "pump";
     pipeCell(m, s, x, y, z, out, {
       r: tubeR(bits), colour, sides: DETAIL_SIDES[d], end: own ? null : fit, support, floor,
+      material: sewer ? MATERIAL.iron : MATERIAL.steel,
       flanges: d !== "far" && (!sewer || (x + y) % 2 === 0), bolts: d === "near", valve: d === "near", band,
       window: isGlass(g, x, y) ? GLASS / 2 : 0, glass: null, frames: d === "near",
       verges, ...(g.paved[i] ? split : {}),

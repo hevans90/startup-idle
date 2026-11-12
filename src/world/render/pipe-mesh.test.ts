@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
-import { BEND_R, BOLTS, FITTING, NEAR_SPLIT, SUN, VIEW, WORDS, ZT, ball, cellPaths, elbowPath, flange, outlet, pipeCell, pipeMesh, solid, tube, windowGlass, windowSpan, type PipeMesh } from "./pipe-mesh";
+import {
+  BEND_R, BOLTS, DOME_OUT, FITTING, FLANGE_T, GASKET, MATERIAL, NEAR_SPLIT, REDUCER, SUN, VALVE_BODY, VIEW, WORDS, ZT,
+  ball, box, cellPaths, dome, elbowPath, flange, made, outlet, pipeCell, pipeMesh, solid, taper, tube, valve, windowGlass, windowSpan, type PipeMesh,
+} from "./pipe-mesh";
 import { pipeFragmentGlsl, pipeShaderSource } from "./pipe-gpu";
 
 const normalOf = (m: PipeMesh, v: number) => [m.f32[v * WORDS + 2], m.f32[v * WORDS + 3], m.f32[v * WORDS + 4]];
@@ -58,8 +61,8 @@ describe("a main as a solid", () => {
     pipeCell(flanged, 1, 5, 5, 1, [N, S], look);
     // Three rings — far face, middle, near face — each the near half: seven of twelve.
     expect(bare.nv).toBe(3 * 7);
-    // One flange: its rim, its face, and six bolts on the face.
-    expect(flanged.nv).toBe(3 * 7 + 14 + 24 + BOLTS * 7);
+    // One flange: its rim, the gasket's line round the middle of it, its face, and six bolts on the face.
+    expect(flanged.nv).toBe(3 * 7 + 14 + 14 + 24 + BOLTS * 7);
   });
 
   test("over a road, the length past NEAR_SPLIT goes to the next band's mesh, and the far leg under the traffic", () => {
@@ -237,8 +240,8 @@ describe("a main as a solid", () => {
     pipeCell(capped, 1, 5, 5, 1, [N], { ...look, flanges: false, end: "cap" });
     expect(bend.nv).toBe(9 * 7);
     expect(end.nv).toBe(14 + 1 + 3 * 12);
-    // A blind flange facing the camera: rim, a whole disc, and its bolts.
-    expect(capped.nv).toBe(14 + 14 + 13 + BOLTS * 7);
+    // A blind flange facing the camera: rim, gasket, a whole disc, its dome — three rings and a crown — and its bolts.
+    expect(capped.nv).toBe(14 + 14 + 14 + 13 + (3 * 12 + 1) + BOLTS * 7);
   });
 
   test("a tee is a run with a collared stub; a cross, a run with two", () => {
@@ -334,6 +337,151 @@ describe("a main as a solid", () => {
   });
 });
 
+describe("joints and fittings", () => {
+  const look = { r: 0.1, colour: 0x888888, sides: 12 };
+  const lim = (dx: number, dy: number, more: object = {}) => ({ dx, dy, zf: 1, ...more });
+  const N = lim(0, -1), S = lim(0, 1);
+  const at = (m: PipeMesh, v: number) => [m.f32[v * WORDS], m.f32[v * WORDS + 1]];
+  const colourOf = (m: PipeMesh, v: number) => m.u32[v * WORDS + 5] & 0xffffff;
+
+  test("a flange is two rings with the gasket's dark line between them", () => {
+    const m = pipeMesh();
+    flange(m, 1, 5, 5, 0.3, 0, 1, 0.1, 0x8090a0, 12, false, false);
+    // Its rim, then the gasket: darker, a hair proud of the rim, and a fraction of its thickness.
+    const rim = colourOf(m, 0), gasket = colourOf(m, 14);
+    expect(gasket).not.toBe(rim);
+    expect((gasket >> 16) & 255).toBeLessThan((rim >> 16) & 255);
+    const thick = (from: number) => Math.hypot(at(m, from)[0] - at(m, from + 1)[0], at(m, from)[1] - at(m, from + 1)[1]);
+    expect(thick(14) / thick(0)).toBeCloseTo(GASKET / FLANGE_T, 5);
+  });
+
+  test("a cap is domed: its crown stands out of its face, toward the way it faces", () => {
+    const flat = pipeMesh(), domed = pipeMesh();
+    flange(flat, 1, 5, 5, 0.3, 0, 1, 0.1, FITTING.cap, 12, false, false);
+    flange(domed, 1, 5, 5, 0.3, 0, 1, 0.1, FITTING.cap, 12, false, true);
+    expect(domed.nv).toBeGreaterThan(flat.nv);
+    // The crown is the last vertex: on the axis, DOME_OUT radii past the face — +v is down-left on the screen.
+    const crown = at(domed, domed.nv - 1), v = 5 + FLANGE_T / 2 + 0.1 * DOME_OUT;
+    expect(crown[0]).toBeCloseTo((5 - v) * HW, 4);
+    expect(crown[1]).toBeCloseTo((5 + v) * HH - 0.3 * (HEIGHT_UNIT / ZT), 4);
+    // Facing away, there is no dome to see.
+    const away = pipeMesh();
+    flange(away, 1, 5, 5, 0.3, 0, -1, 0.1, FITTING.cap, 12, false, true);
+    expect(away.nv).toBeLessThan(domed.nv);
+  });
+
+  test("a dome is all near side and closes on its crown", () => {
+    const m = pipeMesh();
+    dome(m, 1, 0, 0, 0, 0, 1, 0, 0.1, 0.05, solid(0), 12);
+    expect(m.nv).toBe(3 * 12 + 1);
+    expect(tris(m).length).toBe(2 * 12 * 2 + 12);
+    for (const t of tris(m)) for (const v of t) expect(v).toBeLessThan(m.nv);
+  });
+
+  test("a taper runs from one radius to the other, the half the camera sees", () => {
+    const m = pipeMesh();
+    taper(m, 1, 0, 0, 0, 1, 0, 0, 0.2, 0.1, solid(0), 12);
+    expect(m.nv).toBe(14);
+    // Each ring's two ends are that ring's radius off the axis, on the screen's own measure of it.
+    const span = (v: number) => Math.hypot(at(m, v)[0] - at(m, v + 12)[0], at(m, v)[1] - at(m, v + 12)[1]);
+    expect(span(0) / span(1)).toBeCloseTo(2, 5);
+  });
+
+  test("where a wide length meets a slim one, the wide one draws a reducer; the slim one, and two alike, none", () => {
+    const plain = pipeMesh(), wide = pipeMesh(), slim = pipeMesh(), same = pipeMesh();
+    const bare = { ...look, flanges: false };
+    pipeCell(plain, 1, 5, 5, 1, [N, S], bare);
+    pipeCell(wide, 1, 5, 5, 1, [N, lim(0, 1, { meets: 0.07 })], bare);
+    pipeCell(slim, 1, 5, 5, 1, [N, lim(0, 1, { meets: 0.14 })], bare);
+    pipeCell(same, 1, 5, 5, 1, [N, lim(0, 1, { meets: 0.1 })], bare);
+    expect(slim.nv).toBe(plain.nv);
+    expect(same.nv).toBe(plain.nv);
+    // Its collar and its taper down to the slim bore; the collar's face is toward the run, away from the camera here.
+    expect(wide.nv).toBe(plain.nv + 14 + 14);
+    // Its collar stands proud of the tube: a ring of it, edge to edge, is wider than a ring of the run.
+    const span = (m: PipeMesh, a: number, b: number) => Math.hypot(at(m, a)[0] - at(m, b)[0], at(m, a)[1] - at(m, b)[1]);
+    expect(span(wide, plain.nv, plain.nv + 12) / span(plain, 0, 6)).toBeCloseTo(1.12, 2);
+    expect(REDUCER).toBeLessThan(0.5);
+  });
+
+  test("a valve has a body round the tube under its stem and wheel", () => {
+    const m = pipeMesh();
+    valve(m, 1, 5, 5, 0.4, 0.1);
+    // The body's ball first: a pole and three rings of fourteen, VALVE_BODY radii across.
+    const xs = Array.from({ length: 1 + 3 * 14 }, (_, k) => at(m, k)[0]);
+    expect((Math.max(...xs) - Math.min(...xs)) / 2).toBeGreaterThan(0.1 * HW);
+    expect(VALVE_BODY).toBeGreaterThan(1);
+    // And the wheel's hub last, above it all.
+    const hub = Math.min(...[1, 2, 3, 4].map((k) => at(m, m.nv - k)[1]));
+    expect(hub).toBeLessThan(Math.min(...Array.from({ length: 43 }, (_, k) => at(m, k)[1])));
+  });
+});
+
+describe("what a piece is made of", () => {
+  const look = { r: 0.1, colour: 0x888888, sides: 12 };
+  const lim = (dx: number, dy: number) => ({ dx, dy, zf: 1 });
+  const mat = (m: PipeMesh, v: number) => [m.f32[v * WORDS + 6], m.f32[v * WORDS + 7], m.f32[v * WORDS + 8]];
+
+  test("a tube is plain unless it is made of something", () => {
+    const m = pipeMesh();
+    tube(m, 1, 0, 0, 0, 1, 0, 0, 0.1, solid(0), 12);
+    for (let v = 0; v < m.nv; v++) expect(mat(m, v)).toEqual([0, 0, 0]);
+  });
+
+  test("made of steel, it says where along its run and across it each vertex is", () => {
+    const m = pipeMesh();
+    made(MATERIAL.steel, () => tube(m, 1, 2, 5, 0, 3, 5, 0, 0.1, solid(0), 12));
+    for (let v = 0; v < m.nv; v++) {
+      const [along, across, of] = mat(m, v);
+      expect(of).toBe(MATERIAL.steel);
+      // Its place on the map along the way it runs: 2 at one end, 3 at the other.
+      expect(along).toBeCloseTo(v % 2 ? 3 : 2, 6);
+      expect(across).toBeCloseTo((v >> 1) / 6, 6);
+    }
+  });
+
+  test("the marks count the same from whichever end a length was built", () => {
+    const one = pipeMesh(), other = pipeMesh();
+    made(MATERIAL.iron, () => tube(one, 1, 2, 5, 0, 3, 5, 0, 0.1, solid(0), 12));
+    made(MATERIAL.iron, () => tube(other, 1, 3, 5, 0, 2, 5, 0, 0.1, solid(0), 12));
+    expect(mat(one, 0)[0]).toBeCloseTo(mat(other, 1)[0], 6);
+    expect(mat(one, 1)[0]).toBeCloseTo(mat(other, 0)[0], 6);
+  });
+
+  test("a run's marks carry on from one tile's length to the next", () => {
+    const a = pipeMesh(), b = pipeMesh();
+    const steel = { ...look, flanges: false, material: MATERIAL.steel };
+    pipeCell(a, 1, 5, 5, 1, [lim(-1, 0), lim(1, 0)], steel);
+    pipeCell(b, 1, 6, 5, 1, [lim(-1, 0), lim(1, 0)], steel);
+    const range = (m: PipeMesh) => { const all = Array.from({ length: m.nv }, (_, v) => mat(m, v)[0]); return [Math.min(...all), Math.max(...all)]; };
+    expect(range(a)[0]).toBeCloseTo(4.5, 5);
+    expect(range(a)[1]).toBeCloseTo(5.5, 5);
+    expect(range(b)[0]).toBeCloseTo(range(a)[1], 5);
+    for (let v = 0; v < a.nv; v++) expect(mat(a, v)[2]).toBe(MATERIAL.steel);
+  });
+
+  test("what is fitted to a main is plain: its flanges, its collars, its supports' tops", () => {
+    const bare = pipeMesh(), fitted = pipeMesh();
+    const iron = { ...look, material: MATERIAL.iron };
+    pipeCell(bare, 1, 5, 5, 1, [lim(0, -1), lim(0, 1)], { ...iron, flanges: false });
+    pipeCell(fitted, 1, 5, 5, 1, [lim(0, -1), lim(0, 1), lim(1, 0)], iron);
+    const of = (m: PipeMesh) => Array.from({ length: m.nv }, (_, v) => mat(m, v)[2]);
+    expect(of(bare).every((k) => k === MATERIAL.iron)).toBe(true);
+    // The flange and the stub's collar among them are not iron; the run and the stub still are.
+    expect(of(fitted).filter((k) => k === MATERIAL.plain).length).toBeGreaterThan(14 + 24);
+    expect(of(fitted).filter((k) => k === MATERIAL.iron).length).toBeGreaterThan(bare.nv);
+  });
+
+  test("a wall of brick says its height and its place along the wall; its top says nothing", () => {
+    const m = pipeMesh();
+    made(MATERIAL.brick, () => box(m, 1, 1, 2, 0, 3, 5, 0.6, solid(0)));
+    // The +u face, the +v face, the top: four vertices each.
+    for (let v = 0; v < 4; v++) { expect(mat(m, v)[2]).toBe(MATERIAL.brick); expect([2, 5]).toContain(mat(m, v)[1]); expect([0, 0.6]).toContain(Math.fround(mat(m, v)[0]) === Math.fround(0.6) ? 0.6 : mat(m, v)[0]); }
+    for (let v = 4; v < 8; v++) { expect(mat(m, v)[2]).toBe(MATERIAL.brick); expect([1, 3]).toContain(mat(m, v)[1]); }
+    for (let v = 8; v < 12; v++) expect(mat(m, v)).toEqual([0, 0, 0]);
+  });
+});
+
 describe("the mains' shader", () => {
   test("both dialects build, and say the same lighting", () => {
     const wgsl = pipeShaderSource(), glsl = pipeFragmentGlsl();
@@ -342,6 +490,14 @@ describe("the mains' shader", () => {
     expect(glsl).not.toContain("let ");
     expect(glsl).toContain("vec3 lit =");
     expect(glsl).toContain("float tone =");
+    // What it is made of, the same in both: every mark by name, and the vectors typed.
+    for (const mark of ["ironJoint", "ironSeam", "rust", "bead", "spiral", "scuff", "stain", "board", "mortar", "fine"]) {
+      expect(wgsl).toContain(`let ${mark} =`);
+      expect(glsl).toContain(`float ${mark} =`);
+    }
+    expect(glsl).toContain("vec3 base =");
+    expect(glsl).toContain("in vec3 vMat;");
+    expect(wgsl).toContain("@location(3) aMat: vec3<f32>");
     const numbers = (s: string) => s.match(/-?\d+\.\d{5}/g);
     expect(numbers(glsl)).toEqual(numbers(wgsl.slice(wgsl.indexOf("fn mainFragment"))));
   });

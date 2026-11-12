@@ -32,7 +32,7 @@ import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
 import { LATERAL_IRON, LATERAL_R } from "./mains-layer";
 import { portsOf, type PortCell } from "../water/ports";
-import { ZT, box as meshBox, disc, pipeCell, pipeMesh, hring, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
+import { MATERIAL, ZT, box as plainBox, disc, made, pipeCell, pipeMesh, hring, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 /** The fittings' scale, from a slim tube's radius, tile units; how much fatter a widened bore is. */
@@ -57,7 +57,7 @@ const REACH = 0x3fe0a8, REACH_ALPHA = 0.16;
 const CHEVRON = 0xf0d2a8;
 /** Cast iron, its rim and its pattern; brick, concrete, a pier. */
 const IRON = 0x3a3c40, IRON_RIM = 0x6b6e73, IRON_DARK = 0x26272a;
-const BRICK = 0x9a4f3a, BRICK_DARK = 0x6e3627, ROOF = 0x5a5d62;
+const BRICK = 0x9a4f3a, ROOF = 0x5a5d62;
 const CONCRETE = 0xb8b4aa, CONCRETE_DARK = 0x8a867c, PIER = 0x9a958a;
 /** The dark down a grate, and inside a pipe's mouth. */
 const PIT = 0x0c0e10;
@@ -83,6 +83,11 @@ function at(x: number, y: number, z: number, scale: number, u = 0, v = 0): [numb
  */
 /** A hair of height, so one flat thing lies over another without fighting it. */
 const SKIN = 0.004;
+/** A box, plain; and one of concrete, and of brick: the shader draws the boards and the courses. @see MATERIAL */
+const meshBox = plainBox;
+type BoxArgs = Parameters<typeof plainBox>;
+const concreteBox = (...a: BoxArgs) => made(MATERIAL.concrete, () => plainBox(...a));
+const brickBox = (...a: BoxArgs) => made(MATERIAL.brick, () => plainBox(...a));
 
 /** A MANHOLE COVER, cast iron, flush with the ground at a tile's middle: its rim, its plate, and the pattern cast in it — a ring and a cross. */
 function cover(m: PipeMesh, s: number, x: number, y: number, z: number) {
@@ -111,23 +116,20 @@ function grate(m: PipeMesh, s: number, x: number, y: number, z: number) {
 function pier(m: PipeMesh, s: number, x: number, y: number, ground: number, under: number) {
   const h0 = ground * ZT, cap = 0.03;
   if (under - cap <= h0) return;
-  meshBox(m, s, x - 0.05, y - 0.05, h0, x + 0.05, y + 0.05, under - cap, solid(PIER));
+  concreteBox(m, s, x - 0.05, y - 0.05, h0, x + 0.05, y + 0.05, under - cap, solid(PIER));
   meshBox(m, s, x - 0.1, y - 0.1, under - cap, x + 0.1, y + 0.1, under, solid(CONCRETE_DARK));
 }
 
 /**
- * A LIFT STATION: a brick pump house on a concrete footing, its courses
- * marked, a slab roof overhanging, and a steel door on the face toward the
+ * A LIFT STATION: a brick pump house on a concrete footing, a slab roof
+ * overhanging, and a steel door on the face toward the
  * camera's left.
  */
 function liftStation(m: PipeMesh, s: number, x: number, y: number, ground: number) {
   const a = 0.26, h0 = ground * ZT, foot = h0 + 0.2 * ZT, top = h0 + 2.2 * ZT;
   meshBox(m, s, x - a - 0.02, y - a - 0.02, h0, x + a + 0.02, y + a + 0.02, foot, solid(CONCRETE));
-  meshBox(m, s, x - a, y - a, foot, x + a, y + a, top, solid(BRICK));
-  // BRICK: a darker course every so often, a hair proud of the wall.
-  for (let z = foot + 0.3 * ZT; z < top - 0.1 * ZT; z += 0.3 * ZT) {
-    meshBox(m, s, x - a - 0.003, y - a - 0.003, z, x + a + 0.003, y + a + 0.003, z + 0.035 * ZT, solid(BRICK_DARK));
-  }
+  // BRICK: its courses and its mortar are the shader's.
+  brickBox(m, s, x - a, y - a, foot, x + a, y + a, top, solid(BRICK));
   // The door, and its lintel.
   meshBox(m, s, x - 0.08, y + a, foot, x + 0.08, y + a + 0.006, foot + 1.3 * ZT, solid(IRON));
   meshBox(m, s, x - 0.1, y + a, foot + 1.3 * ZT, x + 0.1, y + a + 0.008, foot + 1.42 * ZT, solid(CONCRETE));
@@ -148,7 +150,7 @@ function headwall(m: PipeMesh, s: number, x: number, y: number, ground: number, 
     hoopEnd(m, s, x + dx * 0.58, y + dy * 0.58, z, dx, dy, r);
   };
   if (behind) pipe();
-  meshBox(m, s, x - a, y - a, h0, x + a, y + a, top, solid(CONCRETE));
+  concreteBox(m, s, x - a, y - a, h0, x + a, y + a, top, solid(CONCRETE));
   meshBox(m, s, x - a - 0.025, y - a - 0.025, top, x + a + 0.025, y + a + 0.025, top + 0.1 * ZT, solid(CONCRETE_DARK));
   if (!behind) pipe();
 }
@@ -268,7 +270,7 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
         // A SPAN'S PIER first: its tube lies over it.
         if (s.kind[i] === SEWER_KIND.span) pier(meshOf(spans, b), scale, x, y, g.height[i], lvl * ZT - r);
         pipeCell(meshOf(s.kind[i] === SEWER_KIND.span ? spans : tubes, b), scale, x, y, lvl, limbs, {
-          r, colour, sides: TRUNK_SIDES, flanges: (x + y) % 2 === 0, bolts: false, end: null,
+          r, colour, sides: TRUNK_SIDES, flanges: (x + y) % 2 === 0, bolts: false, end: null, material: MATERIAL.iron,
         });
         // A MANHOLE'S SHAFT, after the trunk: down from its cover onto the trunk's
         // top, a collar where it meets it — its far half first, behind the shaft.
