@@ -500,3 +500,10 @@ None. All were decided on 2026-11-11; each decision is written where it applies:
 - **Seen** (`?world=1&fixture=sewers`): the grate, square and barred beside the round covers, laid through the store's own action. The flow, tests only: no playable fixture has a sewer.
 - **Spouts, looked at again as phase 5 said: still kept.** A spout pouring into the open wants a water main with a free end on the device; what was built here is a sewer's outfall on the host. That is phase 3's unbuilt half.
 
+**Phase 7 — one technique** (2026-11-12). `render/sewer-layer.ts`.
+- **Every solid piece of a sewer is on the lit pipe mesh** now, under the light the tubes are under: the manhole cover (rim, plate, a ring and a cross cast in it), the storm drain's grate (frame, the dark under it, bars), a span's pier (shaft and cap), the lift station, and the headwall with its pipe. Each is a few solids in the map's axes, a mesh a band, in the tier it was in: covers and grates flush with the ground, the rest with the town.
+- **The `Graphics` box and tube are gone**, with the hand-picked side, front and top colours they needed: one colour a piece, and the mesh's light gives its faces.
+- **Brick and concrete, as geometry for now.** The lift station is a brick house on a concrete footing: a darker course every third of a height unit standing a hair proud, a steel door under a lintel, a slab roof overhanging. The headwall is a concrete block with a coping, its pipe lipped and dark inside. The pier has a cap its tube sits on, and is built before the tube so the tube lies over it. Courses in the shader are phase 8's.
+- **Still shapes:** the chevrons under the ground (phase 10 puts them in the shader) and the reach tint, which are marks laid over things and not things.
+- **Seen** (`?world=1&fixture=sewers`, by day, near and far): the lift station, covers, a grate, the outfall's headwall at the pond, and the span's piers under its tube. **Not seen:** night, and a headwall facing the camera (the fixture's faces away, into its pond).
+

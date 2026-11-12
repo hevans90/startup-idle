@@ -11,6 +11,11 @@
  *    a brick LIFT STATION where it is pumped up, a concrete HEADWALL where it
  *    pours into water or feeds a processor.
  *
+ * ONE TECHNIQUE: every solid thing here — tubes, shafts, covers, grates,
+ * piers, pump houses, headwalls — is on the lit pipe mesh, under the one
+ * light. Only what is laid over them as marks is still drawn as shapes: the
+ * chevrons under the ground, and the reach tint. @see pipe-mesh
+ *
  * Drawn again only when the sewers, the ground or the scale change; the view
  * only shows or hides the tier. @see world/sewers/solve, plans/underground-sewers.md §6
  */
@@ -27,7 +32,7 @@ import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
 import { LATERAL_IRON, LATERAL_R } from "./mains-layer";
 import { portsOf, type PortCell } from "../water/ports";
-import { ZT, pipeCell, pipeMesh, hring, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
+import { ZT, box as meshBox, disc, pipeCell, pipeMesh, hring, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
 
 const SIDES = ["N", "E", "S", "W"] as const;
 /** The fittings' scale, from a slim tube's radius, tile units; how much fatter a widened bore is. */
@@ -43,7 +48,7 @@ const SINK = 2.5;
 /** A manhole's shaft, from its cover down onto the trunk: the lateral's own pipe carried on, collared where it meets the trunk. */
 const SHAFT_R = LATERAL_R, SHAFT = LATERAL_IRON, SHAFT_COLLAR = 1.6, SHAFT_DARK = 0x56402c;
 /** Its colours: draining, going nowhere; the dark under it and the light along it. */
-const UMBER = 0x7a5230, NOWHERE = 0x8b8f96, BACKED = 0x9c3b1e, SHADE = 0x2a1c10, SHINE = 0xc79a66;
+const UMBER = 0x7a5230, NOWHERE = 0x8b8f96, BACKED = 0x9c3b1e;
 /** A sewer being dragged: how see-through, and a tile it can't be laid on. */
 const GHOST_ALPHA = 0.6, BAD = 0xd8463a;
 /** Where a slop maker in hand could go: the tiles a live manhole reaches, tinted. */
@@ -53,7 +58,9 @@ const CHEVRON = 0xf0d2a8;
 /** Cast iron, its rim and its pattern; brick, concrete, a pier. */
 const IRON = 0x3a3c40, IRON_RIM = 0x6b6e73, IRON_DARK = 0x26272a;
 const BRICK = 0x9a4f3a, BRICK_DARK = 0x6e3627, ROOF = 0x5a5d62;
-const CONCRETE = 0xb8b4aa, CONCRETE_DARK = 0x8a867c, PIER = 0x6f6a62;
+const CONCRETE = 0xb8b4aa, CONCRETE_DARK = 0x8a867c, PIER = 0x9a958a;
+/** The dark down a grate, and inside a pipe's mouth. */
+const PIT = 0x0c0e10;
 
 export type SewerLayer = {
   /** Draw again if the sewers, the ground or the scale changed; show the underground or not. */
@@ -67,48 +74,88 @@ function at(x: number, y: number, z: number, scale: number, u = 0, v = 0): [numb
   return [(X - Y) * HW * scale, ((X + Y) * HH - z * HEIGHT_UNIT) * scale];
 }
 
-/** An iso box on a tile's middle: `a` tiles half across, `h` height units tall, from `z`. Its top and two faces that show. */
-function box(gfx: Graphics, x: number, y: number, z: number, a: number, h: number, scale: number, side: number, front: number, top: number) {
-  const P = (u: number, v: number, zz: number) => at(x, y, zz, scale, u, v);
-  const flat = (...ps: [number, number][]) => ps.flat();
-  // The face toward +x (lower right) and toward +y (lower left).
-  gfx.poly(flat(P(a, -a, z), P(a, a, z), P(a, a, z + h), P(a, -a, z + h))).fill({ color: side });
-  gfx.poly(flat(P(-a, a, z), P(a, a, z), P(a, a, z + h), P(-a, a, z + h))).fill({ color: front });
-  gfx.poly(flat(P(-a, -a, z + h), P(a, -a, z + h), P(a, a, z + h), P(-a, a, z + h))).fill({ color: top });
-}
+/**
+ * THE SEWERS' SURFACE PIECES, on the lit mesh the tubes are on: one light,
+ * one set of tones, whatever it is made of. Each is a few solids in the
+ * map's own axes — `u`, `v` in tiles, heights in the mesh's units (`ZT` a
+ * height unit) — added nearest last, since a mesh paints in the order it is
+ * built. @see pipe-mesh, plans/pipe-network.md §6 "One technique"
+ */
+/** A hair of height, so one flat thing lies over another without fighting it. */
+const SKIN = 0.004;
 
-/** A tube from one point to another: shade under, body, a light along its top. */
-function tube(gfx: Graphics, a: [number, number], b: [number, number], r: number, body: number) {
-  gfx.moveTo(a[0], a[1] + r * 0.25).lineTo(b[0], b[1] + r * 0.25).stroke({ color: SHADE, width: r * 2.3, cap: "round" });
-  gfx.moveTo(a[0], a[1]).lineTo(b[0], b[1]).stroke({ color: body, width: r * 2, cap: "round" });
-  gfx.moveTo(a[0], a[1] - r * 0.45).lineTo(b[0], b[1] - r * 0.45).stroke({ color: SHINE, width: r * 0.55, cap: "round", alpha: 0.75 });
-}
-
-/** A manhole cover, flush with the ground at a tile's middle. */
-function cover(gfx: Graphics, x: number, y: number, z: number, scale: number) {
-  const [cx, cy] = at(x, y, z, scale);
-  const rx = 0.24 * HW * scale, ry = rx * (HH / HW);
-  gfx.ellipse(cx, cy, rx * 1.12, ry * 1.12).fill({ color: IRON_RIM });
-  gfx.ellipse(cx, cy, rx, ry).fill({ color: IRON });
-  // Its cast pattern: two rings and a cross.
-  gfx.ellipse(cx, cy, rx * 0.66, ry * 0.66).stroke({ color: IRON_DARK, width: Math.max(0.6, scale), alpha: 0.9 });
-  gfx.moveTo(cx - rx * 0.66, cy).lineTo(cx + rx * 0.66, cy).stroke({ color: IRON_DARK, width: Math.max(0.6, scale * 0.8), alpha: 0.8 });
-  gfx.moveTo(cx, cy - ry * 0.66).lineTo(cx, cy + ry * 0.66).stroke({ color: IRON_DARK, width: Math.max(0.6, scale * 0.8), alpha: 0.8 });
+/** A MANHOLE COVER, cast iron, flush with the ground at a tile's middle: its rim, its plate, and the pattern cast in it — a ring and a cross. */
+function cover(m: PipeMesh, s: number, x: number, y: number, z: number) {
+  const h = z * ZT + SKIN, r = 0.17;
+  hring(m, s, x, y, h, 0, r * 1.14, solid(IRON_RIM), 20);
+  hring(m, s, x, y, h + SKIN, 0, r, solid(IRON), 20);
+  hring(m, s, x, y, h + SKIN * 2, r * 0.6, r * 0.7, solid(IRON_DARK), 20);
+  meshBox(m, s, x - r * 0.6, y - 0.008, h + SKIN, x + r * 0.6, y + 0.008, h + SKIN * 2.5, solid(IRON_DARK));
+  meshBox(m, s, x - 0.008, y - r * 0.6, h + SKIN, x + 0.008, y + r * 0.6, h + SKIN * 2.5, solid(IRON_DARK));
 }
 
 /** A STORM DRAIN'S GRATE, flush with the ground: a square iron frame, dark under it, bars across. @see SEWER_GRATE */
-function grate(gfx: Graphics, x: number, y: number, z: number, scale: number) {
-  const k = 0.26, corner = (du: number, dv: number) => at(x, y, z, scale, du, dv);
-  const quad = (r: number) => [corner(-r, -r), corner(r, -r), corner(r, r), corner(-r, r)].flat();
-  gfx.poly(quad(k * 1.14)).fill({ color: IRON_RIM });
-  gfx.poly(quad(k)).fill({ color: 0x0c0e10 });
-  // Its bars, across the fall of the street.
+function grate(m: PipeMesh, s: number, x: number, y: number, z: number) {
+  const h = z * ZT + SKIN, k = 0.24, bar = 0.014;
+  meshBox(m, s, x - k * 1.14, y - k * 1.14, h - SKIN, x + k * 1.14, y + k * 1.14, h + SKIN, solid(IRON_RIM));
+  meshBox(m, s, x - k, y - k, h, x + k, y + k, h + SKIN * 1.5, solid(PIT));
+  // Its bars, far to near, and one across them.
   for (let b = -3; b <= 3; b++) {
-    const v = (b / 3.5) * k, p = corner(-k, v), q = corner(k, v);
-    gfx.moveTo(p[0], p[1]).lineTo(q[0], q[1]).stroke({ color: IRON, width: Math.max(0.8, scale * 1.5) });
+    const v = y + (b / 3.5) * k;
+    meshBox(m, s, x - k, v - bar, h + SKIN, x + k, v + bar, h + SKIN * 4, solid(IRON));
   }
-  const p = corner(0, -k), q = corner(0, k);
-  gfx.moveTo(p[0], p[1]).lineTo(q[0], q[1]).stroke({ color: IRON, width: Math.max(0.8, scale * 1.5) });
+  meshBox(m, s, x - bar, y - k, h + SKIN, x + bar, y + k, h + SKIN * 4.5, solid(IRON));
+}
+
+/** A SPAN'S PIER, concrete, from the ground up to under the tube: a shaft, and a cap the tube sits on. Before its tube, which lies over it. */
+function pier(m: PipeMesh, s: number, x: number, y: number, ground: number, under: number) {
+  const h0 = ground * ZT, cap = 0.03;
+  if (under - cap <= h0) return;
+  meshBox(m, s, x - 0.05, y - 0.05, h0, x + 0.05, y + 0.05, under - cap, solid(PIER));
+  meshBox(m, s, x - 0.1, y - 0.1, under - cap, x + 0.1, y + 0.1, under, solid(CONCRETE_DARK));
+}
+
+/**
+ * A LIFT STATION: a brick pump house on a concrete footing, its courses
+ * marked, a slab roof overhanging, and a steel door on the face toward the
+ * camera's left.
+ */
+function liftStation(m: PipeMesh, s: number, x: number, y: number, ground: number) {
+  const a = 0.26, h0 = ground * ZT, foot = h0 + 0.2 * ZT, top = h0 + 2.2 * ZT;
+  meshBox(m, s, x - a - 0.02, y - a - 0.02, h0, x + a + 0.02, y + a + 0.02, foot, solid(CONCRETE));
+  meshBox(m, s, x - a, y - a, foot, x + a, y + a, top, solid(BRICK));
+  // BRICK: a darker course every so often, a hair proud of the wall.
+  for (let z = foot + 0.3 * ZT; z < top - 0.1 * ZT; z += 0.3 * ZT) {
+    meshBox(m, s, x - a - 0.003, y - a - 0.003, z, x + a + 0.003, y + a + 0.003, z + 0.035 * ZT, solid(BRICK_DARK));
+  }
+  // The door, and its lintel.
+  meshBox(m, s, x - 0.08, y + a, foot, x + 0.08, y + a + 0.006, foot + 1.3 * ZT, solid(IRON));
+  meshBox(m, s, x - 0.1, y + a, foot + 1.3 * ZT, x + 0.1, y + a + 0.008, foot + 1.42 * ZT, solid(CONCRETE));
+  // The roof: a slab, overhanging, its edge lighter than its deck.
+  meshBox(m, s, x - a - 0.04, y - a - 0.04, top, x + a + 0.04, y + a + 0.04, top + 0.14 * ZT, solid(ROOF));
+}
+
+/**
+ * A HEADWALL, concrete, where a sewer pours out: a block on the bank with a
+ * coping on it, and the pipe out of its face toward (dx, dy), dark inside.
+ * Toward the camera's far sides the wall hides the pipe, so it goes in first.
+ */
+function headwall(m: PipeMesh, s: number, x: number, y: number, ground: number, dx: number, dy: number, r: number) {
+  const a = 0.26, h0 = (ground - 0.4) * ZT, top = (ground + 0.7) * ZT, z = (ground + MOUTH) * ZT + r;
+  const behind = dx < 0 || dy < 0;
+  const pipe = () => {
+    solidTube(m, s, x, y, z, x + dx * 0.58, y + dy * 0.58, z, r, solid(CONCRETE_DARK), 12);
+    hoopEnd(m, s, x + dx * 0.58, y + dy * 0.58, z, dx, dy, r);
+  };
+  if (behind) pipe();
+  meshBox(m, s, x - a, y - a, h0, x + a, y + a, top, solid(CONCRETE));
+  meshBox(m, s, x - a - 0.025, y - a - 0.025, top, x + a + 0.025, y + a + 0.025, top + 0.1 * ZT, solid(CONCRETE_DARK));
+  if (!behind) pipe();
+}
+/** The open end of a headwall's pipe: its lip, and the dark of its bore. Seen only where it faces the camera. */
+function hoopEnd(m: PipeMesh, s: number, u: number, v: number, h: number, dx: number, dy: number, r: number) {
+  disc(m, s, u, v, h, dx, dy, r * 0.78, r, solid(CONCRETE), 12);
+  disc(m, s, u + dx * 0.002, v + dy * 0.002, h, dx, dy, 0, r * 0.78, solid(PIT), 12);
 }
 
 type Drawn = Graphics | Mesh<Geometry, Shader>;
@@ -218,6 +265,8 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           limbs.push({ dx, dy, zf: (lvl + drawnAt(g, s, j)) / 2 });
         }
         const r = TRUNK_R * (g.sewer[i] & SEWER_BORE ? BORE_WIDE : 1);
+        // A SPAN'S PIER first: its tube lies over it.
+        if (s.kind[i] === SEWER_KIND.span) pier(meshOf(spans, b), scale, x, y, g.height[i], lvl * ZT - r);
         pipeCell(meshOf(s.kind[i] === SEWER_KIND.span ? spans : tubes, b), scale, x, y, lvl, limbs, {
           r, colour, sides: TRUNK_SIDES, flanges: (x + y) % 2 === 0, bolts: false, end: null,
         });
@@ -246,7 +295,9 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
     for (const [b, m] of tubes) place(m, bands.sewerOf[b]);
     for (const [b, m] of spans) place(m, bands.structureOf[b]);
     // A band's Graphics, made when it first has something.
-    const under = new Map<number, Graphics>(), flush = new Map<number, Graphics>(), up = new Map<number, Graphics>();
+    const under = new Map<number, Graphics>();
+    // And the surface pieces' meshes: covers and grates flush with the ground, pump houses and headwalls with the town.
+    const covers = new Map<number, PipeMesh>(), ups = new Map<number, PipeMesh>();
     const take = (m: Map<number, Graphics>, tier: Container[], b: number) => {
       let gfx = m.get(b);
       if (!gfx) { gfx = make(tier, b); m.set(b, gfx); }
@@ -269,25 +320,11 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           const rr = at(x, y, mid(lvl), scale, -dx * 0.05 + dy * 0.12, -dy * 0.05 - dx * 0.12);
           gfx.moveTo(...l).lineTo(...tip).lineTo(...rr).stroke({ color: CHEVRON, width: Math.max(1, r * 0.6), alpha: 0.9 });
         }
-        // A SPAN'S PIER, from under the tube to the ground.
-        if (kind === SEWER_KIND.span) {
-          const gfx = take(up, bands.structureOf, b);
-          const [px, top] = at(x, y, lvl - TRUNK_R / ZT, scale), [, foot] = at(x, y, ground, scale);
-          gfx.rect(px - r * 0.35, top, r * 0.7, Math.max(0, foot - top)).fill({ color: PIER });
-          gfx.moveTo(px - r * 0.9, top).lineTo(px + r * 0.9, top).stroke({ color: SHADE, width: Math.max(1, r * 0.4) });
-        }
         // A LIFT STATION: a brick pump house over where it lifts.
-        if (kind === SEWER_KIND.lift) {
-          const gfx = take(up, bands.structureOf, b);
-          box(gfx, x, y, ground, 0.26, 2.2, scale, BRICK_DARK, BRICK, ROOF);
-          // A steel door on the face toward the camera's left.
-          const P = (u: number, zz: number) => at(x, y, ground + zz, scale, u, 0.26);
-          gfx.poly([...P(-0.08, 0), ...P(0.08, 0), ...P(0.08, 1.4), ...P(-0.08, 1.4)]).fill({ color: IRON });
-        }
+        if (kind === SEWER_KIND.lift) liftStation(meshOf(ups, b), scale, x, y, ground);
         const fit = g.sewerFit[i];
         // A HEADWALL where it pours out — or feeds a processor with no inlet to rise into. @see riserPort
         if (fit === SEWER_FIT.outfall || (fit === SEWER_FIT.inlet && !riserPort(g, x, y))) {
-          const gfx = take(up, bands.structureOf, b);
           // Its mouth on the side toward the water, or else the side it isn't joined on.
           const open = (s: (typeof SIDES)[number]) => {
             const [dx, dy] = NEIGHBOUR[s];
@@ -297,22 +334,15 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
           const sides = SIDES.map(open);
           const side = (sides.find((o) => o.wet && !o.joined) ?? sides.find((o) => !o.joined) ?? sides[0]).s;
           const [dx, dy] = NEIGHBOUR[side];
-          const z = ground + MOUTH;
-          const from = at(x, y, z, scale), to = at(x, y, z, scale, dx * 0.58, dy * 0.58);
-          // Toward the camera's sides the wall hides it; away from them, it shows past the wall.
-          const behind = dx < 0 || dy < 0;
-          const pipe = () => {
-            tube(gfx, from, to, r * 1.2, CONCRETE_DARK);
-            gfx.ellipse(to[0], to[1], r * 1.1, r * 0.9).fill({ color: SHADE });
-          };
-          if (behind) pipe();
-          box(gfx, x, y, ground - 0.4, 0.26, 1.1, scale, CONCRETE_DARK, CONCRETE, CONCRETE);
-          if (!behind) pipe();
+          headwall(meshOf(ups, b), scale, x, y, ground, dx, dy, TUBE_R * 1.25 * (g.sewer[i] & SEWER_BORE ? BORE_WIDE : 1));
         }
         // A NODE: its cover at the surface; its shaft is with the tubes.
-        if (fit === SEWER_FIT.node) ((g.sewer[i] & SEWER_GRATE) !== 0 ? grate : cover)(take(flush, bands.pavedOf, b), x, y, ground, scale);
+        if (fit === SEWER_FIT.node) ((g.sewer[i] & SEWER_GRATE) !== 0 ? grate : cover)(meshOf(covers, b), scale, x, y, ground);
       }
     }
+    // Over the ground and the roads; and with the town, after the spans they stand beside.
+    for (const [b, m] of covers) place(m, bands.pavedOf[b]);
+    for (const [b, m] of ups) place(m, bands.structureOf[b]);
   }
 
   return {
