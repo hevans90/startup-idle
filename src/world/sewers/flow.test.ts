@@ -10,7 +10,7 @@ import { createWaterField } from "../water/field";
 import { layMain, mainReportAt, runMains } from "../water/mains";
 import { pollutionOf } from "../water/pollution";
 import { planLateral, planSewer, routeSewer } from "./lay";
-import { lateralsOf, sewerReportsFor, stepSewers, type SewerHooks } from "./flow";
+import { lateralsOf, sewerFillAt, sewerReportsFor, slopInSewers, stepSewers, type SewerHooks } from "./flow";
 import { solveSewers } from "./solve";
 
 /** A lake down the west edge, ground at 2 (or `ground(x)`), and a vibe office whose slop port is at (12, 4). */
@@ -99,32 +99,69 @@ describe("slop through the sewers", () => {
     expect(g.main.some((m) => m & MAIN_SEWER)).toBe(false);
   });
 
-  test("more than the trunk carries comes up at a manhole: it surcharges", () => {
+  test("more than the trunk carries comes up at a manhole — once its pipe and its shaft are full", () => {
     const { g, a } = street();
     trunk(g);
     lateral(g);
     // A wide lateral pours in twice what the flat trunk carries.
     for (let y = 4; y <= 6; y++) g.main[idx(g, 12, y)] |= MAIN_BORE;
     g.rev++;
-    const h = hooks();
-    stepSewers(g, new Map([[a.id, { level: 100 }]]), 1, h);
-    const r = [...sewerReportsFor(g).values()][0];
+    const h = hooks(), tank = { level: 100 };
+    const step = () => { stepSewers(g, new Map([[a.id, tank]]), 0.25, h); return [...sewerReportsFor(g).values()][0]; };
+    // Not at once: the first of it goes into the pipe.
+    const first = step();
+    expect(first.state).toBe("flowing");
+    expect(first.trunk.spilled).toBe(0);
+    let r = step();
+    for (let k = 0; k < 40; k++) r = step();
     expect(r.state).toBe("surcharged");
-    expect(r.trunk.spilled).toBeGreaterThan(0.5);
+    // Two a second in, one a second on down the trunk, the other up in the street.
+    expect(r.trunk.inflow).toBeCloseTo(2, 5);
+    expect(r.trunk.spilled).toBeCloseTo(1, 1);
+    expect(r.trunk.delivered).toBeCloseTo(1, 1);
     // At a manhole, not mid-pipe.
     const s = solveSewers(g);
-    expect(s.nets[0].nodes.some((n) => h.out.has(((n / g.w) | 0) * 100 + (n % g.w)))).toBe(true);
+    const spilt = [...h.out.keys()].filter((k) => !s.nets[0].exits.some((e) => ((e / g.w) | 0) * 100 + (e % g.w) === k));
+    expect(spilt.length).toBeGreaterThan(0);
+    expect(spilt.every((k) => s.nets[0].nodes.some((n) => ((n / g.w) | 0) * 100 + (n % g.w) === k))).toBe(true);
+    // None made or lost: what left the tank is in the pipe, out of the outfall, or up in the street.
+    expect(100 - tank.level).toBeCloseTo(slopInSewers(g) + [...h.out.values()].reduce((n, v) => n + v, 0), 9);
   });
 
-  test("a backed-up manhole passes nothing on: everything comes up there", () => {
+  test("a sewer stands as full as it is loaded, and slop takes a moment to come down it", () => {
+    const { g, a } = street();
+    trunk(g);
+    lateral(g);
+    const h = hooks(), tank = { level: 100 };
+    const step = () => { stepSewers(g, new Map([[a.id, tank]]), 1 / 30, h); return [...sewerReportsFor(g).values()][0]; };
+    // The first frames: slop in at the manhole, none yet at the outfall.
+    expect(step().trunk.delivered).toBe(0);
+    expect(sewerFillAt(g, idx(g, 12, 6))).toBeGreaterThan(0);
+    let r = step();
+    for (let k = 0; k < 30 * 20; k++) r = step();
+    // Settled: all of it through, nothing up in the street, the pipe part full.
+    expect(r.state).toBe("flowing");
+    expect(r.trunk.delivered).toBeCloseTo(r.trunk.inflow, 2);
+    expect(r.trunk.spilled).toBe(0);
+    const fill = sewerFillAt(g, idx(g, 12, 6))!;
+    expect(fill).toBeGreaterThan(0.2);
+    expect(fill).toBeLessThanOrEqual(1);
+  });
+
+  test("a backed-up manhole passes nothing on: it fills, and then everything comes up there", () => {
     const { g, a } = street();
     trunk(g);
     lateral(g);
     const node = idx(g, 12, 6);
-    const h = hooks({ backedUp: node });
-    stepSewers(g, new Map([[a.id, { level: 100 }]]), 1, h);
-    expect(h.out.get(6 * 100 + 12)).toBeCloseTo(1);
-    expect([...sewerReportsFor(g).values()][0].state).toBe("backed-up");
+    const h = hooks({ backedUp: node }), tank = { level: 100 };
+    let r = [...sewerReportsFor(g).values()][0];
+    for (let k = 0; k < 20; k++) { stepSewers(g, new Map([[a.id, tank]]), 0.25, h); r = [...sewerReportsFor(g).values()][0]; }
+    expect(r.state).toBe("backed-up");
+    expect(r.trunk.spilled).toBeCloseTo(1, 5);
+    expect(r.trunk.delivered).toBe(0);
+    // All of it at that manhole, less what its pipe and shaft hold.
+    expect([...h.out.keys()]).toEqual([6 * 100 + 12]);
+    expect(h.out.get(6 * 100 + 12)! + slopInSewers(g)).toBeCloseTo(100 - tank.level, 9);
   });
 
   test("an unpaid lift station stops, and the slop comes up behind it", () => {

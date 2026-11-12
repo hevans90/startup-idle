@@ -373,5 +373,15 @@ None. All were decided on 2026-11-11; each decision is written where it applies:
 - **Cost a frame:** about 0.007 ms for a 13-node main's own step.
 - `mainFlow` stays as the measure the solver is fitted to. `PIPES=solver` and `?pipes=solver` no longer exist.
 
-**Still to do in phase 2:**
-- sewers on the same solver (storage, backwater, surcharge), calibrated to the sewer flow tests.
+**Phase 2, sewers with storage** (2026-11-12). `sewers/flow.ts`, over the graph's trunk nodes; tests in `sewers/flow.test.ts`.
+- **Every trunk node holds slop** (`SEWER_HOLDS` a tile, a bore; `SHAFT_HOLDS` more at a manhole). The way down and what each run carries are still `solveSewers`': its grades, spans and lifts are unchanged.
+- **A run passes on** what it carries, in proportion to how full its node stands, and no more than the node below has room for and will itself pass on. So a sewer stands as full as it is loaded, slop takes a moment to come down it, and a choke is felt up the pipe.
+- **A manhole spills once its pipe and its shaft are full**, not the instant more arrives than a tile carries. Two a second into a trunk that carries one: nothing in the street at first, then one a second up at the manhole and one out of the outfall. A backed-up manhole (the event) fills and then brings everything up there.
+- **Exits as before:** a processor first, as much as it has room for; the rest out of the network's outfalls; with neither, it backs up.
+- **Conserved:** what left the tanks is in the pipes, out of an exit, or up in the street (`slopInSewers`). Slop a lifted trunk held is put out where it stood.
+- A frame longer than 1/30 s is cut into steps of that (`SEWER_STEP`): a second's slop landing on a manhole at once would be over its shaft before any moved on.
+- Two tests that expected the instant spill were rewritten round the delay; every other sewer, slop and processor test passed untouched.
+- **Not the pressure solver.** The plan had one model for mains and sewers. A sewer here is routed down the solved tree with storage, which gives the storage and backwater the plan asked for; slop does not run uphill under pressure or reverse at a drowned outfall. That needs the exchange with the water (phase 3) and is left for it.
+- **Not seen in the browser:** no fixture played has a working sewer (the `sewers` fixture has no company to make slop). Tests only.
+
+**Phase 2 is done.** Left over from it, for later phases: sewers start empty on a loaded map (a few seconds' lag, where mains start full); `fillOf`, `mainFillAt` and `sewerFillAt` are there for the tubes and nothing draws them yet (phases 10–11).
