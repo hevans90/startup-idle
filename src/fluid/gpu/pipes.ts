@@ -41,33 +41,54 @@ import {
 /** Words in the header: counts, the frame's steps and their length, and which upload this is. */
 export const PIPE_HEADER = 16;
 /** Header words. @see PIPE_HEADER */
-export const H_NODES = 0, H_LINKS = 1, H_INTAKES = 2, H_OUTLETS = 3, H_STEPS = 4, H_DT = 5, H_GEN = 6;
+export const H_NODES = 0, H_LINKS = 1, H_INTAKES = 2, H_OUTLETS = 3, H_STEPS = 4, H_DT = 5, H_GEN = 6, H_DRAINS = 7;
 /** Columns an intake may draw from: its own tile's and the four beside it. */
 export const INTAKE_CANDIDATES = 5;
 /** Words a node, a link, an intake and an outlet have in the network block. */
 export const NODE_WORDS = 3, LINK_WORDS = 3, INTAKE_WORDS = 3 + INTAKE_CANDIDATES, OUTLET_WORDS = 4;
 /** Words an outlet has in the frame block: whether it takes anything, and what it has been granted, whole and part. */
 export const OUTLET_FRAME = 3;
+/**
+ * A STORM DRAIN: a grate in the street over a sewer. It is the sewers', which
+ * the host routes — but what goes down it is taken here, from the depth the
+ * device holds this step, and never more than the host has GRANTED: the room
+ * its pipe and shaft have. In the network block, its tile's first column and
+ * the columns' stride; in the frame block, its grant, whole and part; in the
+ * device's, what it has taken and how much of that was fouling, each whole
+ * and part. @see world/sewers/flow, stormOnDevice
+ */
+export const DRAIN_WORDS = 2, DRAIN_FRAME = 2, DRAIN_DYN = 4;
+/** Columns along a tile's side, as the water has them; what a drain takes a second, summed over its tile's columns; the depth it leaves standing. */
+export type DrainRule = { side: number; rate: number; least: number };
 /** The most words the buffer holds: about two thousand tiles of main. Past it, the host solves. */
 export const PIPE_WORDS = 1 << 15;
 /** How many frames' answers can be on their way back at once. */
 const RING = 4;
 
 /** Where each block of a network of this size starts, and how long the whole is. Shared by the packer and the shader. */
-export function pipeOffsets(n: number, l: number, i: number, o: number) {
+export function pipeOffsets(n: number, l: number, i: number, o: number, d = 0) {
   const frame = PIPE_HEADER;
-  const dyn = frame + i + OUTLET_FRAME * o;
+  const drainFrame = frame + i + OUTLET_FRAME * o;
+  const dyn = drainFrame + DRAIN_FRAME * d;
   // The device's own: which upload it belongs to, then what each node holds, each link carries,
   // each outlet has delivered and each intake has drawn — those two whole and part.
   const held = dyn + 1, flow = held + n, delivered = flow + l, drawn = delivered + 2 * o;
-  const net = drawn + 2 * i;
+  const taken = drawn + 2 * i;
+  const net = taken + DRAIN_DYN * d;
   const nodes = net, links = nodes + NODE_WORDS * n, intakes = links + LINK_WORDS * l, outlets = intakes + INTAKE_WORDS * i;
-  const scratch = outlets + OUTLET_WORDS * o;
-  return { frame, dyn, held, flow, delivered, drawn, nodes, links, intakes, outlets, scratch, dynWords: net - dyn, words: scratch + 3 * n + 3 * i + o };
+  const drains = outlets + OUTLET_WORDS * o;
+  const scratch = drains + DRAIN_WORDS * d;
+  return { frame, drainFrame, dyn, held, flow, delivered, drawn, taken, nodes, links, intakes, outlets, drains, scratch, dynWords: net - dyn, words: scratch + 3 * n + 3 * i + o };
 }
 
+/** The storm drains' rule, as the sewers have it: set once, before the pass is made. @see setDrainRule */
+let drainRule: DrainRule = { side: 4, rate: 16, least: 0.08 };
+let body: string | null = null;
+/** Say how a storm drain takes water: the sewers' numbers, which this file does not reach for. */
+export function setDrainRule(rule: DrainRule) { drainRule = rule; body = null; }
+
 /** The pass less its bindings: the solver itself, which a test runs as written. @see pipes.test-kit */
-const PIPES_BODY = `
+const pipesBodyOf = (rule: DrainRule) => `
 // NO BACKTICKS IN HERE — see the note at the top of the shared header.
 
 const P_TALL = ${PIPE_TALL}.0;
@@ -80,19 +101,26 @@ fn pn() -> i32 { return i32(pipes[${H_NODES}]); }
 fn pl() -> i32 { return i32(pipes[${H_LINKS}]); }
 fn pin() -> i32 { return i32(pipes[${H_INTAKES}]); }
 fn po() -> i32 { return i32(pipes[${H_OUTLETS}]); }
+fn pd() -> i32 { return i32(pipes[${H_DRAINS}]); }
+const P_STORM = ${rule.rate.toFixed(4)};
+const P_LEAST = ${rule.least.toFixed(4)};
+const P_SIDE = ${rule.side};
 
 // THE BLOCKS, in the order the host packs them. @see pipeOffsets
 fn pFrame() -> i32 { return ${PIPE_HEADER}; }
-fn pDyn() -> i32 { return pFrame() + pin() + ${OUTLET_FRAME} * po(); }
+fn pDrainFrame() -> i32 { return pFrame() + pin() + ${OUTLET_FRAME} * po(); }
+fn pDyn() -> i32 { return pDrainFrame() + ${DRAIN_FRAME} * pd(); }
 fn pHeld() -> i32 { return pDyn() + 1; }
 fn pFlow() -> i32 { return pHeld() + pn(); }
 fn pDelivered() -> i32 { return pFlow() + pl(); }
 fn pDrawn() -> i32 { return pDelivered() + 2 * po(); }
-fn pNodes() -> i32 { return pDrawn() + 2 * pin(); }
+fn pTaken() -> i32 { return pDrawn() + 2 * pin(); }
+fn pNodes() -> i32 { return pTaken() + ${DRAIN_DYN} * pd(); }
 fn pLinks() -> i32 { return pNodes() + ${NODE_WORDS} * pn(); }
 fn pIntakes() -> i32 { return pLinks() + ${LINK_WORDS} * pl(); }
 fn pOutlets() -> i32 { return pIntakes() + ${INTAKE_WORDS} * pin(); }
-fn pHead() -> i32 { return pOutlets() + ${OUTLET_WORDS} * po(); }
+fn pDrains() -> i32 { return pOutlets() + ${OUTLET_WORDS} * po(); }
+fn pHead() -> i32 { return pDrains() + ${DRAIN_WORDS} * pd(); }
 fn pLeaving() -> i32 { return pHead() + pn(); }
 fn pShare() -> i32 { return pLeaving() + pn(); }
 fn pSrcHead() -> i32 { return pShare() + pn(); }
@@ -123,7 +151,7 @@ fn main() {
   let steps = i32(pipes[${H_STEPS}]);
   let h = pipes[${H_DT}];
   if (steps <= 0 || h <= 0.0) { return; }
-  let N = pn(); let L = pl(); let I = pin(); let O = po();
+  let N = pn(); let L = pl(); let I = pin(); let O = po(); let D = pd();
   // WHICH UPLOAD THIS ANSWERS, so the host can tell an answer to the network it has now from one to the last.
   pipes[pDyn()] = pipes[${H_GEN}];
 
@@ -243,17 +271,47 @@ fn main() {
       pCount(pDelivered() + 2 * k, went);
     }
     for (var i = 0; i < N; i++) { if (pipes[pHeld() + i] < 0.0) { pipes[pHeld() + i] = 0.0; } }
+    // THE STORM DRAINS: what stands over a grate goes down it — as fast as a drain takes, no more than
+    // stands there over what it leaves, and no more than its sewer was granted room for.
+    for (var d = 0; d < D; d++) {
+      let at = pDrains() + d * ${DRAIN_WORDS};
+      let first = i32(pipes[at]); let stride = i32(pipes[at + 1]);
+      let fr = pDrainFrame() + d * ${DRAIN_FRAME};
+      let dy = pTaken() + d * ${DRAIN_DYN};
+      let room = (pipes[fr] - pipes[dy]) + (pipes[fr + 1] - pipes[dy + 1]);
+      if (room <= 0.0) { continue; }
+      var there = 0.0;
+      for (var cy = 0; cy < P_SIDE; cy++) {
+        for (var cx = 0; cx < P_SIDE; cx++) { there += max(0.0, depthAt(first + cy * stride + cx) - P_LEAST); }
+      }
+      let take = min(min(P_STORM * h, there), room);
+      if (take <= 0.0) { continue; }
+      let part = take / there;
+      var fouling = 0.0;
+      for (var cy = 0; cy < P_SIDE; cy++) {
+        for (var cx = 0; cx < P_SIDE; cx++) {
+          let col = first + cy * stride + cx;
+          let got = max(0.0, depthAt(col) - P_LEAST) * part;
+          if (got <= 0.0) { continue; }
+          fouling += got * foulAt(col);
+          setDepth(col, depthAt(col) - got);
+        }
+      }
+      pCount(dy, take);
+      pCount(dy + 2, fouling);
+    }
   }
   // ONE FRAME'S WORTH, once: the host says again when it wants another.
   pipes[${H_STEPS}] = 0.0;
 }
 `;
 
-const PIPES_WGSL = `
+const bodyNow = () => (body ??= pipesBodyOf(drainRule));
+const pipesWgsl = () => `
 ${STATE_WGSL}
 
 @group(1) @binding(0) var<storage, read_write> pipes : array<f32>;
-${PIPES_BODY}`;
+${bodyNow()}`;
 
 /** What the host is handed to run its mains on the device. @see ColumnField.pipes */
 export type PipePort = {
@@ -284,7 +342,7 @@ export function createPipes(device: GPUDevice): PipesPass {
   const pipeline = device.createComputePipeline({
     label: "pipes",
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout, own] }),
-    compute: { module: shaderModule(device, PIPES_WGSL, "pipes"), entryPoint: "main" },
+    compute: { module: shaderModule(device, pipesWgsl(), "pipes"), entryPoint: "main" },
   });
   const buffer = device.createBuffer({
     label: "pipes", size: PIPE_WORDS * 4,
@@ -301,11 +359,11 @@ export function createPipes(device: GPUDevice): PipesPass {
   const port: PipePort = {
     words: PIPE_WORDS,
     load: (all) => {
-      const o = pipeOffsets(all[H_NODES], all[H_LINKS], all[H_INTAKES], all[H_OUTLETS]);
+      const o = pipeOffsets(all[H_NODES], all[H_LINKS], all[H_INTAKES], all[H_OUTLETS], all[H_DRAINS]);
       dynAt = o.dyn; dynWords = o.dynWords;
       // The scratch after it needs no upload: the pass writes all of it before it reads any.
       device.queue.writeBuffer(buffer, 0, all.buffer, all.byteOffset, Math.min(all.length, PIPE_WORDS) * 4);
-      loaded = all[H_NODES] > 0;
+      loaded = all[H_NODES] > 0 || all[H_DRAINS] > 0;
       pending = false;
       answer = null;
     },
@@ -354,5 +412,5 @@ export function createPipes(device: GPUDevice): PipesPass {
   };
 }
 
-export const pipesSource = () => PIPES_WGSL;
-export const pipesBody = () => PIPES_BODY;
+export const pipesSource = () => pipesWgsl();
+export const pipesBody = () => bodyNow();

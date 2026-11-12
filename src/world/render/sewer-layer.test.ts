@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 
 import { Mesh } from "pixi.js";
 
@@ -6,7 +6,8 @@ import { DIR } from "../../iso/dir";
 import { SEWER_FIT, SEWER_GRATE, createGrid, fillTerrain, idx } from "../grid";
 import { stepSewers, sewerReportsFor } from "../sewers/flow";
 import { createBandLayer } from "./bands";
-import { MATERIAL, WORDS, solid } from "./pipe-mesh";
+import { liveOf } from "./pipe-live";
+import { LIVE_BASE, MATERIAL, WORDS, solid } from "./pipe-mesh";
 import { createSewerLayer, deepened } from "./sewer-layer";
 
 /** A sewer along y = 2 from an outfall at x = 1 to a manhole at x = 6. */
@@ -20,6 +21,8 @@ function map(exit = true) {
   g.rev++;
   return g;
 }
+/** Let the clock run on: the layer times its marks by it, and the suite's clock moves only when told. */
+const wait = (ms: number) => { jest.advanceTimersByTime(ms); };
 const count = (tiers: { children: unknown[] }[]) => tiers.reduce((n, t) => n + t.children.length, 0);
 
 describe("the sewer layer", () => {
@@ -53,7 +56,7 @@ describe("the sewer layer", () => {
   /** Every vertex's colour and material in a tier's meshes. */
   const verts = (tiers: { children: unknown[] }[]) => tiers.flatMap((t) => t.children).filter((c): c is Mesh => c instanceof Mesh).flatMap((mesh) => {
     const data = mesh.geometry.attributes.aPosition.buffer.data as Float32Array, words = new Uint32Array(data.buffer, data.byteOffset, data.length);
-    return Array.from({ length: data.length / WORDS }, (_, v) => ({ colour: words[v * WORDS + 5], material: data[v * WORDS + 8] }));
+    return Array.from({ length: data.length / WORDS }, (_, v) => ({ colour: words[v * WORDS + 5], material: data[v * WORDS + 8] % LIVE_BASE, slot: Math.floor(data[v * WORDS + 8] / LIVE_BASE) }));
   });
 
   test("the way a trunk falls is a pattern of its own tube: nothing is drawn over it", () => {
@@ -83,6 +86,43 @@ describe("the sewer layer", () => {
     const spread = (c: number) => Math.max(...rgb(c)) - Math.min(...rgb(c));
     expect(spread(deep)).toBeLessThan(spread(umber));
     expect(deepened(umber, 9)).toBe(deep);
+  });
+
+  test("what a trunk carries shows on its tube with nothing rebuilt: each tile a slot, its fill and its chevrons' run written there", () => {
+    const g = map(), bands = createBandLayer(g.w, g.h), layer = createSewerLayer(bands);
+    const manhole = idx(g, 6, 2);
+    g.sewer[manhole] |= SEWER_GRATE;
+    g.rev++;
+    layer.sync(g, 1, true);
+    const meshes = bands.sewerOf.flatMap((t) => t.children.slice());
+    const before = verts(bands.sewerOf);
+    // A slot a tile: six tiles of trunk, six slots, none of them nought.
+    const slots = [...new Set(before.filter((v) => v.material === MATERIAL.trunkBack).map((v) => v.slot))];
+    expect(slots.length).toBe(5);
+    expect(slots.includes(0)).toBe(false);
+    for (const s of slots) expect(liveOf(s)).toEqual({ fill: 0, phase: 0 });
+    // Water down its grate for a while: the sewer carries it to its outfall.
+    const hooks = {
+      pay: () => true, room: () => 0, take: () => {}, release: () => {}, backedUp: null,
+      standing: () => 2, drain: (_x: number, _y: number, depth: number) => ({ depth, strength: 0 }),
+    };
+    for (let k = 0; k < 90; k++) stepSewers(g, new Map(), 1 / 30, hooks);
+    layer.sync(g, 1, true);
+    wait(60);
+    layer.sync(g, 1, true);
+    // Some of it stands fuller than nothing, and its marks have run.
+    const now = slots.map(liveOf);
+    expect(now.some((l) => l.fill > 0.05)).toBe(true);
+    expect(now.some((l) => l.phase > 0)).toBe(true);
+    // Nothing made, nothing put away, and not a vertex written.
+    expect(bands.sewerOf.flatMap((t) => t.children.slice())).toEqual(meshes);
+    expect(verts(bands.sewerOf)).toEqual(before);
+    // Out of the underground view, nothing is written at all.
+    layer.sync(g, 1, false);
+    const held = slots.map(liveOf);
+    wait(40);
+    layer.sync(g, 1, false);
+    expect(slots.map(liveOf)).toEqual(held);
   });
 
   test("a network that backs up changes colour in place: no mesh is made or put away", () => {

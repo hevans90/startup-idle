@@ -9,9 +9,9 @@
  */
 import { PIPE_STEP } from "../../world/pipes/hydraulics";
 import type { ColumnField } from "../columns";
-import { H_DT, H_INTAKES, H_LINKS, H_NODES, H_OUTLETS, H_STEPS, PIPE_HEADER, PIPE_WORDS, pipeOffsets, pipesBody, type PipePort } from "./pipes";
+import { H_DRAINS, H_DT, H_INTAKES, H_LINKS, H_NODES, H_OUTLETS, H_STEPS, PIPE_HEADER, PIPE_WORDS, pipeOffsets, pipesBody, type PipePort } from "./pipes";
 
-type Run = (pipes: Float32Array, depthAt: (i: number) => number, groundAt: (i: number) => number, setDepth: (i: number, v: number) => void, setMaterial: (i: number, v: number) => void) => void;
+type Run = (pipes: Float32Array, depthAt: (i: number) => number, groundAt: (i: number) => number, setDepth: (i: number, v: number) => void, setMaterial: (i: number, v: number) => void, foulAt: (i: number) => number) => void;
 
 function compile(): Run {
   const js = pipesBody()
@@ -23,7 +23,7 @@ function compile(): Run {
     .replace(/\bi32\(/g, "Math.trunc(")
     .replace(/\bf32\(/g, "Number(")
     .replace(/(?<![.\w])(floor|min|max|sqrt|abs)\(/g, "Math.$1(");
-  return new Function("pipes", "depthAt", "groundAt", "setDepth", "setMaterial",
+  return new Function("pipes", "depthAt", "groundAt", "setDepth", "setMaterial", "foulAt",
     `"use strict"; const select = (f, t, c) => (c ? t : f);\n${js}\nmain();`) as Run;
 }
 
@@ -46,16 +46,16 @@ export function shaderTwin(columns: ColumnField, late = 0): Twin {
     load: (all) => {
       buffer.fill(0);
       buffer.set(all);
-      off = pipeOffsets(all[H_NODES], all[H_LINKS], all[H_INTAKES], all[H_OUTLETS]);
+      off = pipeOffsets(all[H_NODES], all[H_LINKS], all[H_INTAKES], all[H_OUTLETS], all[H_DRAINS]);
       back = [];
       loads++;
     },
     frame: (block, dt) => {
-      if (!(dt > 0) || !buffer[H_NODES]) return;
+      if (!(dt > 0) || (!buffer[H_NODES] && !buffer[H_DRAINS])) return;
       const steps = Math.max(1, Math.ceil(dt / PIPE_STEP));
       buffer.set(block, PIPE_HEADER);
       buffer[H_STEPS] = steps; buffer[H_DT] = dt / steps;
-      run(buffer, (i) => columns.depth[i], (i) => columns.ground[i], (i, v) => { columns.depth[i] = v; }, () => {});
+      run(buffer, (i) => columns.depth[i], (i) => columns.ground[i], (i, v) => { columns.depth[i] = v; }, () => {}, (i) => columns.foul[i]);
       back.push(buffer.slice(off.dyn, off.dyn + off.dynWords));
       if (back.length > late + 1) back.shift();
     },

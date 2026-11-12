@@ -25,16 +25,19 @@ import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { SEWER_BORE, SEWER_FIT, SEWER_GRATE, idx, structureAt, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import type { SewerPlan } from "../sewers/lay";
-import { sewerReportsFor } from "../sewers/flow";
+import { sewerLiveAt, sewerReportsFor } from "../sewers/flow";
 import { SEWER_KIND, solveSewers, type SewerSolve } from "../sewers/solve";
 import { lateralReach } from "../sewers/reach";
 import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable, recolour } from "./pipe-gpu";
 import { LATERAL_R } from "./mains-layer";
+import { LIVE_SLOTS, flushLive, setLive } from "./pipe-live";
 import { portsOf, type PortCell } from "../water/ports";
-import { MATERIAL, ZT, box as plainBox, disc, footing, made, pipeCell, pipeMesh, hring, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
+import { MATERIAL, ZT, box as plainBox, disc, footing, live, made, pipeCell, pipeMesh, hring, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
 
 const SIDES = ["N", "E", "S", "W"] as const;
+/** How fast a trunk's chevrons run along it, lengths a second: barely carrying, and carrying all it can. */
+const CHEVRON_SLOW = 0.25, CHEVRON_FAST = 1.1;
 /** The fittings' scale, from a slim tube's radius, tile units; how much fatter a widened bore is. */
 const TUBE_R = 0.07, BORE_WIDE = 1.35;
 /** A trunk's radius, tiles: a solid tube, lit, as a main above ground once was. @see pipeCell */
@@ -304,6 +307,9 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
 
   /** The map's own trunks, by network: which vertices of which mesh, and their colour clear and backed up. */
   let owned: { mesh: Mesh<Geometry, Shader>; net: number; from: number; to: number; clear: number; backed: number }[] = [];
+  /** Each drawn trunk tile's live slot. @see pipe-live */
+  let slotted: { cell: number; slot: number }[] = [];
+  let livedAt = -1;
   /** The networks drawn backed up now. */
   let painted = new Set<number>();
   function repaint() {
@@ -318,6 +324,9 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
   function draw(g: Grid, s: SewerSolve, scale: number, o: { into?: Drawn[]; only?: Set<number>; alpha?: number; bad?: number } = {}) {
     const into = o.into ?? drawn;
     clear(into);
+    // The map's own trunks take their slots afresh; the old ones go quiet.
+    let nextSlot = 1;
+    const slots: { cell: number; slot: number }[] = [];
     // THE TUBES FIRST, solid, a mesh a band — under the ground, or on its piers
     // with the town — so what is drawn on them after (chevrons, drops) shows.
     const tubes = new Map<number, PipeMesh>(), spans = new Map<number, PipeMesh>();
@@ -360,9 +369,12 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
         const d = s.down[i], falls = d >= 0 && s.kind[i] !== SEWER_KIND.span;
         const material = !falls ? MATERIAL.iron : (d % g.w) - x + (((d / g.w) | 0) - y) > 0 ? MATERIAL.trunkOn : MATERIAL.trunkBack;
         const tubeMesh = meshOf(s.kind[i] === SEWER_KIND.span ? spans : tubes, b), first = tubeMesh.nv;
-        pipeCell(tubeMesh, scale, x, y, lvl, limbs, {
+        // ITS SLOT: what the shader looks up to know how full this tile stands and how far its chevrons have run. @see pipe-live
+        const at = !o.only && nextSlot < LIVE_SLOTS ? nextSlot++ : 0;
+        if (at) slots.push({ cell: i, slot: at });
+        live(at, () => pipeCell(tubeMesh, scale, x, y, lvl, limbs, {
           r, colour, sides: TRUNK_SIDES, flanges: (x + y) % 2 === 0, bolts: false, end: null, material,
-        });
+        }));
         if (!o.only && i !== o.bad) mine.push({ mesh: tubeMesh, net: net.id, from: first, to: tubeMesh.nv, clear: solid(clearOf), backed: solid(backedOf) });
         // A MANHOLE'S SHAFT, after the trunk: down from its cover onto the trunk's
         // top, a collar where it meets it — its far half first, behind the shaft.
@@ -392,6 +404,8 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
     for (const [b, m] of tubes) place(m, bands.sewerOf[b], into === drawn);
     for (const [b, m] of spans) place(m, bands.structureOf[b], into === drawn);
     if (into === drawn) {
+      for (const k of slotted) if (k.slot >= nextSlot) setLive(k.slot, 0, 0, 0);
+      slotted = slots;
       owned = mine.flatMap((k) => { const mesh = placed.get(k.mesh); return mesh ? [{ ...k, mesh }] : []; });
       painted = new Set(trouble.keys());
     }
@@ -462,6 +476,16 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
         shown = underground;
         for (const t of bands.sewerOf) t.visible = underground;
       }
+      // WHAT EACH TILE IS DOING, while it is looked at: a few bytes a tile, and the one texture sent if any changed.
+      if (underground) {
+        const dt = livedAt >= 0 ? Math.min(0.1, (now - livedAt) / 1000) : 0;
+        livedAt = now;
+        for (const k of slotted) {
+          const l = sewerLiveAt(g, k.cell);
+          setLive(k.slot, l?.fill ?? 0, l && l.flow > 0.01 ? CHEVRON_SLOW + (CHEVRON_FAST - CHEVRON_SLOW) * l.flow : 0, dt);
+        }
+        flushLive();
+      } else livedAt = -1;
     },
     destroy: () => { clear(drawn); clear(ghosts); clear(rings); },
   };

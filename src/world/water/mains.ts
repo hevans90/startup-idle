@@ -15,12 +15,12 @@ import { surfaceAt, wantDepth, addWater } from "../../fluid/columns";
 import { isDrinker } from "../../game/cooling";
 import { PUMP_MOST, pumpLift, sewerFlow } from "../../game/mains";
 import {
-  H_GEN, H_INTAKES, H_LINKS, H_NODES, H_OUTLETS, INTAKE_WORDS, LINK_WORDS, NODE_WORDS, OUTLET_FRAME, OUTLET_WORDS,
+  DRAIN_DYN, DRAIN_FRAME, DRAIN_WORDS, H_DRAINS, H_GEN, H_INTAKES, H_LINKS, H_NODES, H_OUTLETS, INTAKE_WORDS, LINK_WORDS, NODE_WORDS, OUTLET_FRAME, OUTLET_WORDS,
   pipeOffsets, type PipePort,
 } from "../../fluid/gpu/pipes";
 import { coolingKept } from "../../game/pollution";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, MAIN_STUB, SEWER_FIT, VOID, edited, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, MAIN_STUB, SEWER_FIT, SEWER_GRATE, VOID, edited, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 import { solveSewers } from "../sewers/solve";
 import { fillTank, tankRoom } from "../projects/cooling";
 import { structureDef } from "../structures/def";
@@ -212,8 +212,22 @@ type Packed = {
   intakes: number;
   /** What each network is carrying, smoothed: answers come back a frame or three apart. */
   shown: Map<number, number>;
+  /**
+   * THE STORM DRAINS, by tile: each one's place in the packed whole, what it
+   * has been granted, and what it was last seen to have taken and how much
+   * of that was fouling. @see stormOnDevice
+   */
+  drains: Map<number, number>;
+  drainGranted: Float64Array;
+  drainSeen: Float64Array;
 };
-const solvedFor = new WeakMap<Grid, { rev: number; nets: Map<number, Solved>; packed?: Packed | null; where?: Where }>();
+/** A map's storm drains: the tiles with a grate on a manhole. */
+function stormDrains(g: Grid): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < g.sewer.length; i++) if ((g.sewer[i] & SEWER_GRATE) !== 0 && g.sewerFit[i] === SEWER_FIT.node) out.push(i);
+  return out;
+}
+const solvedFor = new WeakMap<Grid, { rev: number; nets: Map<number, Solved>; packed?: Packed | null; where?: Where; grates?: number }>();
 let packs = 0;
 
 /**
@@ -276,11 +290,12 @@ function solvedNets(g: Grid, field: WaterField): Map<number, Solved> {
 function packMains(g: Grid, field: WaterField, nets: Map<number, Solved>, port: PipePort): Packed | null {
   let N = 0, L = 0, I = 0, O = 0;
   for (const s of nets.values()) { N += s.model.nodes.length; L += s.model.links.length; I += s.model.intakes.length; O += s.model.outlets.length; }
-  const off = pipeOffsets(N, L, I, O);
+  const grates = stormDrains(g), D = grates.length;
+  const off = pipeOffsets(N, L, I, O, D);
   if (off.words > port.words) return null;
   const all = new Float32Array(off.scratch), at: Packed["at"] = new Map();
   const gen = ++packs;
-  all[H_NODES] = N; all[H_LINKS] = L; all[H_INTAKES] = I; all[H_OUTLETS] = O; all[H_GEN] = gen;
+  all[H_NODES] = N; all[H_LINKS] = L; all[H_INTAKES] = I; all[H_OUTLETS] = O; all[H_GEN] = gen; all[H_DRAINS] = D;
   all[off.dyn] = gen;
   const nx = field.columns.nx, mid = Math.floor(COLUMNS_PER_TILE / 2);
   let n = 0, l = 0, i = 0, o = 0;
@@ -318,8 +333,16 @@ function packMains(g: Grid, field: WaterField, nets: Map<number, Solved>, port: 
     });
     n += m.nodes.length; l += m.links.length; i += m.intakes.length; o += m.outlets.length;
   }
+  // A drain's tile: its first column, and how far on the next row of them is.
+  grates.forEach((cell, d) => {
+    const w = off.drains + d * DRAIN_WORDS;
+    all[w] = columnOf((cell / g.w) | 0) * nx + columnOf(cell % g.w); all[w + 1] = nx;
+  });
   port.load(all);
-  return { port, gen, at, off, granted: new Float64Array(O), seen: new Float64Array(O), frame: new Float32Array(I + OUTLET_FRAME * O), intakes: I, shown: new Map() };
+  return {
+    port, gen, at, off, granted: new Float64Array(O), seen: new Float64Array(O), frame: new Float32Array(I + OUTLET_FRAME * O + DRAIN_FRAME * D), intakes: I, shown: new Map(),
+    drains: new Map(grates.map((cell, d) => [cell, d])), drainGranted: new Float64Array(D), drainSeen: new Float64Array(2 * D),
+  };
 }
 
 /**
@@ -390,6 +413,36 @@ function runOnDevice(g: Grid, field: WaterField, net: MainNet, s: Solved, p: Pac
   report.flow = now;
   if (report.state === "flowing" && !wants) report.state = "full";
   return report;
+}
+
+/**
+ * A STORM DRAIN ON THE DEVICE: told how much room its sewer has — a depth
+ * over its tile — it answers what has gone down it since it was last asked,
+ * and how much of that was slop. The water is taken over there, from the
+ * depth the device holds that step; here the host only GRANTS, never more
+ * than fits with what is already on its way, and counts what comes back.
+ * Null while the host has the water, or the grate is not packed: then the
+ * host drains it itself. @see fluid/gpu/pipes, stepSewers
+ */
+export function stormOnDevice(g: Grid, cell: number, room: number): { depth: number; strength: number } | null {
+  const p = solvedFor.get(g)?.packed, d = p?.drains.get(cell);
+  if (!p || d === undefined) return null;
+  const columns = COLUMNS_PER_TILE * COLUMNS_PER_TILE;
+  const back = p.port.latest(), fresh = back !== null && back[0] === p.gen ? back : null;
+  let more = 0, fouling = 0;
+  if (fresh) {
+    const at = p.off.taken - p.off.dyn + DRAIN_DYN * d;
+    const seen = fresh[at] + fresh[at + 1], foul = fresh[at + 2] + fresh[at + 3];
+    more = Math.max(0, seen - p.drainSeen[2 * d]); fouling = Math.max(0, foul - p.drainSeen[2 * d + 1]);
+    p.drainSeen[2 * d] = seen; p.drainSeen[2 * d + 1] = foul;
+  }
+  // GRANT what there is room for that is not already on its way.
+  const coming = p.drainGranted[d] - p.drainSeen[2 * d], want = Math.max(0, room * columns - more);
+  if (want > coming) p.drainGranted[d] += want - coming;
+  const f = p.intakes + OUTLET_FRAME * p.granted.length + DRAIN_FRAME * d;
+  p.frame[f] = Math.floor(p.drainGranted[d]);
+  p.frame[f + 1] = p.drainGranted[d] - Math.floor(p.drainGranted[d]);
+  return { depth: more / columns, strength: more > 0 ? Math.min(1, fouling / more) : 0 };
 }
 
 /** All the water standing in a map's mains, for sums that must not lose any. */
@@ -613,7 +666,7 @@ export function runMains(field: WaterField, g: Grid, dt: number, pumps: MainPump
   // ON THE DEVICE, while it owns the water: packed for it when the map, or the device, is new. @see packMains
   const entry = solvedFor.get(g)!, port = field.columns.pipes;
   if (!port) entry.packed = null;
-  else if (!entry.packed || entry.packed.port !== port) entry.packed = flows.size ? packMains(g, field, flows, port) : null;
+  else if (!entry.packed || entry.packed.port !== port) entry.packed = flows.size || (entry.grates ??= stormDrains(g).length) ? packMains(g, field, flows, port) : null;
   const packed = entry.packed ?? null;
   for (const net of list) {
     // A SEWER carries what the tanks last gave it, until they say again this frame. @see stepSlop

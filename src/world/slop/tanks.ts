@@ -11,7 +11,7 @@ import { PROCESS_RATE, processorKind, setProcessorUse, type ProcessorKind } from
 import { WORKPLACES } from "../agents/commute";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { fluidIndexOf } from "../water/materials";
-import { backedUpCell, mainReportsFor } from "../water/mains";
+import { backedUpCell, mainReportsFor, stormOnDevice } from "../water/mains";
 import { portsOf } from "../water/ports";
 import { wantDepth } from "../../fluid/columns";
 import { COLUMNS_PER_TILE, depthAt, drainAt, pourAt, type WaterField } from "../water/field";
@@ -202,6 +202,7 @@ export function stepSlop(
     ...(field ? {
       standing: (x: number, y: number) => depthAt(field, x, y),
       drain: (x: number, y: number, depth: number) => drainTile(field, x, y, depth),
+      storm: (x: number, y: number, room: number) => stormOnDevice(g, y * g.w + x, room),
       surface: (x: number, y: number) => surfaceOn(field, x, y),
     } : {}),
   });

@@ -16,7 +16,9 @@ import { stepSlop } from "../slop/tanks";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField, depthAt, pourAt, setWaterEdge, stepWater, type WaterField } from "../water/field";
-import { layMain, runMains } from "../water/mains";
+import { layMain, runMains, stormOnDevice } from "../water/mains";
+import { H_DRAINS } from "../../fluid/gpu/pipes";
+import { shaderTwin } from "../../fluid/gpu/pipes.test-kit";
 import { fluidIndexOf } from "../water/materials";
 import { foulingIn } from "../water/pollution";
 import { DROWNED, OUTFALL_CLEAR, sewerReportsFor, slopInSewers, stepSewers, waterInSewers, type SewerHooks } from "./flow";
@@ -121,6 +123,54 @@ describe("a storm drain", () => {
     expect(inStreet(drained.f)).toBeLessThan(stood * 0.25);
     expect(all(drained.g, drained.f)).toBeCloseTo(before, 2);
   }, 60_000);
+
+  test("on the device, the water goes down the grate there: as fast as the host's, none made or lost, and none brought up however late the answers", () => {
+    const host = street(), dev = street(), late = street();
+    for (const s of [host, dev, late]) { grate(s.g, s.manhole); flood(s.f, 1.5); }
+    const twin = shaderTwin(dev.f.columns);
+    dev.f.columns.pipes = twin.port;
+    late.f.columns.pipes = shaderTwin(late.f.columns, 3).port;
+    const before = all(dev.g, dev.f), stood = inStreet(dev.f);
+    let spilled = 0;
+    for (let k = 0; k < 30 * 30; k++) {
+      // The reports are the last map's to have run: read as each does.
+      for (const s of [host, late, dev]) {
+        runMains(s.f, s.g, 1 / 30); stepSlop(s.g, s.f, new Map(), 0, 1 / 30); stepWater(s.f, 1 / 30);
+        if (s !== host) spilled += sewerReportsFor(s.g).get(0)!.trunk.spilled;
+      }
+    }
+    // A sewer with no main on the map is packed all the same, for its grate.
+    expect(twin.loads()).toBe(1);
+    expect(twin.buffer[H_DRAINS]).toBe(1);
+    // The street clears as it does on the host: the same rule, read where the water is.
+    expect(inStreet(dev.f)).toBeLessThan(stood * 0.7);
+    expect(Math.abs(inStreet(dev.f) / inStreet(host.f) - 1)).toBeLessThan(0.1);
+    expect(sewerReportsFor(dev.g).get(0)!.trunk.storm).toBeGreaterThan(0.5);
+    // The same water, wherever it is — what is on its way back to the host counted with it.
+    const o = twin.offsets(), taken = twin.buffer[o.taken] + twin.buffer[o.taken + 1];
+    const seen = stormOnDevice(dev.g, dev.manhole, 0);
+    expect(seen).not.toBeNull();
+    expect(taken).toBeGreaterThan(1);
+    expect(all(dev.g, dev.f) + seen!.depth).toBeCloseTo(before, 1);
+    // Never more granted than fits: nothing comes up at the manhole, late or not.
+    expect(spilled).toBe(0);
+    expect(inStreet(late.f)).toBeLessThan(stood * 0.75);
+  }, 90_000);
+
+  test("on the device, slop in the street is counted as it goes down: what comes out is as strong as what went in", () => {
+    const { g, f, manhole } = street();
+    grate(g, manhole);
+    flood(f, 1, SLOP);
+    f.columns.pipes = shaderTwin(f.columns).port;
+    const before = foulingIn(f);
+    for (let k = 0; k < 30 * 40; k++) { runMains(f, g, 1 / 30); stepSlop(g, f, new Map(), 0, 1 / 30); stepWater(f, 1 / 30); }
+    // It went down as slop and is slop in the trunk or the lake: not turned to water on the way.
+    expect(waterInSewers(g)).toBeLessThan(0.05);
+    const after = foulingIn(f) + slopInSewers(g) * 0.5 + stormOnDevice(g, manhole, 0)!.depth;
+    expect(after).toBeGreaterThan(before * 0.9);
+    expect(after).toBeLessThan(before * 1.02);
+    expect(foulingIn(f)).toBeLessThan(before);
+  }, 90_000);
 
   test("takes no more than the sewer carries: it does not bring up at the manhole what it took down", () => {
     const { g, f, manhole } = street();

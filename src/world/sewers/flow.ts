@@ -62,6 +62,13 @@ export type SewerHooks = {
   standing?: (x: number, y: number) => number;
   surface?: (x: number, y: number) => number;
   drain?: (x: number, y: number, depth: number) => { depth: number; strength: number };
+  /**
+   * THE WATER'S OWN DRAIN, where the device has the water: told the room a
+   * grate's sewer has, as a depth over its tile, it answers what has gone
+   * down since it was last asked — or null, and the host drains it by
+   * `standing` and `drain`. @see stormOnDevice
+   */
+  storm?: (x: number, y: number, room: number) => { depth: number; strength: number } | null;
   /** A manhole backed up, passing nothing on: the event's. */
   backedUp: number | null;
 };
@@ -119,7 +126,15 @@ type Trunk = {
  * What stands in each node, by its tile: `held` all of it, `water` the part
  * of that which is storm water. The rest is slop.
  */
-const trunksFor = new WeakMap<Grid, { rev: number; trunks: Trunk[]; held: Map<number, number>; water: Map<number, number> }>();
+const trunksFor = new WeakMap<Grid, {
+  rev: number; trunks: Trunk[]; held: Map<number, number>; water: Map<number, number>;
+  /** Each trunk tile's node — the one at the top of the run it is on — as a trunk and a place in it. For what is drawn. @see sewerLiveAt */
+  runOf: Map<number, [Trunk, number]>;
+  /** What each node has been sending down its run, a second, evened out; by its tile. */
+  sent: Map<number, number>;
+}>();
+/** Seconds what a run sends is evened out over, for what is shown. */
+const SENT_OVER = 0.5;
 
 /**
  * Every trunk network as nodes with storage, off the pipe graph and the
@@ -171,7 +186,13 @@ function trunksOf(g: Grid, release: SewerHooks["release"]) {
     trunks.push(t);
   }
   if (was) for (const [c, v] of was.held) if (!kept.has(c) && v > 0) release(c % g.w, (c / g.w) | 0, v, 1 - (was.water.get(c) ?? 0) / v);
-  const out = { rev: g.rev, trunks, held: kept, water: wet };
+  // WHOSE RUN EACH TILE IS ON: the node above it. A node's own tile is its own.
+  const runOf = new Map<number, [Trunk, number]>();
+  for (const t of trunks) {
+    t.cells.forEach((c, k) => runOf.set(c, [t, k]));
+    t.cells.forEach((c, k) => { for (let at = s.down[c], guard = 0; at >= 0 && !runOf.has(at) && guard < g.w * g.h; at = s.down[at], guard++) runOf.set(at, [t, k]); });
+  }
+  const out = { rev: g.rev, trunks, held: kept, water: wet, runOf, sent: new Map<number, number>() };
   trunksFor.set(g, out);
   return out;
 }
@@ -196,6 +217,22 @@ export function sewerFillAt(g: Grid, cell: number): number | null {
   if (!all) return null;
   for (const t of all.trunks) { const k = t.cells.indexOf(cell); if (k >= 0) return Math.min(1, (all.held.get(cell) ?? 0) / t.full[k]); }
   return null;
+}
+
+/**
+ * WHAT A TRUNK TILE IS DOING, for the tubes: how full the node above it
+ * stands, nought to one, and how hard its run is carrying, as a share of
+ * what it can. Null where no trunk that drains anywhere runs.
+ */
+export function sewerLiveAt(g: Grid, cell: number): { fill: number; flow: number } | null {
+  const all = trunksFor.get(g), at = all?.runOf.get(cell);
+  if (!all || !at) return null;
+  const [t, k] = at, node = t.cells[k];
+  const carries = t.carries[k];
+  return {
+    fill: Math.min(1, (all.held.get(node) ?? 0) / t.full[k]),
+    flow: carries > 0 && Number.isFinite(carries) ? Math.min(1, (all.sent.get(node) ?? 0) / carries) : 0,
+  };
 }
 
 /**
@@ -269,6 +306,12 @@ function frame(g: Grid, tanks: ReadonlyMap<number, { level: number }>, dt: numbe
     held.set(l.node, (held.get(l.node) ?? 0) + take);
   }
 
+  // What each run sent, evened out: nought for one that sends nothing this frame.
+  const ease = Math.min(1, dt / SENT_OVER), sentNow = new Map<number, number>();
+  const settle = () => {
+    for (const [c, v] of all.sent) if (!sentNow.has(c)) { const now = v * (1 - ease); if (now > 1e-6) all.sent.set(c, now); else all.sent.delete(c); }
+    for (const [c, v] of sentNow) all.sent.set(c, (all.sent.get(c) ?? 0) + (v - (all.sent.get(c) ?? 0)) * ease);
+  };
   for (const t of all.trunks) {
     const net = t.net, r = out.get(net.id)!, n = t.cells.length;
     // DOWN THE STORM DRAINS: what stands in the street over a grate, as fast as a drain takes it and no more
@@ -279,9 +322,14 @@ function frame(g: Grid, tanks: ReadonlyMap<number, { level: number }>, dt: numbe
         if (!t.storm[k]) continue;
         const cell = t.cells[k], x = cell % g.w, y = (cell / g.w) | 0;
         const room = t.full[k] + SHAFT_HOLDS - (held.get(cell) ?? 0);
-        const want = Math.min(STORM_RATE * dt, room, (hooks.standing(x, y) - STORM_LEAST) / UNIT_DEPTH);
-        if (!(want > 1e-9)) continue;
-        const got = hooks.drain(x, y, want * UNIT_DEPTH), units = got.depth / UNIT_DEPTH;
+        // On the device, it is taken there: here only the room is said, and what came down counted.
+        let got = hooks.storm?.(x, y, Math.max(0, room) * UNIT_DEPTH) ?? null;
+        if (!got) {
+          const want = Math.min(STORM_RATE * dt, room, (hooks.standing(x, y) - STORM_LEAST) / UNIT_DEPTH);
+          if (!(want > 1e-9)) continue;
+          got = hooks.drain(x, y, want * UNIT_DEPTH);
+        }
+        const units = got.depth / UNIT_DEPTH;
         if (!(units > 0)) continue;
         held.set(cell, (held.get(cell) ?? 0) + units);
         water.set(cell, (water.get(cell) ?? 0) + units * (1 - got.strength));
@@ -334,6 +382,7 @@ function frame(g: Grid, tanks: ReadonlyMap<number, { level: number }>, dt: numbe
     // The storm water in it goes with the rest, in the share it is of it.
     const share = has.map((v, k) => (v > 0 ? Math.min(1, wat[k] / v) : 0));
     for (let k = 0; k < n; k++) if (sends[k] > 0) {
+      sentNow.set(t.cells[k], sends[k] / dt);
       has[k] -= sends[k]; has[t.down[k]] += sends[k];
       wat[k] -= sends[k] * share[k]; wat[t.down[k]] += sends[k] * share[k];
     }
@@ -389,6 +438,7 @@ function frame(g: Grid, tanks: ReadonlyMap<number, { level: number }>, dt: numbe
       : spilt > 0 ? "surcharged"
       : "flowing";
   }
+  settle();
 }
 
 /** The busiest manhole on the map, by what came in last frame; else any with a lateral: where a backup chokes. Null with none. */

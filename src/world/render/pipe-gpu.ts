@@ -16,7 +16,8 @@
 import { Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader } from "pixi.js";
 
 import { HH, HW } from "../iso";
-import { SUN, WORDS, type PipeMesh } from "./pipe-mesh";
+import { liveSource, LIVE_WIDE } from "./pipe-live";
+import { LIVE_BASE, SUN, WORDS, type PipeMesh } from "./pipe-mesh";
 
 /**
  * Up the screen, square to the line of sight: the shine runs where a tube's
@@ -32,6 +33,8 @@ const v3 = (a: readonly number[]) => a.map((c) => c.toFixed(5)).join(", ");
 const rgb = (c: number) => [(c >> 16) & 255, (c >> 8) & 255, c & 255].map((k) => (k / 255).toFixed(4)).join(", ");
 /** Rust, on cast iron; mortar, between bricks; the flow's chevrons, on a trunk. */
 const RUST = 0x8a4a2a, MORTAR = 0xb9ab98, CHEVRON = 0xf0d2a8;
+/** What stands in a trunk, drawn on its tube up to how full it is. */
+const STANDING = 0x3d2a14;
 /** A cast iron pipe's length and a steel one's, tiles; a brick's course and its length, tiles; a concrete pour's height. */
 export const IRON_LENGTH = 1, STEEL_LENGTH = 2, COURSE = 0.045, BRICK_LONG = 0.11, POUR = 0.12;
 
@@ -51,11 +54,11 @@ const detail = (vec3: string) => `
   let al = vMat.x;
   let ac = vMat.y;
   let fine = 1.0 - smoothstep(0.03, 0.09, fwidth(al));
-  let trunk = step(4.5, vMat.z);
-  let iron = (step(0.5, vMat.z) * step(vMat.z, 1.5) + trunk) * fine;
-  let steel = step(1.5, vMat.z) * step(vMat.z, 2.5) * fine;
-  let concrete = step(2.5, vMat.z) * step(vMat.z, 3.5) * fine;
-  let brick = step(3.5, vMat.z) * step(vMat.z, 4.5) * fine;
+  let trunk = step(4.5, mz);
+  let iron = (step(0.5, mz) * step(mz, 1.5) + trunk) * fine;
+  let steel = step(1.5, mz) * step(mz, 2.5) * fine;
+  let concrete = step(2.5, mz) * step(mz, 3.5) * fine;
+  let brick = step(3.5, mz) * step(mz, 4.5) * fine;
   let top = dot(n, ${vec3}(${v3(UP)}));
   let under = 1.0 - smoothstep(-0.15, 0.25, n.z);
 
@@ -85,12 +88,16 @@ const detail = (vec3: string) => `
   let mortar = max(step(0.82, fract(al / ${COURSE})), step(0.92, fract(along2)));
   let brickTone = fract(sin((course * 5.0 + floor(along2)) * 12.9898) * 43758.5453) - 0.5;
 
-  // A TRUNK'S CHEVRONS: a V each length, its point the way the sewer falls.
-  let way = 1.0 - 2.0 * step(5.5, vMat.z);
+  // A TRUNK'S CHEVRONS: a V each length, its point the way the sewer falls — and RUNNING that way
+  // while it carries, by how far its piece's marks have got. @see pipe-live
+  let way = 1.0 - 2.0 * step(5.5, mz);
   let arm = abs(ac - 0.5);
-  let chevron = step(fract(al * way + arm * 0.6), 0.09) * step(arm, 0.3) * trunk * fine;
+  let chevron = step(fract(al * way + arm * 0.6 - vLive.y), 0.09) * step(arm, 0.3) * trunk * fine;
+  // HOW FULL IT STANDS: the tube darker up to the line, as if seen through.
+  let wet = step(n.z * 0.5 + 0.5, vLive.x) * step(0.02, vLive.x) * trunk;
 
-  let base0 = mix(vColor.rgb, ${vec3}(${rgb(CHEVRON)}), 0.85 * chevron);
+  let basew = mix(vColor.rgb, ${vec3}(${rgb(STANDING)}), 0.55 * wet);
+  let base0 = mix(basew, ${vec3}(${rgb(CHEVRON)}), 0.85 * chevron);
   let base1 = mix(base0, ${vec3}(${rgb(RUST)}), 0.6 * rust * iron);
   let base2 = mix(base1, ${vec3}(${rgb(MORTAR)}), 0.7 * mortar * brick);
   let wear = 1.0
@@ -101,7 +108,7 @@ const detail = (vec3: string) => `
   let base = base2 * wear;
 `;
 /** The names in `detail` and `light` that are vectors: GLSL has to be told. */
-const VECTORS = "n|lit|base0|base1|base2|base";
+const VECTORS = "n|lit|basew|base0|base1|base2|base";
 
 /** The lighting, the same lines in both dialects but for their types. */
 const light = (vec3: string) => `
@@ -132,6 +139,8 @@ struct LocalUniforms {
   uRound: f32,
 };
 @group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
+// What each piece is doing now, a texel a slot. Read in the fragment stage: a texture is not the vertex stage's to see here. @see pipe-live
+@group(2) @binding(0) var uLive : texture_2d<f32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -168,6 +177,10 @@ fn mainFragment(
   @location(2) vTint: vec4<f32>,
   @location(3) vMat: vec3<f32>,
 ) -> @location(0) vec4<f32> {
+  // ITS SLOT rides with its material, the same at every corner of a piece: read here, where a texture may be. @see LIVE_BASE
+  let slot = floor((vMat.z + 0.5) / ${LIVE_BASE}.0);
+  let mz = vMat.z - ${LIVE_BASE}.0 * slot;
+  let vLive = textureLoad(uLive, vec2<i32>(i32(slot) % ${LIVE_WIDE}, i32(slot) / ${LIVE_WIDE}), 0).xy;
 ${light("vec3<f32>")}
   return vec4<f32>(lit * vColor.a, vColor.a) * vTint;
 }
@@ -209,8 +222,12 @@ in vec4 vColor;
 in vec4 vTint;
 in vec3 vMat;
 out vec4 finalColor;
+uniform sampler2D uLive;
 
 void main() {
+  float slot = floor((vMat.z + 0.5) / ${LIVE_BASE}.0);
+  float mz = vMat.z - ${LIVE_BASE}.0 * slot;
+  vec2 vLive = texelFetch(uLive, ivec2(int(slot) % ${LIVE_WIDE}, int(slot) / ${LIVE_WIDE}), 0).xy;
 ${light("vec3").replace(new RegExp(`\\blet (${VECTORS}) =`, "g"), "vec3 $1 =").replace(/\blet /g, "float ")}
   finalColor = vec4(lit * vColor.a, vColor.a) * vTint;
 }
@@ -229,6 +246,7 @@ function pipeShader(): Shader {
       name: "pipes",
     }),
     glProgram: GlProgram.from({ vertex: VERTEX_GLSL, fragment: pipeFragmentGlsl(), name: "pipes" }),
+    resources: { uLive: liveSource() },
   });
   return shared;
 }

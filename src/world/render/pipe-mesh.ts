@@ -62,6 +62,22 @@ export function made<T>(of: number, build: () => T): T {
   try { return build(); } finally { material = was; }
 }
 
+/**
+ * A LIVE SLOT: a number a piece, by which the shader looks up what that
+ * piece is doing now — how full, how far its marks have moved — in a small
+ * texture the layer writes a frame. Carried with the material, `LIVE_BASE`
+ * of it a slot, so a vertex is no wider. Nought is no slot: still and empty.
+ * @see pipe-gpu, pipe-live
+ */
+export const LIVE_BASE = 16;
+let slot = 0;
+/** Build with a live slot: what `build` writes of a material answers to it. */
+export function live<T>(at: number, build: () => T): T {
+  const was = slot;
+  slot = at;
+  try { return build(); } finally { slot = was; }
+}
+
 /** A pipe mesh being built: its vertices, its triangles, and how much of each is written. */
 export type PipeMesh = { f32: Float32Array; u32: Uint32Array; idx: Uint32Array; nv: number; ni: number };
 
@@ -102,7 +118,7 @@ function vert(m: PipeMesh, s: number, u: number, v: number, h: number, nu: numbe
   m.u32[o + 5] = colour;
   // Plain, it says nothing: three noughts.
   const of = along === undefined ? 0 : material;
-  m.f32[o + 6] = of ? along! : 0; m.f32[o + 7] = of ? across : 0; m.f32[o + 8] = of;
+  m.f32[o + 6] = of ? along! : 0; m.f32[o + 7] = of ? across : 0; m.f32[o + 8] = of ? of + LIVE_BASE * slot : 0;
   return m.nv++;
 }
 
