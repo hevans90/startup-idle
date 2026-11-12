@@ -21,11 +21,12 @@ import { featureGateOpen } from "../../game/projects";
 import { getWater, mainWet } from "../../state/world.store";
 import { upstreamOfTown } from "../water/pollution";
 import { WORKPLACES } from "../agents/commute";
-import { idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
+import { VOID, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 import { hasMain, routeMain } from "../water/mains";
 import { portsOf } from "../water/ports";
 import { planLateral, planSewer } from "../sewers/lay";
 import { LATERAL_REACH, hasSewer, solveSewers } from "../sewers/solve";
+import { lateralReach } from "../sewers/reach";
 
 type Cell = { x: number; y: number };
 
@@ -50,10 +51,10 @@ function unsewered(g: Grid): { s: Structure; port: Cell }[] {
   return out;
 }
 
-/** The live manholes — on networks with an exit — by cell. */
+/** The live manholes a connection can come down into — on networks with an exit, and not set in a road — by cell. @see lateralReach */
 function liveNodes(g: Grid): number[] {
   const s = solveSewers(g);
-  return s.nets.filter((n) => n.exits.length).flatMap((n) => n.nodes);
+  return s.nets.filter((n) => n.exits.length).flatMap((n) => n.nodes).filter((i) => g.paved[i] === VOID);
 }
 
 /**
@@ -152,7 +153,8 @@ export function neededSewer(g: Grid): SewerJob | null {
     // Else A TRUNK from beside its port, where the lateral will meet it.
     for (const [dx, dy] of STEPS) {
       const c = { x: port.x + dx, y: port.y + dy };
-      if (!inBounds(g, c.x, c.y) || structureAt(g, c.x, c.y) >= 0 || wet(c.x, c.y) || hasSewer(g, idx(g, c.x, c.y))) continue;
+      // Its manhole is where the connection will come down: on open ground, never in the street.
+      if (!inBounds(g, c.x, c.y) || structureAt(g, c.x, c.y) >= 0 || wet(c.x, c.y) || hasSewer(g, idx(g, c.x, c.y)) || g.paved[idx(g, c.x, c.y)] !== VOID) continue;
       const job = trunkFrom(g, c, `trunk:${s.id}`);
       if (job) return job;
     }
@@ -167,13 +169,14 @@ export function neededSewer(g: Grid): SewerJob | null {
  */
 export function trunkInto(g: Grid, box: { x0: number; y0: number; x1: number; y1: number }): SewerJob | null {
   const cx = Math.round((box.x0 + box.x1) / 2), cy = Math.round((box.y0 + box.y1) / 2);
-  const reach = LATERAL_REACH + Math.max(box.x1 - box.x0, box.y1 - box.y0) / 2;
-  if (liveNodes(g).some((i) => Math.abs((i % g.w) - cx) + Math.abs(((i / g.w) | 0) - cy) <= reach)) return null;
+  // Reached already, if a connection could be laid to a live manhole from some open tile of it. @see lateralReach
+  const reach = lateralReach(g);
+  for (let y = box.y0; y <= box.y1; y++) for (let x = box.x0; x <= box.x1; x++) if (inBounds(g, x, y) && reach[idx(g, x, y)] >= 0) return null;
   const wet = mainWet(g);
   let best: Cell | null = null, bestD = Infinity;
   for (let y = box.y0; y <= box.y1; y++) {
     for (let x = box.x0; x <= box.x1; x++) {
-      if (!inBounds(g, x, y) || structureAt(g, x, y) >= 0 || wet(x, y) || hasSewer(g, idx(g, x, y))) continue;
+      if (!inBounds(g, x, y) || structureAt(g, x, y) >= 0 || wet(x, y) || hasSewer(g, idx(g, x, y)) || g.paved[idx(g, x, y)] !== VOID) continue;
       const d = Math.abs(x - cx) + Math.abs(y - cy);
       if (d < bestD) { bestD = d; best = { x, y }; }
     }

@@ -1414,6 +1414,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
           return;
         }
       }
+      // NOT OVER A SEWER CONNECTION: it lies on open ground, as a building does not stand on a trunk. @see planLateral
+      if (st.playing && s0.tool === "paintRoad" && cells.some((c) => (st.grid.main[c.y * st.grid.w + c.x] & MAIN_SEWER) !== 0 && st.grid.paved[c.y * st.grid.w + c.x] === VOID_MATERIAL)) {
+        set({ stroke: null, ...(aiActing() ? {} : { notice: { text: "A road can't go over a sewer connection", at: Date.now() } }) });
+        return;
+      }
       if (st.playing && s0.tool === "paintRoad") {
         const fresh = cells.filter((c) => st.grid.paved[c.y * st.grid.w + c.x] === VOID_MATERIAL).length;
         // THE PARTNERSHIP pays half of a road in its district, from its wallet. @see playerShare

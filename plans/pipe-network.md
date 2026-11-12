@@ -385,3 +385,15 @@ None. All were decided on 2026-11-11; each decision is written where it applies:
 - **Not seen in the browser:** no fixture played has a working sewer (the `sewers` fixture has no company to make slop). Tests only.
 
 **Phase 2 is done.** Left over from it, for later phases: sewers start empty on a loaded map (a few seconds' lag, where mains start full); `fillOf`, `mainFillAt` and `sewerFillAt` are there for the tubes and nothing draws them yet (phases 10–11).
+
+**Phase 6 — laterals off the roads** (2026-11-12). `sewers/reach.ts`; `routeMain`, `planLateral`, `sewer-ai.ts`, `sewers/tool.ts`, the store's road stroke. Tests in `sewers/flow.test.ts`, `ai/sewer-ai.test.ts`, `state/world.store.test.ts`.
+- **The router** (`routeMain` with `sewer`) treats a road tile as not free, ends included: a drag goes round a street's end or finds no way. A water main still crosses.
+- **The plan** (`planLateral`) refuses any route with a road tile on it, "A sewer connection can't cross a road": the guard that counts, whoever found the route.
+- **The tool says why** when there is no way: a street across it, or "A sewer connection can't end in a road: lay a trunk into the block".
+- **Reach is by route** (`lateralReach`): tiles from each live manhole outward over ground a connection may lie on, to `LATERAL_REACH`. A manhole in a road counts for nothing; one two tiles off across a street is out of reach. `sewerInReach` ("No sewer node in reach"), the reach tint and the AI's `trunkInto` all read it.
+- **A road is refused over a connection**, "A road can't go over a sewer connection", and nothing is charged.
+- **The AI** tries only manholes off the road, and where a street lies between a workplace and the nearest one it lays a trunk in from open ground beside the port, then the connection down into it. The balance sim still sewers its town within its two minutes.
+- **Old saves:** a lateral already across a road stays and drains (tested). Only new strokes are bound.
+- **Fixtures:** none had a lateral on a road or a manhole in one; nothing needed moving.
+- **For the player this is stricter than before:** a trunk laid under a street puts its manholes in the street, where nothing can connect. A trunk has to end, or be given a manhole, on open ground beside the buildings it serves. The reach tint shows where that works; the Sewer tool does not yet steer a trunk's end off the road by itself (phase 13's lit connect points are where that belongs).
+- **Not seen in the browser:** the reach tint and the refusals. No fixture can be played with sewers open and a slop maker in hand. Tests only.

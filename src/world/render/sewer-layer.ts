@@ -21,7 +21,8 @@ import { SEWER_BORE, SEWER_FIT, idx, structureAt, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import type { SewerPlan } from "../sewers/lay";
 import { sewerReportsFor } from "../sewers/flow";
-import { LATERAL_REACH, SEWER_KIND, solveSewers, type SewerSolve } from "../sewers/solve";
+import { SEWER_KIND, solveSewers, type SewerSolve } from "../sewers/solve";
+import { lateralReach } from "../sewers/reach";
 import type { BandLayer } from "./bands";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
 import { LATERAL_IRON, LATERAL_R } from "./mains-layer";
@@ -128,27 +129,17 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
   /** The tiles within a lateral's reach of a live manhole, tinted, each in its band's paved tier. */
   function drawReach(g: Grid, scale: number) {
     clear(rings);
-    const s = solveSewers(g), seen = new Set<number>(), make = gfxIn(rings, 1), by = new Map<number, Graphics>();
-    for (const net of s.nets) {
-      if (!net.exits.length) continue;
-      for (const n of net.nodes) {
-        const nx = n % g.w, ny = (n / g.w) | 0;
-        for (let dy = -LATERAL_REACH; dy <= LATERAL_REACH; dy++) {
-          for (let dx = -(LATERAL_REACH - Math.abs(dy)); dx <= LATERAL_REACH - Math.abs(dy); dx++) {
-            const x = nx + dx, y = ny + dy;
-            if (x < 0 || y < 0 || x >= g.w || y >= g.h) continue;
-            const i = idx(g, x, y);
-            if (seen.has(i)) continue;
-            seen.add(i);
-            const b = bandOf(x, y);
-            let gfx = by.get(b);
-            if (!gfx) { gfx = make(bands.pavedOf, b); by.set(b, gfx); }
-            const z = g.height[i];
-            gfx.poly([...at(x, y, z, scale, -0.5, -0.5), ...at(x, y, z, scale, 0.5, -0.5), ...at(x, y, z, scale, 0.5, 0.5), ...at(x, y, z, scale, -0.5, 0.5)])
-              .fill({ color: REACH, alpha: REACH_ALPHA });
-          }
-        }
-      }
+    // BY ROUTE, not by distance: a tile is lit only if a connection could be laid from it to a live manhole. @see lateralReach
+    const reach = lateralReach(g), make = gfxIn(rings, 1), by = new Map<number, Graphics>();
+    for (let i = 0; i < reach.length; i++) {
+      if (reach[i] < 0) continue;
+      const x = i % g.w, y = (i / g.w) | 0;
+      const b = bandOf(x, y);
+      let gfx = by.get(b);
+      if (!gfx) { gfx = make(bands.pavedOf, b); by.set(b, gfx); }
+      const z = g.height[i];
+      gfx.poly([...at(x, y, z, scale, -0.5, -0.5), ...at(x, y, z, scale, 0.5, -0.5), ...at(x, y, z, scale, 0.5, 0.5), ...at(x, y, z, scale, -0.5, 0.5)])
+        .fill({ color: REACH, alpha: REACH_ALPHA });
     }
   }
   let ghosted: SewerPlan | null = null;

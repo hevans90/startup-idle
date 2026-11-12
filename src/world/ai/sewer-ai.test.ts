@@ -8,6 +8,7 @@ import { placeCommand } from "../structures/place";
 import { createWaterField } from "../water/field";
 import { upstreamOfTown } from "../water/pollution";
 import { planSewer, routeSewer } from "../sewers/lay";
+import { lateralReach } from "../sewers/reach";
 import { neededSewer, trunkInto, trunkRoute } from "./sewer-ai";
 
 afterEach(() => setSlopMaking(0));
@@ -99,6 +100,37 @@ describe("the AI's sewers", () => {
     expect(lateral.kind).toBe("lateral");
     expect(lateral.cells[0]).toEqual({ x: 12, y: 4 });
     expect(lateral.cells.length).toBeLessThanOrEqual(7);
+  });
+
+  test("a street between a workplace and the nearest manhole: no connection over it — a trunk in beside the port instead", () => {
+    const g = street();
+    setSlopMaking(1);
+    // A live trunk east of a street down x = 14: its manhole at (16, 4) is four tiles from the port, and across the road.
+    for (let y = 0; y < 16; y++) g.paved[idx(g, 14, y)] = 1;
+    lay(g, [...Array.from({ length: 13 }, (_, k) => ({ x: 4 + k, y: 12 })), ...Array.from({ length: 8 }, (_, k) => ({ x: 16, y: 11 - k }))]);
+    expect(g.sewerFit[idx(g, 16, 4)]).toBe(SEWER_FIT.node);
+    expect(lateralReach(g)[idx(g, 15, 4)]).toBe(1);
+    expect(lateralReach(g)[idx(g, 12, 4)]).toBe(-1);
+    const job = neededSewer(g)!;
+    expect(job.kind).toBe("trunk");
+    // From open ground beside the port, where its manhole can take the connection.
+    expect(g.paved[idx(g, job.cells[0].x, job.cells[0].y)]).toBe(0);
+    expect(Math.abs(job.cells[0].x - 12) + Math.abs(job.cells[0].y - 4)).toBe(1);
+    lay(g, job.cells);
+    const lateral = neededSewer(g)!;
+    expect(lateral.kind).toBe("lateral");
+    expect(lateral.cells.every((c) => g.paved[idx(g, c.x, c.y)] === 0)).toBe(true);
+  });
+
+  test("a manhole set in a road takes no connection: the AI does not try for one", () => {
+    const g = street();
+    setSlopMaking(1);
+    // The trunk runs under a street along y = 6, its manhole at (12, 6) in the road, two tiles from the port.
+    for (let x = 4; x < 24; x++) g.paved[idx(g, x, 6)] = 1;
+    lay(g, Array.from({ length: 9 }, (_, k) => ({ x: 4 + k, y: 6 })));
+    expect(g.sewerFit[idx(g, 12, 6)]).toBe(SEWER_FIT.node);
+    expect(lateralReach(g)[idx(g, 12, 4)]).toBe(-1);
+    expect(neededSewer(g)!.kind).toBe("trunk");
   });
 
   test("a block it means to build on gets a trunk into it, unless a manhole reaches it", () => {

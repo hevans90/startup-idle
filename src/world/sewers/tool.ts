@@ -5,7 +5,7 @@
  */
 import { buildCost, pipeCost } from "../../game/build-cost";
 import type { Stroke } from "../edit/tools";
-import type { Grid } from "../grid";
+import { VOID, idx, inBounds, type Grid } from "../grid";
 import { routeMain } from "../water/mains";
 import { planLateral, planSewer, routeSewer, type LateralPlan, type SewerPlan } from "./lay";
 
@@ -37,7 +37,12 @@ export function lateralStrokePlan(g: Grid, s: Stroke, wet: (x: number, y: number
   const key = `${s.anchor.x},${s.anchor.y},${s.head.x},${s.head.y}`;
   if (lastLateral && lastLateral.g === g && lastLateral.rev === g.rev && lastLateral.key === key && !s.path) return lastLateral;
   const route = s.path ? [...s.path] : routeMain(g, s.anchor, s.head, wet, true);
-  const plan = route ? planLateral(g, route, wet) : { refused: "No way through for a lateral: round buildings, off the water" };
+  // WHY THERE IS NO WAY: an end in a road, a street across it, or just buildings and water. @see planLateral
+  const paved = (c: Cell) => inBounds(g, c.x, c.y) && g.paved[idx(g, c.x, c.y)] !== VOID;
+  const blocked = paved(s.anchor) || paved(s.head) ? "A sewer connection can't end in a road: lay a trunk into the block"
+    : routeMain(g, s.anchor, s.head, wet) ? "A sewer connection can't cross a road"
+    : "No way through for a lateral: round buildings, off the water";
+  const plan = route ? planLateral(g, route, wet) : { refused: blocked };
   lastLateral = { g, rev: g.rev, key, route, plan };
   return lastLateral;
 }

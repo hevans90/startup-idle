@@ -5,7 +5,7 @@
  * it while you drag, and the stroke lays what it says. @see solve, plans/underground-sewers.md §3–4
  */
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { MAIN_END, SEWER_AI, SEWER_FIT, idx, inBounds, structureAt, type Grid } from "../grid";
+import { MAIN_END, SEWER_AI, SEWER_FIT, VOID, idx, inBounds, structureAt, type Grid } from "../grid";
 import { hasMain, planMain, type MainCell } from "../water/mains";
 import { portsAt } from "../water/ports";
 import { LATERAL_REACH, NODE_EVERY, SEWER_KIND, hasSewer, solveSewers, type SewerSolve } from "./solve";
@@ -252,8 +252,9 @@ export type LateralPlan = { cells: MainCell[]; fresh: number; node: number; sour
 
 /**
  * A LATERAL along a route: the short brown tube above ground from a
- * workplace's slop port to a sewer manhole, no longer than `LATERAL_REACH`.
- * Either way round; refused, with why, as a string. @see planMain
+ * workplace's slop port to a sewer manhole, no longer than `LATERAL_REACH`,
+ * with no road on any of its tiles. Either way round; refused, with why, as
+ * a string. @see planMain, lateralReach
  */
 export function planLateral(g: Grid, route: readonly Cell[], wet: (x: number, y: number) => boolean): LateralPlan | { refused: string } {
   if (route.length < 2) return { refused: "Drag from a workplace's slop port to a sewer node" };
@@ -264,6 +265,8 @@ export function planLateral(g: Grid, route: readonly Cell[], wet: (x: number, y:
   if (!isNode(node)) return { refused: "End it at a sewer node" };
   const port = portsAt(g, at(cells[0]), "slop", "out");
   if (!port.length && !hasMain(g, at(cells[0]))) return { refused: "Start it at a workplace's slop port" };
+  // ON EMPTY PLOTS ONLY: this is the guard that counts, whoever found the route. Trunks go under roads; a connection never over one.
+  if (cells.some((c) => inBounds(g, c.x, c.y) && g.paved[at(c)] !== VOID)) return { refused: "A sewer connection can't cross a road" };
   if (cells.length - 1 > LATERAL_REACH) return { refused: `Longer than ${LATERAL_REACH} tiles: lay the sewer nearer` };
   const plan = planMain(g, cells, wet, false, true);
   if ("refused" in plan) return plan;

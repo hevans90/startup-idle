@@ -16,7 +16,7 @@ import { isDrinker } from "../../game/cooling";
 import { pumpLift, sewerFlow } from "../../game/mains";
 import { coolingKept } from "../../game/pollution";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, MAIN_STUB, SEWER_FIT, edited, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, MAIN_STUB, SEWER_FIT, VOID, edited, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 import { solveSewers } from "../sewers/solve";
 import { fillTank, tankRoom } from "../projects/cooling";
 import { structureDef } from "../structures/def";
@@ -473,7 +473,7 @@ export function snapToPort(g: Grid, c: { x: number; y: number }, wet: (x: number
  * tile, round buildings, off water but for its ends, never across another
  * main but at its ends — and as straight as it can be, a turn costing half a
  * tile. An end on or against a building that drinks SNAPS to its nearest
- * inlet. Null where there is no way. Pure.
+ * inlet. A sewer's (`sewer`) never touches a road. Null where there is no way. Pure.
  */
 export function routeMain(
   g: Grid, from: { x: number; y: number }, to: { x: number; y: number },
@@ -487,6 +487,8 @@ export function routeMain(
   const free = (i: number) => {
     const x = i % g.w, y = (i / g.w) | 0;
     if (structureAt(g, x, y) >= 0) return false;
+    // A SEWER CONNECTION keeps off the roads, its ends too: it goes round a street or finds no way. A water main crosses on a frame.
+    if (sewer && g.paved[i] !== VOID) return false;
     if (i === start || i === goal) return true;
     return !wet(x, y) && !hasMain(g, i);
   };

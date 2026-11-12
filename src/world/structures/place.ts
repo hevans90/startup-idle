@@ -25,7 +25,8 @@ import {
   type Facing, type Rect,
 } from "../boats/quay";
 import { placementOf, structureDef, type StructureDef } from "./def";
-import { LATERAL_REACH, hasSewer, solveSewers } from "../sewers/solve";
+import { hasSewer } from "../sewers/solve";
+import { lateralReach } from "../sewers/reach";
 import { portTiles } from "../water/ports";
 
 /** Where a structure stroke places: the head cell, with the definition's footprint. */
@@ -96,19 +97,17 @@ export type PlaceRules = {
   needsSewer?: boolean;
 };
 
-/** Whether a building of `def` set down at (x, y) would have a live sewer manhole within reach of its slop port. True for one that makes no slop. */
+/**
+ * Whether a building of `def` set down at (x, y) would have a live sewer
+ * manhole in reach of its slop port — BY THE ROUTE a connection would take,
+ * over open ground and never a road, not by how near it is. True for one
+ * that makes no slop. @see lateralReach
+ */
 export function sewerInReach(grid: Grid, def: StructureDef, x: number, y: number): boolean {
   const ports = portTiles(grid, def.id, x, y, def.footprint.w, def.footprint.h).filter((p) => p.port.fluid === "slop" && p.port.dir === "out");
   if (!ports.length) return true;
-  const s = solveSewers(grid);
-  for (const net of s.nets) {
-    if (!net.exits.length) continue;
-    for (const n of net.nodes) {
-      const nx = n % grid.w, ny = (n / grid.w) | 0;
-      if (ports.some((p) => Math.abs(p.x - nx) + Math.abs(p.y - ny) <= LATERAL_REACH)) return true;
-    }
-  }
-  return false;
+  const reach = lateralReach(grid);
+  return ports.some((p) => inBounds(grid, p.x, p.y) && reach[idx(grid, p.x, p.y)] >= 0);
 }
 
 const NO_RULES: PlaceRules = {};

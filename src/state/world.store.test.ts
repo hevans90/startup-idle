@@ -613,6 +613,25 @@ describe("in the game, road costs money and a refusal says why", () => {
     expect(s().notice?.text).toMatch(/Not enough money/);
   });
 
+  test("a road is refused over a sewer connection, and nothing is paid", () => {
+    s().resize(12, 12);
+    s().setPlaying(true);
+    // A connection lying on open ground at (5, 5) to (5, 7).
+    const g = s().grid;
+    for (let y = 5; y <= 7; y++) g.main[idx(g, 5, y)] |= MAIN_SEWER;
+    g.rev++;
+    s().setTool("paintRoad");
+    s().setBrush("point");
+    useMoneyStore.setState({ money: new Decimal(100) });
+    s().beginStroke({ x: 5, y: 6 }); s().endStroke();
+    expect(s().grid.paved[idx(s().grid, 5, 6)]).toBe(0);
+    expect(s().notice?.text).toBe("A road can't go over a sewer connection");
+    expect(useMoneyStore.getState().money.toNumber()).toBe(100);
+    // Beside it, a road goes down as ever.
+    s().beginStroke({ x: 6, y: 6 }); s().endStroke();
+    expect(s().grid.paved[idx(s().grid, 6, 6)]).not.toBe(0);
+  });
+
   test("a building that cannot go there says why", () => {
     s().resize(12, 12);
     s().setPlaying(true);
