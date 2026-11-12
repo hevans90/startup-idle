@@ -12,6 +12,7 @@ import { WORKPLACES } from "../agents/commute";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { fluidIndexOf } from "../water/materials";
 import { backedUpCell, mainReportsFor, stormOnDevice } from "../water/mains";
+import { loadSlop, loaderBerths, loaderGone, loaderRoom, loadersOf } from "../boats/slop-loader";
 import { portsOf } from "../water/ports";
 import { wantDepth } from "../../fluid/columns";
 import { COLUMNS_PER_TILE, depthAt, drainAt, pourAt, type WaterField } from "../water/field";
@@ -157,7 +158,12 @@ export function stepSlop(
   setSlopMaking(making);
   // What each processor has taken this frame. @see PROCESS_RATE
   const taken = new Map<number, number>();
-  const roomLeft = (id: number) => Math.max(0, PROCESS_RATE * dt - (taken.get(id) ?? 0));
+  // A PORT'S SLOP LOADER takes it as a processor does: as fast as it loads, and no more than its tank has room for. @see slop-loader
+  const loader = (id: number) => { const s = g.structures.get(id); return s && loaderBerths(s) > 0 ? s : null; };
+  const roomLeft = (id: number) => {
+    const port = loader(id);
+    return Math.max(0, (port ? loaderRoom(g, port, dt) : PROCESS_RATE * dt) - (taken.get(id) ?? 0));
+  };
   // DRAINED by the sewers: each its share of what it carries from every tank it serves.
   for (const r of mainReportsFor(g).values()) {
     // A LATERAL into a manhole drains under the ground, below. @see stepSewers
@@ -167,8 +173,8 @@ export function stepSlop(
     // AS MUCH AS IT CAN PUT SOMEWHERE: what its processors have room for, and
     // with an outfall, all it carries. Backed up, the rest stays in the tanks.
     // Each processor once, though a sewer meet both its inlets.
-    const sinks = [...new Map(r.outlets.filter((o) => processorKind(g.structures.get(o.building)?.def ?? "")).map((o) => [o.building, o])).values()];
-    const roomOf = (id: number) => Math.max(0, PROCESS_RATE * dt - (taken.get(id) ?? 0));
+    const sinks = [...new Map(r.outlets.filter((o) => processorKind(g.structures.get(o.building)?.def ?? "") || loader(o.building)).map((o) => [o.building, o])).values()];
+    const roomOf = roomLeft;
     // BACKED UP, it puts it all in the street: as much as it carries. @see setBackedUp
     const manhole = r.state === "backed-up" ? backedUpCell() : null;
     const room = r.sewer.outfalls.length || manhole !== null ? Infinity : sinks.reduce((n, o) => n + roomOf(o.building), 0);
@@ -206,6 +212,13 @@ export function stepSlop(
       surface: (x: number, y: number) => surfaceOn(field, x, y),
     } : {}),
   });
+  // INTO THE LOADERS, what the sewers brought them; and one whose port is gone, or refitted, puts what it held on the ground there.
+  for (const [id, amount] of taken) { const port = loader(id); if (port) loadSlop(g, port, amount); }
+  for (const id of [...loadersOf(g).keys()]) {
+    if (loader(id)) continue;
+    const had = loaderGone(g, id), s = g.structures.get(id), at = s ? spillAt(g, s) : null;
+    if (had > 0 && field && at) release(g, field, at.x, at.y, had);
+  }
   // SPILLED, a full tank, at its port — or, built over, out of the nearest
   // gap round the building: it goes somewhere.
   for (const s of places) {

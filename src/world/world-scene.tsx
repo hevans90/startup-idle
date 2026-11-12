@@ -91,6 +91,7 @@ import { dredgeCells, type Facing, type Rect as PortRect } from "./boats/quay";
 import { SHIP_CLASSES, classOf } from "./boats/classes";
 import { fitting } from "./boats/fittings";
 import { creditTrade, stepTrade } from "./boats/trade";
+import { BARGE_COST, BARGE_HOLDS, bargeLoad, bargeTakes } from "./boats/slop-loader";
 import { pushWater } from "./boats/wake";
 import { stepYards, yardFill } from "./boats/yard";
 import { PORT_LORRY_COLOUR } from "./agents/cars/fleet";
@@ -184,7 +185,8 @@ import { useSessionStore } from "../state/session.store";
 import { sitesOf, stepWorks } from "./projects/works";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
 import { stepFleet, wantFleet } from "./boats/fleet";
-import { stepTraffic, trafficSteer } from "./boats/traffic";
+import { callInvestor, stepTraffic, trafficSteer } from "./boats/traffic";
+import { termStatus } from "../game/term-sheets";
 import "./structures/seaport-renderer";
 import "./structures/project-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
@@ -526,6 +528,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    * empty one after a load. @see portIncomePerSecond
    */
   const portRateAt = useRef(performance.now() + 55_000);
+  /** Whether the term sheet's goal was met when last looked at (null before the first look), and seconds since. @see callInvestor */
+  const termLook = useRef<{ met: boolean | null; at: number }>({ met: null, at: 0 });
   /** How long each miserable house has been so. @see stepMood */
   const unrestRef = useRef<Unrest>(new Map());
   /** The events director's clock, the sludge's, and the next event's number. @see stepEvents */
@@ -3240,6 +3244,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const traffic = getTraffic();
       stepTraffic(traffic, fleet, useWorldStore.getState().grid, field.columns, dt);
       stepTrade(dt);
+      // A TERM SHEET'S GOAL, MET: its investor comes by water, if there is a pontoon to come to. Looked at twice a second;
+      // one already met when the map opens is not news.
+      if (useWorldStore.getState().playing && (termLook.current.at += dt) >= 0.5) {
+        termLook.current.at = 0;
+        const met = termStatus()?.progress.met ?? false;
+        if (met && termLook.current.met === false) callInvestor(traffic);
+        termLook.current.met = met;
+      }
       // MOMENTS: the first coaster or ship to call at a port sounds its horn; a river fallen too low for a port's ships is said. @see Traffic.firsts
       if (traffic.firsts.length || traffic.lows.length) {
         const g = useWorldStore.getState().grid, playing = useWorldStore.getState().playing;
@@ -3264,6 +3276,22 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // And by what its berth is fitted for: less of the fee, and something for the town. @see FITTINGS
           const fit = fitting(call.fit);
           let fee = s ? portCallFee(s.def, undefined, call.cls) : null;
+          // THE INVESTOR, ARRIVED: their yacht has called at the pontoon. @see callInvestor
+          if (call.vip && st.playing) {
+            sfx("horn");
+            const who = termStatus()?.sheet.investor;
+            if (who) useWorldStore.setState({ notice: { text: `${who} arrives by yacht`, at: Date.now() } });
+          }
+          // A SLOP BARGE takes a hold of what the loader has, and bills for it by how much: a full one, half a call's fee.
+          // What the company cannot pay for is left where it is.
+          if (fit.id === "slop" && s && fee !== null && !portShut(id)) {
+            const bill = fee * BARGE_COST * (bargeLoad(st.grid, id) / BARGE_HOLDS);
+            if (bill > 0 && (!st.playing || useMoneyStore.getState().money.gte(bill))) {
+              bargeTakes(st.grid, id);
+              if (st.playing) useMoneyStore.getState().spendMoney(bill);
+            }
+            continue;
+          }
           if (fee !== null) fee *= fit.pay;
           if (fit.keeps && s && !portShut(id)) creditTrade(fit.keeps, classOf(call.cls).dock * classOf(call.cls).span);
           // A PORT UNDER WATER takes no trade. @see portShut

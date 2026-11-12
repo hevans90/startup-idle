@@ -14,7 +14,7 @@
 import type { Structure } from "../grid";
 import type { TradeKind } from "./trade";
 
-export type FitId = "trade" | "ferry" | "crane" | "hardware" | "gantry" | "pontoon";
+export type FitId = "trade" | "ferry" | "crane" | "hardware" | "gantry" | "pontoon" | "slop";
 
 export type Fitting = {
   id: FitId;
@@ -30,16 +30,18 @@ export type Fitting = {
   /** What it does, in a line. */
   does: string;
   /** What must be open before it can be fitted, for the card to say. */
-  needs?: "datacentre";
+  needs?: "datacentre" | "sewers";
 };
 
 export const FITTINGS: readonly Fitting[] = [
   { id: "trade", name: "Trading quay", tier: 1, classes: [0, 1, 2], pay: 1, does: "Full fee" },
-  { id: "ferry", name: "Ferry ramp", tier: 1, classes: [0], pay: 0.5, keeps: "ferries", does: "Hires arrive sooner" },
+  { id: "ferry", name: "Ferry ramp", tier: 1, classes: [0], pay: 0.5, keeps: "ferries", does: "Hires arrive sooner; the far bank is near" },
   { id: "crane", name: "Cargo crane", tier: 2, classes: [0, 1], pay: 0.35, keeps: "materials", does: "Site loads cost less" },
   { id: "hardware", name: "Hardware berth", tier: 2, classes: [0, 1], pay: 0.35, keeps: "hardware", does: "Racks cost less", needs: "datacentre" },
   { id: "gantry", name: "Container gantry", tier: 3, classes: [2], pay: 1.5, does: "Ships only, fee and a half" },
   { id: "pontoon", name: "Pontoon", tier: 3, classes: [0], pay: 0.6, keeps: "yachts", does: "Valuation grows faster" },
+  // A way out for slop: a sewer ends at the port, a barge takes it away and bills for it. @see slop-loader
+  { id: "slop", name: "Slop loader", tier: 2, classes: [0], pay: 0, does: "A barge takes slop away, for a charge", needs: "sewers" },
 ];
 
 const BY_ID = new Map(FITTINGS.map((f) => [f.id, f]));

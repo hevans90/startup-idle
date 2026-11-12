@@ -1,6 +1,6 @@
 # Seaports and boats, rebuilt
 
-**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **What is left waits for the pipe plan** (`plans/pipe-network.md`), decided 2026-11-11: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
+**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **The pipe plan is done; of what waited for it, the slop loader, the ferry's far bank and the investor's yacht are built** (2026-11-12) and six items are left: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
 
 ## Why
 
@@ -219,15 +219,24 @@ Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then 
 
 | Item | What it is | Waits on |
 |---|---|---|
-| Slop loader and slop barge | A berth fitting with a slop inlet; a barge takes slop away for a fee | Pipe plan phases 1–2 (the graph, the solver), 4 for mixtures |
+| ~~Slop loader and slop barge~~ | **Built 2026-11-12**, see below | — |
 | Tug, and ships turning | A tug meets a ship and turns it in the basin; today room to turn is only a check | Nothing |
-| Ferry: homes across the water | A ferry ramp makes housing on the far bank count as near | Nothing |
-| Investor yacht | A yacht calls at a pontoon when a term sheet is due | Nothing |
+| ~~Ferry: homes across the water~~ | **Built 2026-11-12**, see below | — |
+| ~~Investor yacht~~ | **Built 2026-11-12**, see below | — |
 | Yard gantry lifts | The yard gantry moves boxes between stack and lorry lane | Nothing |
 | Boxes onto lorries | A box seen set on a lorry at the gate | Yard gantry lifts |
 | Wake foam | Foam from the water, or baked, in place of the drawn foam | Nothing |
 | Balance | Ship classes, fees and fittings through the balance sim | Nothing |
 | Generated banks | How often a Port III fits on generated maps' slanted banks, and whether placing should straighten a bank | Nothing |
+
+**Built from this list, 2026-11-12** (after the pipe plan). Tests in `boats/slop-loader.test.ts`, `ferry-links.test.ts`, `fittings.test.ts`.
+- **Slop loader** (`boats/slop-loader.ts`, `loaderPorts` in `water/ports.ts`): a berth fitting for a port of two berths or more, once sewers are open. Fitted, the port has a slop inlet on each END, at the corner away from the water, so a sewer connection or a trunk ends there as at a processor. Its tank takes half a unit a second and holds 30 a slop berth; full, it backs the sewer up. A barge (the lighter's hull: none of its own is baked) calls at the berth, takes up to 20 and bills for it — half a plain call's fee for a full hold, less for less; what the company cannot pay for is left. The berth earns nothing. Refitted or demolished, what it held goes on the ground by the port. The card shows the tank's fill where a trade's meter is.
+  - **Not on the landward wall**, as first built: that is where the port's road runs, and a connection may not cross a road. Seen in the browser and moved.
+  - **Not done:** the tank is not saved; no barge model; the bill is not shown anywhere but in the money; not run through the balance sim.
+- **Ferry, the far bank near** (`boats/ferry-links.ts`, `walkFrom` in `agents/commute.ts`): a port with a ferry ramp joins the road against its walls to every road tile within 2 tiles of its river and 12 of the port, as 4 tiles of road. So a street with no bridge to it is not cut off: its people reach their desks, and the houses there are worth what a street 4 tiles further would be. Every walk along the roads uses it — commutes and what a house is near.
+  - **Not done:** nobody is seen crossing; cars and lorries do not use it; it does not need the ferries to be running, only the ramp to be fitted.
+- **The investor's yacht** (`callInvestor` in `boats/traffic.ts`): when the term sheet's goal is first met in play, the next boat a river with a pontoon sends is the investor's yacht, bound for the pontoon; on its call a horn and a notice, "<investor> arrives by yacht". A goal already met when the map opens is not news, and with no pontoon nobody is sent.
+  - **Not seen in the browser:** no fixture has a term sheet near its goal. Tests only.
 
 Fixed while play-testing, not in the phases above: a port is placed by pointing at its quay or the water off it; the pointer picks the water with a port in hand or dredging; boats are sent by the berths their class can use, ports alike take turns; a low river is said once it has stayed low (`LOW_HOLD`). `?fixture=shoal` is the harbour with a bar to dredge.
 

@@ -26,6 +26,7 @@ import { housedBy, residentsIn } from "../../game/housing";
 import { NEIGHBOUR } from "../../iso/dir";
 import type { GeneratorId } from "../../state/generators.store";
 import { idx, type Grid } from "../grid";
+import { FERRY_TILES, ferryLinks } from "../boats/ferry-links";
 import { connects } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
@@ -105,6 +106,8 @@ export const CLIMB = 2;
  */
 export function walkFrom(g: Grid, starts: readonly number[]): Int32Array {
   const dist = new Int32Array(g.w * g.h).fill(-1);
+  // A FERRY is a few tiles of road across the water, from its port's gate to the roads on the banks. @see ferryLinks
+  const ferries = ferryLinks(g);
   // Steps of one or two: a bucket a distance, worked through in order.
   const buckets: number[][] = [[]];
   for (const i of starts) if (dist[i] < 0) { dist[i] = 0; buckets[0].push(i); }
@@ -124,6 +127,12 @@ export function walkFrom(g: Grid, starts: readonly number[]): Int32Array {
         // Onto a ramp is up or down a level. @see Grid.ramp
         const nd = d + (g.ramp[j] && !g.deck[j] ? CLIMB : 1);
         if (dist[j] >= 0 && dist[j] <= nd) continue;
+        dist[j] = nd;
+        (buckets[nd] ??= []).push(j);
+      }
+      for (const j of ferries.get(i) ?? []) {
+        const nd = d + FERRY_TILES;
+        if (isClosed(j) || (dist[j] >= 0 && dist[j] <= nd)) continue;
         dist[j] = nd;
         (buckets[nd] ??= []).push(j);
       }

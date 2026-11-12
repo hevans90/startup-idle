@@ -85,6 +85,8 @@ export type Boat = {
   waited?: number;
   /** One of a convoy: in the convoy's livery. @see Traffic.convoy */
   convoy?: boolean;
+  /** THE INVESTOR'S YACHT: come for a pontoon because a term sheet's goal is met. @see callInvestor */
+  vip?: boolean;
   /** One of the Machine's freighters: violet, crewless, a light at the bow. @see Market Maker */
   ai?: boolean;
 };

@@ -1127,6 +1127,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const f = fitting(fit);
     if (!s || !berths || berth < 0 || berth >= berths || f.id !== fit || !fitsTier(f, berths)) return;
     if (f.needs === "datacentre" && !agentsOpen()) return;
+    if (f.needs === "sewers" && !sewersOpen()) return;
     const next = Array.from({ length: berths }, (_, k) => fitting(s.fit?.[k]).id as string);
     next[berth] = f.id;
     s.fit = next;

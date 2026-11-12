@@ -6,11 +6,12 @@ import { useEffect, useState } from "react";
 
 import { agentsOpen } from "../../game/agents";
 import { useTicking } from "../../hooks/use-ticking";
-import { getTraffic, useWorldStore } from "../../state/world.store";
+import { getTraffic, sewersOpen, useWorldStore } from "../../state/world.store";
 import { lands, yardFill } from "../boats/yard";
 import { Card } from "../../ui/console";
 import { FITTINGS, fitOf, fitsTier } from "../boats/fittings";
 import { tradeLevel } from "../boats/trade";
+import { loaderFill } from "../boats/slop-loader";
 import { structureOf } from "../grid";
 import { structureDef } from "../structures/def";
 
@@ -30,12 +31,13 @@ export function PortCard() {
   const berths = def.port.berths;
   const hasYard = Array.from({ length: berths }, (_, k) => fitOf(s, k).id).some(lands);
   const fill = yardFill(getTraffic().yards, s.id, berths);
-  const offered = FITTINGS.filter((f) => fitsTier(f, def.port!.berths) && (f.needs !== "datacentre" || agentsOpen()));
+  const offered = FITTINGS.filter((f) => fitsTier(f, def.port!.berths) && (f.needs !== "datacentre" || agentsOpen()) && (f.needs !== "sewers" || sewersOpen()));
   return (
     <Card onClose={() => setShut(looked.n)} className="w-72" title={<span className="capitalize">{def.name}</span>}>
       {Array.from({ length: def.port.berths }, (_, k) => {
         const fit = fitOf(s, k);
-        const level = fit.keeps ? tradeLevel(fit.keeps) : null;
+        // A trade's meter; or, for a slop loader, how full its tank stands.
+        const level = fit.keeps ? tradeLevel(fit.keeps) : fit.id === "slop" ? loaderFill(useWorldStore.getState().grid, s) : null;
         return (
           <label key={k} className="flex items-center gap-2 py-0.5" title={fit.does}>
             <span className="w-12 shrink-0 whitespace-nowrap text-fg-muted">Berth {k + 1}</span>

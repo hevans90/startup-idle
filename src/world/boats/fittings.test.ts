@@ -12,7 +12,7 @@ import { mapRiver, poolDepthOf } from "./river";
 import {
   MATERIALS_OFF, TRADE_A_CALL, TRADE_LASTS, creditTrade, ferrySpeed, hardwareMult, materialsMult, resetTrade, stepTrade, tradeLevel, yachtValuation,
 } from "./trade";
-import { aboard, berthsFor, createTraffic, fitsFor, landedBy, liftAt, portsOf, slotAt, stepTraffic, trafficSteer, workOf, type Call } from "./traffic";
+import { aboard, berthsFor, callInvestor, createTraffic, fitsFor, landedBy, liftAt, portsOf, slotAt, stepTraffic, trafficSteer, workOf, type Call } from "./traffic";
 import { cargoOf } from "./cargo";
 
 function river(depth: number, w = 40): Grid {
@@ -54,9 +54,43 @@ describe("a berth's fitting", () => {
   test("opens with the size of port", () => {
     const at = (berths: number) => FITTINGS.filter((f) => fitsTier(f, berths)).map((f) => f.id);
     expect(at(1)).toEqual(["trade", "ferry"]);
-    expect(at(2)).toEqual(["trade", "ferry", "crane", "hardware"]);
+    expect(at(2)).toEqual(["trade", "ferry", "crane", "hardware", "slop"]);
     expect(at(3)).toHaveLength(FITTINGS.length);
   });
+
+  test("an investor comes by yacht to a pontoon, once, and is said to have; with no pontoon nobody is sent", () => {
+    const run = (fit: string[]) => {
+      const g = river(2);
+      port(g, 3, fit);
+      const c = fieldOf(g), f = createFleet(), t = createTraffic(), out: Call[] = [];
+      const step = (seconds: number) => {
+        for (let k = 0; k < seconds * 30; k++) { stepTraffic(t, f, g, c, 1 / 30); stepFleet(f, c, 1 / 30, trafficSteer(t)); out.push(...t.calls.splice(0)); }
+      };
+      // The ports are mapped by the first steps.
+      step(3);
+      const sent = callInvestor(t);
+      step(150);
+      return { sent, out, left: t.investors };
+    };
+    const none = run(["trade", "trade", "trade"]);
+    expect(none.sent).toBe(false);
+    expect(none.out.some((c) => c.vip)).toBe(false);
+    const some = run(["trade", "trade", "pontoon"]);
+    expect(some.sent).toBe(true);
+    expect(some.left).toBe(0);
+    const vips = some.out.filter((c) => c.vip);
+    expect(vips.length).toBe(1);
+    expect(vips[0].fit).toBe("pontoon");
+  }, 30_000);
+
+  test("a slop loader's berth is called at by barges, of the smallest class", () => {
+    const g = river(2);
+    port(g, 2, ["trade", "slop"]);
+    const made = calls(g, 150);
+    const barges = made.filter((c) => c.fit === "slop");
+    expect(barges.length).toBeGreaterThan(0);
+    expect(barges.every((c) => c.cls === 0)).toBe(true);
+  }, 30_000);
 
   test("a port never fitted out is called at as it always was", () => {
     const g = river(2);

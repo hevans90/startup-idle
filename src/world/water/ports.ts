@@ -14,8 +14,28 @@ export type PortCell = { i: number; x: number; y: number; port: Port; building: 
 
 /** The tile in front of each port a building of `def` would have, set down at (x, y), `w` by `h`: off the map, left out. */
 export function portTiles(g: Grid, def: string, x0: number, y0: number, w: number, h: number): { x: number; y: number; port: Port }[] {
+  return tilesFor(g, structureDef(def)?.ports ?? [], x0, y0, w, h);
+}
+
+/**
+ * A SEAPORT WITH A SLOP LOADER has slop inlets no other seaport has: one on
+ * each END of it, at the corner away from the water. Not on its landward
+ * wall, which is where its road runs, and a sewer connection may not cross a
+ * road. Its own, not its kind's, since they come and go with a berth's
+ * fitting. @see boats/slop-loader
+ */
+export function loaderPorts(s: Pick<Structure, "def" | "fit" | "facing" | "w" | "h">): readonly Port[] {
+  if (!s.facing || !s.fit?.includes("slop") || !structureDef(s.def)?.port) return [];
+  // The quay is on side `facing`; the ends are the two sides square to it, and the landward row the one furthest from it.
+  const [dx, dy] = NEIGHBOUR[s.facing];
+  const ends = dx !== 0 ? (["E", "W"] as const) : (["N", "S"] as const);
+  const at = dx !== 0 ? (dx < 0 ? s.w - 1 : 0) : (dy < 0 ? s.h - 1 : 0);
+  return ends.map((face) => ({ face, at, fluid: "slop", dir: "in" }));
+}
+
+function tilesFor(g: Grid, ports: readonly Port[], x0: number, y0: number, w: number, h: number): { x: number; y: number; port: Port }[] {
   const out: { x: number; y: number; port: Port }[] = [];
-  for (const port of structureDef(def)?.ports ?? []) {
+  for (const port of ports) {
     // Along a N/S face runs y; along an E/W face, x. Kept on the face if the footprint was placed smaller.
     const ns = port.face === "N" || port.face === "S";
     const at = Math.min(port.at, (ns ? h : w) - 1);
@@ -30,7 +50,8 @@ export function portTiles(g: Grid, def: string, x0: number, y0: number, w: numbe
 /** A building's ports, the tile in front of each — none for one being built, or off the map. */
 export function portsOf(g: Grid, s: Structure): PortCell[] {
   if (s.build) return [];
-  return portTiles(g, s.def, s.x, s.y, s.w, s.h).map((t) => ({ ...t, i: idx(g, t.x, t.y), building: s.id }));
+  return [...portTiles(g, s.def, s.x, s.y, s.w, s.h), ...tilesFor(g, loaderPorts(s), s.x, s.y, s.w, s.h)]
+    .map((t) => ({ ...t, i: idx(g, t.x, t.y), building: s.id }));
 }
 
 /**
@@ -47,6 +68,7 @@ export function inletOpen(g: Grid, def: string, x: number, y: number, w: number,
 export function portTileSet(g: Grid): Set<number> {
   const out = new Set<number>();
   for (const st of g.structures.values()) {
+    for (const t of tilesFor(g, loaderPorts(st), st.x, st.y, st.w, st.h)) out.add(t.y * g.w + t.x);
     if (!structureDef(st.def)?.ports?.length) continue;
     for (const t of portTiles(g, st.def, st.x, st.y, st.w, st.h)) out.add(t.y * g.w + t.x);
   }

@@ -118,7 +118,7 @@ export type Work = { cap: number; cranes: number; lifts: number; unload: number;
 
 export function workOf(look: string, fit: string, span: number, dockFor: number): Work | null {
   const cargo = cargoOf(look);
-  if (!cargo || fit === "ferry" || fit === "pontoon") return null;
+  if (!cargo || fit === "ferry" || fit === "pontoon" || fit === "slop") return null;
   const cap = cargo.slots.length, cranes = span;
   const lifts = Math.max(2, Math.round(dockFor / (fit === "gantry" ? LIFT_SECONDS.gantry : LIFT_SECONDS.other)));
   const reload = fit !== "crane" && fit !== "hardware";
@@ -164,7 +164,7 @@ export function slotAt(w: Work, n: number, mode: "unload" | "load" | "idle"): nu
 }
 
 /** A call completed: at which port and berth, by what size of ship, come for what fitting. */
-export type Call = { port: number; berth: number; cls: number; fit: string };
+export type Call = { port: number; berth: number; cls: number; fit: string; vip?: boolean };
 
 /**
  * The berths a class may be given at a port: the first of each run it would
@@ -224,6 +224,8 @@ export type Traffic = {
   firsts: { port: number; cls: number }[];
   /** Ports the river has fallen too low for the biggest ships they were taking, since the last look. */
   lows: number[];
+  /** Investors on their way: the next boats in are their yachts, for a pontoon. @see callInvestor */
+  investors: number;
   /** What each port was taking when last mapped. */
   took: Map<number, number>;
   /** How long each port's river has been too low for what it took, seconds. @see LOW_HOLD */
@@ -240,8 +242,19 @@ export type Traffic = {
   rush: number;
 };
 
+/**
+ * AN INVESTOR COMES BY WATER: the next boat a river with a pontoon sends is
+ * their yacht, and its call says so. Whether there is a pontoon for them to
+ * come to: with none, nobody is sent.
+ */
+export function callInvestor(t: Traffic): boolean {
+  const any = [...t.ports.values()].some((p) => berthsFor(p, 0, "pontoon").length > 0);
+  if (any) t.investors++;
+  return any;
+}
+
 export const createTraffic = (): Traffic => ({
-  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [], turned: [], yards: createYards(), rush: 1, convoy: false, firsts: [], lows: [], took: new Map(), falling: new Map(), turn: new Map(),
+  rivers: null, ports: new Map(), queues: new Map(), sinceMap: Infinity, untilSpawn: new Map(), sent: 0, calls: [], turned: [], yards: createYards(), rush: 1, convoy: false, firsts: [], lows: [], investors: 0, took: new Map(), falling: new Map(), turn: new Map(),
 });
 
 /** Every seaport's berths, on the rivers as they stand. */
@@ -420,7 +433,7 @@ function stepCalls(t: Traffic, f: Fleet, dt: number, sailed: { port: number; cls
     if ((b.dockLeft ?? 0) > 0) {
       b.dockLeft! -= dt;
       if (b.dockLeft! <= 0) {
-        t.calls.push({ port: port.id, berth: b.berth ?? 0, cls, fit: b.fit ?? "trade" });
+        t.calls.push({ port: port.id, berth: b.berth ?? 0, cls, fit: b.fit ?? "trade", ...(b.vip ? { vip: true } : {}) });
         sailed.push({ port: port.id, cls });
         // LANDED, into the yard. @see yard
         castOff(t, b);
@@ -627,6 +640,12 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
       cls = k;
       break;
     }
+    // AN INVESTOR IS DUE: the next boat on a river with a pontoon is their yacht, bound for it. @see callInvestor
+    let vip = false;
+    if (t.investors > 0) {
+      const pontoon = [...t.ports.values()].find((p) => p.river === river && berthsFor(p, 0, "pontoon").length > 0);
+      if (pontoon) { port = pontoon; cls = 0; vip = true; }
+    }
     // Nowhere for one to go just now: ask again in a moment, not a whole interval on.
     if (!port) { t.untilSpawn.set(river, 1); continue; }
     const boat = addBoat(f, c, s.x, s.y, cls);
@@ -634,6 +653,7 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     // COME FOR ONE OF ITS BERTHS, each kind in turn. @see fittings
     const fits = fitsFor(port, cls);
     boat.fit = fits[t.sent % fits.length];
+    if (vip) { boat.fit = "pontoon"; boat.vip = true; t.investors--; }
     boat.boxes = cargoOf(lookOf(cls, boat.fit, !!boat.ai, boat.id % 2 === 1))?.slots.length;
     if (t.convoy) boat.convoy = true;
     t.sent++;

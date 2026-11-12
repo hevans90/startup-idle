@@ -45,7 +45,8 @@ export function lookOf(cls: number, fit: string | undefined, ai: boolean, odd: b
   if (ai) return "drone";
   if (fit === "ferry") return "ferry";
   if (fit === "pontoon") return "yacht";
-  if (fit === "crane" || fit === "hardware") return "lighter";
+  // A slop barge is the lighter's hull: no barge of its own is baked.
+  if (fit === "crane" || fit === "hardware" || fit === "slop") return "lighter";
   return odd ? "fishing" : "dinghy";
 }
 
