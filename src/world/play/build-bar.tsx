@@ -118,7 +118,7 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "sewer", label: "Sewer", hint: "Drag from water or a processor to lay a sewer underground; from a workplace's slop port to a manhole, a connection. Or click and pin corners. Click one laid to open it" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road, a park anywhere; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "dredge", label: "Dredge", hint: "Drag along a river to deepen it, for bigger ships" },
-  { id: "demolish", label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to lift it" },
+  { id: "demolish", label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to delete it" },
 ];
 
 const KINDS: GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];

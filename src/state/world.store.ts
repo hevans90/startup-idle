@@ -83,6 +83,7 @@ import { dredgeCells } from "../world/boats/quay";
 import { fitsTier, fitting } from "../world/boats/fittings";
 import { agentsOpen } from "../game/agents";
 import { planNode, planStormDrain } from "../world/sewers/lay";
+import { deleteStretch, sameStretch, stretchAt } from "../world/pipes/stretch";
 import { sewersUnderground } from "../world/sewers/convert";
 import { lateralStrokePlan, laysConnection, sewerStrokePlan } from "../world/sewers/tool";
 import { formatCurrency } from "../utils/money-utils";
@@ -455,9 +456,11 @@ type WorldState = {
   /** Fit one berth of a seaport out for a job. @see world/boats/fittings */
   setBerthFit: (id: number, berth: number, fit: string) => void;
   /** Take up the whole main a tile is on, as one undoable edit. */
-  liftMainAt: (c: Cell) => void;
+  deleteMainAt: (c: Cell, stretch?: boolean) => void;
+  /** Lift the stretch at a tile and start a run from the end of it furthest from that tile: to lay it again somewhere else. */
+  moveStretchAt: (c: Cell) => void;
   /** Widen the bore of the whole main a tile is on, paid for its tiles not yet widened. @see boreCost */
-  widenMainAt: (c: Cell) => void;
+  widenMainAt: (c: Cell, stretch?: boolean) => void;
   /** The drag in progress, or null. */
   stroke: Stroke | null;
   /**
@@ -486,6 +489,8 @@ type WorldState = {
    * clicked building is for
    */
   lookedAt: { x: number; y: number; n: number } | null;
+  /** How much of a pipe looked at is meant: the stretch between two joints, or — clicked again — the whole network. @see stretchAt */
+  pipeScope: "stretch" | "network";
   lookAt: (cell: { x: number; y: number }) => void;
   /** Choose a site for a project: the next click lays it out. Null puts the choice down. */
   placeProject: (id: ProjectId | null) => void;
@@ -825,7 +830,14 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   placingProject: null,
   projectRev: 0,
   lookedAt: null,
-  lookAt: (cell) => set({ lookedAt: { x: cell.x, y: cell.y, n: (get().lookedAt?.n ?? 0) + 1 } }),
+  lookAt: (cell) => {
+    const st = get(), was = st.lookedAt, g = st.grid;
+    // A PIPE: the first click is the stretch between two joints; a second on that stretch, the whole network. @see stretchAt
+    const on = inBounds(g, cell.x, cell.y) && hasMain(g, idx(g, cell.x, cell.y));
+    const again = on && was && inBounds(g, was.x, was.y) && st.pipeScope === "stretch" && sameStretch(g, idx(g, was.x, was.y), idx(g, cell.x, cell.y));
+    set({ lookedAt: { x: cell.x, y: cell.y, n: (was?.n ?? 0) + 1 }, pipeScope: again ? "network" : "stretch" });
+  },
+  pipeScope: "stretch",
   placeProject: (id) => {
     const p = id ? projectDef(id) : null;
     // ONE PROJECT AT A TIME, in the game. @see projectUnderWay
@@ -1124,29 +1136,51 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     edited(st.grid);
     set({ revision: st.revision + 1, lastTouched: markDirty(st.grid, [idx(st.grid, s.x, s.y)], false) });
   },
-  liftMainAt: (c) => {
+  deleteMainAt: (c, stretch = false) => {
     const st = get();
     if (!inBounds(st.grid, c.x, c.y)) return;
     const { list, of } = findMains(st.grid);
     const net = list[of[idx(st.grid, c.x, c.y)]];
     if (!net) return;
     const b = new PatchBuilder(st.grid);
-    for (const i of net.cells) {
+    // ONLY THE STRETCH: what it was joined to stays, capped where that leaves a loose end. @see deleteStretch
+    const part = stretch ? stretchAt(st.grid, idx(st.grid, c.x, c.y)) : null;
+    if (part) {
+      for (const t of deleteStretch(st.grid, part)) {
+        b.set("main", t.cell % st.grid.w, (t.cell / st.grid.w) | 0, t.main);
+        b.set("mainEnd", t.cell % st.grid.w, (t.cell / st.grid.w) | 0, t.end);
+      }
+    } else for (const i of net.cells) {
       b.set("main", i % st.grid.w, (i / st.grid.w) | 0, 0);
       b.set("mainEnd", i % st.grid.w, (i / st.grid.w) | 0, 0);
     }
-    const cmd = b.build("lift main");
+    const cmd = b.build("delete main");
     if (!cmd) return;
     commit(st.grid, history, cmd);
     set({ revision: st.revision + 1, lookedAt: null, ...historyMeta() });
   },
-  widenMainAt: (c) => {
+  moveStretchAt: (c) => {
+    const st = get(), g = st.grid;
+    if (!inBounds(g, c.x, c.y)) return;
+    const at = idx(g, c.x, c.y), part = stretchAt(g, at);
+    if (!part || part.cells.length < 2) return;
+    // THE END NEARER THE CLICK is the one that moves: the run starts again from the other.
+    const k = part.cells.indexOf(at), far = k < part.cells.length / 2 ? part.cells[part.cells.length - 1] : part.cells[0];
+    const sewer = (g.main[at] & MAIN_SEWER) !== 0;
+    get().deleteMainAt(c, true);
+    const from = { x: far % g.w, y: (far / g.w) | 0 };
+    set({ tool: sewer ? "sewer" : "pipe" });
+    get().beginStroke(from);
+    get().startPins();
+  },
+  widenMainAt: (c, stretch = false) => {
     const st = get();
     if (!inBounds(st.grid, c.x, c.y)) return;
     const { list, of } = findMains(st.grid);
     const net = list[of[idx(st.grid, c.x, c.y)]];
     if (!net) return;
-    const narrow = net.cells.filter((i) => !(st.grid.main[i] & MAIN_BORE));
+    const within = stretch ? stretchAt(st.grid, idx(st.grid, c.x, c.y))?.cells ?? net.cells : net.cells;
+    const narrow = within.filter((i) => !(st.grid.main[i] & MAIN_BORE));
     if (!narrow.length) return;
     const price = boreCost(narrow.length);
     if (!spendForBuild(price)) { set({ notice: { text: `Not enough money to widen the main: ${formatCurrency(price.toNumber())}`, at: Date.now() } }); return; }

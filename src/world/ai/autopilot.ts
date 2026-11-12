@@ -70,7 +70,7 @@ export const lastStep = () => state.last;
 const named = (s: PlanStep) =>
   s.kind === "road" ? "a piece of street"
     : s.kind === "level" ? "ground levelled for a street"
-      : s.kind === "lift" ? "a spur that went nowhere, lifted"
+      : s.kind === "lift" ? "a spur that went nowhere, removed"
         : s.kind === "clear" ? "a house cleared for a street"
           : s.def.startsWith("kit:") ? "a lot" : (structureDef(s.def) ? saleName(structureDef(s.def)!) : s.def).toLowerCase();
 

@@ -7,6 +7,7 @@
  */
 import { fouledHouses, stepPollution } from "./water/pollution";
 import { suggestionsKept } from "./pipes/suggest";
+import { stretchAt } from "./pipes/stretch";
 import { founderIs } from "../game/founder-rules";
 import { useThemeStore } from "../state/theme.store";
 import { latticeForm } from "../game/quests/finale";
@@ -271,7 +272,7 @@ import { serviceOf } from "./agents/services";
 /** The services a Holo-Concierge stands at: those in the AI's district. @see game/machine "concierge" */
 const conciergesOf = (g: import("./grid").Grid) =>
   [...g.structures.values()].filter((s) => !s.build && serviceOf(s.def) && inAiDistrictNow(g, s.x, s.y)).map((s) => ({ x: s.x, y: s.y + s.h }));
-import { breakableCell, planMain, previewSewer, setBackedUp, setBurst } from "./water/mains";
+import { breakableCell, hasMain, planMain, previewSewer, setBackedUp, setBurst } from "./water/mains";
 import { mainStroke } from "./water/main-stroke";
 import { pipeKindOf, strokeRoute } from "./pipes/stroke-route";
 import { BLACKOUT_RADIUS } from "./events/defs/blackout";
@@ -3281,7 +3282,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           }), end, scale);
           // CONNECT IT FOR ME: a run just started, and the routes on offer from there as ghosts. @see SuggestCard
           const offered = piping && s0 && !s0.path && s0.pins?.length === 1 ? suggestionsKept(grid, st.getWaterField(), s0.pins[0], mainWet(grid)) : [];
-          connectRef.current?.ways(grid, offered.map((o) => o.route), scale);
+          // A STRETCH LOOKED AT, lit along its length: what Widen, Move and Lift would act on. @see stretchAt
+          const la = st.lookedAt;
+          const lit = !offered.length && !s0 && st.playing && la && st.pipeScope === "stretch" && inBounds(grid, la.x, la.y) && hasMain(grid, idx(grid, la.x, la.y))
+            ? stretchAt(grid, idx(grid, la.x, la.y)) : null;
+          connectRef.current?.ways(grid, lit ? [lit.cells.map((c) => ({ x: c % grid.w, y: (c / grid.w) | 0 }))] : offered.map((o) => o.route), scale);
         }
         mainsRef.current?.tick(grid, scale, performance.now(), ...mainPreview(), st.playing && (st.waterOverlay || st.tool === "pipe"), st.hover, previewPump());
         // THE SEWERS: drawn again where they changed; the underground shown, and the ground see-through over it, in its view. @see createSewerLayer

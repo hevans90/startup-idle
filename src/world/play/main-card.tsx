@@ -20,7 +20,8 @@ import { useEffect, useState } from "react";
 
 import { boreCost, buildCost } from "../../game/build-cost";
 import { useTicking } from "../../hooks/use-ticking";
-import { MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_BORE, idx, inBounds } from "../grid";
+import { MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_BORE, idx, inBounds, type Grid } from "../grid";
+import { stretchAt, type Stretch } from "../pipes/stretch";
 import { structureDef } from "../structures/def";
 import { findMains, hasMain, mainProfile, mainReportAt, planMain, previewSewer, type MainReport } from "../water/mains";
 import { sewerProfile } from "../pipes/profile";
@@ -106,16 +107,24 @@ export function MainCard() {
 
 const TONE = { good: "text-good", warn: "text-warn", bad: "text-bad" };
 
+/** The stretch a card is about, or null for the whole network: the one clicked, while the scope is a stretch and the network is more than that one. */
+function partOf(g: Grid, at: { x: number; y: number }, scope: "stretch" | "network", whole: number): Stretch | null {
+  if (scope !== "stretch") return null;
+  const part = stretchAt(g, idx(g, at.x, at.y));
+  return part && part.cells.length < whole ? part : null;
+}
+
 /**
  * A MAIN, LOOKED AT: clicked with the Look tool, what it is doing and why —
  * its state in plain words, what it carries and cools, its head, each end —
- * with the pump it needs, if it does, and a way to lift it. @see mainReportAt
+ * with the pump it needs, if it does, and a way to delete it. @see mainReportAt
  */
 export function MainInfo() {
   useTicking(500);
   const looked = useWorldStore((s) => s.lookedAt);
   const playing = useWorldStore((s) => s.playing);
   const tool = useWorldStore((s) => s.tool);
+  const scope = useWorldStore((s) => s.pipeScope);
   const [shut, setShut] = useState<number | null>(null);
   useEffect(() => { setShut(null); }, [looked?.n]);
   if (!playing || !looked || shut === looked.n) return null;
@@ -127,18 +136,20 @@ export function MainInfo() {
   const r = mainReportAt(g, looked.x, looked.y);
   if (!r) return null;
   const net = findMains(g).list[findMains(g).of[idx(g, looked.x, looked.y)]];
-  if (r.sewer) return <SewerInfo r={r} at={looked} onClose={() => setShut(looked.n)} />;
+  // THE STRETCH CLICKED, or — clicked again — the whole of it. A main that is one stretch is just the main. @see stretchAt
+  const part = partOf(g, looked, scope, net?.cells.length ?? 0);
+  if (r.sewer) return <SewerInfo r={r} at={looked} part={part} onClose={() => setShut(looked.n)} />;
   const say = SAYS[r.state];
   const intake = net?.intakes.find((i) => g.mainEnd[i] === MAIN_END.intake);
   // WIDENING IT: twice the water through the same run, paid for the tiles not yet widened. @see boreCost
-  const narrow = net ? net.cells.filter((i) => !(g.main[i] & MAIN_BORE)).length : 0;
+  const narrow = part ? part.narrow : net ? net.cells.filter((i) => !(g.main[i] & MAIN_BORE)).length : 0;
   const names = r.outlets.filter((o) => o.building >= 0).map((o) => {
     const s = g.structures.get(o.building);
     return s?.def === "lattice" ? "the Lattice" : structureDef(s?.def ?? "")?.name ?? "a building";
   });
   // A MAIN LOOKED AT, beside it: a card toned by what it is doing. @see Anchored
   return (
-    <Card tone={say.tone} onClose={() => setShut(looked.n)} className="w-80" title={<>{r.bore > 1 ? "Wide water main" : "Water main"} · {r.length} tiles</>}>
+    <Card tone={say.tone} onClose={() => setShut(looked.n)} className="w-80" title={part ? <span title="Click it again for the whole main">Stretch · {part.cells.length} of {r.length} tiles</span> : <>{r.bore > 1 ? "Wide water main" : "Water main"} · {r.length} tiles</>}>
       <p className={TONE[say.tone]}>{say.text}</p>
       <p className="tabular-nums">
         <span title={`${r.flow.toFixed(2)} a second of the ${r.capacity.toFixed(2)} it could carry`}>
@@ -155,35 +166,37 @@ export function MainInfo() {
           <Button size="sm" onClick={() => st.offerPump({ x: intake % g.w, y: (intake / g.w) | 0, price: buildCost("pump")?.toNumber() ?? 0, why: say.text })}>Add a pump…</Button>
         )}
         {narrow > 0 && (
-          <Button size="sm" onClick={() => st.widenMainAt(looked)} title="Twice the water through the same run">Widen: {formatCurrency(boreCost(narrow).toNumber())}</Button>
+          <Button size="sm" onClick={() => st.widenMainAt(looked, !!part)} title="Twice the water through the same run">Widen: {formatCurrency(boreCost(narrow).toNumber())}</Button>
         )}
-        <Button size="sm" variant="danger" confirm="Lift it? Press again" onClick={() => st.liftMainAt(looked)}>Lift it</Button>
+        {part && <Button size="sm" confirm="Move it? Press again" onClick={() => st.moveStretchAt(looked)} title="Delete this stretch and lay it again from its other end">Move</Button>}
+        <Button size="sm" variant="danger" confirm="Delete it? Press again" onClick={() => st.deleteMainAt(looked, !!part)}>Delete</Button>
       </div>
       <PipeProfileStrip profile={mainProfile(g, st.getWaterField(), idx(g, looked.x, looked.y))} />
     </Card>
   );
 }
 
-/** A SEWER, LOOKED AT: whether it is joined up, the workplaces it drains and where to, and a way to widen or lift it. */
-function SewerInfo({ r, at, onClose }: { r: MainReport; at: { x: number; y: number }; onClose: () => void }) {
+/** A SEWER, LOOKED AT: whether it is joined up, the workplaces it drains and where to, and a way to widen or delete it. */
+function SewerInfo({ r, at, part, onClose }: { r: MainReport; at: { x: number; y: number }; part: Stretch | null; onClose: () => void }) {
   const st = useWorldStore.getState(), g = st.grid;
   const lateral = r.sewer!.node !== undefined;
   const say = sayOf(r);
   const net = findMains(g).list[findMains(g).of[idx(g, at.x, at.y)]];
-  const narrow = net ? net.cells.filter((i) => !(g.main[i] & MAIN_BORE)).length : 0;
+  const narrow = part ? part.narrow : net ? net.cells.filter((i) => !(g.main[i] & MAIN_BORE)).length : 0;
   const nameOf = (id: number) => structureDef(g.structures.get(id)?.def ?? "")?.name ?? "a building";
   const from = r.sewer!.sources.map(nameOf);
   const to = lateral ? ["a manhole"] : [...r.outlets.map((o) => nameOf(o.building)), ...r.sewer!.outfalls.map(() => "the water")];
   return (
-    <Card tone={say.tone} onClose={onClose} className="w-80" title={<>{r.bore > 1 ? "Wide " : ""}{lateral ? (r.bore > 1 ? "connection" : "Connection") : r.bore > 1 ? "sewer" : "Sewer"} · {r.length} tiles</>}>
+    <Card tone={say.tone} onClose={onClose} className="w-80" title={part ? <span title="Click it again for the whole of it">Stretch · {part.cells.length} of {r.length} tiles</span> : <>{r.bore > 1 ? "Wide " : ""}{lateral ? (r.bore > 1 ? "connection" : "Connection") : r.bore > 1 ? "sewer" : "Sewer"} · {r.length} tiles</>}>
       <p className={TONE[say.tone]}>{say.text}</p>
       <p className="tabular-nums" title={`Carries up to ${r.capacity.toFixed(2)} slop a second`}>Drains {from.length} workplace{from.length === 1 ? "" : "s"}</p>
       <p className="text-fg-muted">{from.length ? from.join(", ") : "No workplace"}{" → "}{to.length ? to.join(", ") : "nothing"}</p>
       <div className="mt-0.5 flex flex-wrap gap-1">
         {narrow > 0 && (
-          <Button size="sm" onClick={() => st.widenMainAt(at)} title="Twice the slop through the same run">Widen: {formatCurrency(boreCost(narrow).toNumber())}</Button>
+          <Button size="sm" onClick={() => st.widenMainAt(at, !!part)} title="Twice the slop through the same run">Widen: {formatCurrency(boreCost(narrow).toNumber())}</Button>
         )}
-        <Button size="sm" variant="danger" confirm="Lift it? Press again" onClick={() => st.liftMainAt(at)}>Lift it</Button>
+        {part && <Button size="sm" confirm="Move it? Press again" onClick={() => st.moveStretchAt(at)} title="Delete this stretch and lay it again from its other end">Move</Button>}
+        <Button size="sm" variant="danger" confirm="Delete it? Press again" onClick={() => st.deleteMainAt(at, !!part)}>Delete</Button>
       </div>
     </Card>
   );

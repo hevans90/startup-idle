@@ -1,6 +1,6 @@
 # One pipe network, solved beside the water
 
-**Status:** in progress, begun 2026-11-11; what is built is listed under "Built so far" at the end. It goes ahead of what is left of the seaport plan (`plans/seaports.md`, "Left to do, after the pipes"): the slop loader there stands on this plan's graph and solver. Written from a read of `src/fluid`, `src/world/water`, `src/world/sewers`, `src/world/slop` and the water docs. Nothing was measured for this plan: every timing below is quoted from `WATER-PLAN.md`. Claims read from code and not yet run as a test are tagged [read]. Extended the same day with the look (§6, from the fixtures in the browser) and where a sewer may go (§7). Extended 2026-11-12 with ports on the building (item 17b, §6, phase 9b).
+**Status:** every phase built by 2026-11-12, with what each left undone listed under it; begun 2026-11-11; what is built is listed under "Built so far" at the end. It goes ahead of what is left of the seaport plan (`plans/seaports.md`, "Left to do, after the pipes"): the slop loader there stands on this plan's graph and solver. Written from a read of `src/fluid`, `src/world/water`, `src/world/sewers`, `src/world/slop` and the water docs. Nothing was measured for this plan: every timing below is quoted from `WATER-PLAN.md`. Claims read from code and not yet run as a test are tagged [read]. Extended the same day with the look (§6, from the fixtures in the browser) and where a sewer may go (§7). Extended 2026-11-12 with ports on the building (item 17b, §6, phase 9b).
 
 ## Why
 
@@ -588,4 +588,18 @@ None. All were decided on 2026-11-11; each decision is written where it applies:
 - **Seen** in the game (`/?fixture=singularity`), in both themes: the list with its three mains, the Data Centre's flowing at a full bar, the switch and the key. **Not seen:** a fault's card in comms (the fixture has no fault that counts), the sewers' side with anything on it, and the broken and dotted lines on the map.
 - **A false "Soon" for a few seconds after a map loads:** what a main is seen to carry is evened out from nought, so a tank it feeds reads as running down until that settles.
 - **Not done:** labels on the map are as they were; the tank's ring on the map does not itself turn amber for the minute's warning — the row does.
+
+**Phase 17 — stretches** (2026-11-12). `pipes/stretch.ts`; `lookAt`, `widenMainAt`, `deleteMainAt` and `moveStretchAt` in the store; the cards in `play/main-card.tsx`. Tests in `pipes/stretch.test.ts`.
+- **A stretch is the run between two joints** (`stretchAt`, off the graph): a joint is a fitting, or where three or four runs meet. A bend is not one, nor the points the graph keeps every four tiles: a stretch goes on through those, so it is what a player would point at and call "this bit".
+- **A click selects the stretch; a second click on it, the whole network** (`pipeScope`). The card's title says which — "Stretch · 4 of 48 tiles" — and the stretch is lit along its length on the map. A main with no joints in it is one stretch, and its card is the main's as before.
+- **Widen** acts on what is selected, for those tiles' price. The graph has had a bore a link since phase 1 and the mesh a reducer since phase 8, so a widened stretch is a wide link between slim ones with a taper at each end.
+- **Delete** acts on what is selected (`deleteStretch`): the stretch's own tiles go; a joint other runs hang on stays, less its join this way; and a joint left with one run and no fitting is capped. Deleting one arm of a tee leaves a bend, and the two that remain are then one stretch.
+- **Move** deletes the stretch and starts a run, with the pipe's own tool, from the end of it furthest from where it was clicked.
+- **Not as the plan had it:** an end is not dragged. Move is the two things a drag would have done — lift it, lay it again from the end that stays — as one button; it costs what laying it again costs, as doing those by hand does. Dragging an end wants its own pointer handling on the map.
+- **Mains and connections only.** A trunk under the ground is still looked at whole: its card has no widen or lift to scope.
+- **Seen** in the game (`/?fixture=singularity`): a stub teed off the Data Centre's main, clicked — "Stretch · 4 of 48 tiles", lit, with Widen, Move and Delete; widened from its button, its four tiles wide and the trunk either side not. Delete and Move, tests only.
+
+- **"Lift" is "Delete" now** (asked for 2026-11-12): it was not obvious that lifting a pipe meant deleting it. The cards' button, its confirmation, Demolish's hint, the AI's report of a spur it removed, and the store's actions say delete. A sewer's lift station and a pump lifting water are still that: they are not deletions.
+
+**The pipe plan's phases are all built**, 0 to 17 with 5b and 9b. What each left undone is listed under it above; the larger of those: the sewers' side of the device exchange (phase 3), concentration carried in the pipes themselves (phase 4), spouts folded into the graph (phases 5 and 5b), a per-link state buffer (phases 10 and 11), and an end dragged to move it (this phase).
 
