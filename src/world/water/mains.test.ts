@@ -90,15 +90,15 @@ describe("a water main", () => {
   });
 
   test("drawing fouled water, cools as if it carried that much less", async () => {
-    const { pollute, pollutionAt } = await import("./pollution");
+    const { setFoul, pollutionAt } = await import("./pollution");
     const { coolingKept } = await import("../../game/pollution");
     const { g } = lakeside(5);
     lay(g, row(5, 4, 19));
     const field = createWaterField(g);
     const net = findMains(g).list[0];
     const clean = solveMain(g, field, net);
-    // Slop on every lake tile by the intake: the water it draws is fouled.
-    for (const [x, y] of [[3, 4], [3, 5], [3, 6], [2, 5]]) pollute(field, x, y, 2);
+    // The lake by the intake a fifth slop: the water it draws is fouled.
+    for (const [x, y] of [[3, 4], [3, 5], [3, 6], [2, 5]]) setFoul(field, x, y, 0.2);
     const dirty = solveMain(g, field, net);
     const fouled = dirty.intakes[0].fouled;
     expect(fouled).toBeCloseTo(pollutionAt(field, 3, 5), 5);

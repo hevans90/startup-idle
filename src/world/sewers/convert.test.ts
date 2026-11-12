@@ -8,7 +8,7 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField } from "../water/field";
 import { layMain, planMain, runMains, sewerStubs } from "../water/mains";
-import { pollutionOf } from "../water/pollution";
+import { foulingIn } from "../water/pollution";
 import { sewersUnderground } from "./convert";
 import { lateralsOf, sewerReportsFor } from "./flow";
 import { hasSewer, solveSewers } from "./solve";
@@ -65,7 +65,7 @@ describe("an old above-ground sewer", () => {
     for (let k = 0; k < 120; k++) { runMains(field, g, 1); stepSlop(g, field, desks, 0.4, 1); }
     expect(tanksOf(g).get(a)!.spilling).toBe(false);
     expect(tanksOf(g).get(b)!.spilling).toBe(false);
-    expect(pollutionOf(field.columns).mass.reduce((n, m) => n + m, 0)).toBeGreaterThan(0);
+    expect(foulingIn(field)).toBeGreaterThan(0);
     expect([...sewerReportsFor(g).values()][0].state).toBe("flowing");
   });
 });

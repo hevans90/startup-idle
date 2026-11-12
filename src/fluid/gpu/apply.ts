@@ -30,7 +30,7 @@
  * minus one — so that a map with no wet cell leaves it that way and `activeBox`
  * reads it as empty. The atomics are seeded the same, and for the same reason.
  */
-import { BREAK_START, BREAK_STOP, PERSIST, VERTICAL } from "../columns";
+import { BREAK_START, BREAK_STOP, FOUL_SETTLE, PERSIST, VERTICAL } from "../columns";
 import {
   CLAMP_SCALE, CLAMP_SLOT, DELTA_SCALE, DELTA_SLOT, REDUCE_SLOTS,
   AIR_SLOT, DEPTH_LANES, DEPTH_SLOT, WATER_SCALE, WET_SLOT,
@@ -199,6 +199,15 @@ fn cell(x: i32, y: i32, li: u32) {
       setBroke(ia, 0.0);
     }
 
+    // THE MIX: what stayed keeps its strength, what came in brought its own.
+    // Mostly clean, it settles out; mostly fouling, it is sludge and stays.
+    var s = foulAt(ia);
+    if (d <= 0.0) { s = 0.0; }
+    else if (volInAt(ia) > 0.0) { s = (s * max(0.0, d - volInAt(ia)) + foulInAt(ia)) / d; }
+    if (s > 0.0 && s < 0.5) { s = s * exp(-dt() / ${f(FOUL_SETTLE)}); }
+    s = clamp(s, 0.0, 1.0);
+    setFoul(ia, s);
+
     if (d <= 0.0) {
       setMaterial(ia, 0.0);
       // A COLUMN WITH WATER IN THE AIR off one of its edges stays in the box
@@ -213,6 +222,10 @@ fn cell(x: i32, y: i32, li: u32) {
     } else {
       keep = true;
       if (wasDry && bestMatAt(ia) != 0.0) { setMaterial(ia, bestMatAt(ia)); }
+      // WHICH OF THE TWO IT IS CALLED is which side of a half its strength
+      // lies. Any other material is itself. @see CLEAN_MATERIAL
+      let m = materialAt(ia);
+      if (m == 1u || m == 2u) { setMaterial(ia, select(1.0, 2.0, s >= 0.5)); }
     }
   }
 

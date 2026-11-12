@@ -70,7 +70,7 @@ const f = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
 export const LAND_SCALE = 1 << 20;
 
 /** Where in `acc` each region starts, in cells. @see GpuState.acc */
-export const ACC = { landing: 0, impulse: 1, mat: 2, splash: 3 } as const;
+export const ACC = { landing: 0, impulse: 1, mat: 2, splash: 3, foul: 4 } as const;
 
 const FALLS_WGSL = `
 ${STATE_WGSL}
@@ -90,7 +90,7 @@ fn accAt(region: i32, i: i32) -> i32 { return region * (nx() * ny() * slots()) +
  * integer, the quantised amount above and the material in the low four bits,
  * so a single atomicMax carries both. A material index is 0 to 15 and fits.
  */
-fn bankLanding(to: i32, amount: f32, material: u32, speed: f32) {
+fn bankLanding(to: i32, amount: f32, material: u32, speed: f32, strength: f32) {
   // AND THE CELL JOINS THE ACTIVE BOX, which is what the CPU include does at
   // exactly this moment and the device had no answer to. A lip throws its
   // water where its trajectory puts it, which can be a dry column outside the
@@ -124,6 +124,10 @@ fn bankLanding(to: i32, amount: f32, material: u32, speed: f32) {
   if (material != 0u) {
     let packed = (i32(amount * LAND_SCALE) << 4) | i32(material & 15u);
     atomicMax(&acc[accAt(${ACC.mat}, to)], packed);
+  }
+  // HOW MUCH OF IT WAS FOULING, banked beside it: a fall takes it down. @see foulAt
+  if (strength > 0.0) {
+    atomicAdd(&acc[accAt(${ACC.foul}, to)], i32(amount * strength * LAND_SCALE));
   }
 }
 
@@ -203,14 +207,14 @@ fn land(k: i32, to: i32, src: i32, share: f32, drop: f32) {
     )) {
       spray = 0.0;
     }
-    bankLanding(to, amount - spray, mat, speed);
+    bankLanding(to, amount - spray, mat, speed, foulAt(src));
     let white = min(1.0, (amount * ${f(PLUNGE_WHITE)} * speed) / ${f(IMPACT_REF)});
     atomicMax(&acc[accAt(${ACC.splash}, to)], i32(white * LAND_SCALE));
     return;
   }
   // The tidying-up calls: the cliff has gone, or the fall caught its own
   // front. Nothing fell anywhere, so nothing lands on anything.
-  bankLanding(to, amount, mat, 0.0);
+  bankLanding(to, amount, mat, 0.0, foulAt(src));
 }
 
 fn resetFall(k: i32) {

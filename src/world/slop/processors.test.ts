@@ -9,7 +9,7 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField } from "../water/field";
 import { layMain, planMain, runMains } from "../water/mains";
-import { pollutionOf } from "../water/pollution";
+import { foulingIn } from "../water/pollution";
 import { processorBusy, stepSlop, tanksOf } from "./tanks";
 
 afterEach(() => { resetCooling(); setProcessorUse({ refinery: 0, dataplant: 0, contentfarm: 0 }); });
@@ -56,7 +56,7 @@ describe("a slop processor", () => {
     expect(processorUse("refinery")).toBeCloseTo(0.5, 1);
     expect(refineryBonus()).toBeGreaterThan(1.05);
     expect(tanksOf(g).get(office.id)!.level).toBeLessThan(1);
-    expect(pollutionOf(field.columns).mass.reduce((a, b) => a + b, 0)).toBe(0);
+    expect(foulingIn(field)).toBe(0);
   });
 
   test("full, it backs the sewer up: what it cannot take stays in the tanks, and spills from them", () => {

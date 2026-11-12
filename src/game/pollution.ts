@@ -1,37 +1,27 @@
 /**
- * POLLUTION, the rules: slop poured into water is so much MASS on a tile, and
- * the water there is fouled by its CONCENTRATION — mass over depth — so the
- * same slop browns a pond and barely tints a river. It is CARRIED down the
- * water's own slope, which is how a river runs; SHARED with the water beside
- * it, which is how it dilutes; LEAVES the map with a river at its edge; and
- * fades slowly everywhere — a still lake holds it for many minutes, a river
- * clears in a few. Pure numbers. @see world/water/pollution, plans/pipes-and-slop.md §5
+ * POLLUTION, the rules: slop let out into water mixes with it, and the water
+ * is fouled by how much of it is slop — so the same slop browns a pond and
+ * barely tints a river. The water's own solver carries it: down a river and
+ * off the map with it, over a fall, round a lake as the lake moves; it
+ * settles out slowly where the water is mostly clean. Pure numbers.
+ * @see world/water/pollution, fluid/columns FOUL_SETTLE, plans/pipe-network.md §4
  */
 
-/** Seconds between steps of the pollution: it moves slowly, a few times a second is plenty. */
+/** Seconds between looks at the water for each tile's level: it moves slowly, a few times a second is plenty. */
 export const POLLUTION_STEP = 0.25;
 /** Half steps of depth below which a tile is dry ground, not water. */
 export const POLLUTION_WET = 0.1;
-/** Share of a tile's mass carried a second, a half step of fall per tile of surface slope. */
-export const ADVECT = 12;
-/** The most of a tile's mass that leaves it in one step. */
-export const MOST_OUT = 0.6;
-/** How readily two wet tiles even out their concentrations, a second. */
-export const DIFFUSE = 0.4;
-/** Seconds for pollution to fall to a third in water (settling), and on dry ground (soaking in). */
-export const SETTLE_SECONDS = 900;
-export const DRY_SECONDS = 20;
-/** The concentration — mass a half step of depth — that reads as fully fouled. */
-export const FULL = 1;
 /**
- * Below this mass a tile is clean. Tiny: the front of a spreading plume is
- * handed only a little each step, and zeroing that leaked the lot away.
+ * The share of the water that is slop that reads as fully fouled: a half
+ * step of slop to a half step of water. A unit of slop is half a half step
+ * over a tile (`SPILL_DEPTH`), so a unit let into water a half step deep
+ * reads about as it always did.
  */
-export const TRACE = 1e-6;
+export const FULL = 0.5;
 
-/** How fouled water is, nought to one, from its mass and depth. */
-export const levelOf = (mass: number, depth: number) =>
-  depth < POLLUTION_WET || mass <= TRACE ? 0 : Math.min(1, mass / depth / FULL);
+/** How fouled water is, nought to one, from how much of it is slop and how deep it stands. */
+export const levelOf = (strength: number, depth: number) =>
+  depth < POLLUTION_WET || !(strength > 0) ? 0 : Math.min(1, strength / FULL);
 
 /** Beyond this, water in view of a house spoils it. @see MOOD.polluted */
 export const POLLUTED = 0.25;

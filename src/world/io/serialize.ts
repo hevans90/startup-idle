@@ -18,9 +18,8 @@ import {
   type Build, type Grid, type Structure,
 } from "../grid";
 import { DECK_SLOT, poolSnapshot, type WaterField } from "../water/field";
-import { pollutionOf, stashPollution } from "../water/pollution";
+import { pollutionSaved, stashPollution } from "../water/pollution";
 import { restoreTanks, tankLevels } from "../slop/tanks";
-import { TRACE } from "../../game/pollution";
 import { serviceDef } from "../agents/needs";
 import { startLadder, unlockedOf } from "../agents/unlocks";
 
@@ -257,7 +256,7 @@ export function serializeWorld(
     structures: [...grid.structures.values()],
     // The boats as they stand, when there is a running world to ask.
     ...(fleet ? { boats: saveFleet(fleet) } : {}),
-    ...(water && pollutionOf(water.columns).mass.some((m) => m > TRACE) ? { pollution: encodeF32(pollutionOf(water.columns).mass) } : {}),
+    ...(water && pollutionSaved(water) ? { pollution: encodeF32(pollutionSaved(water)!) } : {}),
     ...(tankLevels(grid).length ? { slopTanks: tankLevels(grid) } : {}),
     ...(unlockedOf(grid) ? { services: unlockedOf(grid) } : {}),
     palette: { terrain: [...palette.terrain], paved: [...palette.paved] },

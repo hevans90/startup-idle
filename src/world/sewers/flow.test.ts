@@ -8,7 +8,7 @@ import { structureDef } from "../structures/def";
 import { placeCommand, sewerInReach } from "../structures/place";
 import { createWaterField } from "../water/field";
 import { layMain, mainReportAt, routeMain, runMains } from "../water/mains";
-import { pollutionOf } from "../water/pollution";
+import { foulingIn } from "../water/pollution";
 import { planLateral, planSewer, routeSewer } from "./lay";
 import { lateralsOf, sewerFillAt, sewerReportsFor, slopInSewers, stepSewers, type SewerHooks } from "./flow";
 import { lateralReach } from "./reach";
@@ -225,7 +225,7 @@ describe("slop through the sewers", () => {
     const desks = new Map([[a.id, { used: 1 }]]);
     for (let k = 0; k < 120; k++) { runMains(field, g, 1); stepSlop(g, field, desks, 0.5, 1); }
     expect(tanksOf(g).get(a.id)!.level).toBeLessThan(1);
-    expect(pollutionOf(field.columns).mass.reduce((n, m) => n + m, 0)).toBeGreaterThan(0);
+    expect(foulingIn(field)).toBeGreaterThan(0);
     expect([...sewerReportsFor(g).values()][0].state).toBe("flowing");
     expect(mainReportAt(g, 12, 5)?.state).toBe("flowing");
     // ONE REPORT TYPE: the trunk says what a main does — what it carries, could carry, its length and bore — and its own beside. @see PipeReport

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { SLOP_FROM, SLOP_PER_CODER, TANK_SECONDS, slopMade, slopMaking, slopPerCoder } from "../../game/slop";
+import { SLOP_FROM, SLOP_PER_CODER, SPILL_DEPTH, TANK_SECONDS, slopMade, slopMaking, slopPerCoder } from "../../game/slop";
 import { sewerFlow } from "../../game/mains";
 import { SATISFACTION_MAX } from "../../game/satisfaction";
 import { DESKS } from "../agents/commute";
@@ -12,7 +12,7 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField } from "../water/field";
 import { breakableCell, layMain, mainReportAt, planMain, runMains, setBackedUp } from "../water/mains";
-import { pollute, pollutionOf, restorePollution } from "../water/pollution";
+import { foulingIn, pollutionAt, restorePollution, setFoul } from "../water/pollution";
 import { fromJSON, serializeWorld, toJSON } from "../io/serialize";
 import { getWater, useWorldStore } from "../../state/world.store";
 import { stepSlop, tanksOf } from "./tanks";
@@ -28,7 +28,8 @@ function street() {
   return { g, a, b, field: createWaterField(g) };
 }
 const wetOf = (g: Grid) => (x: number, y: number) => g.pool[idx(g, x, y)] > 0;
-const pollution = (f: ReturnType<typeof createWaterField>) => pollutionOf(f.columns).mass.reduce((n, m) => n + m, 0);
+/** Units of slop standing on the map, on the street or mixed into the water. */
+const slopOut = (f: ReturnType<typeof createWaterField>) => foulingIn(f) / SPILL_DEPTH;
 
 describe("slop", () => {
   test("is made from the fiftieth vibe coder on, less by happy ones", () => {
@@ -64,7 +65,8 @@ describe("slop", () => {
     for (let k = 0; k < 2 * TANK_SECONDS + 20; k++) stepSlop(g, field, desks, 1, 1);
     expect(tanksOf(g).get(a.id)!.spilling).toBe(true);
     expect(sludgeAt(field, 12, 4)).toBeGreaterThan(0);
-    expect(pollution(field)).toBe(0);
+    // On the street, and none of it in the lake.
+    expect(pollutionAt(field, 3, 5)).toBe(0);
   });
 
   test("a sewer from its port to the lake drains it, out of the outfall into the water", () => {
@@ -79,7 +81,9 @@ describe("slop", () => {
     const t = tanksOf(g).get(a.id)!;
     expect(t.spilling).toBe(false);
     expect(t.level).toBeLessThan(1);
-    expect(pollution(field)).toBeGreaterThan(50);
+    expect(slopOut(field)).toBeGreaterThan(50);
+    // Mixed into the lake, which is fouled by it; none on the street.
+    expect(pollutionAt(field, 3, 6)).toBeGreaterThan(0.05);
     expect(sludgeAt(field, 12, 4)).toBe(0);
   });
 
@@ -120,22 +124,25 @@ describe("a workplace with its slop port built over", () => {
 describe("saved with the map", () => {
   test("the slop in the water and what each tank holds come back with the file", () => {
     const { g, a, field } = street();
-    pollute(field, 2, 5, 3);
+    setFoul(field, 2, 5, 0.2);
+    const was = pollutionAt(field, 2, 5);
+    expect(was).toBeCloseTo(0.4, 5);
     tanksOf(g).set(a.id, { level: 40, capacity: 0, rate: 0, spilling: false });
     const loaded = fromJSON(toJSON(serializeWorld(g, { terrain: [null], paved: [null] }, field)));
     const next = createWaterField(loaded.grid);
     restorePollution(next, loaded.grid);
-    expect(pollution(next)).toBeCloseTo(3, 5);
-    expect(pollutionOf(next.columns).mass[5 * loaded.grid.w + 2]).toBeCloseTo(3, 5);
+    expect(pollutionAt(next, 2, 5)).toBeCloseTo(was, 5);
+    expect(pollutionAt(next, 2, 7)).toBe(0);
+    expect(slopOut(next)).toBeCloseTo(slopOut(field), 4);
     expect(tanksOf(loaded.grid).get(a.id)!.level).toBe(40);
   });
 
   test("a map loaded into the game brings its pollution onto the water made for it", () => {
     const { g, field } = street();
-    pollute(field, 2, 5, 3);
+    setFoul(field, 2, 5, 0.2);
     const loaded = fromJSON(toJSON(serializeWorld(g, { terrain: [null], paved: [null] }, field)));
     useWorldStore.getState().loadGrid(loaded.grid, loaded.palette.terrain, loaded.boats);
-    expect(pollution(getWater())).toBeCloseTo(3, 5);
+    expect(pollutionAt(getWater()!, 2, 5)).toBeCloseTo(pollutionAt(field, 2, 5), 5);
   });
 
   test("a clean map writes neither", () => {

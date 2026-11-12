@@ -106,6 +106,11 @@ fn water(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (came <= 0.0) { continue; }
     let mat = landMatAt(ia);
     if (mat != 0u && depthAt(ia) <= dryDepth()) { setMaterial(ia, f32(mat)); }
+    // What landed mixes with what stood there. @see foulAt
+    let fouling = f32(atomicLoad(&acc[accAt(${ACC.foul}, ia)])) / LAND_SCALE;
+    if (fouling > 0.0 || foulAt(ia) > 0.0) {
+      setFoul(ia, min(1.0, (foulAt(ia) * depthAt(ia) + fouling) / (depthAt(ia) + came)));
+    }
     setDepth(ia, depthAt(ia) + came);
   }
 }

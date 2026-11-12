@@ -360,6 +360,10 @@ export const FIELDS = [
   // bit-packed into a word is the same bytes the texture wants, laid out the
   // way it wants them. @see createMatpack
   "matByte",
+  // HOW FOULED EACH SLOT'S FLUID IS, and the divergence's two sums that mix
+  // it: what flowed in this substep, and how much of that was fouling. At the
+  // end of the list so no run of fields is disturbed. @see ColumnField.foul
+  "foul", "foulIn", "volIn",
   // NOR IS THIS ONE, and it is what stopped two megabytes a frame.
   //
   // `air`, `front`, `head` and the two throws are per EDGE over the whole map
@@ -535,6 +539,7 @@ export function fieldSizes(
     fallOut: FALL_OUT_MAX * FALL_OUT_STRIDE,
     // A word to four columns, and the map's width is a multiple of four.
     matByte: Math.ceil(slotCells / 4),
+    foul: slotCells, foulIn: slotCells, volIn: slotCells,
     kickX: pairCells, kickY: pairCells, capX: pairCells, capY: pairCells,
     arrive: cells * ARRIVE_STRIDE,
     washNow: cells, washNext: cells, washSeed: cells,
@@ -595,10 +600,10 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     label: "solver state",
   });
   const acc = device.createBuffer({
-    // FOUR REGIONS, each a SLOT's worth: a landing is banked against the slot
+    // FIVE REGIONS, each a SLOT's worth: a landing is banked against the slot
     // it arrives in, and a bridge has two. @see ACC
     // AND FOUR WORDS MORE: the box everything landed in. @see LAND_BOX_FAR
-    size: slotCells * 4 * 4 + 16,
+    size: slotCells * 5 * 4 + 16,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     label: "landings",
   });
@@ -1023,6 +1028,7 @@ export function upload(s: GpuState, f: ColumnField) {
   }
   for (let i = 0; i < f.material.length; i++) wide[i] = f.material[i];
   put("material", wide);
+  put("foul", f.foul);
   for (let i = 0; i < f.bestMat.length; i++) wide[i] = f.bestMat[i];
   put("bestMat", wide);
   // READ BEFORE IT IS WRITTEN by the cliff pass — it is how a column knows
@@ -1112,6 +1118,7 @@ export function writeConsts(
   i32[79] = u.rimHeld ? 1 : 0;
   i32[80] = o.roof; i32[81] = u.slots; i32[82] = o.falling; i32[83] = o.fallByte;
   i32[84] = o.slotMask;
+  i32[85] = o.foul; i32[86] = o.foulIn; i32[87] = o.volIn;
   i32[68] = o.foamNow; i32[69] = o.foamNext;
   i32[70] = o.splashNow; i32[71] = o.splashIn;
   f32[51] = u.frameDt;
@@ -1206,7 +1213,7 @@ struct Consts {
   o12: vec4<i32>,        // offset: matByte, open edge, wantAt, wantOut
   o13: vec4<i32>,        // wantN, then the rim: offset, material, whether held
   o14: vec4<i32>,        // roof: offset, how many storeys; falling, fallByte: offsets
-  o15: vec4<i32>,        // slotMask: offset, then spare
+  o15: vec4<i32>,        // offsets: slotMask, foul, foulIn, volIn
 };
 
 @group(0) @binding(0) var<uniform> consts : Consts;
@@ -1218,7 +1225,7 @@ struct Consts {
 // it is cleared with them. Four atomicMax words, since a cleared word is
 // nought: LAND_BOX_FAR minus the least x and y, then one past the greatest.
 // Nothing landed reads as an empty box. @see bankLanding, createLandings
-fn landBoxAt() -> i32 { return nx() * ny() * slots() * 4; }
+fn landBoxAt() -> i32 { return nx() * ny() * slots() * 5; }
 
 fn nx() -> i32 { return consts.dims.x; }
 fn ny() -> i32 { return consts.dims.y; }
@@ -1274,6 +1281,14 @@ fn roofAt(i: i32) -> f32 { return field[consts.o14.x + i]; }
 fn slots() -> i32 { return consts.o14.y; }
 /** Which storeys column i has, a bit a slot. @see slotMaskOf */
 fn slotMaskAt(i: i32) -> u32 { return bitcast<u32>(field[consts.o15.x + i]); }
+// HOW FOULED A SLOT'S FLUID IS, nought to one, and the two sums that mix it.
+// The materials that mix are 1, clean, and 2, fouling. @see CLEAN_MATERIAL
+fn foulAt(i: i32) -> f32 { return field[consts.o15.y + i]; }
+fn setFoul(i: i32, v: f32) { field[consts.o15.y + i] = v; }
+fn foulInAt(i: i32) -> f32 { return field[consts.o15.z + i]; }
+fn setFoulIn(i: i32, v: f32) { field[consts.o15.z + i] = v; }
+fn volInAt(i: i32) -> f32 { return field[consts.o15.w + i]; }
+fn setVolIn(i: i32, v: f32) { field[consts.o15.w + i] = v; }
 /** Whether column i has storey a: a slot whose roof is above its ground. */
 fn hasSlot(i: i32, a: i32) -> bool { return ((slotMaskAt(i) >> u32(a)) & 1u) != 0u; }
 /** The start of slot a's plane, which is a whole map of columns. */

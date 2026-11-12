@@ -90,6 +90,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (!hasSlot(i, a)) {
       setDelta(ia, 0.0);
       setBestMat(ia, 0.0);
+      setVolIn(ia, 0.0);
+      setFoulIn(ia, 0.0);
       continue;
     }
     var d = 0.0;
@@ -98,6 +100,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // contributor wins — which is the order below, and the CPU's.
     var bestIn = 0.0;
     var bestMat = 0.0;
+    // WHAT FLOWED IN, and how much of it was fouling: each move at the
+    // strength of the slot it left. The apply pass mixes it. @see foulAt
+    var vin = 0.0;
+    var fin = 0.0;
 
     for (var b = 0; b < L; b = b + 1) {
       // 1. The row above's southward move into this slot. Only if that row
@@ -111,6 +117,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         // gives it up whether the far side receives it or the air does.
         if (!(moved > 0.0 && divertedAt(i - nx(), 1, b, a, moved))) {
           d = d + moved;
+          if (moved > 0.0) { vin = vin + moved; fin = fin + moved * foulAt(slotBase(b) + i - nx()); }
           if (moved > bestIn) {
             bestIn = moved;
             bestMat = field[consts.o0.z + slotBase(b) + i - nx()];
@@ -123,6 +130,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let moved = fxAt(e) * sp;
         if (!(moved > 0.0 && divertedAt(i - 1, 0, b, a, moved))) {
           d = d + moved;
+          if (moved > 0.0) { vin = vin + moved; fin = fin + moved * foulAt(slotBase(b) + i - 1); }
           if (moved > bestIn) {
             bestIn = moved;
             bestMat = field[consts.o0.z + slotBase(b) + i - 1];
@@ -141,6 +149,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let held = moved < 0.0 && divertedAt(i, 0, a, b, moved);
         if (!held) {
           d = d - moved;
+          if (moved < 0.0) { vin = vin - moved; fin = fin - moved * foulAt(slotBase(b) + i + 1); }
           if (moved < 0.0 && -moved > bestIn) {
             bestIn = -moved;
             bestMat = field[consts.o0.z + slotBase(b) + i + 1];
@@ -152,6 +161,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let held = moved < 0.0 && divertedAt(i, 1, a, b, moved);
         if (!held) {
           d = d - moved;
+          if (moved < 0.0) { vin = vin - moved; fin = fin - moved * foulAt(slotBase(b) + i + nx()); }
           if (moved < 0.0 && -moved > bestIn) {
             bestIn = -moved;
             bestMat = field[consts.o0.z + slotBase(b) + i + nx()];
@@ -162,6 +172,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     setDelta(ia, d);
     setBestMat(ia, bestMat);
+    setVolIn(ia, vin);
+    setFoulIn(ia, fin);
 
     // And what went over a lip is held in the air on the edge it left by. One
     // writer per edge, so this is the same write the scatter makes.

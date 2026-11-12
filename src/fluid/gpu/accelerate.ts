@@ -117,7 +117,11 @@ fn edgeAt(i: i32, j: i32) -> Edge {
   let upstream = select(j, i, head > 0.0);
   e.head = head;
   e.carry = carry;
-  e.drag = keepOfAt(materialAt(upstream));
+  // Between clean and fouled the drag is the mix's. @see foulAt
+  let strength = foulAt(upstream);
+  e.drag = select(
+    keepOfAt(materialAt(upstream)), mix(keepOfAt(1u), keepOfAt(2u), strength), strength > 0.0,
+  );
   return e;
 }
 

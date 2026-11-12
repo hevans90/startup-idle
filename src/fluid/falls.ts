@@ -800,7 +800,7 @@ function land(
     // it does with that is `plungeInto`. This is the whole difference between
     // a waterfall and a tap over a bowl.
     plungeInto(
-      f, tx, ty, amount, mat, Math.sqrt(2 * FALL_GRAVITY * drop), slot,
+      f, tx, ty, amount, mat, Math.sqrt(2 * FALL_GRAVITY * drop), slot, f.foul[from],
     );
     return;
   }
@@ -811,6 +811,7 @@ function land(
   // own material test and, through `besideAt`, for the drop that decides which
   // branch it takes. See `applyLandings`.
   f.landing[to] += amount;
+  if (f.foul[from] > 0) { f.landFoul[to] += amount * f.foul[from]; f.fouled = true; }
   if (mat && amount > f.landBest[to]) {
     f.landBest[to] = amount;
     f.landMat[to] = mat;

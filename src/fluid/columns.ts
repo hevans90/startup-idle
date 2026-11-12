@@ -380,6 +380,8 @@ export type ColumnField = {
   readonly impulse: Float64Array;
   readonly landMat: Float32Array;
   readonly landBest: Float64Array;
+  /** How much of what landed was fouling, banked beside it. @see foul */
+  readonly landFoul: Float32Array;
   /**
    * The plunge's push, per edge, and the largest cap any contributor to it
    * wanted.
@@ -431,10 +433,27 @@ export type ColumnField = {
    *
    * Without this, sludge flowing into a dry cell would arrive as whatever that
    * cell last held — which is to say it would turn into water as it spread.
-   * Only a cell that was DRY takes a new material: mixing is not modelled, so
-   * the first thing to arrive owns the column until it empties again.
+   * Only a cell that was DRY takes a new material, so the first thing to
+   * arrive owns the column until it empties again — except between the clean
+   * material and the fouling one, which mix: there this is only which side
+   * of a half `foul` lies. @see foul, CLEAN_MATERIAL
    */
   readonly material: Uint8Array;
+  /**
+   * HOW FOULED each column's fluid is, nought to one: the share of it that is
+   * the fouling material. CARRIED BY THE SOLVER'S OWN MOVES — what crosses an
+   * edge takes the strength of the column it left, and the column it joins
+   * comes out at the mix — so a current carries it, a fall takes it down and
+   * a level lake holds it where it is. Water leaving a column leaves its
+   * strength as it was. Between the clean material and the fouling one the
+   * `material` is only which side of a half this lies. @see CLEAN_MATERIAL
+   */
+  readonly foul: Float32Array;
+  /** Scratch: what flowed into each cell this step, and how much of that was fouling. */
+  readonly volIn: Float32Array;
+  readonly foulIn: Float32Array;
+  /** Whether any column may be fouled: while none is, carrying it costs nothing. */
+  fouled: boolean;
   /** Scratch: the largest inflow into each cell this step, and where from. */
   readonly bestIn: Float32Array;
   readonly bestMat: Uint8Array;
@@ -618,6 +637,7 @@ export function createColumnField(
     impulse: new Float64Array(n),
     landMat: new Float32Array(n),
     landBest: new Float64Array(n),
+    landFoul: new Float32Array(n),
     kickX: new Float64Array(e),
     kickY: new Float64Array(e),
     capX: new Float64Array(e),
@@ -630,6 +650,10 @@ export function createColumnField(
     iterB: new Float32Array(n),
     breaking: false,
     material: new Uint8Array(n),
+    foul: new Float32Array(n),
+    volIn: new Float32Array(n),
+    foulIn: new Float32Array(n),
+    fouled: false,
     bestIn: new Float32Array(n),
     bestMat: new Uint8Array(n),
     dragOf: new Float32Array(MATERIAL_SLOTS),
@@ -745,6 +769,22 @@ export function setRim(f: ColumnField, rim: Float32Array | null, material = 1) {
 
 /** Material indices the per-material drag table covers. */
 export const MATERIAL_SLOTS = 16;
+
+/**
+ * THE TWO MATERIALS THAT MIX, by the index the material array stores: the
+ * clean one and the one that fouls it. A column of either is one fluid at a
+ * strength — `foul`, nought to one — and which of the two it is called is
+ * only which side of a half that strength lies. Any other material is itself
+ * and mixes with nothing. Fixed here rather than handed in, because the
+ * device's shaders are written with them. @see ColumnField.foul, world/water/materials
+ */
+export const CLEAN_MATERIAL = 1;
+export const FOUL_MATERIAL = 2;
+/** Seconds for the fouling of a column that is mostly clean to fall to a third: it settles out, slowly. */
+export const FOUL_SETTLE = 900;
+/** What a material arrives as: all fouling, none, or whatever is already there. */
+export const foulOf = (material: number, was: number) =>
+  material === FOUL_MATERIAL ? 1 : material === CLEAN_MATERIAL ? 0 : was;
 
 /** Give a material its own flux retention. 0 leaves it on the field default. */
 export function setMaterialDrag(f: ColumnField, material: number, drag: number) {
@@ -981,12 +1021,18 @@ export function addWater(
   if (a < 0 || a >= f.layers) return;
   const i = a * f.cells + at(f, x, y);
   const next = Math.max(0, f.depth[i] + amount);
+  if (amount > 0 && next > 0) {
+    // WHAT ARRIVES MIXES IN: the fouling material at full strength, the clean one at none.
+    const c = (f.foul[i] * f.depth[i] + foulOf(material, f.foul[i]) * amount) / next;
+    f.foul[i] = c;
+    if (c > 0) f.fouled = true;
+  }
   if (material && amount > 0) f.material[i] = material;
   // WHAT ACTUALLY WENT IN, which is not always what was asked for: a drain
   // that asks for more than is there takes what is there.
   if (f.arrivals) note(f.arrivals, i, next - f.depth[i], material);
   f.depth[i] = next;
-  if (next <= 0) f.material[i] = 0;
+  if (next <= 0) { f.material[i] = 0; f.foul[i] = 0; }
   if (next > 0) include(f, x, y);
   if (next > f.deepest) f.deepest = next;
 }
@@ -1114,6 +1160,7 @@ export function emptyColumn(f: ColumnField, i: number) {
   if (f.arrivals) note(f.arrivals, i, -1e6, 0);
   f.depth[i] = 0;
   f.material[i] = 0;
+  f.foul[i] = 0;
 }
 
 /** The same, for a flux an arrival pushed — see the crater in `splashInto`. */
@@ -1269,7 +1316,7 @@ export const PLUNGE_WHITE = 9;
  */
 export function plungeInto(
   f: ColumnField, x: number, y: number, amount: number, material: number, speed: number,
-  a = 0,
+  a = 0, strength = foulOf(material, 0),
 ): void {
   if (x < 0 || y < 0 || x >= f.nx || y >= f.ny) return;
   const i = a * f.cells + at(f, x, y);
@@ -1290,6 +1337,7 @@ export function plungeInto(
   // depth, so nothing here can depend on which lip landed first.
   const kept = amount - spray;
   f.landing[i] += kept;
+  if (strength > 0) { f.landFoul[i] += kept * strength; f.fouled = true; }
   f.impulse[i] += kept * speed;
   if (material && kept > f.landBest[i]) {
     f.landBest[i] = kept;
@@ -1327,7 +1375,7 @@ export function plungeInto(
  */
 export function applyLandings(f: ColumnField) {
   const {
-    depth, ground, fx, fy, material, params,
+    depth, ground, fx, fy, material, params, foul, landFoul,
     landing, impulse, landMat, landBest, kickX, kickY, capX, capY,
   } = f;
   const b = f.box;
@@ -1337,6 +1385,11 @@ export function applyLandings(f: ColumnField) {
   for (let i = 0; i < landing.length; i++) {
     if (landing[i] <= 0) continue;
     if (landMat[i] && depth[i] <= params.dryDepth) material[i] = landMat[i];
+    // What landed mixes with what stood there. @see ColumnField.foul
+    if (landFoul[i] > 0 || foul[i] > 0) {
+      foul[i] = Math.min(1, (foul[i] * depth[i] + landFoul[i]) / (depth[i] + landing[i]));
+      landFoul[i] = 0;
+    }
     depth[i] += landing[i];
   }
   // 3. THE PUSH, from the depth as it now stands.
@@ -1862,6 +1915,8 @@ export function accelerate(f: ColumnField, c: PassConsts) {
   const { nx, ny, cells, layers, ground, roof, depth, fx, fy } = f;
   const { windX, windY, wnx, wstride } = f;
   const keepOf = f.keepOf;
+  const { foul, fouled } = f;
+  const keepClean = keepOf[CLEAN_MATERIAL], keepGap = keepOf[FOUL_MATERIAL] - keepClean;
   const material = f.material;
   // Accelerate every edge by the head across it and the water able to CARRY
   //    it, then apply drag.
@@ -1987,7 +2042,9 @@ export function accelerate(f: ColumnField, c: PassConsts) {
               const head = hi - hj;
               const up = head > 0 ? hi : hj;
               const carry = Math.min(hMax, up < gap ? up : gap);
-              const k = keepOf[material[head > 0 ? ia : jb]];
+              const from = head > 0 ? ia : jb;
+              // Between clean and fouled the drag is the mix's. @see ColumnField.foul
+              const k = fouled && foul[from] > 0 ? keepClean + keepGap * foul[from] : keepOf[material[from]];
               const push = carry > 0 && Math.abs(head) > deadBand(minHead, carry);
               const q = push ? (fx[p] + gain * carry * head) * k : fx[p] * k;
               // The wind is added AFTER the drag, so it is this step's push
@@ -2032,7 +2089,8 @@ export function accelerate(f: ColumnField, c: PassConsts) {
               const head = hi - hj;
               const up = head > 0 ? hi : hj;
               const carry = Math.min(hMax, up < gap ? up : gap);
-              const k = keepOf[material[head > 0 ? ia : jb]];
+              const from = head > 0 ? ia : jb;
+              const k = fouled && foul[from] > 0 ? keepClean + keepGap * foul[from] : keepOf[material[from]];
               const push = carry > 0 && Math.abs(head) > deadBand(minHead, carry);
               const q = push ? (fy[p] + gain * carry * head) * k : fy[p] * k;
               // Nothing where nothing stands above the sill. @see fx above
@@ -2147,7 +2205,7 @@ export function limit(f: ColumnField, c: PassConsts) {
 export function divergence(f: ColumnField, c: PassConsts) {
   const { x0: X0, y0: Y0, x1: X1, y1: Y1, spread } = c;
   const { nx, ny, cells, layers, fx, fy, delta, material } = f;
-  const { bestIn, bestMat } = f;
+  const { bestIn, bestMat, foul, volIn, foulIn, fouled } = f;
   for (let a = 0; a < layers; a++) {
     const base = a * cells;
     const k = a * 4, sb = f.slotBox;
@@ -2164,6 +2222,7 @@ export function divergence(f: ColumnField, c: PassConsts) {
       // nought there, and the comparison of this pass could never pass: thirty
       // cells of stale argmax on every scene, each with nothing arriving.
       bestMat.fill(0, row + cx0, row + cx1 + 1);
+      if (fouled) { volIn.fill(0, row + cx0, row + cx1 + 1); foulIn.fill(0, row + cx0, row + cx1 + 1); }
     }
   }
   // Note the biggest contributor to each cell as we go, so a cell that fills
@@ -2226,9 +2285,11 @@ export function divergence(f: ColumnField, c: PassConsts) {
                 delta[jb] += move;
                 if (move > 0) {
                   if (move > bestIn[jb]) { bestIn[jb] = move; bestMat[jb] = material[ia]; }
+                  if (fouled) { volIn[jb] += move; foulIn[jb] += move * foul[ia]; }
                 } else {
                   const up = -move;
                   if (up > bestIn[ia]) { bestIn[ia] = up; bestMat[ia] = material[jb]; }
+                  if (fouled) { volIn[ia] += up; foulIn[ia] += up * foul[jb]; }
                 }
               }
             }
@@ -2249,9 +2310,11 @@ export function divergence(f: ColumnField, c: PassConsts) {
                 delta[jb] += move;
                 if (move > 0) {
                   if (move > bestIn[jb]) { bestIn[jb] = move; bestMat[jb] = material[ia]; }
+                  if (fouled) { volIn[jb] += move; foulIn[jb] += move * foul[ia]; }
                 } else {
                   const up = -move;
                   if (up > bestIn[ia]) { bestIn[ia] = up; bestMat[ia] = material[jb]; }
+                  if (fouled) { volIn[ia] += up; foulIn[ia] += up * foul[jb]; }
                 }
               }
             }
@@ -2277,6 +2340,9 @@ export function applyDepths(f: ColumnField, c: PassConsts) {
   const { x0: X0, y0: Y0, x1: X1, y1: Y1, dt } = c;
   const { nx, ny, cells, layers, depth, delta, params, material } = f;
   const bestMat = f.bestMat;
+  const { foul, volIn, foulIn, fouled } = f;
+  const settle = Math.exp(-dt / FOUL_SETTLE);
+  let any = false;
   const b = f.box;
   b.x0 = f.nx; b.y0 = f.ny; b.x1 = -1; b.y1 = -1;
   let deepest = 0;
@@ -2322,6 +2388,20 @@ export function applyDepths(f: ColumnField, c: PassConsts) {
           f.breakAge[ia] = -1;
           f.broke[ia] = 0;
         }
+        if (fouled) {
+          // THE MIX: what stayed keeps its strength, what came in brought its own.
+          const d = depth[ia];
+          let s = foul[ia];
+          if (d <= 0) s = 0;
+          else if (volIn[ia] > 0) s = (s * Math.max(0, d - volIn[ia]) + foulIn[ia]) / d;
+          if (s > 0) {
+            // Mostly clean, it settles out; mostly fouling, it is sludge and stays.
+            if (s < 0.5) s *= settle;
+            s = s > 1 ? 1 : s < 1e-12 ? 0 : s;
+            any = true;
+          }
+          foul[ia] = s;
+        }
         if (depth[ia] <= 0) {
           material[ia] = 0;
           // A column with water in the AIR off one of its edges stays in the
@@ -2337,6 +2417,11 @@ export function applyDepths(f: ColumnField, c: PassConsts) {
         } else {
           keep = true;
           if (wasDry && bestMat[ia]) material[ia] = bestMat[ia];
+          // WHICH OF THE TWO IT IS CALLED is which side of a half its strength lies. @see CLEAN_MATERIAL
+          if (fouled) {
+            const m = material[ia];
+            if (m === CLEAN_MATERIAL || m === FOUL_MATERIAL) material[ia] = foul[ia] >= 0.5 ? FOUL_MATERIAL : CLEAN_MATERIAL;
+          }
         }
       }
       if (!keep) continue;
@@ -2347,6 +2432,8 @@ export function applyDepths(f: ColumnField, c: PassConsts) {
     }
   }
   f.deepest = deepest;
+  // Nothing fouled left in what was walked: the next step carries nothing. A pour of it says so again.
+  if (fouled && !any) f.fouled = false;
 }
 
 /**

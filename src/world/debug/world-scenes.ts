@@ -113,6 +113,8 @@ export function copyWater(from: ColumnField, to: ColumnField): boolean {
   if (from.cells !== to.cells || from.layers !== to.layers) return false;
   to.depth.set(from.depth);
   to.material.set(from.material);
+  to.foul.set(from.foul);
+  to.fouled = from.fouled;
   to.fx.set(from.fx);
   to.fy.set(from.fy);
   to.box.x0 = from.box.x0; to.box.y0 = from.box.y0;

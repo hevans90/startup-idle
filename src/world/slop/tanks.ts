@@ -2,17 +2,16 @@
  * World v2 — THE SLOP TANKS: one at each vibe coders' workplace, filled by
  * what its people make, by how many sit at its desks; drained by the sewers
  * that take from it, into the processors they feed and out of their
- * outfalls into the water; and SPILLED at its port when full — sludge on the
- * street, or pollution in the water if it stands in it. Live state, not
+ * outfalls into the water; and SPILLED at its port when full — slop on the
+ * street, or mixed into the water if it stands in it. Live state, not
  * saved with the map: what each holds. @see game/slop, serializeWorld
  */
-import { POLLUTION_PER_SLOP, SPILL_DEPTH, setSlopMaking, setSlopSpilling, tankFor } from "../../game/slop";
+import { SPILL_DEPTH, setSlopMaking, setSlopSpilling, tankFor } from "../../game/slop";
 import { PROCESS_RATE, processorKind, setProcessorUse, type ProcessorKind } from "../../game/processors";
 import { WORKPLACES } from "../agents/commute";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { fluidIndexOf } from "../water/materials";
 import { backedUpCell, mainReportsFor } from "../water/mains";
-import { pollute } from "../water/pollution";
 import { portsOf } from "../water/ports";
 import { pourAt, type WaterField } from "../water/field";
 import { fluidAt, ring } from "../events/sludge";
@@ -44,7 +43,7 @@ export function emptyFull(g: Grid): void {
   for (const t of tanksOf(g).values()) if (t.spilling) { t.level = 0; t.spilling = false; }
 }
 
-/** Water deep enough on a tile to take what is poured into it as pollution, not sludge. */
+/** Water deep enough on a tile for what is let out beside it to go into. */
 const WET = 0.5;
 /** The water beside or on a tile, deepest first, or null: where an outfall or a spill goes in. Water, not sludge already spilt. */
 function waterBy(g: Grid, field: WaterField, x: number, y: number): { x: number; y: number } | null {
@@ -57,12 +56,12 @@ function waterBy(g: Grid, field: WaterField, x: number, y: number): { x: number;
   return best;
 }
 
-/** Put slop out at a tile: into water beside it as pollution, or onto the ground as sludge. */
+/** Put slop out at a tile: into the water beside it if there is any, or onto the ground. */
 export function release(g: Grid, field: WaterField, x: number, y: number, amount: number) {
   if (!(amount > 0)) return;
-  const water = waterBy(g, field, x, y);
-  if (water) pollute(field, water.x, water.y, amount * POLLUTION_PER_SLOP);
-  else pourAt(field, x, y, amount * SPILL_DEPTH, fluidIndexOf("slop"));
+  // ONE THING, wherever it goes: slop, poured. In water it mixes and the water carries it. @see ColumnField.foul
+  const at = waterBy(g, field, x, y) ?? { x, y };
+  pourAt(field, at.x, at.y, amount * SPILL_DEPTH, fluidIndexOf("slop"));
 }
 
 /**

@@ -62,9 +62,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // A column takes the arriving material only where water arrived, which is
   // the same test addWater makes, and loses it when it runs dry.
   let mat = arriveAt(n, 4);
+  // WHAT ARRIVES MIXES IN: the fouling material at full strength, the clean
+  // one at none, anything else at what is already there. @see addWater
+  if (d > 0.0 && next > 0.0) {
+    let was = foulAt(i);
+    let came = select(select(was, 0.0, mat == 1.0), 1.0, mat == 2.0);
+    setFoul(i, (was * depthAt(i) + came * d) / next);
+  }
   if (d > 0.0 && mat != 0.0) { setMaterial(i, mat); }
   setDepth(i, next);
-  if (next <= 0.0) { setMaterial(i, 0.0); }
+  if (next <= 0.0) { setMaterial(i, 0.0); setFoul(i, 0.0); }
 
   // AND IT JOINS THE ACTIVE BOX. A spring on dry ground is the one thing that
   // can put water where the reduction has never looked, and a box that does

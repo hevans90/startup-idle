@@ -444,6 +444,8 @@ export function createGpuWater(
     // The depth band at its widest, ON EVERY STOREY: a band is rows and a
     // column is a stack of them, so what comes back is one run per slot.
     + state.nx * state.ny * state.layers
+    // And how fouled it is, the same rows of the same storeys. @see ColumnField.foul
+    + state.nx * state.ny * state.layers
     // And the named cells beside it: a full readback carries both. @see requestFull
     + WANT_MAX
     + Math.max(
@@ -719,6 +721,10 @@ export function createGpuWater(
           ),
           base + from,
         );
+        // And how fouled those rows are; any of it at all says there is some to look at.
+        const fouling = raw.subarray(state.offset.foul + base + from, state.offset.foul + base + upto);
+        into.foul.set(fouling, base + from);
+        if (!into.fouled) for (let k = 0; k < fouling.length; k++) if (fouling[k] > 0) { into.fouled = true; break; }
       }
     }
     // OFF THE DEVICE'S OWN TALLY. @see GpuFrame.deviceWater
@@ -1051,6 +1057,12 @@ export function createGpuWater(
       ...(sparse ? [{ at: state.offset.wantOut, len: flightWantN }] : []),
       ...Array.from({ length: state.layers }, (_, a) => ({
         at: state.offset.depth + a * state.cells + band.y0 * state.nx,
+        len: bandRows,
+      })),
+      // HOW FOULED IT IS, by the same rows: the game reads it a tile at a
+      // time, a few times a second, and the overlay draws it. @see pollution
+      ...Array.from({ length: state.layers }, (_, a) => ({
+        at: state.offset.foul + a * state.cells + band.y0 * state.nx,
         len: bandRows,
       })),
     ];

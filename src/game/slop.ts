@@ -17,10 +17,8 @@ export const SLOP_PER_CODER = 0.01;
 /** A workplace's tank holds this many seconds of what it makes, and never less than this much. */
 export const TANK_SECONDS = 120;
 export const TANK_LEAST = 2;
-/** Half steps of sludge a unit of slop spills as, over one tile. */
+/** Half steps a unit of slop stands as, over one tile: on the street, or mixed into the water. */
 export const SPILL_DEPTH = 0.5;
-/** Pollution a unit of slop puts into the water. @see world/water/pollution */
-export const POLLUTION_PER_SLOP = 1;
 
 /**
  * Slop a vibe coder AT A DESK makes a second, with `coders` of them employed
