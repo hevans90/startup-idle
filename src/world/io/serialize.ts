@@ -22,6 +22,7 @@ import { pollutionSaved, stashPollution } from "../water/pollution";
 import { restoreTanks, tankLevels } from "../slop/tanks";
 import { serviceDef } from "../agents/needs";
 import { startLadder, unlockedOf } from "../agents/unlocks";
+import { setSuggestOpen, suggestOpen } from "../pipes/suggest";
 
 export const WORLD_FILE_VERSION = 1;
 
@@ -150,6 +151,8 @@ export type WorldFile = {
    * the ladder catches up to its headcount on its first step. @see stepLadder
    */
   services?: string[];
+  /** Which kinds of suggested route are open on this map. @see pipes/suggest */
+  pipeHelp?: { water?: boolean; sewer?: boolean };
   /** Index → material id. Index 0 is VOID. Saved so indices keep their meaning. */
   palette: { terrain: (string | null)[]; paved: (string | null)[] };
 };
@@ -259,6 +262,8 @@ export function serializeWorld(
     ...(water && pollutionSaved(water) ? { pollution: encodeF32(pollutionSaved(water)!) } : {}),
     ...(tankLevels(grid).length ? { slopTanks: tankLevels(grid) } : {}),
     ...(unlockedOf(grid) ? { services: unlockedOf(grid) } : {}),
+    // Which kinds of pipe the player has laid by hand and seen work: what opens their suggestions.
+    ...(suggestOpen(grid).water || suggestOpen(grid).sewer ? { pipeHelp: suggestOpen(grid) } : {}),
     palette: { terrain: [...palette.terrain], paved: [...palette.paved] },
   };
 }
@@ -397,6 +402,7 @@ export function deserializeWorld(
       !!t && Number.isInteger(t.id) && typeof t.level === "number" && Number.isFinite(t.level) && t.level > 0 && grid.structures.has(t.id)));
   }
   if (Array.isArray(f.services)) startLadder(grid, f.services.filter((s): s is string => typeof s === "string"));
+  if (f.pipeHelp && typeof f.pipeHelp === "object") setSuggestOpen(grid, { water: f.pipeHelp.water === true, sewer: f.pipeHelp.sewer === true });
   return { grid, palette, boats };
 }
 

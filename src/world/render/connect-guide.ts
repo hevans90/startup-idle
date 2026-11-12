@@ -14,6 +14,8 @@ import type { ConnectPoint } from "../pipes/connect-points";
 import { cellDiamond } from "./overlays";
 
 const WATER = 0x58b8e8, RING = 0x3fe0a8, THIRSTY = 0xf0b040, DOT = 0x3fe0a8, HELD = 0xffffff;
+/** A suggested route's ghost, by its place in the list. */
+const WAY = [0x9cf5d4, 0x8fd0ff, 0xf5d48f];
 
 export type ConnectGuide = {
   /**
@@ -22,6 +24,8 @@ export type ConnectGuide = {
    * tile the stroke's end is on, to be lit brighter.
    */
   draw: (g: Grid, points: readonly ConnectPoint[], full: readonly number[], end: number, scale: number) => void;
+  /** The routes on offer from where a run was started, as ghosts: a line along each, tile to tile. None, and they go. @see pipes/suggest */
+  ways: (g: Grid, routes: readonly (readonly { x: number; y: number }[])[], scale: number) => void;
   destroy: () => void;
 };
 
@@ -31,8 +35,29 @@ export function createConnectGuide(overlay: Container): ConnectGuide {
   gfx.zIndex = 996;
   gfx.visible = false;
   overlay.addChild(gfx);
-  let was = "";
+  // THE SUGGESTED ROUTES, under the rings.
+  const lines = new Graphics();
+  lines.eventMode = "none";
+  lines.zIndex = 995;
+  lines.visible = false;
+  overlay.addChild(lines);
+  let was = "", wasWays = "";
   return {
+    ways(g, routes, scale) {
+      const key = routes.length ? `${g.rev}|${scale}|${routes.map((r) => `${r.length}:${r[0]?.x},${r[0]?.y}>${r[r.length - 1]?.x},${r[r.length - 1]?.y}`).join("|")}` : "";
+      if (key === wasWays) return;
+      wasWays = key;
+      lines.clear();
+      lines.visible = routes.length > 0;
+      for (const [k, route] of routes.entries()) {
+        for (const [n, c] of route.entries()) {
+          const d = cellDiamond(c.x, c.y, g.height[c.y * g.w + c.x], scale), x = d[0], y = d[1] + HH * scale;
+          if (n === 0) lines.moveTo(x, y); else lines.lineTo(x, y);
+        }
+        // The first on offer brightest; each a little apart in tone, so three that share a stretch still read as three.
+        lines.stroke({ color: WAY[k % WAY.length], width: Math.max(2, HH * scale * 0.16), alpha: 0.75, cap: "round", join: "round" });
+      }
+    },
     draw(g, points, full, end, scale) {
       // By what it shows: the tanks to a tenth, so a ring moves a step at a time and not every frame.
       let key = `${g.rev}|${scale}|${end}|${points.length}`;
@@ -69,6 +94,6 @@ export function createConnectGuide(overlay: Container): ConnectGuide {
         }
       }
     },
-    destroy() { gfx.parent?.removeChild(gfx); gfx.destroy(); },
+    destroy() { gfx.parent?.removeChild(gfx); gfx.destroy(); lines.parent?.removeChild(lines); lines.destroy(); },
   };
 }

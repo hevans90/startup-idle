@@ -12,6 +12,7 @@ import { stepSlop } from "../slop/tanks";
 import type { WaterField } from "../water/field";
 import { runMains } from "../water/mains";
 import { runPipes } from "../water/pipes";
+import { noteLaidByHand } from "./suggest";
 
 export type PipeTick = {
   /** How pumps and lift stations are paid for a second of running; free where left out, as in the editor. */
@@ -23,5 +24,9 @@ export type PipeTick = {
 export function stepPipes(g: Grid, field: WaterField, dt: number, tick: PipeTick = {}): void {
   runPipes(field, g, dt, tick.pumps);
   runMains(field, g, dt, tick.pumps);
-  if (tick.slop) stepSlop(g, field, tick.slop.desks, tick.slop.perCoder, dt, tick.pumps?.pay);
+  if (tick.slop) {
+    stepSlop(g, field, tick.slop.desks, tick.slop.perCoder, dt, tick.pumps?.pay);
+    // In the game: the first main or connection laid by hand and working opens that kind's suggestions. @see suggest
+    noteLaidByHand(g);
+  }
 }

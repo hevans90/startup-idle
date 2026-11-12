@@ -6,6 +6,7 @@
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
 import { fouledHouses, stepPollution } from "./water/pollution";
+import { suggestionsKept } from "./pipes/suggest";
 import { founderIs } from "../game/founder-rules";
 import { useThemeStore } from "../state/theme.store";
 import { latticeForm } from "../game/quests/finale";
@@ -3278,6 +3279,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const t = slop ? slop.get(p.building) : tankFor(p.building);
             return t && t.capacity > 0 ? t.level / t.capacity : NaN;
           }), end, scale);
+          // CONNECT IT FOR ME: a run just started, and the routes on offer from there as ghosts. @see SuggestCard
+          const offered = piping && s0 && !s0.path && s0.pins?.length === 1 ? suggestionsKept(grid, st.getWaterField(), s0.pins[0], mainWet(grid)) : [];
+          connectRef.current?.ways(grid, offered.map((o) => o.route), scale);
         }
         mainsRef.current?.tick(grid, scale, performance.now(), ...mainPreview(), st.playing && (st.waterOverlay || st.tool === "pipe"), st.hover, previewPump());
         // THE SEWERS: drawn again where they changed; the underground shown, and the ground see-through over it, in its view. @see createSewerLayer

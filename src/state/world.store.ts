@@ -635,6 +635,8 @@ type WorldState = {
   addManholeAt: (c: Cell) => void;
   /** A storm drain on a trunk at a tile: a grate on its manhole, the manhole put in with it if there is none. @see planStormDrain */
   addStormDrainAt: (c: Cell) => void;
+  /** Lay a suggested route: the stroke it is, ended as a hand-drawn one. @see pipes/suggest */
+  laySuggestion: (stroke: Stroke) => void;
   doUndo: () => void;
   doRedo: () => void;
   loadGrid: (g: Grid, palette?: (string | null)[], boats?: readonly SavedBoat[]) => void;
@@ -1212,6 +1214,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   toggleStrokePump: () => set((st) => (st.stroke ? { stroke: { ...st.stroke, noPump: !st.stroke.noPump } } : {})),
   addManholeAt: (c) => {
     set({ stroke: { tool: "sewer", brush: "point", anchor: c, head: c } });
+    get().endStroke();
+  },
+  laySuggestion: (stroke) => {
+    // Its route given: ended as any stroke is, by the same planner at the same price. @see pipes/suggest
+    set({ stroke: { ...stroke } });
     get().endStroke();
   },
   addStormDrainAt: (c) => {

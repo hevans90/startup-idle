@@ -49,6 +49,7 @@ import { AGENTS_A_RACK, agentsOpen } from "../../game/agents";
 import { PUMP_HEAD } from "../../game/cooling";
 import { MainCard } from "./main-card";
 import { SewerCard } from "./sewer-card";
+import { SuggestCard } from "./suggest-card";
 import { InfoPop } from "../../ui/InfoPop";
 import { INFINITY } from "../../utils/time-utils";
 import { FOCUS, Kbd, Tile } from "../../ui/console";
@@ -346,6 +347,7 @@ export function BuildBar({ className }: { className?: string }) {
       <AiModePanel />
       <MainCard />
       <SewerCard />
+      <SuggestCard />
       {picking && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>
