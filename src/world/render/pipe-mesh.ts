@@ -44,12 +44,15 @@ export const WORDS = 9;
  * - steel (water mains): a weld bead each two lengths, a faint spiral seam,
  *   scuffs along the top, a stain under each weld;
  * - concrete: the lines its boards left, a pour at a time;
- * - brick: courses, half a brick over from the course below.
+ * - brick: courses, half a brick over from the course below;
+ * - a trunk: cast iron, and the flow's CHEVRONS along it, pointing the way it
+ *   falls — on along its run as that is counted, or back. A pattern of the
+ *   tube itself, not shapes laid over it.
  * A tube's `along` is its place on the map along the way it runs, so the
  * marks carry on from one tile's length to the next. A wall's `along` is its
  * height and its `across` its place along the wall.
  */
-export const MATERIAL = { plain: 0, iron: 1, steel: 2, concrete: 3, brick: 4 } as const;
+export const MATERIAL = { plain: 0, iron: 1, steel: 2, concrete: 3, brick: 4, trunkOn: 5, trunkBack: 6 } as const;
 /** The material being written: set round the pieces that have one. @see made */
 let material = 0;
 /** Build with a material: what `build` writes that takes one — tubes, sweeps, boxes — is made of it. */
@@ -222,6 +225,8 @@ export type PipeLook = {
   sides: number;
   /** What its tube is made of: the detail the shader draws along it. Plain where left out. @see MATERIAL */
   material?: number;
+  /** A saddle's strap over the tube: left off far away. */
+  strap?: boolean;
   /** The fitting at a loose end; a dome where there is none, or a building of its own stands over it. */
   end?: Fitting | null;
   /** Flanges at its joins, and their bolts. */
@@ -816,7 +821,7 @@ export function pipeCell(m: PipeMesh, s: number, x: number, y: number, z: number
     const [u0, v0, u1, v1] = saddle(at, r), top = footing(m, s, u0, v0, u1, v1, g);
     box(m, s, u0, v0, top, u1, v1, Math.max(top, h - r * 0.15), concrete);
     // None over a window: the glass there is written over it each frame, and a band would show through it.
-    strap = at.along !== null && h - r > top && !(look.window ?? 0);
+    strap = at.along !== null && h - r > top && !(look.window ?? 0) && look.strap !== false;
   } else if (support === "frame" && limbs.length && look.verges) {
     // OVER A ROAD: a leg at either edge of it, the beam right across under the
     // tube — under its lowest point, where it climbs. The far leg behind the traffic.

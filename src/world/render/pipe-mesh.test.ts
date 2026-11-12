@@ -523,7 +523,7 @@ describe("the mains' shader", () => {
     expect(glsl).toContain("vec3 lit =");
     expect(glsl).toContain("float tone =");
     // What it is made of, the same in both: every mark by name, and the vectors typed.
-    for (const mark of ["ironJoint", "ironSeam", "rust", "bead", "spiral", "scuff", "stain", "board", "mortar", "fine"]) {
+    for (const mark of ["ironJoint", "ironSeam", "rust", "bead", "spiral", "scuff", "stain", "board", "mortar", "fine", "chevron", "trunk"]) {
       expect(wgsl).toContain(`let ${mark} =`);
       expect(glsl).toContain(`float ${mark} =`);
     }

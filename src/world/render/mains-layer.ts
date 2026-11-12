@@ -56,7 +56,9 @@ const LIFT = 1.1;
  * turns to grey rather than to violet. @see pipe-mesh, plans/pipe-rendering.md
  */
 const TUBE_R = 0.09 / Math.SQRT2;
-const STEEL = 0xb9b7b1, IRON = 0x7d5c40;
+/** Steel a shade darker than the concrete it stands on, so a main holds against grass; how much thicker a tube is drawn far off. */
+const STEEL = 0xa6a9aa, IRON = 0x7d5c40;
+export const FAR_THICK = 1.2;
 /** A lateral's tube, its radius and its cast iron: what a manhole's shaft carries on down underground. @see sewer-layer */
 export const LATERAL_IRON = IRON;
 /**
@@ -277,7 +279,7 @@ export function spaceWords(words: readonly Word[], px: number): Word[] {
 
 export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLayer {
   /** The tubes, a mesh a band — and a band's far legs over a road, and the lengths over the next band's traffic. */
-  const drawn: Mesh<Geometry, Shader>[] = [];
+  let drawn: Mesh<Geometry, Shader>[] = [];
   const scratch = new Matrix();
   /**
    * THE WINDOWS, a band at a time: their glass and what is in it, a mesh
@@ -285,9 +287,28 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
    * tubes; and each window, where it is and how its tube looks.
    */
   type Pane = { i: number; w0: readonly number[]; w1: readonly number[]; r: number; sewer: boolean; near: number };
-  const windows = new Map<number, { own: Container; write: (m: PipeMesh) => void; panes: Pane[] }>();
+  type Windows = Map<number, { own: Container; write: (m: PipeMesh) => void; panes: Pane[] }>;
+  let windows: Windows = new Map();
   const live = pipeMesh(1024);
   let paneSides = 14, paneInset = 0;
+  /**
+   * ONE SET OF MESHES A LEVEL OF DETAIL, built when a zoom first wants it and
+   * KEPT: crossing a threshold shows one set and hides another, as the roads
+   * do it, and nothing is destroyed or built again until a pipe is laid or
+   * lifted. `drawn`, `windows` and the panes' look above are the set on show.
+   */
+  type Level = { drawn: Mesh<Geometry, Shader>[]; windows: Windows; paneSides: number; paneInset: number };
+  const levels = new Map<Detail, Level>();
+  let base = "";
+  const showLevel = (d: Detail) => {
+    for (const [k, l] of levels) {
+      const on = k === d;
+      for (const mesh of l.drawn) if (mesh.visible !== on) mesh.visible = on;
+      for (const { own } of l.windows.values()) if (own.visible !== on) own.visible = on;
+    }
+    const l = levels.get(d)!;
+    drawn = l.drawn; windows = l.windows; paneSides = l.paneSides; paneInset = l.paneInset;
+  };
   const flow = new Graphics();
   flow.eventMode = "none";
   overlay.addChild(flow);
@@ -388,14 +409,15 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     for (const l of out) {
       if (l.wall !== undefined || !inBounds(g, x + l.dx, y + l.dy)) continue;
       const next = g.main[idx(g, x + l.dx, y + l.dy)];
-      if (next) l.meets = tubeR(next);
+      if (next) l.meets = tubeR(next) * (d === "far" ? FAR_THICK : 1);
     }
     const band = (sewer || ai) && (x + y) % 4 === 3 ? (sewer ? SEWER_BAND : AI_BAND) : null;
     // A pump building stands over its own pump: no pump house drawn under it.
     const fit = FITTINGS[end] ?? null;
     const own = fit === "pump" && g.structures.get(structureAt(g, x, y))?.def === "pump";
     pipeCell(m, s, x, y, z, out, {
-      r: tubeR(bits), colour, sides: DETAIL_SIDES[d], end: own ? null : fit, support, floor,
+      // FAR OFF the tube is a little thicker, so it holds against the grass, and its strap is left off.
+      r: tubeR(bits) * (d === "far" ? FAR_THICK : 1), colour, sides: DETAIL_SIDES[d], end: own ? null : fit, support, floor, strap: d !== "far",
       material: sewer ? MATERIAL.iron : MATERIAL.steel,
       flanges: d !== "far" && (!sewer || (x + y) % 2 === 0), bolts: d === "near", valve: d === "near", band,
       window: isGlass(g, x, y) ? GLASS / 2 : 0, glass: null, frames: d === "near",
@@ -409,11 +431,15 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
     }
   };
 
+  /** Every level's meshes put away: the map's pipes changed. */
   const clear = () => {
-    for (const mesh of drawn) destroyPipeDrawable(mesh);
-    drawn.length = 0;
-    for (const { own } of windows.values()) { own.parent?.removeChild(own); own.destroy({ children: true }); }
-    windows.clear();
+    for (const l of levels.values()) {
+      for (const mesh of l.drawn) destroyPipeDrawable(mesh);
+      for (const { own } of l.windows.values()) { own.parent?.removeChild(own); own.destroy({ children: true }); }
+    }
+    levels.clear();
+    drawn = [];
+    windows = new Map();
   };
 
   /** One of the overlay's numbers, from the pool. */
@@ -535,10 +561,14 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
   return {
     sync(g, scale, zoom = 1) {
       detail = detailFor(2 * HW * scale * zoom, detail);
-      const k = `${g.rev}|${scale}|${g.w}x${g.h}|${detail}`;
+      const b = `${g.rev}|${scale}|${g.w}x${g.h}`, k = `${b}|${detail}`;
       if (k === key) return;
       key = k;
-      clear();
+      // THE PIPES CHANGED: every level goes. Only the zoom did: the level wanted is shown, built if it never was.
+      if (b !== base) { base = b; clear(); }
+      if (levels.has(detail)) { showLevel(detail); return; }
+      drawn = [];
+      windows = new Map();
       const d = detail, sides = DETAIL_SIDES[d];
       // THE PORTS on the buildings, as nozzles in their band's mesh, under any main that ends at them.
       const nozzles = new Map<number, PortCell[]>();
@@ -652,6 +682,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
       }
       // The lengths over each band's traffic from the band behind it: under that band's own mains, which meet them.
       for (const [band, n] of nears) place(n, bands.dynamicOf[band], PIPE_Z - 0.01);
+      levels.set(d, { drawn, windows, paneSides, paneInset });
+      showLevel(d);
     },
     tick(g, scale, now, preview, ok = true, overlayOn = false, hover = null, pumpAt = null) {
       flow.clear();

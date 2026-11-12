@@ -30,8 +30,8 @@ const v3 = (a: readonly number[]) => a.map((c) => c.toFixed(5)).join(", ");
 
 /** A colour as a shader's vector. */
 const rgb = (c: number) => [(c >> 16) & 255, (c >> 8) & 255, c & 255].map((k) => (k / 255).toFixed(4)).join(", ");
-/** Rust, on cast iron; mortar, between bricks. */
-const RUST = 0x8a4a2a, MORTAR = 0xb9ab98;
+/** Rust, on cast iron; mortar, between bricks; the flow's chevrons, on a trunk. */
+const RUST = 0x8a4a2a, MORTAR = 0xb9ab98, CHEVRON = 0xf0d2a8;
 /** A cast iron pipe's length and a steel one's, tiles; a brick's course and its length, tiles; a concrete pour's height. */
 export const IRON_LENGTH = 1, STEEL_LENGTH = 2, COURSE = 0.045, BRICK_LONG = 0.11, POUR = 0.12;
 
@@ -51,10 +51,11 @@ const detail = (vec3: string) => `
   let al = vMat.x;
   let ac = vMat.y;
   let fine = 1.0 - smoothstep(0.03, 0.09, fwidth(al));
-  let iron = step(0.5, vMat.z) * step(vMat.z, 1.5) * fine;
+  let trunk = step(4.5, vMat.z);
+  let iron = (step(0.5, vMat.z) * step(vMat.z, 1.5) + trunk) * fine;
   let steel = step(1.5, vMat.z) * step(vMat.z, 2.5) * fine;
   let concrete = step(2.5, vMat.z) * step(vMat.z, 3.5) * fine;
-  let brick = step(3.5, vMat.z) * fine;
+  let brick = step(3.5, vMat.z) * step(vMat.z, 4.5) * fine;
   let top = dot(n, ${vec3}(${v3(UP)}));
   let under = 1.0 - smoothstep(-0.15, 0.25, n.z);
 
@@ -84,7 +85,12 @@ const detail = (vec3: string) => `
   let mortar = max(step(0.82, fract(al / ${COURSE})), step(0.92, fract(along2)));
   let brickTone = fract(sin((course * 5.0 + floor(along2)) * 12.9898) * 43758.5453) - 0.5;
 
-  let base0 = vColor.rgb;
+  // A TRUNK'S CHEVRONS: a V each length, its point the way the sewer falls.
+  let way = 1.0 - 2.0 * step(5.5, vMat.z);
+  let arm = abs(ac - 0.5);
+  let chevron = step(fract(al * way + arm * 0.6), 0.09) * step(arm, 0.3) * trunk * fine;
+
+  let base0 = mix(vColor.rgb, ${vec3}(${rgb(CHEVRON)}), 0.85 * chevron);
   let base1 = mix(base0, ${vec3}(${rgb(RUST)}), 0.6 * rust * iron);
   let base2 = mix(base1, ${vec3}(${rgb(MORTAR)}), 0.7 * mortar * brick);
   let wear = 1.0
@@ -108,7 +114,7 @@ ${detail(vec3)}
   let shine = 0.22 * smoothstep(0.9, 0.925, dot(n, ${vec3}(${v3(UP)})));
   // THE EDGE, turning away from the camera: darkened to an outline.
   let edge = smoothstep(0.08, 0.3, dot(n, ${vec3}(${v3(VIEW)})));
-  let lit = (base * tone + shine) * (0.35 + 0.65 * edge);
+  let lit = (base * tone + shine) * (0.28 + 0.72 * edge);
 `;
 
 export const pipeShaderSource = () => /* wgsl */ `
@@ -227,10 +233,15 @@ function pipeShader(): Shader {
   return shared;
 }
 
-/** A built pipe mesh, made drawable: exactly the vertices and triangles written. */
-export function pipeDrawable(m: PipeMesh): Mesh<Geometry, Shader> {
+/**
+ * A built pipe mesh, made drawable: exactly the vertices and triangles
+ * written. `live`, its vertices can be written again in place — a network's
+ * colour changed with its state — without the mesh being made again.
+ * @see recolour
+ */
+export function pipeDrawable(m: PipeMesh, live = false): Mesh<Geometry, Shader> {
   const STRIDE = WORDS * 4;
-  const vertices = new Buffer({ data: m.f32.slice(0, m.nv * WORDS), usage: BufferUsage.VERTEX });
+  const vertices = new Buffer({ data: m.f32.slice(0, m.nv * WORDS), usage: live ? BufferUsage.VERTEX | BufferUsage.COPY_DST : BufferUsage.VERTEX });
   const indices = new Buffer({ data: m.idx.slice(0, m.ni), usage: BufferUsage.INDEX });
   const geometry = new Geometry({
     attributes: {
@@ -279,6 +290,21 @@ export function pipeLiveDrawable(v: number, i: number): { mesh: Mesh<Geometry, S
     indices.update();
   };
   return { mesh, write };
+}
+
+/**
+ * COLOUR SOME OF A LIVE MESH AGAIN, in place: each vertex from `from` up to
+ * `to` whose colour is `was` becomes `now`. The geometry, the triangles and
+ * the draw list round it are untouched: only the bytes go up again.
+ * Returns how many it changed.
+ */
+export function recolour(mesh: Mesh<Geometry, Shader>, from: number, to: number, was: number, now: number): number {
+  const buffer = mesh.geometry.attributes.aPosition.buffer, data = buffer.data as Float32Array;
+  const words = new Uint32Array(data.buffer, data.byteOffset, data.length);
+  let n = 0;
+  for (let v = from; v < to; v++) if (words[v * WORDS + 5] === was) { words[v * WORDS + 5] = now; n++; }
+  if (n) buffer.update();
+  return n;
 }
 
 /** Put one away: its geometry, not the shared shader. */

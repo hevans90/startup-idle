@@ -29,8 +29,8 @@ import { sewerReportsFor } from "../sewers/flow";
 import { SEWER_KIND, solveSewers, type SewerSolve } from "../sewers/solve";
 import { lateralReach } from "../sewers/reach";
 import type { BandLayer } from "./bands";
-import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
-import { LATERAL_IRON, LATERAL_R } from "./mains-layer";
+import { destroyPipeDrawable, pipeDrawable, recolour } from "./pipe-gpu";
+import { LATERAL_R } from "./mains-layer";
 import { portsOf, type PortCell } from "../water/ports";
 import { MATERIAL, ZT, box as plainBox, disc, footing, made, pipeCell, pipeMesh, hring, solid, tube as solidTube, type Limb, type PipeMesh } from "./pipe-mesh";
 
@@ -46,15 +46,22 @@ const TRUNK_R = (0.18 / Math.SQRT2) * 1.18, TRUNK_SIDES = 10;
  */
 const SINK = 2.5;
 /** A manhole's shaft, from its cover down onto the trunk: the lateral's own pipe carried on, collared where it meets the trunk. */
-const SHAFT_R = LATERAL_R, SHAFT = LATERAL_IRON, SHAFT_COLLAR = 1.6, SHAFT_DARK = 0x56402c;
+const SHAFT_R = LATERAL_R, SHAFT_COLLAR = 1.6, SHAFT_DARK = 0x56402c, SHAFT_WIDE = 1.3;
+/**
+ * A buried trunk's colour by how deep it lies, height units under the
+ * ground: the deepest a sewer goes is a third darker and half way to grey.
+ */
+export function deepened(colour: number, depth: number): number {
+  const k = Math.max(0, Math.min(1, (depth - 1) / 3)), grey = 0x70;
+  const ch = (c: number) => Math.round((c + (grey - c) * 0.5 * k) * (1 - 0.33 * k));
+  return (ch((colour >> 16) & 255) << 16) | (ch((colour >> 8) & 255) << 8) | ch(colour & 255);
+}
 /** Its colours: draining, going nowhere; the dark under it and the light along it. */
 const UMBER = 0x7a5230, NOWHERE = 0x8b8f96, BACKED = 0x9c3b1e;
 /** A sewer being dragged: how see-through, and a tile it can't be laid on. */
 const GHOST_ALPHA = 0.6, BAD = 0xd8463a;
 /** Where a slop maker in hand could go: the tiles a live manhole reaches, tinted. */
 const REACH = 0x3fe0a8, REACH_ALPHA = 0.16;
-/** The flow's chevrons. */
-const CHEVRON = 0xf0d2a8;
 /** Cast iron, its rim and its pattern; brick, concrete, a pier. */
 const IRON = 0x3a3c40, IRON_RIM = 0x6b6e73, IRON_DARK = 0x26272a;
 const BRICK = 0x9a4f3a, ROOF = 0x5a5d62;
@@ -295,13 +302,27 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
   let troubled = "";
   const TROUBLE_HOLD_MS = 2000;
 
+  /** The map's own trunks, by network: which vertices of which mesh, and their colour clear and backed up. */
+  let owned: { mesh: Mesh<Geometry, Shader>; net: number; from: number; to: number; clear: number; backed: number }[] = [];
+  /** The networks drawn backed up now. */
+  let painted = new Set<number>();
+  function repaint() {
+    for (const k of owned) {
+      const is = trouble.has(k.net), was = painted.has(k.net);
+      if (is === was || k.mesh.destroyed) continue;
+      recolour(k.mesh, k.from, k.to, is ? k.clear : k.backed, is ? k.backed : k.clear);
+    }
+    painted = new Set(trouble.keys());
+  }
+
   function draw(g: Grid, s: SewerSolve, scale: number, o: { into?: Drawn[]; only?: Set<number>; alpha?: number; bad?: number } = {}) {
     const into = o.into ?? drawn;
     clear(into);
-    const make = gfxIn(into, o.alpha ?? 1);
     // THE TUBES FIRST, solid, a mesh a band — under the ground, or on its piers
     // with the town — so what is drawn on them after (chevrons, drops) shows.
     const tubes = new Map<number, PipeMesh>(), spans = new Map<number, PipeMesh>();
+    // WHICH VERTICES ARE WHOSE, of the map's own sewers: so a network's colour can be changed in place. @see recolour
+    const mine: { mesh: PipeMesh; net: number; from: number; to: number; clear: number; backed: number }[] = [];
     const meshOf = (m: Map<number, PipeMesh>, b: number) => {
       let mesh = m.get(b);
       if (!mesh) m.set(b, (mesh = pipeMesh()));
@@ -311,7 +332,10 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
       for (const i of net.cells) {
         if (o.only && !o.only.has(i)) continue;
         const x = i % g.w, y = (i / g.w) | 0, b = bandOf(x, y), lvl = drawnAt(g, s, i);
-        const colour = i === o.bad ? BAD : !o.only && trouble.has(net.id) ? BACKED : s.drains[i] ? UMBER : NOWHERE;
+        // DEEPER DOWN, darker and a little greyer: depth read without counting. @see deepened
+        const depth = s.kind[i] === SEWER_KIND.buried ? g.height[i] - s.level[i] : 0;
+        const clearOf = deepened(s.drains[i] ? UMBER : NOWHERE, depth), backedOf = deepened(BACKED, depth);
+        const colour = i === o.bad ? BAD : !o.only && trouble.has(net.id) ? backedOf : clearOf;
         // Out to each face it joins, level there with the neighbour's halfway.
         const limbs: Limb[] = [];
         for (const side of SIDES) {
@@ -332,59 +356,52 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
             portal(meshOf(spans, b), scale, x + l.dx * 0.47, y + l.dy * 0.47, l.zf * ZT, -l.dx, -l.dy, r);
           }
         }
-        pipeCell(meshOf(s.kind[i] === SEWER_KIND.span ? spans : tubes, b), scale, x, y, lvl, limbs, {
-          r, colour, sides: TRUNK_SIDES, flanges: (x + y) % 2 === 0, bolts: false, end: null, material: MATERIAL.iron,
+        // THE WAY IT FALLS is drawn along it by the shader: chevrons on, or back, as its run is counted. @see MATERIAL
+        const d = s.down[i], falls = d >= 0 && s.kind[i] !== SEWER_KIND.span;
+        const material = !falls ? MATERIAL.iron : (d % g.w) - x + (((d / g.w) | 0) - y) > 0 ? MATERIAL.trunkOn : MATERIAL.trunkBack;
+        const tubeMesh = meshOf(s.kind[i] === SEWER_KIND.span ? spans : tubes, b), first = tubeMesh.nv;
+        pipeCell(tubeMesh, scale, x, y, lvl, limbs, {
+          r, colour, sides: TRUNK_SIDES, flanges: (x + y) % 2 === 0, bolts: false, end: null, material,
         });
+        if (!o.only && i !== o.bad) mine.push({ mesh: tubeMesh, net: net.id, from: first, to: tubeMesh.nv, clear: solid(clearOf), backed: solid(backedOf) });
         // A MANHOLE'S SHAFT, after the trunk: down from its cover onto the trunk's
         // top, a collar where it meets it — its far half first, behind the shaft.
         // And at a processor's inlet, where its riser goes down: the same shaft, under the riser's collar.
         const fit = g.sewerFit[i];
         if ((fit === SEWER_FIT.node || fit === SEWER_FIT.inlet) && s.kind[i] !== SEWER_KIND.span) {
-          const m = meshOf(tubes, b), iron = solid(SHAFT), dark = solid(SHAFT_DARK);
+          const m = meshOf(tubes, b), dark = solid(SHAFT_DARK);
           const foot = lvl * ZT + r * 0.8, R = SHAFT_R * SHAFT_COLLAR, band = SHAFT_R * 0.9;
           hring(m, scale, x, y, foot + band, SHAFT_R, R, dark, TRUNK_SIDES);
-          solidTube(m, scale, x, y, g.height[i] * ZT, x, y, foot + band, SHAFT_R, iron, TRUNK_SIDES);
+          // THE SHAFT, a ring of brick from the cover down to the trunk.
+          made(MATERIAL.brick, () => solidTube(m, scale, x, y, g.height[i] * ZT, x, y, foot + band, SHAFT_R * SHAFT_WIDE, solid(BRICK), TRUNK_SIDES));
           solidTube(m, scale, x, y, foot + band, x, y, foot, R, dark, TRUNK_SIDES);
         }
         // Its RISER, up out of the ground into the processor's inlet, is the
         // mains layer's: drawn in the same mesh as the inlet's outlet, in order. @see mains-layer
       }
     }
-    const place = (m: PipeMesh, tier: Container | undefined) => {
+    const placed = new Map<PipeMesh, Mesh<Geometry, Shader>>();
+    const place = (m: PipeMesh, tier: Container | undefined, live = false) => {
       if (!m.ni || !tier) return;
-      const mesh = pipeDrawable(m);
+      const mesh = pipeDrawable(m, live);
       mesh.alpha = o.alpha ?? 1;
       tier.addChild(mesh);
       into.push(mesh);
+      placed.set(m, mesh);
     };
-    for (const [b, m] of tubes) place(m, bands.sewerOf[b]);
-    for (const [b, m] of spans) place(m, bands.structureOf[b]);
-    // A band's Graphics, made when it first has something.
-    const under = new Map<number, Graphics>();
+    for (const [b, m] of tubes) place(m, bands.sewerOf[b], into === drawn);
+    for (const [b, m] of spans) place(m, bands.structureOf[b], into === drawn);
+    if (into === drawn) {
+      owned = mine.flatMap((k) => { const mesh = placed.get(k.mesh); return mesh ? [{ ...k, mesh }] : []; });
+      painted = new Set(trouble.keys());
+    }
     // And the surface pieces' meshes: covers and grates flush with the ground, pump houses and headwalls with the town.
     const covers = new Map<number, PipeMesh>(), ups = new Map<number, PipeMesh>();
-    const take = (m: Map<number, Graphics>, tier: Container[], b: number) => {
-      let gfx = m.get(b);
-      if (!gfx) { gfx = make(tier, b); m.set(b, gfx); }
-      return gfx;
-    };
     for (const net of s.nets) {
       for (const i of net.cells) {
         if (o.only && !o.only.has(i)) continue;
         const x = i % g.w, y = (i / g.w) | 0, b = bandOf(x, y), ground = g.height[i];
-        const r = TUBE_R * HW * scale * (g.sewer[i] & SEWER_BORE ? BORE_WIDE : 1);
-        const lvl = drawnAt(g, s, i), kind = s.kind[i];
-        // The tube's middle, in height units: the level it is laid at.
-        const mid = (l: number) => l;
-        // THE WAY IT FALLS, a chevron toward the next down.
-        if (s.down[i] >= 0 && kind !== SEWER_KIND.span) {
-          const d = s.down[i], dx = (d % g.w) - x, dy = ((d / g.w) | 0) - y;
-          const gfx = take(under, bands.sewerOf, b);
-          const tip = at(x, y, mid(lvl), scale, dx * 0.22, dy * 0.22);
-          const l = at(x, y, mid(lvl), scale, -dx * 0.05 - dy * 0.12, -dy * 0.05 + dx * 0.12);
-          const rr = at(x, y, mid(lvl), scale, -dx * 0.05 + dy * 0.12, -dy * 0.05 - dx * 0.12);
-          gfx.moveTo(...l).lineTo(...tip).lineTo(...rr).stroke({ color: CHEVRON, width: Math.max(1, r * 0.6), alpha: 0.9 });
-        }
+        const kind = s.kind[i];
         // A LIFT STATION: a brick pump house over where it lifts.
         if (kind === SEWER_KIND.lift) liftStation(meshOf(ups, b), scale, x, y, ground);
         const fit = g.sewerFit[i];
@@ -420,7 +437,8 @@ export function createSewerLayer(bands: BandLayer): SewerLayer {
       for (const [id, r] of sewerReportsFor(g)) if (r.state === "backed-up" || r.state === "surcharged" || r.state === "unpaid") trouble.set(id, now);
       for (const [id, t] of trouble) if (now - t > TROUBLE_HOLD_MS) trouble.delete(id);
       const key = [...trouble.keys()].sort((a, b) => a - b).join();
-      if (key !== troubled) { troubled = key; was = { ...was, rev: -1 }; last = null; }
+      // A NETWORK'S COLOUR, CHANGED IN PLACE: its own vertices written again, nothing made or taken away. @see recolour
+      if (key !== troubled) { troubled = key; repaint(); }
       // What it draws from: the sewers and the ground under them. A building
       // put up moves the map's revision on, and changes neither.
       if (was.grid !== g || was.rev !== g.rev || was.scale !== scale) {

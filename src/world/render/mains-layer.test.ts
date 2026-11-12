@@ -79,3 +79,36 @@ describe("a main's frame over a road", () => {
     expect(roadAxis(g, 2, 2)).toBeNull();                      // grass
   });
 });
+
+describe("levels of detail, kept", () => {
+  test("crossing a zoom threshold shows one set of meshes and hides another; coming back, the first set is the same one", async () => {
+    const { Container } = await import("pixi.js");
+    const { createBandLayer } = await import("./bands");
+    const { createMainsLayer } = await import("./mains-layer");
+    const { DIR } = await import("../../iso/dir");
+    const g = createGrid(12, 6);
+    for (let x = 2; x <= 8; x++) g.main[idx(g, x, 2)] = (x > 2 ? DIR.N : 0) | (x < 8 ? DIR.S : 0);
+    g.rev++;
+    const bands = createBandLayer(g.w, g.h), layer = createMainsLayer(bands, new Container());
+    const all = () => bands.dynamicOf.flatMap((t) => t.children.slice());
+    const shown = () => all().filter((c) => c.visible);
+    // Far off first, then near, then far again: `zoom` scales a tile's width on the screen.
+    layer.sync(g, 1, 0.1);
+    const far = shown();
+    expect(far.length).toBeGreaterThan(0);
+    layer.sync(g, 1, 4);
+    const near = shown();
+    expect(near.length).toBeGreaterThan(0);
+    for (const c of far) { expect(c.destroyed).toBe(false); expect(c.visible).toBe(false); expect(near).not.toContain(c); }
+    layer.sync(g, 1, 0.1);
+    expect(shown()).toEqual(far);
+    for (const c of near) { expect(c.destroyed).toBe(false); expect(c.visible).toBe(false); }
+    // Lay a pipe, and every level goes: built again for the map as it now is.
+    g.main[idx(g, 9, 2)] = DIR.N;
+    g.rev++;
+    layer.sync(g, 1, 0.1);
+    for (const c of [...far, ...near]) expect(c.destroyed).toBe(true);
+    layer.destroy();
+  });
+});
+
