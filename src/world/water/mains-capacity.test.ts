@@ -12,6 +12,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { DRY_AGENTS, PUMP_HEAD, WATER_PER_AGENT } from "../../game/cooling";
+import { PUMP_MOST, mainFlow } from "../../game/mains";
 import { applyFixture } from "../debug/fixtures";
 import { commit, createHistory } from "../edit/commands";
 import { MAIN_BORE, createGrid, fillTerrain, idx, setHeight, type Grid } from "../grid";
@@ -19,7 +20,7 @@ import { allTanks, resetCooling, stepCooling, tankFor } from "../projects/coolin
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField, setWaterEdge, stepWater } from "./field";
-import { findMains, layMain, mainReports, mainsToPorts, pipesToMains, planMain, runMains, setPipeSolver } from "./mains";
+import { findMains, layMain, mainReports, mainsToPorts, pipesToMains, planMain, runMains } from "./mains";
 
 afterEach(resetCooling);
 
@@ -74,28 +75,13 @@ describe("what one main carries", () => {
   test("a widened bore carries twice as much", () => {
     expect(wide / gravity).toBeCloseTo(2, 1);
   });
-});
 
-describe("what one main carries, solved as flow", () => {
-  // The same three runs through the link-and-node solver: the calibration it is held to. @see pipes/hydraulics
-  setPipeSolver(true);
-  const gravity = flow(20, 5, false);
-  const pumped = flow(20, -(PUMP_HEAD / 2), true);
-  const wide = flow(20, 5, false, true);
-  setPipeSolver(false);
-  if (process.env.BALANCE) console.log(`solved: gravity ${gravity.toFixed(4)}/s → ${agents(gravity)} agents · pumped ${pumped.toFixed(4)}/s → ${agents(pumped)} · wide ${wide.toFixed(4)}/s → ${agents(wide)}`);
-
-  test("the same as the formula it replaces, on the one run the formula was measured on", () => {
-    setPipeSolver(false);
-    const before = { gravity: flow(20, 5, false), pumped: flow(20, -(PUMP_HEAD / 2), true), wide: flow(20, 5, false, true) };
-    // Within a hundredth: the lake in this rig rocks a little, and the formula follows it at once where a pipe lags.
-    expect(Math.abs(gravity / before.gravity - 1)).toBeLessThan(0.01);
-    expect(Math.abs(pumped / before.pumped - 1)).toBeLessThan(0.01);
-    expect(Math.abs(wide / before.wide - 1)).toBeLessThan(0.01);
-    // So the agents it cools are the same, give or take the one a hair's difference tips over.
-    expect(Math.abs(agents(gravity) - agents(before.gravity))).toBeLessThanOrEqual(1);
-    expect(agents(pumped)).toBe(agents(before.pumped));
-    expect(Math.abs(agents(wide) - agents(before.wide))).toBeLessThanOrEqual(1);
+  test("what the solver was fitted to: the formula's flow on this run, within a hundredth", () => {
+    // The lake in this rig rocks a little, and a pipe lags it where a formula would not. @see pipes/hydraulics
+    expect(Math.abs(gravity / mainFlow(5, 20) - 1)).toBeLessThan(0.01);
+    expect(Math.abs(pumped / PUMP_MOST - 1)).toBeLessThan(0.01);
+    expect(Math.abs(wide / mainFlow(5, 20, 2) - 1)).toBeLessThan(0.01);
+    expect([agents(gravity), agents(pumped), agents(wide)]).toEqual([21, 12, 39]);
   });
 });
 

@@ -3,16 +3,17 @@
  * cells joined only where a stroke joined them (`grid.main`, `DIR` bits on
  * both sides of a face), with a fitting at each end (`grid.mainEnd`): an
  * INTAKE at water, a PUMP intake, an OUTLET into a building that drinks, or a
- * CAP. Not simulated cell by cell, as the editor's spouts are: each network
- * is SOLVED — the head from its best intake to each outlet, and so what it
- * carries — and that much is taken out of the water and put into the tanks,
- * every frame. A dry intake stops the flow and nothing is ever poured out.
+ * CAP. Each network is SOLVED AS FLOW over the pipe graph: water held at its
+ * nodes, a discharge in each link, drawn at the intakes by the head over
+ * each building's floor and given to the tanks — so a trunk's water is
+ * shared among its outlets, and a main just laid takes a second or two to
+ * fill. A dry intake stops the flow and nothing is ever poured out.
  * Each network's state is kept, so the game can always say what a main is
- * doing and why. @see game/mains, plans/pipes-overhaul.md
+ * doing and why. @see pipes/hydraulics, game/mains, plans/pipe-network.md
  */
 import { surfaceAt, wantDepth, addWater } from "../../fluid/columns";
 import { isDrinker } from "../../game/cooling";
-import { PUMP_MOST, mainFlow, pumpLift, sewerFlow } from "../../game/mains";
+import { pumpLift, sewerFlow } from "../../game/mains";
 import { coolingKept } from "../../game/pollution";
 import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, MAIN_STUB, SEWER_FIT, edited, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
@@ -122,50 +123,6 @@ export function breakableCell(g: Grid, sewer: boolean): number | null {
   const mid = best.cells.filter((i) => !g.mainEnd[i]);
   return mid.length ? mid[Math.floor(mid.length / 2)] : null;
 }
-/**
- * A NETWORK SOLVED, from the water as it stands: for each outlet, the head
- * from the best intake — a pump's lifted by its lift — over the building's
- * floor, and what that carries over the run's length. Pure on the map and
- * the water; no water moves. `pumpsOn` false reads a pump as an intake.
- */
-export function solveMain(g: Grid, field: WaterField, net: MainNet, pumpsOn = true): MainReport {
-  const length = net.cells.length;
-  const intakes = net.intakes.map((cell) => {
-    const w = intakeWater(g, field, cell);
-    // HOW FOULED the water it draws is, on the tile its water stands on. @see coolingKept
-    const fouled = w ? pollutionAt(field, tileOf(w.column % field.columns.nx), tileOf(Math.floor(w.column / field.columns.nx))) : 0;
-    return { cell, surface: w ? w.surface : null, depth: w ? w.depth : 0, pump: g.mainEnd[cell] === MAIN_END.pump, fouled };
-  });
-  const live = intakes.filter((k) => k.surface !== null);
-  const pumps = live.filter((k) => k.pump).length;
-  const outlets = net.outlets.map((cell) => {
-    const building = outletBuilding(g, cell);
-    // The building's floor: the water has to stand as high as it to go in.
-    const b = building >= 0 ? g.structures.get(building) : undefined;
-    const sill = b ? g.height[idx(g, b.x, b.y)] : Infinity;
-    let head = -Infinity, pumped = false, from: (typeof live)[number] | null = null;
-    for (const k of live) {
-      const gravity = k.surface! - sill;
-      if (gravity > head) { head = gravity; pumped = false; from = k; }
-      if (k.pump && pumpsOn && gravity + pumpLift() > head) { head = gravity + pumpLift(); pumped = true; from = k; }
-    }
-    let capacity = building >= 0 ? mainFlow(head, length, net.bore) : 0;
-    // A pump moves as much again through a widened bore.
-    if (pumped) capacity = Math.min(capacity, (PUMP_MOST * pumps * net.bore) / Math.max(1, net.outlets.length));
-    // Fouled water cools less: as good as so much less of it, pumped or not. @see coolingKept
-    capacity *= coolingKept(from?.fouled ?? 0);
-    return { cell, building, capacity, pumped, head };
-  });
-  const capacity = outlets.reduce((n, o) => n + o.capacity, 0);
-  const head = outlets.reduce((m, o) => Math.max(m, o.head), -Infinity);
-  const state: MainState = !net.intakes.length ? "no-source"
-    : !outlets.some((o) => o.building >= 0) ? "no-outlet"
-    : !live.length ? "dry"
-    : capacity <= 0 ? "no-head"
-    : "flowing";
-  return { state, head: Number.isFinite(head) ? head : 0, capacity, flow: 0, length, bore: net.bore, outlets: outlets.map(({ cell, building, capacity, pumped }) => ({ cell, building, capacity, pumped })), intakes };
-}
-
 /** The workplaces a sewer takes slop from, by id: those whose slop port is one of its cells, a stub's or the trunk's own. */
 export function sewerSources(g: Grid, net: MainNet): number[] {
   const out: number[] = [];
@@ -196,19 +153,8 @@ export function solveSewer(g: Grid, net: MainNet): MainReport {
   };
 }
 
-/**
- * THE LINK-AND-NODE SOLVER, behind a switch while it is proved: `?pipes=solver`
- * in the address, or `setPipeSolver`. On, a water main is solved as flow
- * through the pipe graph — its trunk's water shared among its outlets, filling
- * over a second or two when laid — and off, by the one formula a network as
- * before. @see pipes/hydraulics, plans/pipe-network.md phase 2
- */
-let solverOn = typeof location !== "undefined" && new URLSearchParams(location.search).get("pipes") === "solver";
-export const setPipeSolver = (on: boolean) => { solverOn = on; };
-export const pipeSolverOn = () => solverOn;
-
 /** A water network as the solver holds it: its model, the water in it (null till first run), and its steady flow as last worked out. */
-type Solved = { model: WaterModel; state: WaterState | null; steady: { sig: string; flow: Steady } | null };
+type Solved = { model: WaterModel; state: WaterState | null; steady: { sig: string; flow: Steady; age: number } | null };
 const solvedFor = new WeakMap<Grid, { rev: number; nets: Map<number, Solved> }>();
 
 /**
@@ -281,28 +227,39 @@ function surroundings(g: Grid, field: WaterField, m: WaterModel) {
   return { waters, outs, env };
 }
 
-/** A network's steady flow with every building it reaches taking all it is given: worked out again only when its water or its pumps change. */
-function steadyOf(s: Solved, env: WaterEnv): Steady {
-  const sig = `${env.surface.map((v) => (v === null ? "-" : v.toFixed(2))).join(",")}|${env.pumping[0] ? 1 : 0}|${env.sill.join(",")}|${env.open.map((o) => (o ? 1 : 0)).join("")}`;
-  if (!s.steady || s.steady.sig !== sig) s.steady = { sig, flow: steadyFlow(s.model, env) };
+/** Seconds a network's steady flow stands before it is worked out again from the water as it is now. */
+const STEADY_EVERY = 0.25;
+
+/**
+ * A network's steady flow with every building it reaches taking all it is
+ * given: what its card quotes. Worked out again when its pumps or what it
+ * feeds change, and a few times a second as its water rises and falls —
+ * not every frame, which a lake's ripples would otherwise ask for.
+ */
+function steadyOf(s: Solved, env: WaterEnv, dt: number): Steady {
+  const sig = `${env.surface.map((v) => (v === null ? "-" : "w")).join("")}|${env.pumping[0] ? 1 : 0}|${env.sill.join(",")}|${env.open.map((o) => (o ? 1 : 0)).join("")}`;
+  if (s.steady && s.steady.sig === sig && s.steady.age + dt < STEADY_EVERY) { s.steady.age += dt; return s.steady.flow; }
+  s.steady = { sig, flow: steadyFlow(s.model, env, s.steady?.sig === sig ? s.steady.flow : undefined), age: 0 };
   return s.steady.flow;
 }
 
-/** One frame of a water network, solved as flow. @see runMains */
-function runSolved(g: Grid, field: WaterField, net: MainNet, s: Solved, dt: number, pumps: MainPumps, burst: boolean): MainReport {
-  const m = s.model, { columns } = field;
-  const { waters, outs, env } = surroundings(g, field, m);
-  const fed = outs.map((o) => o.building >= 0);
-  const wants = outs.some((o) => o.building >= 0 && tankRoom(o.building) > 0);
-  let pumping = true, unpaid = false;
-  let all = steadyOf(s, env(true, fed));
-  if (all.pumped.some(Boolean) && wants && !burst && !pumps.pay(dt)) { pumping = false; unpaid = true; all = steadyOf(s, env(false, fed)); }
-  // HOW FOULED the water it draws is, at the intake that stands highest. @see coolingKept
+/**
+ * WHAT A NETWORK IS DOING, from its steady flow and the water as it stands:
+ * its state and why, the head to its best-placed outlet, what it could carry
+ * to each building and in all. And how much of what leaves the pipe a tank
+ * keeps: fouled water cools less. @see coolingKept
+ */
+function describeMain(
+  field: WaterField, net: MainNet, m: WaterModel, sur: ReturnType<typeof surroundings>, all: Steady, pumping: boolean, unpaid: boolean,
+): { report: MainReport; kept: number } {
+  const { columns } = field, { waters, outs } = sur;
   const intakes = m.intakes.map((t, k) => {
     const w = waters[k];
+    // HOW FOULED the water it draws is, on the tile its water stands on.
     const fouled = w ? pollutionAt(field, tileOf(w.column % columns.nx), tileOf(Math.floor(w.column / columns.nx))) : 0;
     return { cell: t.cell, surface: w ? w.surface : null, depth: w ? w.depth : 0, pump: t.pump, fouled };
   });
+  // Its water is the intake's that stands highest, a pump's lift counted.
   let best = -Infinity, fouled = 0;
   intakes.forEach((k) => {
     if (k.surface === null) return;
@@ -313,11 +270,40 @@ function runSolved(g: Grid, field: WaterField, net: MainNet, s: Solved, dt: numb
   const capacity = all.out.reduce((n, q) => n + q, 0) * kept;
   const head = outs.reduce((h, o) => (o.building >= 0 ? Math.max(h, best - o.sill) : h), -Infinity);
   const report: MainReport = {
-    state: !m.intakes.length ? "no-source" : !fed.some(Boolean) ? "no-outlet" : best === -Infinity ? "dry" : capacity <= 0 ? (unpaid ? "unpaid" : "no-head") : "flowing",
+    state: !m.intakes.length ? "no-source" : !outs.some((o) => o.building >= 0) ? "no-outlet" : best === -Infinity ? "dry" : capacity <= 0 ? (unpaid ? "unpaid" : "no-head") : "flowing",
     head: Number.isFinite(head) ? head : 0, capacity, flow: 0, length: net.cells.length, bore: net.bore,
     outlets: m.outlets.map((o, k) => ({ cell: o.cell, building: outs[k].building, capacity: all.out[k] * kept, pumped: all.pumped[k] })),
     intakes,
   };
+  return { report, kept };
+}
+
+/**
+ * A NETWORK SOLVED, from the water as it stands: what it would carry, settled,
+ * with every building it reaches taking all it is given. Pure on the map and
+ * the water; no water moves. `pumpsOn` false reads a pump as an intake.
+ */
+export function solveMain(g: Grid, field: WaterField, net: MainNet, pumpsOn = true): MainReport {
+  const graph = pipeGraph(g);
+  const at = net.cells.find((c) => graph.nodeAt.main[c] >= 0);
+  if (at === undefined) return { state: "no-source", head: 0, capacity: 0, flow: 0, length: net.cells.length, bore: net.bore, outlets: [], intakes: [] };
+  const m = waterModel(graph, graph.nodes[graph.nodeAt.main[at]].system);
+  const sur = surroundings(g, field, m);
+  const all = steadyFlow(m, sur.env(pumpsOn, sur.outs.map((o) => o.building >= 0)));
+  return describeMain(field, net, m, sur, all, pumpsOn, false).report;
+}
+
+/** One frame of a water network: its water moved through it, drawn at its intakes and given to its tanks. @see runMains */
+function runSolved(g: Grid, field: WaterField, net: MainNet, s: Solved, dt: number, pumps: MainPumps, burst: boolean): MainReport {
+  const m = s.model, { columns } = field;
+  const sur = surroundings(g, field, m), { waters, outs, env } = sur;
+  const fed = outs.map((o) => o.building >= 0);
+  const wants = outs.some((o) => o.building >= 0 && tankRoom(o.building) > 0);
+  // A pump runs, and is paid for, only while a tank it feeds has room; unpaid, the network falls back on gravity.
+  let pumping = true, unpaid = false;
+  let all = steadyOf(s, env(true, fed), dt);
+  if (all.pumped.some(Boolean) && wants && !burst && !pumps.pay(dt)) { pumping = false; unpaid = true; all = steadyOf(s, env(false, fed), dt); }
+  const { report, kept } = describeMain(field, net, m, sur, all, pumping, unpaid);
   /** Draw at an intake: no more than stands there, counted down through the frame's steps. */
   const there = waters.map((w) => (w ? columns.depth[w.column] : 0));
   const take = (k: number, amount: number) => {
@@ -330,9 +316,8 @@ function runSolved(g: Grid, field: WaterField, net: MainNet, s: Solved, dt: numb
   if (!s.state) s.state = settledWater(m, env(pumping, fed));
   if (burst) {
     // BURST: what it would carry drawn as ever, and poured out at the joint. @see setBurst
-    let left = capacity * dt;
+    let left = report.capacity * dt, poured = 0;
     const order = waters.map((w, k) => ({ w, k })).filter((x) => x.w).sort((a, b) => b.w!.surface - a.w!.surface);
-    let poured = 0;
     for (const { k } of order) { if (left <= 0) break; const got = take(k, left); left -= got; poured += got; }
     const mid = Math.floor(COLUMNS_PER_TILE / 2), bx = burstAt! % g.w, by = (burstAt! / g.w) | 0;
     if (poured > 0) addWater(columns, columnOf(bx) + mid, columnOf(by) + mid, poured);
@@ -366,7 +351,7 @@ export function runMains(field: WaterField, g: Grid, dt: number, pumps: MainPump
   const { list, of } = findMains(g);
   const out = new Map<number, MainReport>();
   // Made again for a map just edited even with no main left on it: what a lifted run held is put down. @see solvedNets
-  const flows = solverOn ? solvedNets(g, field) : null;
+  const flows = solvedNets(g, field);
   for (const net of list) {
     // A SEWER carries what the tanks last gave it, until they say again this frame. @see stepSlop
     if (net.sewer) {
@@ -377,46 +362,8 @@ export function runMains(field: WaterField, g: Grid, dt: number, pumps: MainPump
       out.set(net.cells[0], r);
       continue;
     }
-    // SOLVED AS FLOW, with the switch on. @see setPipeSolver
-    const solved = flows?.get(net.cells[0]);
-    if (solved) { out.set(net.cells[0], runSolved(g, field, net, solved, dt, pumps, burstAt !== null && of[burstAt] === net.id)); continue; }
-    let r = solveMain(g, field, net);
-    // BURST: what it would carry drawn as ever, and poured out at the joint. @see setBurst
-    if (burstAt !== null && of[burstAt] === net.id) {
-      const pour = r.capacity * dt;
-      let left = pour;
-      const from = r.intakes.filter((k) => k.surface !== null).map((k) => intakeWater(g, field, k.cell)!).sort((a, b) => b.surface - a.surface);
-      for (const s of from) {
-        if (left <= 0) break;
-        const take = Math.min(left, field.columns.depth[s.column]);
-        if (take > 0) addWater(field.columns, s.column % field.columns.nx, (s.column / field.columns.nx) | 0, -take);
-        left -= take;
-      }
-      const mid = Math.floor(COLUMNS_PER_TILE / 2), bx = burstAt % g.w, by = (burstAt / g.w) | 0;
-      if (pour - left > 0) addWater(field.columns, columnOf(bx) + mid, columnOf(by) + mid, pour - left);
-      out.set(net.cells[0], { ...r, state: "burst", flow: 0, outlets: r.outlets.map((o) => ({ ...o, capacity: 0 })) });
-      continue;
-    }
-    const wants = r.outlets.some((o) => o.building >= 0 && tankRoom(o.building) > 0);
-    if (r.outlets.some((o) => o.pumped) && wants && !pumps.pay(dt)) {
-      r = { ...solveMain(g, field, net, false), state: "unpaid" };
-      if (r.capacity > 0) r.state = "flowing";
-    }
-    let took = 0;
-    for (const o of r.outlets) if (o.building >= 0 && o.capacity > 0) took += fillTank(o.building, o.capacity * dt);
-    // What went in comes out of the water: from the intakes that have it, the deepest first.
-    let left = took;
-    const sources = r.intakes.filter((k) => k.surface !== null).map((k) => intakeWater(g, field, k.cell)!).sort((a, b) => b.surface - a.surface);
-    for (const s of sources) {
-      if (left <= 0) break;
-      const there = field.columns.depth[s.column];
-      const take = Math.min(left, there);
-      if (take > 0) addWater(field.columns, s.column % field.columns.nx, (s.column / field.columns.nx) | 0, -take);
-      left -= take;
-    }
-    r.flow = dt > 0 ? took / dt : 0;
-    if (r.state === "flowing" && took <= 0) r.state = "full";
-    out.set(net.cells[0], r);
+    const solved = flows.get(net.cells[0]);
+    if (solved) out.set(net.cells[0], runSolved(g, field, net, solved, dt, pumps, burstAt !== null && of[burstAt] === net.id));
   }
   reports = out;
   reportOf = of;
@@ -631,10 +578,9 @@ export function previewMain(g: Grid, field: WaterField | null, plan: readonly Ma
   const sill = sb ? g.height[idx(g, sb.x, sb.y)] : null;
   const gravity = sill === null ? -Infinity : Math.max(-Infinity, ...sources.map((s) => s.surface - sill));
   const lifted = sill === null ? -Infinity : Math.max(-Infinity, ...sources.map((s) => s.surface - sill + (s.pump ? pumpLift() : 0)));
-  const length = plan.length;
   const head = Math.max(gravity, lifted);
-  let flow = mainFlow(head, length);
-  if (lifted > gravity && lifted > 0) flow = Math.min(flow, PUMP_MOST);
+  // The same steady flow the laid main will report. @see plannedFlow
+  const flow = field && sill !== null && sources.length ? plannedFlow(g, field, plan, pump) : 0;
   const needsPump = sill !== null && sources.length > 0 && !(gravity > 0) && !sources.some((s) => s.pump) && gravity + pumpLift() > 0;
   const problem = ends.includes("Goes nowhere") ? "This end goes nowhere: end it at water, an inlet of a building that drinks, or another main"
     : sill === null ? "Feeds nothing: end it at an inlet of the Data Centre or one of the AI's buildings"
@@ -643,6 +589,33 @@ export function previewMain(g: Grid, field: WaterField | null, plan: readonly Ma
     : needsPump ? `The water ${gravity < 0 ? `is ${Math.round(-gravity) / 2} slabs below` : "is level with"} the building's floor: it needs a pump`
     : "The water is too far below the building, even for a pump";
   return { fresh, flow, head: Number.isFinite(head) ? head : 0, ends, problem, needsPump };
+}
+
+/**
+ * What a planned main would carry once laid and settled, by the solver: the
+ * plan laid on a copy of the map's mains, its network solved steady with
+ * every building it reaches taking all it is given. Into the building at the
+ * plan's own outlet, if it has one; else all the network would deliver.
+ */
+function plannedFlow(g: Grid, field: WaterField, plan: readonly MainCell[], pump: boolean): number {
+  const laid: Grid = { ...g, main: g.main.slice(), mainEnd: g.mainEnd.slice() };
+  for (const c of plan) {
+    const i = idx(g, c.x, c.y);
+    laid.main[i] |= c.join;
+    if (c.end) laid.mainEnd[i] = c.end === MAIN_END.intake && pump ? MAIN_END.pump : c.end;
+  }
+  const graph = pipeGraph(laid);
+  const at = plan.map((c) => graph.nodeAt.main[idx(g, c.x, c.y)]).find((k) => k >= 0);
+  if (at === undefined) return 0;
+  const m = waterModel(graph, graph.nodes[at].system);
+  const { outs, env } = surroundings(laid, field, m);
+  const steady = steadyFlow(m, env(true, outs.map((o) => o.building >= 0)));
+  const ends = new Set([plan[0], plan[plan.length - 1]].map((c) => idx(g, c.x, c.y)));
+  const own = m.outlets.findIndex((o) => ends.has(o.cell));
+  // Fouled water cools less, as the laid main will say. @see coolingKept
+  const live = m.intakes.map((t) => intakeWater(laid, field, t.cell)).filter((w): w is NonNullable<typeof w> => !!w).sort((a, b) => b.surface - a.surface)[0];
+  const kept = coolingKept(live ? pollutionAt(field, tileOf(live.column % field.columns.nx), tileOf(Math.floor(live.column / field.columns.nx))) : 0);
+  return (own >= 0 ? steady.out[own] : steady.out.reduce((n, q) => n + q, 0)) * kept;
 }
 
 /**

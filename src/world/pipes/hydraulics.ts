@@ -28,7 +28,7 @@
  * over the floor of the building it feeds.
  *
  * Pure: it is handed the water levels and told what each tank has room for,
- * and says what it took and gave. @see mains-solver, which runs it on the map
+ * and says what it took and gave. @see runMains, which runs it on the map
  */
 import { MAIN_MAX, MAIN_REF_FLOW, MAIN_REF_HEAD, PUMP_MOST, pumpLift } from "../../game/mains";
 import type { PipeGraph } from "./graph";
@@ -139,7 +139,7 @@ export type Steady = {
  * is found where what comes into it equals what leaves, round and round till
  * none moves.
  */
-export function steadyFlow(m: WaterModel, env: WaterEnv): Steady {
+export function steadyFlow(m: WaterModel, env: WaterEnv, from?: Steady): Steady {
   const n = m.nodes.length;
   const head = new Float64Array(n).fill(NaN), flow = new Float64Array(m.links.length);
   const out = new Float64Array(m.outlets.length), into = new Float64Array(m.intakes.length);
@@ -154,7 +154,11 @@ export function steadyFlow(m: WaterModel, env: WaterEnv): Steady {
   m.links.forEach((l, k) => { linksOf[l.a].push(k); linksOf[l.b].push(k); });
   const outletsOf: number[][] = Array.from({ length: n }, () => []);
   m.outlets.forEach((o, k) => outletsOf[o.node].push(k));
-  for (let i = 0; i < n; i++) { const k = m.intakeAt[i]; head[i] = k >= 0 && src[k] ? src[k]!.head : top; }
+  // Begun from where it last settled, if told: the water moves little between two askings, and so do the heads.
+  for (let i = 0; i < n; i++) {
+    const k = m.intakeAt[i], was = from?.head[i];
+    head[i] = k >= 0 && src[k] ? src[k]!.head : was !== undefined && !Number.isNaN(was) ? Math.min(top, Math.max(low, was)) : top;
+  }
 
   /** A link's flow from `a` to `b` at the heads given: a pump's link no more than it moves, and none back into an intake. */
   const linkFlow = (k: number, ha: number, hb: number) => {
@@ -201,7 +205,8 @@ export function steadyFlow(m: WaterModel, env: WaterEnv): Steady {
   }
   const live = (k: number) => !idle[m.links[k].a] && !idle[m.links[k].b];
   for (let i = 0; i < n; i++) linksOf[i] = linksOf[i].filter(live);
-  for (let sweep = 0; sweep < 2000; sweep++) {
+  /** One round, node by node: each put where what comes into it equals what leaves, its neighbours where they are. How far the furthest moved. */
+  const round = (): number => {
     let moved = 0;
     for (let i = 0; i < n; i++) {
       if (idle[i] || (m.intakeAt[i] >= 0 && src[m.intakeAt[i]])) continue;
@@ -215,8 +220,91 @@ export function steadyFlow(m: WaterModel, env: WaterEnv): Steady {
       moved = Math.max(moved, Math.abs(h - head[i]));
       head[i] = h;
     }
-    if (moved < 1e-10) break;
+    return moved;
+  };
+  // NEWTON, on every head at once: what each node gains and how that changes
+  // with each head, solved for the step that brings every gain to nought,
+  // shortened where a full step would overshoot. A dozen rounds, where going
+  // round node by node took thousands. The square root is rounded off at
+  // nought so its slope there is steep, not endless.
+  const EPS = 1e-10;
+  const soft = (dh: number, loss: number) => dh / Math.sqrt(loss * (Math.abs(dh) + EPS));
+  const slope = (dh: number, loss: number) => (Math.abs(dh) / 2 + EPS) / (Math.sqrt(loss) * Math.pow(Math.abs(dh) + EPS, 1.5));
+  const at = new Int32Array(n).fill(-1);
+  const free: number[] = [];
+  for (let i = 0; i < n; i++) if (!idle[i] && !(m.intakeAt[i] >= 0 && src[m.intakeAt[i]])) { at[i] = free.length; free.push(i); }
+  const u = free.length;
+  let settled = u === 0;
+  if (u > 0 && u <= 400) {
+    const F = new Float64Array(u), J = new Float64Array(u * u), step = new Float64Array(u), trial = new Float64Array(n);
+    /** Every free node's gain at the heads given, into `F`; and how each changes with each head, into `J`, if asked. The largest gain. */
+    const gains = (h: Float64Array, slopes: boolean): number => {
+      F.fill(0);
+      if (slopes) J.fill(0);
+      for (let k = 0; k < m.links.length; k++) {
+        if (!live(k)) continue;
+        const l = m.links[k];
+        let q = soft(h[l.a] - h[l.b], l.loss), d = slopes ? slope(h[l.a] - h[l.b], l.loss) : 0;
+        for (const [end, sign] of [[l.a, 1], [l.b, -1]] as const) {
+          if (m.intakeAt[end] < 0) continue;
+          const x = src[m.intakeAt[end]], leaving = q * sign;
+          if (!x || leaving < 0) { q = 0; d = 0; } else if (leaving > x.most) { q = x.most * sign; d = 0; }
+        }
+        const a = at[l.a], b = at[l.b];
+        if (a >= 0) F[a] -= q;
+        if (b >= 0) F[b] += q;
+        if (slopes) {
+          if (a >= 0) { J[a * u + a] -= d; if (b >= 0) J[a * u + b] += d; }
+          if (b >= 0) { J[b * u + b] -= d; if (a >= 0) J[b * u + a] += d; }
+        }
+      }
+      for (let k = 0; k < m.outlets.length; k++) {
+        const i = at[m.outlets[k].node], over = h[m.outlets[k].node] - env.sill[k];
+        if (i < 0 || !env.open[k] || over <= 0) continue;
+        const q = soft(over, m.outlets[k].loss);
+        if (q >= m.outlets[k].most) F[i] -= m.outlets[k].most;
+        else { F[i] -= q; if (slopes) J[i * u + i] -= slope(over, m.outlets[k].loss); }
+      }
+      let worst = 0;
+      for (let i = 0; i < u; i++) worst = Math.max(worst, Math.abs(F[i]));
+      return worst;
+    };
+    for (let turn = 0; turn < 80 && !settled; turn++) {
+      const worst = gains(head, true);
+      if (worst < 1e-11) { settled = true; break; }
+      // J × step = −F, by elimination with the largest pivot.
+      for (let i = 0; i < u; i++) { step[i] = -F[i]; J[i * u + i] -= 1e-12; }
+      for (let c = 0; c < u; c++) {
+        let p = c;
+        for (let r = c + 1; r < u; r++) if (Math.abs(J[r * u + c]) > Math.abs(J[p * u + c])) p = r;
+        if (p !== c) { for (let k = c; k < u; k++) { const t = J[c * u + k]; J[c * u + k] = J[p * u + k]; J[p * u + k] = t; } const t = step[c]; step[c] = step[p]; step[p] = t; }
+        const pivot = J[c * u + c];
+        if (pivot === 0) continue;
+        for (let r = c + 1; r < u; r++) {
+          const f = J[r * u + c] / pivot;
+          if (f === 0) continue;
+          for (let k = c; k < u; k++) J[r * u + k] -= f * J[c * u + k];
+          step[r] -= f * step[c];
+        }
+      }
+      for (let c = u - 1; c >= 0; c--) {
+        let v = step[c];
+        for (let k = c + 1; k < u; k++) v -= J[c * u + k] * step[k];
+        step[c] = J[c * u + c] !== 0 ? v / J[c * u + c] : 0;
+      }
+      let took = false;
+      for (let t = 1; t > 1e-6; t /= 2) {
+        trial.set(head);
+        for (let i = 0; i < u; i++) trial[free[i]] = Math.min(top, Math.max(low, head[free[i]] + t * step[i]));
+        if (gains(trial, false) < worst) { head.set(trial); took = true; break; }
+      }
+      // Stalled, at a pump's limit or an outlet's: a round node by node moves it off, and Newton goes on.
+      if (!took && round() < 1e-10) settled = true;
+    }
+    if (!settled) settled = gains(head, false) < 1e-7;
   }
+  // Round and round, node by node, for whatever Newton did not settle.
+  for (let k = 0; k < 2000 && !settled; k++) if (round() < 1e-10) break;
   // A dead end stands at the head of what it hangs off; one hanging off nothing has no water.
   for (let k = pruned.length - 1; k >= 0; k--) head[pruned[k]] = parent[pruned[k]] >= 0 ? head[parent[pruned[k]]] : NaN;
   m.links.forEach((l, k) => { flow[k] = live(k) ? linkFlow(k, head[l.a], head[l.b]) : 0; });

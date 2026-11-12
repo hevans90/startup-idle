@@ -42,7 +42,8 @@ describe("a water main", () => {
     g.rev++;
     const wide = solveMain(g, field, net());
     expect(net().bore).toBe(2);
-    expect(wide.capacity).toBeCloseTo(mainFlow(narrow.head, 16, 2), 5);
+    expect(wide.capacity).toBeCloseTo(2 * narrow.capacity, 5);
+    expect(Math.abs(wide.capacity / mainFlow(narrow.head, 16, 2) - 1)).toBeLessThan(0.02);
     expect(wide.capacity).toBeGreaterThan(narrow.capacity * 1.5);
     // A new run joined on is narrow, and so is the main it makes.
     lay(g, [{ x: 12, y: 8 }, { x: 12, y: 7 }, { x: 12, y: 6 }, { x: 12, y: 5 }]);
@@ -80,7 +81,9 @@ describe("a water main", () => {
     runMains(field, g, 1);
     const r = mainReportAt(g, 10, 5)!;
     expect(r.state).toBe("flowing");
-    expect(r.flow).toBeCloseTo(mainFlow(r.head, 16), 5);
+    // What it carries is what it says it can — and, off the twenty tiles it was fitted on, near what the old formula gave.
+    expect(r.flow).toBeCloseTo(r.capacity, 5);
+    expect(Math.abs(r.flow / mainFlow(r.head, 16) - 1)).toBeLessThan(0.02);
     expect(tankFor(dc.id)!.level).toBeCloseTo(r.flow, 5);
     const after = [...field.columns.depth].reduce((a, b) => a + b, 0);
     expect(before - after).toBeCloseTo(r.flow, 3);

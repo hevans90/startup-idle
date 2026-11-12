@@ -16,7 +16,12 @@ export const MAIN_LENGTH = 40;
 /** The most a main carries, a second, a bore. */
 export const MAIN_MAX = 2;
 
-/** What a main carries a second over `head` half steps and `length` tiles, of `bore` bores; nought with no head. */
+/**
+ * What one run with one outlet carries a second over `head` half steps and
+ * `length` tiles, of `bore` bores; nought with no head. THE MEASURE THE
+ * SOLVER IS FITTED TO, at twenty tiles — the map's mains are solved as flow,
+ * not by this. @see world/pipes/hydraulics
+ */
 export function mainFlow(head: number, length: number, bore = 1): number {
   if (!(head > 0)) return 0;
   return Math.min(MAIN_MAX * bore, (bore * MAIN_REF_FLOW * Math.sqrt(head / MAIN_REF_HEAD)) / (1 + Math.max(0, length) / MAIN_LENGTH));

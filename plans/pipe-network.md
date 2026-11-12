@@ -365,8 +365,13 @@ None. All were decided on 2026-11-11; each decision is written where it applies:
 - **Found on the way:** the solver's datum must not move with the lake. Recomputed each frame it shook every node's pressure with every ripple at the intake and a pumped main delivered 1.5% short.
 - **A main is a primed pressure pipe:** the ground it crosses does not stop it, as it never did. The profile strip of §8 has no "pipe above the head line" to show for a water main until that changes; left as it is.
 
+**Phase 2, water mains turned on for good** (2026-11-12). The switch and the one-formula path are gone: `runMains` solves every water network as flow, `solveMain` is the steady solve, `previewMain` quotes it.
+- **Re-measured with it on, the whole suite:** 2,531 of 2,531 passed before a line of the old path was deleted, the takeover sim, the AI's cooling and the singularity fixture among them. Two tests in `mains.test` pinned the formula at 16 tiles and now pin the solver, within 2% of it.
+- **The singularity fixture:** the Data Centre's 45-tile main 0.72 a second, as before; the GPU farm's pumped main 0.50.
+- **The preview is the same solve:** the plan laid on a copy of the map's mains, its network solved steady (`plannedFlow`). What it promises is what the laid main reports.
+- **The steady solve is Newton's**, on every head at once, with a round node by node where a step stalls at a pump's limit. A 13-node main took 10–20 ms going round node by node; it takes about 1 ms cold and 0.04 ms from where it last settled. Worked out again a network four times a second and when its pumps or outlets change, not every frame.
+- **Cost a frame:** about 0.007 ms for a 13-node main's own step.
+- `mainFlow` stays as the measure the solver is fitted to. `PIPES=solver` and `?pipes=solver` no longer exist.
+
 **Still to do in phase 2:**
-- sewers on the same solver (storage, backwater, surcharge), calibrated to the sewer flow tests;
-- the tool's preview from the same steady solve (`previewMain` still uses `mainFlow`);
-- `takeover-sim` and the AI cooling tests run with the switch on; the singularity fixture's cooling re-measured;
-- multi-outlet delivery re-measured across the fixtures, then the switch turned on for good and the old formula path deleted.
+- sewers on the same solver (storage, backwater, surcharge), calibrated to the sewer flow tests.

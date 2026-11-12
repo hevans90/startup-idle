@@ -1,10 +1,10 @@
 /**
- * TODAY'S FAULTS IN THE MAINS, PINNED (plans/pipe-network.md, phase 0): what
- * `solveMain` does now where a network is more than one intake, one run and
- * one outlet. Each test states the fault as it stands; the link-and-node
- * solver of phase 2 is to turn each one round, and these are then rewritten
- * to say what is right. The single-outlet numbers are the calibration and
- * are pinned elsewhere. @see mains-capacity.test
+ * A MAIN WITH MORE THAN ONE RUN AND ONE OUTLET (plans/pipe-network.md, phases
+ * 0 and 2): what the one-formula-a-network model had wrong — a shared trunk
+ * handing every outlet the whole flow, a dead-end stub slowing an outlet it
+ * was not on the way to, near and far outlets given the same — and the
+ * link-and-node solver has right, on the map as the game runs it. The
+ * single-outlet numbers are pinned elsewhere. @see mains-capacity.test, pipes/hydraulics.test
  */
 import { afterEach, describe, expect, test } from "bun:test";
 
@@ -16,7 +16,7 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField, setWaterEdge, stepWater } from "./field";
 import { totalWater } from "../../fluid/columns";
-import { findMains, layMain, mainFillAt, mainReports, planMain, runMains, setPipeSolver, solveMain, waterInMains } from "./mains";
+import { findMains, layMain, mainFillAt, mainReports, planMain, runMains, solveMain, waterInMains } from "./mains";
 import { createPipeNets, findPipeNets } from "./pipe-net";
 import { runPipes } from "./pipes";
 
@@ -55,52 +55,16 @@ function solved(g: Grid) {
   return solveMain(g, f, list[0]);
 }
 
-describe("today's faults in the mains, pinned", () => {
-  test("the one run, one outlet main is the sum it was calibrated as", () => {
-    const { g } = yard();
-    const r = solved(g);
+describe("the one run, one outlet main", () => {
+  test("is the sum it was calibrated as", () => {
+    const r = solved(yard().g);
     expect(r.outlets).toHaveLength(1);
-    expect(r.capacity).toBeCloseTo(mainFlow(r.head, RUN), 9);
+    expect(r.capacity).toBeCloseTo(mainFlow(r.head, RUN), 6);
     expect(r.head).toBeGreaterThan(0);
-  });
-
-  test("FAULT 1 — a shared trunk carries one pipe's worth to EACH outlet: two outlets, about twice the water", () => {
-    const one = solved(yard().g);
-    const { g, dcX } = yard();
-    // A second Data Centre below the run, fed by a branch off the trunk four tiles short of the first.
-    building(g, dcX - 2, 6);
-    lay(g, [...line(dcX - 5, 5, dcX - 5, 9), ...line(dcX - 4, 9, dcX + 1, 9), ...line(dcX + 1, 8, dcX + 1, 7)]);
-    const two = solved(g);
-    expect(two.outlets.filter((o) => o.building >= 0)).toHaveLength(2);
-    // Each outlet is handed the full flow of the head over the whole network's length, and they are summed.
-    expect(two.capacity).toBeCloseTo(2 * mainFlow(two.head, two.length), 9);
-    // The same single pipe out of the lake, and it brings well over one pipe's worth.
-    expect(two.capacity).toBeGreaterThan(1.5 * one.capacity);
-  });
-
-  test("FAULT 2 — length is the whole network: a dead-end stub slows the outlet it is not on the way to", () => {
-    const one = solved(yard().g);
-    const { g } = yard();
-    // Ten tiles of capped stub off the middle of the run, going nowhere.
-    lay(g, line(12, 5, 12, 13).slice(0, 9));
-    const stubbed = solved(g);
-    expect(stubbed.length).toBe(one.length + 8);
-    expect(stubbed.outlets).toHaveLength(1);
-    expect(stubbed.capacity).toBeLessThan(one.capacity * 0.9);
-  });
-
-  test("FAULT 2 — and a near outlet is as slow as a far one", () => {
-    const { g, dcX } = yard();
-    building(g, dcX - 2, 6);
-    lay(g, [...line(dcX - 5, 5, dcX - 5, 9), ...line(dcX - 4, 9, dcX + 1, 9), ...line(dcX + 1, 8, dcX + 1, 7)]);
-    const r = solved(g);
-    const [a, b] = r.outlets;
-    // The first is 20 tiles from the lake and the second 30; both are given the same.
-    expect(a.capacity).toBeCloseTo(b.capacity, 9);
   });
 });
 
-describe("the same maps, solved as flow (the switch on)", () => {
+describe("a main with more than one run and one outlet", () => {
   /** Run a yard for `seconds`, its tanks emptied every frame; water a second into each Data Centre over the last half, and the field. */
   function played(g: Grid, seconds: number, f = createWaterField(g)) {
     setWaterEdge(f, false);
@@ -120,7 +84,7 @@ describe("the same maps, solved as flow (the switch on)", () => {
     building(g, dcX - 2, 6);
     lay(g, [...line(dcX - 5, 5, dcX - 5, 9), ...line(dcX - 4, 9, dcX + 1, 9), ...line(dcX + 1, 8, dcX + 1, 7)]);
   };
-  const on = <T>(run: () => T): T => { setPipeSolver(true); try { return run(); } finally { setPipeSolver(false); } };
+  const on = <T>(run: () => T): T => run();
 
   test("a shared trunk's water is shared: a second Data Centre brings more than one's and well under twice", () => on(() => {
     const one = played(yard().g, 6);
