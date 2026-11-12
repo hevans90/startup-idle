@@ -167,7 +167,21 @@ type Solved = {
    * way, and that is not a main carrying anything: this is what is shown. @see mainLiveAt
    */
   mean?: Float64Array;
+  /**
+   * HOW FOULED THE WATER IN IT IS, nought to one: what it has drawn mixed
+   * into what it held. A slick at the intake takes the pipe's length to reach
+   * the tanks, and as long to clear after. Not set till it first runs, when
+   * it is its intake's. @see mixIn
+   */
+  foul?: number;
 };
+/** What a network drew this frame, at the strength it was drawn, mixed into the water it holds. */
+function mixIn(s: Solved, drew: number, strength: number) {
+  if (s.foul === undefined) { s.foul = strength; return; }
+  if (!(drew > 0) || !s.state) return;
+  const held = waterHeld(s.state);
+  s.foul += (strength - s.foul) * Math.min(1, drew / Math.max(held, drew));
+}
 /** Seconds a link's flow is evened out over, for what is shown. */
 const MEAN_OVER = 1.5;
 /** A frame's flows folded into each link's mean. */
@@ -215,26 +229,36 @@ function solvedNets(g: Grid, field: WaterField): Map<number, Solved> {
   if (was && was.rev === g.rev) return was.nets;
   const graph = pipeGraph(g);
   const carried = new Map<number, number>();
-  if (was) for (const s of was.nets.values()) s.state?.held.forEach((v, k) => { if (v > 0) carried.set(s.model.cells[k], (carried.get(s.model.cells[k]) ?? 0) + v); });
+  /** How fouled the water each tile's pipe held was: a network cut or joined keeps what was in it. */
+  const foulAt = new Map<number, number>();
+  if (was) for (const s of was.nets.values()) s.state?.held.forEach((v, k) => {
+    if (!(v > 0)) return;
+    carried.set(s.model.cells[k], (carried.get(s.model.cells[k]) ?? 0) + v);
+    if (s.foul !== undefined) foulAt.set(s.model.cells[k], s.foul);
+  });
   const nets = new Map<number, Solved>();
   for (const net of graph.mains) {
     if (net.sewer) continue;
     const at = net.cells.find((c) => graph.nodeAt.main[c] >= 0);
     if (at === undefined) continue;
     const model = waterModel(graph, graph.nodes[graph.nodeAt.main[at]].system);
-    let state: WaterState | null = null;
+    let state: WaterState | null = null, foul: number | undefined;
     if (was) {
       state = emptyWater(model);
+      let water = 0, fouling = 0;
       model.cells.forEach((c, k) => {
         const v = carried.get(c);
         if (v === undefined || model.intakeAt[k] >= 0) return;
+        const f = foulAt.get(c);
+        if (f !== undefined) { water += v; fouling += v * f; }
         // No more than its pipe holds under a fair pressure: the rest is spilt with what was lifted.
         const keep = Math.min(v, model.full[k] + 10 * SLOT);
         state!.held[k] = keep;
         if (v - keep > 1e-9) carried.set(c, v - keep); else carried.delete(c);
       });
+      if (water > 0) foul = fouling / water;
     }
-    nets.set(net.cells[0], { model, state, steady: null });
+    nets.set(net.cells[0], { model, state, steady: null, foul });
   }
   const mid = Math.floor(COLUMNS_PER_TILE / 2);
   for (const [c, v] of carried) addWater(field.columns, columnOf(c % g.w) + mid, columnOf((c / g.w) | 0) + mid, v);
@@ -312,7 +336,7 @@ function runOnDevice(g: Grid, field: WaterField, net: MainNet, s: Solved, p: Pac
   let pumping = true, unpaid = false;
   let all = steadyOf(s, env(true, fed), dt);
   if (all.pumped.some(Boolean) && wants && !burst && !pumps.pay(dt)) { pumping = false; unpaid = true; all = steadyOf(s, env(false, fed), dt); }
-  const { report, kept } = describeMain(field, net, m, sur, all, pumping, unpaid);
+  const { report, kept, drawn } = describeMain(field, net, m, sur, all, pumping, unpaid, s.foul);
   // WHAT CAME BACK: only an answer to this upload. One in the air when the map changed is another network's.
   const back = p.port.latest(), fresh = back !== null && back[0] === p.gen ? back : null;
   let arrived = 0;
@@ -357,6 +381,8 @@ function runOnDevice(g: Grid, field: WaterField, net: MainNet, s: Solved, p: Pac
     if (poured > 0) addWater(columns, columnOf(bx) + mid, columnOf(by) + mid, poured);
     return { ...report, state: "burst", outlets: report.outlets.map((o) => ({ ...o, capacity: 0 })) };
   }
+  // What went out at its tanks came in at its intakes, at their strength.
+  mixIn(s, arrived, drawn);
   // What it is carrying, evened out over a quarter of a second: an answer does not come back every frame.
   const was = p.shown.get(net.cells[0]) ?? 0;
   const now = fresh && dt > 0 ? was + ((arrived * kept) / dt - was) * Math.min(1, dt / 0.25) : was;
@@ -477,8 +503,8 @@ function steadyOf(s: Solved, env: WaterEnv, dt: number): Steady {
  * keeps: fouled water cools less. @see coolingKept
  */
 function describeMain(
-  field: WaterField, net: MainNet, m: WaterModel, sur: ReturnType<typeof surroundings>, all: Steady, pumping: boolean, unpaid: boolean,
-): { report: MainReport; kept: number } {
+  field: WaterField, net: MainNet, m: WaterModel, sur: ReturnType<typeof surroundings>, all: Steady, pumping: boolean, unpaid: boolean, held?: number,
+): { report: MainReport; kept: number; drawn: number } {
   const { columns } = field, { waters, outs } = sur;
   const intakes = m.intakes.map((t, k) => {
     const w = waters[k];
@@ -493,16 +519,18 @@ function describeMain(
     const head = k.surface + (k.pump && pumping ? pumpLift() : 0);
     if (head > best) { best = head; fouled = k.fouled; }
   });
-  const kept = coolingKept(fouled);
+  // What reaches a tank is the water IN THE PIPE, which is its intake's only once that has come through. @see mixIn
+  const carries = held ?? fouled;
+  const kept = coolingKept(carries);
   const capacity = all.out.reduce((n, q) => n + q, 0) * kept;
   const head = outs.reduce((h, o) => (o.building >= 0 ? Math.max(h, best - o.sill) : h), -Infinity);
   const report: MainReport = {
     state: !m.intakes.length ? "no-source" : !outs.some((o) => o.building >= 0) ? "no-outlet" : best === -Infinity ? "dry" : capacity <= 0 ? (unpaid ? "unpaid" : "no-head") : "flowing",
     head: Number.isFinite(head) ? head : 0, capacity, flow: 0, length: net.cells.length, bore: net.bore,
     outlets: m.outlets.map((o, k) => ({ cell: o.cell, building: outs[k].building, capacity: all.out[k] * kept, pumped: all.pumped[k] })),
-    intakes,
+    intakes, fouled: carries,
   };
-  return { report, kept };
+  return { report, kept, drawn: fouled };
 }
 
 /**
@@ -530,14 +558,16 @@ function runSolved(g: Grid, field: WaterField, net: MainNet, s: Solved, dt: numb
   let pumping = true, unpaid = false;
   let all = steadyOf(s, env(true, fed), dt);
   if (all.pumped.some(Boolean) && wants && !burst && !pumps.pay(dt)) { pumping = false; unpaid = true; all = steadyOf(s, env(false, fed), dt); }
-  const { report, kept } = describeMain(field, net, m, sur, all, pumping, unpaid);
+  const { report, kept } = describeMain(field, net, m, sur, all, pumping, unpaid, s.foul);
+  /** What it drew this frame, and how much of that was fouling. */
+  let drew = 0, fouling = 0;
   /** Draw at an intake: no more than stands there, counted down through the frame's steps. */
   const there = waters.map((w) => (w ? columns.depth[w.column] : 0));
   const take = (k: number, amount: number) => {
     const w = waters[k];
     if (!w) return 0;
     const got = Math.min(amount, there[k]);
-    if (got > 0) { addWater(columns, w.column % columns.nx, (w.column / columns.nx) | 0, -got); there[k] -= got; }
+    if (got > 0) { addWater(columns, w.column % columns.nx, (w.column / columns.nx) | 0, -got); there[k] -= got; drew += got; fouling += got * report.intakes[k].fouled; }
     return got;
   };
   if (!s.state) s.state = settledWater(m, env(pumping, fed));
@@ -553,6 +583,7 @@ function runSolved(g: Grid, field: WaterField, net: MainNet, s: Solved, dt: numb
   const open = outs.map((o) => o.building >= 0 && tankRoom(o.building) > 0);
   // Fouled water cools less: a tank is given so much the less of what leaves the pipe.
   const r = stepPipes(m, s.state, env(pumping, open), dt, take, (k, amount) => (kept > 0 ? fillTank(outs[k].building, amount * kept) / kept : 0));
+  mixIn(s, drew, drew > 0 ? fouling / drew : Math.max(0, ...report.intakes.map((k) => (k.surface === null ? 0 : k.fouled))));
   report.flow = dt > 0 ? (r.out.reduce((n, q) => n + q, 0) * kept) / dt : 0;
   if (report.state === "flowing" && !wants) report.state = "full";
   return report;

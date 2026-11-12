@@ -78,13 +78,15 @@ function mainRow(g: Grid, row: PipeReportRow): PipeRow {
     const from = !r.intakes.length ? "No water" : r.intakes.some((k) => k.pump) ? "Pump" : "Water";
     const fed = r.outlets.filter((o) => o.building >= 0);
     joins = `${from} → ${fed.length ? few(fed.map((o) => named(g, o.building))) : "nothing"}`;
-    // A TANK IT FEEDS, running down: dry inside a minute at this rate.
-    const could = fed.reduce((n, o) => n + o.capacity, 0);
+    // A TANK IT FEEDS, running down: dry inside a minute, drunk faster than the main can bring it. By what
+    // it COULD bring while it is working, not what it happens to be carrying: a main tops a tank up in
+    // sips, and one just loaded has carried nothing yet.
+    const working = r.state === "flowing" || r.state === "full";
     let soonest = Infinity;
     for (const o of fed) {
       const t = tankFor(o.building);
       if (!t || !(t.demand > 0)) continue;
-      const comes = could > 0 ? r.flow * (o.capacity / could) : 0, falls = t.demand - comes;
+      const falls = t.demand - (working ? o.capacity : 0);
       if (falls > 1e-6 && t.level > 0) soonest = Math.min(soonest, t.level / falls);
     }
     if (soonest < DRY_WITHIN) warning = `A tank it feeds runs dry in ${clock(soonest)}`;

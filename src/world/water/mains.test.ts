@@ -106,6 +106,40 @@ describe("a water main", () => {
     expect(dirty.capacity).toBeCloseTo(clean.capacity * coolingKept(fouled), 5);
   });
 
+  test("carries its fouling with it: a slick at the intake takes the pipe's length to reach the tank, and as long to clear", async () => {
+    const { setFoul } = await import("./pollution");
+    const { g, dc } = lakeside(5);
+    lay(g, row(5, 4, 19));
+    const field = createWaterField(g);
+    stepCooling(g, 10, false, 0.01);
+    /** A second of the main with its tank kept emptied. */
+    const run = () => { Object.assign(tankFor(dc.id)!, { level: 0 }); runMains(field, g, 1 / 30); return mainReportAt(g, 10, 5)!; };
+    for (let k = 0; k < 30; k++) run();
+    const clean = run();
+    expect(clean.fouled).toBe(0);
+    const foul = (v: number) => { for (let y = 0; y < 12; y++) for (let x = 0; x <= 3; x++) setFoul(field, x, y, v); };
+    foul(0.25);
+    // The frame after: the intake says so, and the pipe's water is all but as clean as it was.
+    const first = run(), drawn = first.intakes[0].fouled;
+    expect(drawn).toBeGreaterThan(0.3);
+    expect(first.fouled!).toBeLessThan(drawn * 0.1);
+    expect(first.capacity).toBeGreaterThan(clean.capacity * 0.9);
+    // Run on, it comes through: the pipe's water is the lake's, and cools that much less.
+    let r = first, frames = 1;
+    while (r.fouled! < drawn * 0.6 && frames < 3000) { r = run(); frames++; }
+    expect(frames).toBeGreaterThan(10);
+    expect(frames).toBeLessThan(3000);
+    expect(r.capacity).toBeLessThan(clean.capacity * 0.75);
+    // The lake clean again, the pipe is not yet.
+    foul(0);
+    const after = run();
+    expect(after.intakes[0].fouled).toBe(0);
+    expect(after.fouled!).toBeGreaterThan(drawn * 0.5);
+    // A run joined on keeps what was in it.
+    lay(g, [{ x: 12, y: 8 }, { x: 12, y: 7 }, { x: 12, y: 6 }, { x: 12, y: 5 }]);
+    expect(run().fouled!).toBeGreaterThan(drawn * 0.4);
+  });
+
   test("says when the water is too low to reach the building, and a pump lifts it — paid for while it runs", () => {
     const { g, dc } = lakeside(-2);
     lay(g, row(5, 4, 19));

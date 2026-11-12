@@ -423,8 +423,8 @@ export function createMainsLayer(bands: BandLayer, overlay: Container): MainsLay
           const f = here?.fill ?? 0, at = (k: number) => (k < 0 ? f + (prev - f) * -k : f + (next - f) * k);
           fills = [at(from), at(to)];
           if (here && here.flow > 0.1) { speed = 0.35 + Math.min(2, here.flow) * 0.6; way = here.dir[0] * ax + here.dir[1] * ay < 0 ? -1 : 1; }
-          // How fouled the water it draws is: the worst of its intakes'.
-          slop = Math.max(0, ...(mainReportAt(g, x, y)?.intakes.map((k) => k.fouled) ?? [0]));
+          // How fouled the water in it is.
+          slop = mainReportAt(g, x, y)?.fouled ?? 0;
         }
         // CARRIED ALONG, by how fast it goes; kept small, so the patterns keep their grain.
         p.carried = (p.carried + way * speed * dt) % 4096;

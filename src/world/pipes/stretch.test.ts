@@ -12,7 +12,7 @@ import { useWorldStore } from "../../state/world.store";
 import { MAIN_BORE, MAIN_END, createGrid, fillTerrain, idx, type Grid } from "../grid";
 import { findMains, layMain, planMain } from "../water/mains";
 import { pipeGraph } from "./graph";
-import { deleteStretch, sameStretch, stretchAt } from "./stretch";
+import { deleteStretch, movableEnd, sameStretch, stretchAt } from "./stretch";
 
 afterEach(() => { useWorldStore.getState().setPlaying(false); useMoneyStore.setState({ money: new Decimal(0) }); });
 
@@ -42,6 +42,18 @@ const at = (g: Grid, x: number, y: number) => idx(g, x, y);
 const xs = (g: Grid, cells: number[]) => cells.map((c) => `${c % g.w},${(c / g.w) | 0}`);
 
 describe("a stretch", () => {
+  test("is taken hold of by an end of its own: its cap, not the tee others hang on, nor its middle", () => {
+    const g = tee();
+    const looked = at(g, 5, 5);
+    expect(movableEnd(g, looked, at(g, 2, 5))).toBe(true);
+    expect(movableEnd(g, looked, at(g, 10, 5))).toBe(false);
+    expect(movableEnd(g, looked, at(g, 6, 5))).toBe(false);
+    // Another stretch's end is not this one's.
+    expect(movableEnd(g, looked, at(g, 20, 5))).toBe(false);
+    expect(movableEnd(g, at(g, 12, 11), at(g, 14, 11))).toBe(true);
+    expect(movableEnd(g, at(g, 0, 0), at(g, 2, 5))).toBe(false);
+  });
+
   test("is the run between two joints: from a cap to the tee, not the whole main", () => {
     const g = tee();
     expect(findMains(g).list.length).toBe(1);

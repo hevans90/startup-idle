@@ -7,7 +7,7 @@
  */
 import { fouledHouses, stepPollution } from "./water/pollution";
 import { suggestionsKept } from "./pipes/suggest";
-import { stretchAt } from "./pipes/stretch";
+import { movableEnd, stretchAt } from "./pipes/stretch";
 import { founderIs } from "../game/founder-rules";
 import { useThemeStore } from "../state/theme.store";
 import { latticeForm } from "../game/quests/finale";
@@ -2017,6 +2017,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const onMove = (e: FederatedPointerEvent) => {
       const p = vp.toWorld(e.global.x, e.global.y);
       repick(p.x, p.y);
+      if (endDrag && !endDrag.moving) {
+        const at = cellAt(e);
+        if (at && (at.x !== endDrag.cell.x || at.y !== endDrag.cell.y)) { endDrag.moving = true; useWorldStore.getState().moveStretchAt(endDrag.cell); useWorldStore.getState().updateStroke(at); }
+      }
       const veto = getAiRunner().jobs.length + getAiRunner().pending.length > 0 && !!vetoCell(e);
       if (veto !== vetoHover) canvas.style.cursor = veto ? "pointer" : "";
       vetoHover = veto;
@@ -2058,6 +2062,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // Where a click on a pipe being laid by clicks went down. @see Stroke.pins
     let pinPress: { x: number; y: number } | null = null;
     /**
+     * AN END OF THE STRETCH LOOKED AT, PRESSED ON: dragged off its tile, the
+     * stretch is taken up and laid again from its other end to wherever the
+     * pointer goes, and let go there. The camera's drag is held off meanwhile.
+     * Let go where it will not lay, it stays in hand as a run laid by clicks.
+     * @see movableEnd, moveStretchAt
+     */
+    let endDrag: { cell: { x: number; y: number }; moving: boolean } | null = null;
+    const endAt = (e: FederatedPointerEvent) => {
+      const st = useWorldStore.getState(), g = st.grid, at = st.lookedAt;
+      if (!st.playing || st.tool !== "inspect" || st.stroke || st.pipeScope !== "stretch" || !at || !inBounds(g, at.x, at.y)) return null;
+      const cell = cellAt(e);
+      return cell && movableEnd(g, idx(g, at.x, at.y), idx(g, cell.x, cell.y)) ? cell : null;
+    };
+    /**
      * A CLICK ON A PIPE BEING LAID BY CLICKS: on an end that completes it —
      * joined at both ends, and it would carry — it is laid; on the corner
      * just pinned, it is laid as it stands; anywhere else is a corner pinned.
@@ -2098,6 +2116,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         lookFrom = { x: e.global.x, y: e.global.y, cell: { x: open.x, y: open.y }, open: true };
         return;
       }
+      const end = endAt(e);
+      if (end) {
+        endDrag = { cell: end, moving: false };
+        vp.plugins.pause("drag");
+        return;
+      }
       if (st.tool === "inspect") {
         lookFrom = { x: e.global.x, y: e.global.y, cell: cellAt(e) };
         return;
@@ -2112,6 +2136,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       touches.delete(e.pointerId);
       if (pinching) return;
       const st = useWorldStore.getState();
+      if (endDrag) {
+        const { cell, moving } = endDrag;
+        endDrag = null;
+        vp.plugins.resume("drag");
+        // Never dragged off its tile: a click on the pipe, as anywhere else on it.
+        if (!moving) st.lookAt(cell);
+        else if (st.stroke?.pins && strokeComplete(st.grid, st.stroke)) st.endStroke();
+        return;
+      }
       if (pinPress) {
         // Let go where it went down: a click. Dragged away, it was the camera's.
         if (Math.hypot(e.global.x - pinPress.x, e.global.y - pinPress.y) <= LOOK_CLICK_SLOP) pinnedClick();

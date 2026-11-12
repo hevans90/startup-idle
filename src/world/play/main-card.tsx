@@ -16,6 +16,7 @@ import { pipeCost } from "../../game/build-cost";
 import { agentsCooled } from "../../game/mains";
 import { formatCurrency } from "../../utils/money-utils";
 import { mainWet, useWorldStore } from "../../state/world.store";
+import { suggestionsKept } from "../pipes/suggest";
 import { useEffect, useState } from "react";
 
 import { boreCost, buildCost } from "../../game/build-cost";
@@ -74,6 +75,8 @@ export function MainCard() {
   }
   // THE WHOLE OF IT, as it will be laid and charged: its pump and what that costs to run included. @see mainStroke
   const m = mainStroke(st.grid, st.getWaterField(), stroke, wet);
+  // A run only just started is not a mistake to be told of while routes from there are on offer. @see SuggestCard
+  if (m.refused && !stroke.path && stroke.pins?.length === 1 && suggestionsKept(st.grid, st.getWaterField(), stroke.pins[0], wet).some((s) => s.kind === "main")) return null;
   if (m.refused || !m.look) return <p className={twMerge(CARD, "text-bad")}>{m.refused}</p>;
   const look = m.look, need = m.need;
   const upkeep = pumpUpkeep(useGeneratorStore.getState().getMoneyPerSecond());
@@ -158,7 +161,7 @@ export function MainInfo() {
         {r.intakes.some((k) => k.surface !== null) && <> · water {Math.abs(r.head / 2).toFixed(1)} slabs {r.head >= 0 ? "above" : "below"} the floor</>}
       </p>
       <p className="text-fg-muted">
-        {r.intakes.length ? r.intakes.map((k) => `${k.pump ? "Pump" : "Intake"}${k.surface === null ? " (dry)" : k.fouled >= 0.05 ? ` (${Math.round(k.fouled * 100)}% fouled: cools ${Math.round(coolingKept(k.fouled) * 100)}%)` : ""}`).join(", ") : "No intake"}
+        {r.intakes.length ? r.intakes.map((k) => `${k.pump ? "Pump" : "Intake"}${k.surface === null ? " (dry)" : k.fouled >= 0.05 ? ` (${Math.round(k.fouled * 100)}% fouled: cools ${Math.round(coolingKept(r.fouled ?? k.fouled) * 100)}%)` : ""}`).join(", ") : "No intake"}
         {" → "}{names.length ? names.join(", ") : "nothing"}
       </p>
       <div className="mt-0.5 flex flex-wrap gap-1">

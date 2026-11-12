@@ -42,6 +42,8 @@ export type PipeReport<S extends PipeState = PipeState> = {
   outlets: { cell: number; building: number; capacity: number; pumped: boolean }[];
   /** Each intake's water surface, or null if dry, how deep it stands there, and how fouled (nought to one); whether it is a pump. */
   intakes: { cell: number; surface: number | null; depth: number; pump: boolean; fouled: number }[];
+  /** A WATER MAIN's: how fouled the water in it is, nought to one — its intakes' once that has come through. */
+  fouled?: number;
   /** A CONNECTION's: the workplaces it takes slop from, by id, its outfalls by cell, and its manhole if it reaches one. @see stepSewers */
   sewer?: { sources: number[]; outfalls: number[]; node?: number };
   /** A TRUNK's. */

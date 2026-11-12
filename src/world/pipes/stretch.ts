@@ -67,6 +67,18 @@ export function sameStretch(g: Grid, a: number, b: number): boolean {
   return !!s && s.cells.includes(b) && !!stretchAt(g, b)?.cells.includes(a);
 }
 
+/**
+ * Whether a tile is AN END OF THE STRETCH through `looked` THAT CAN BE TAKEN
+ * HOLD OF and moved: one of its two ends, with nothing else hanging on it —
+ * a tee's other runs would be left without their joint.
+ */
+export function movableEnd(g: Grid, looked: number, cell: number): boolean {
+  const s = stretchAt(g, looked);
+  if (!s || s.cells.length < 2) return false;
+  const last = s.cells.length - 1;
+  return (cell === s.cells[0] && !s.shared[0]) || (cell === s.cells[last] && !s.shared[1]);
+}
+
 const SIDES = ["N", "E", "S", "W"] as const;
 
 /**

@@ -87,8 +87,9 @@ describe("warned of before it fails", () => {
     frames(g, f, 60 * 8);
     const flow = pipeRows(g)[0].flow;
     expect(flow).toBeGreaterThan(0.5);
-    // Drinking a little faster than the main brings it, with a few seconds' worth left.
-    t.demand = flow + 0.1; t.level = 2;
+    // Drinking a little faster than the main can bring it, with a few seconds' worth left.
+    const could = pipeRows(g)[0].capacity;
+    t.demand = could + 0.1; t.level = 2;
     const row = pipeRows(g)[0];
     expect(row.tone).toBe("warn");
     expect(row.warning).toBe("A tank it feeds runs dry in 0:20");
@@ -98,6 +99,9 @@ describe("warned of before it fails", () => {
     expect(pipeRows(g)[0].warning).toBeNull();
     t.level = 2; t.demand = flow * 0.5;
     expect(pipeRows(g)[0].tone).toBe("good");
+    // Nor of a main that has carried nothing yet — one just loaded, or sipping at a full tank — while it could keep up.
+    t.demand = could * 0.9; t.level = 2;
+    expect(pipeRows(g)[0].warning).toBeNull();
   }, 20_000);
 
   test("a sewer nearly at what it carries: amber before it comes up in the street", () => {
