@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { FLOW_DEFAULTS, createColumnField } from "../../fluid/columns";
 import { addBoat, createFleet, stepFleet } from "./fleet";
-import { WAKE_LIFE, createWake, stepWake, wakeMarks } from "./wake";
+import { ARM_WHITE, WAKE_LIFE, createWake, foamWake, stepWake, wakeMarks } from "./wake";
 
 /** A lake `tiles` across whose surface falls toward +x, so a boat drifts. */
 const river = (tiles: number) => {
@@ -46,6 +46,50 @@ describe("a boat's wake", () => {
     w.points.push({ boat: 1, x: 3, y: 8, hx: 1, hy: 0, born: w.t, strength: 1 });
     stepWake(w, f, WAKE_LIFE + 0.1);
     expect(w.points.length).toBe(0);
+  });
+});
+
+describe("a wake's foam", () => {
+  test("is the water's own: marked on the columns its arms and churn lie over, strongest nearest the boat, and nowhere else", () => {
+    const c = river(16);
+    const depth = c.depth.slice();
+    const f = createFleet();
+    const b = addBoat(f, c, 4, 8)!;
+    const w = createWake();
+    for (let k = 0; k < 120; k++) { stepFleet(f, c, 1 / 60); stepWake(w, f, 1 / 60); }
+    expect(c.drips.splashed).toBe(false);
+    const made = foamWake(wakeMarks(w, c), c);
+    expect(made).toBeGreaterThan(10);
+    // Through the one way in: the marks, the list they fade from and the flag the foam reads all agree.
+    expect(c.drips.splashed).toBe(true);
+    const lit = [...c.drips.splash].map((v, i) => ({ v, x: ((i % c.nx) + 0.5) / 4 - 0.5, y: (Math.floor(i / c.nx) + 0.5) / 4 - 0.5 })).filter((m) => m.v > 0);
+    expect(lit.length).toBe(c.drips.nlit);
+    // Behind the boat, never ahead of it; none whiter than an arm at its strongest.
+    for (const m of lit) { expect(m.x).toBeLessThan(b.x + 0.3); expect(m.v).toBeLessThanOrEqual(ARM_WHITE + 1e-6); }
+    // Whiter near the boat than at the far end of the wake.
+    const near = lit.filter((m) => m.x > b.x - 0.6), far = lit.filter((m) => m.x < Math.min(...lit.map((q) => q.x)) + 0.4);
+    const mean = (l: typeof lit) => l.reduce((n, m) => n + m.v, 0) / l.length;
+    expect(mean(near)).toBeGreaterThan(mean(far));
+    // Either side of where it went as well as behind it: the arms have spread.
+    const ys = lit.map((m) => m.y);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(0.5);
+    // Foam is a mark on the water, not water: none is moved.
+    expect([...c.depth]).toEqual([...depth]);
+  });
+
+  test("none on dry ground, and none from a boat at rest", () => {
+    const c = river(16);
+    c.ground.fill(0);
+    const f = createFleet();
+    addBoat(f, c, 4, 8);
+    const w = createWake();
+    for (let k = 0; k < 60; k++) { stepFleet(f, c, 1 / 60); stepWake(w, f, 1 / 60); }
+    expect(foamWake(wakeMarks(w, c), c)).toBe(0);
+    // A wake whose water has gone marks nothing.
+    w.points.push({ boat: 1, x: 3, y: 8, hx: 1, hy: 0, born: w.t, strength: 1 }, { boat: 1, x: 3.2, y: 8, hx: 1, hy: 0, born: w.t, strength: 1 });
+    c.depth.fill(0);
+    expect(foamWake(wakeMarks(w, c), c)).toBe(0);
+    expect(c.drips.splashed).toBe(false);
   });
 });
 

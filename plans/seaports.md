@@ -1,6 +1,6 @@
 # Seaports and boats, rebuilt
 
-**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **The pipe plan is done; of what waited for it, the slop loader, the ferry's far bank and the investor's yacht are built** (2026-11-12), the yard gantry loads the lorries and a port straightens a slanted bank (2026-11-13), and three items are left: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
+**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **The pipe plan is done; of what waited for it, the slop loader, the ferry's far bank and the investor's yacht are built** (2026-11-12), the yard gantry loads the lorries and a port straightens a slanted bank (2026-11-13), the wake's foam is the water's own, and two items are left: the tug and ships turning, and the balance pass: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
 
 ## Why
 
@@ -198,7 +198,7 @@ Phase 1 stands alone and fixes what is broken. Phases 5 and 7 need nothing from 
 - Lights at night are baked and wired but were only seen by day.
 
 **Phase 6 — wakes.** `pushWater` in `boats/wake.ts`: water taken from under the stern and put either side of the bow, conserved (test).
-- **The drawn foam is kept.** At a strength that does not slop over the quays, the water's own wake did not read by eye.
+- **The drawn foam was kept** then: at a strength that does not slop over the quays, the water's own wave did not read by eye. Replaced 2026-11-13 by foam marked on the water (below).
 - Not run under `?gpucheck`.
 
 **Phase 7 — the port.** `structures/seaport-renderer.ts`, `port-life.ts`; `liftAt`/`cargoAt` in `traffic.ts`.
@@ -225,7 +225,7 @@ Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then 
 | ~~Investor yacht~~ | **Built 2026-11-12**, see below | — |
 | ~~Yard gantry lifts~~ | **Built 2026-11-13**, see below | — |
 | ~~Boxes onto lorries~~ | **Built 2026-11-13**, see below | — |
-| Wake foam | Foam from the water, or baked, in place of the drawn foam | Nothing |
+| ~~Wake foam~~ | **Built 2026-11-13**: the water's own, see below | — |
 | Balance | Ship classes, fees and fittings through the balance sim | Nothing |
 | ~~Generated banks~~ | **Measured and built 2026-11-13**, see below | — |
 
@@ -253,6 +253,13 @@ Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then 
 - **Measured after:** a Port III fits on 82% of bank tiles (65–91% a map), a Port I on 95%. What still misses is mostly the BACK row of the port in the river — a spit, or a bank that turns a corner — which is not a slant to straighten.
 - **Seen** (`?world=1&fixture=harbour`): a Port I placed beside the big port where one tile of bank stuck out; the tile cut, and the river standing in it as deep as beside it (6.9 half steps against 6.84).
 - **Not done:** the ghost does not show which tiles will be filled or cut; it costs nothing more than the port; upgrading a port does not straighten; the fill was tested, not seen in the browser.
+
+**The wake's foam is the water's own** (2026-11-13). `foamWake` in `boats/wake.ts`; the strokes in `boats-render.ts` are gone. Tests in `boats/wake.test.ts`.
+- **Marked, not drawn.** The wake is still a trail of points with two spreading arms and the churn behind the hull; each frame the columns those lie over are marked as a splash is (`markSplash`, the one way in), and the foam field is born from the marks — carried by the current, fading on its own clock, shaded with every other white on the water, and hidden by whatever stands in front of it. The per-band foam shapes, cleared and redrawn every frame, are deleted.
+- **Not gated on the host's depth.** Where the device has the water, the host's copy of a column a little off the hull can be stale, and marks skipped for "dry" left almost no wake. The foam pass itself bears none on a dry column.
+- **As white as its mark.** Foam born from a mark is as white as the mark and no whiter, a column wide. Marked in proportion to an arm's strength it measured as 3% of the pixels behind a coaster at full speed gone pale; eased (a power of 0.6, arms to 1 and churn to 0.9) it is about a quarter.
+- **Seen** (`/?fixture=harbour`, by day): a pale V trailing a coaster under way. It is softer and broader than the drawn lines were: a column is a quarter of a tile.
+- **Not done:** not baked, and no crisp arms close up; not looked at at night, under a bridge, or with a convoy in; not run under `?gpucheck`.
 
 Fixed while play-testing, not in the phases above: a port is placed by pointing at its quay or the water off it; the pointer picks the water with a port in hand or dredging; boats are sent by the berths their class can use, ports alike take turns; a low river is said once it has stayed low (`LOW_HOLD`). `?fixture=shoal` is the harbour with a bar to dredge.
 

@@ -12,9 +12,8 @@
  * still covers it. Only the hull ABOVE the waterline is drawn, so nothing has
  * to be cut away where it meets the water. @see BandLayer.dynamicOf
  *
- * THE WAKE goes under them, a segment at a time in the band of its own front
- * end, first among that band's movers so a boat in the same band draws over
- * it. It is foam drawn on the sheet and nothing more. @see wake
+ * THE WAKE is not drawn here: it is marked on the water, and the water's own
+ * foam is born from it. @see wake foamWake
  */
 import { Container, Graphics, Sprite, Texture } from "pixi.js";
 
@@ -28,7 +27,7 @@ import { AI_HULL as AI_LIVERY, CONVOY_HULL, LIVERIES, YACHT_HULLS } from "./mode
 import { cargoOf, lookOf, slotTint } from "./cargo";
 import { HALF_STEPS_PER_M, TILES_PER_M } from "../agents/cars/models";
 import { cranesLoaded, craneSprites, framePiece, makePiece, type Piece } from "../structures/cranes/crane-sheet";
-import { createWake, stepWake, wakeMarks, type WakeMark } from "./wake";
+import { createWake, foamWake, stepWake, wakeMarks } from "./wake";
 
 /** How far the gunwale stands over the water, in half steps. */
 const BOARD = 0.55;
@@ -46,9 +45,6 @@ const DECK = 0xa9773f;
 const DECK_EDGE = 0x6d4a25;
 const SAIL = 0xfbf8f0;
 const MAST_COLOUR = 0x5a3d22;
-const FOAM = 0xffffff;
-/** Two marks further apart than this, tiles, are not one arm: water drained between. */
-const WAKE_GAP = 0.5;
 
 /**
  * The hull's outline at the gunwale, along the bow and across the beam, as
@@ -162,56 +158,10 @@ export function createBoatLayer(bands: BandLayer): BoatLayer {
     }
   };
   const wake = createWake();
-  /** One Graphics of foam per band that has had any, cleared every frame. */
-  const foam = new Map<number, Graphics>();
-  const foamOf = (band: number) => {
-    let g = foam.get(band);
-    if (!g) {
-      g = new Graphics();
-      g.eventMode = "none";
-      bands.dynamicOf[band].addChildAt(g, 0);
-      foam.set(band, g);
-    }
-    return g;
-  };
-
-  const drawWake = (marks: WakeMark[], s: number) => {
-    for (const g of foam.values()) g.clear();
-    const bandsN = bands.bands.length;
-    const px = (p: { x: number; y: number; z: number }) => (p.x - p.y) * HW * s;
-    const py = (p: { x: number; y: number; z: number }) => (p.x + p.y) * HH * s - p.z * HEIGHT_UNIT * s;
-    const bandOf = (a: { x: number; y: number }, b: { x: number; y: number }) =>
-      Math.max(0, Math.min(bandsN - 1,
-        Math.max(Math.round(a.x) + Math.round(a.y), Math.round(b.x) + Math.round(b.y))));
-    const seg = (
-      a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number },
-      width: number, alpha: number,
-    ) => {
-      if (alpha < 0.02) return;
-      foamOf(bandOf(a, b)).moveTo(px(a), py(a)).lineTo(px(b), py(b))
-        .stroke({ color: FOAM, width: Math.max(1, width * s), alpha, cap: "round" });
-    };
-    // ONE BOAT'S MARKS AT A TIME: every boat drops its points into the one
-    // list as it goes, so neighbours in it are as often two boats as one.
-    const byBoat = new Map<number, WakeMark[]>();
-    for (const m of marks) {
-      const l = byBoat.get(m.boat);
-      if (l) l.push(m); else byBoat.set(m.boat, [m]);
-    }
-    for (const trail of byBoat.values()) for (let k = 1; k < trail.length; k++) {
-      const a = trail[k - 1], b = trail[k];
-      if (Math.hypot(a.mid.x - b.mid.x, a.mid.y - b.mid.y) > WAKE_GAP) continue;
-      // The churned water straight behind, wide and soon gone; then the arms.
-      seg(a.mid, b.mid, 7, 0.6 * Math.min(a.churn, b.churn));
-      const arm = 0.95 * Math.min(a.arm, b.arm);
-      seg(a.left, b.left, 3, arm);
-      seg(a.right, b.right, 3, arm);
-    }
-  };
-
   const draw = (fleet: Fleet, c: ColumnField, scale: number, dt: number, night = 0) => {
+    // ITS WAKE, left on the water as foam of the water's own: nothing of it is drawn here. @see foamWake
     stepWake(wake, fleet, dt);
-    drawWake(wakeMarks(wake, c), scale);
+    foamWake(wakeMarks(wake, c), c);
     const live = new Set<number>();
     const P = bakedBoats() ? boatsLoaded() : null;
     for (const b of fleet.boats) {
@@ -250,8 +200,6 @@ export function createBoatLayer(bands: BandLayer): BoatLayer {
       drawn.clear();
       for (const d of baked.values()) d.c.destroy({ children: true });
       baked.clear();
-      for (const g of foam.values()) g.destroy();
-      foam.clear();
     },
   };
 }

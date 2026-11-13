@@ -1,7 +1,13 @@
 /**
- * World v2 — a boat's wake: a trail of foam it leaves on the water, and
- * NOTHING ELSE. It is drawn and not simulated: no column is pushed, no depth
- * moved, so a boat stays the passenger it is. @see fleet
+ * World v2 — a boat's wake: the foam it leaves on the water, and the water
+ * it moves aside. @see fleet
+ *
+ * THE FOAM IS THE WATER'S OWN. Where a wake's arms and the churn behind a
+ * hull lie, the columns are marked as a splash is — the way a drop landing
+ * or the foot of a fall is — and the foam field is born there: carried by
+ * the current, fading on its own clock, drawn with every other white on the
+ * water and hidden by what stands in front of it. Nothing is drawn here.
+ * @see foamWake, fluid/drips markSplash, render/foam
  *
  * A wake is a list of points dropped under a boat as it goes, one every
  * `SPACING` tiles TRAVELLED rather than every so often, so a boat at rest
@@ -15,6 +21,7 @@
  */
 import type { ColumnField } from "../../fluid/columns";
 import { addWater, wantDepth, type ColumnField as Columns } from "../../fluid/columns";
+import { markSplash } from "../../fluid/drips";
 import { COLUMNS_PER_TILE } from "../water/field";
 import { classOf } from "./classes";
 import { BOAT_BEAM, sampleWater, type Fleet } from "./fleet";
@@ -145,6 +152,56 @@ export function wakeMarks(w: Wake, c: ColumnField): WakeMark[] {
     });
   }
   return out;
+}
+
+/** How far apart two of a boat's points may be and still be joined, tiles: further, and it is another stretch of wake. */
+const WAKE_GAP = 0.5;
+/**
+ * How white a wake's arms make the water at their strongest, and the churn
+ * straight behind the hull; and how slowly that falls off with the wake's own
+ * strength — a power under one. A mark is one column wide and the foam born
+ * from it is as white as the mark and no whiter: marked in proportion to an
+ * arm's strength, which is a quarter on average, a wake measured as two
+ * pixels in a hundred gone white behind a coaster at full speed. @see markSplash
+ */
+export const ARM_WHITE = 1;
+export const CHURN_WHITE = 0.9;
+const WHITE_EASE = 0.6;
+
+/**
+ * THE WAKE, LEFT ON THE WATER: every column an arm or the churn of it lies
+ * over is marked, as white as that part of the wake is strong, for the foam
+ * to be born from. One boat's points at a time, each joined to its next.
+ * On the lowest storey: a boat is on a river, not a bridge. How many marks
+ * it made.
+ */
+export function foamWake(marks: readonly WakeMark[], c: Columns): number {
+  const byBoat = new Map<number, WakeMark[]>();
+  for (const m of marks) { const l = byBoat.get(m.boat); if (l) l.push(m); else byBoat.set(m.boat, [m]); }
+  const col = (t: number) => Math.round((t + 0.5) * COLUMNS_PER_TILE - 0.5);
+  let made = 0;
+  /** Every column from `a` to `b`, half a column a step. */
+  const line = (a: { x: number; y: number }, b: { x: number; y: number }, white: number) => {
+    if (white < 0.03) return;
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * COLUMNS_PER_TILE * 2));
+    for (let k = 0; k <= steps; k++) {
+      const cx = col(a.x + ((b.x - a.x) * k) / steps), cy = col(a.y + ((b.y - a.y) * k) / steps);
+      if (cx < 0 || cy < 0 || cx >= c.nx || cy >= c.ny) continue;
+      // Not asked whether it is wet: where the device has the water the host's copy of a column a little way
+      // off the hull may be stale, and the foam is not born on a dry column whatever is marked there. @see render/foam
+      markSplash(c.drips, cy * c.nx + cx, white);
+      made++;
+    }
+  };
+  for (const trail of byBoat.values()) for (let k = 1; k < trail.length; k++) {
+    const a = trail[k - 1], b = trail[k];
+    if (Math.hypot(a.mid.x - b.mid.x, a.mid.y - b.mid.y) > WAKE_GAP) continue;
+    line(a.mid, b.mid, CHURN_WHITE * Math.min(a.churn, b.churn) ** WHITE_EASE);
+    const arm = ARM_WHITE * Math.min(a.arm, b.arm) ** WHITE_EASE;
+    line(a.left, b.left, arm);
+    line(a.right, b.right, arm);
+  }
+  return made;
 }
 
 /**
