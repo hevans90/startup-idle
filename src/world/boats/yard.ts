@@ -24,6 +24,8 @@ export const YARD_A_BERTH = 4;
 /** What a lorry takes, and seconds from one to the next. */
 export const LORRY_LOAD = 2;
 export const LORRY_GAP = 8;
+/** Seconds a lorry stands at the gate while the yard gantry sets its box on it. @see carryAt */
+export const LORRY_LOADS = 7;
 /** The share of a lorry's rate a yard empties at with no road out. */
 export const NO_ROAD = 0.25;
 /** How much longer a landing berth's call takes with the yard full: this many times over. */
@@ -67,4 +69,19 @@ export function stepYards(y: Yards, dt: number, haul: (port: number) => Haul): v
     else if (got === "none") { y.held.set(port, Math.max(0, held - LORRY_LOAD * NO_ROAD)); y.until.set(port, LORRY_GAP); }
     else y.until.set(port, 1);
   }
+}
+
+/**
+ * WHERE THE YARD GANTRY IS IN LOADING A LORRY, `e` of the way through the
+ * lorry's wait, nought to one: which place it is making for or stands over
+ * (the stack, then the lorry), how far its spreader is down there, and
+ * whether the box is on it. It fetches the box from the stack, carries it
+ * to the lorry, and sets it down before the lorry goes. Pure, so it can be
+ * held to; the renderer moves the gantry to follow it. @see seaport-renderer
+ */
+export function carryAt(e: number): { over: "stack" | "lorry"; down: number; carried: boolean } {
+  const ramp = (from: number, to: number) => Math.max(0, Math.min(1, (e - from) / (to - from)));
+  // To the stack; down on the box; up with it; to the lorry; down onto it; and up, empty.
+  if (e < 0.44) return { over: "stack", down: ramp(0.24, 0.34) * (1 - ramp(0.36, 0.44)), carried: e >= 0.35 };
+  return { over: "lorry", down: ramp(0.62, 0.8) * (1 - ramp(0.9, 1)), carried: e < 0.87 };
 }

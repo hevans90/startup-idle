@@ -1,6 +1,6 @@
 # Seaports and boats, rebuilt
 
-**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **The pipe plan is done; of what waited for it, the slop loader, the ferry's far bank and the investor's yacht are built** (2026-11-12) and six items are left: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
+**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **The pipe plan is done; of what waited for it, the slop loader, the ferry's far bank and the investor's yacht are built** (2026-11-12), the yard gantry loads the lorries (2026-11-13), and four items are left: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
 
 ## Why
 
@@ -223,8 +223,8 @@ Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then 
 | Tug, and ships turning | A tug meets a ship and turns it in the basin; today room to turn is only a check | Nothing |
 | ~~Ferry: homes across the water~~ | **Built 2026-11-12**, see below | — |
 | ~~Investor yacht~~ | **Built 2026-11-12**, see below | — |
-| Yard gantry lifts | The yard gantry moves boxes between stack and lorry lane | Nothing |
-| Boxes onto lorries | A box seen set on a lorry at the gate | Yard gantry lifts |
+| ~~Yard gantry lifts~~ | **Built 2026-11-13**, see below | — |
+| ~~Boxes onto lorries~~ | **Built 2026-11-13**, see below | — |
 | Wake foam | Foam from the water, or baked, in place of the drawn foam | Nothing |
 | Balance | Ship classes, fees and fittings through the balance sim | Nothing |
 | Generated banks | How often a Port III fits on generated maps' slanted banks, and whether placing should straighten a bank | Nothing |
@@ -237,6 +237,14 @@ Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then 
   - **Not done:** nobody is seen crossing; cars and lorries do not use it; it does not need the ferries to be running, only the ramp to be fitted.
 - **The investor's yacht** (`callInvestor` in `boats/traffic.ts`): when the term sheet's goal is first met in play, the next boat a river with a pontoon sends is the investor's yacht, bound for the pontoon; on its call a horn and a notice, "<investor> arrives by yacht". A goal already met when the map opens is not news, and with no pontoon nobody is sent.
   - **Not seen in the browser:** no fixture has a term sheet near its goal. Tests only.
+
+**The yard gantry loads the lorries** (2026-11-13). `carryAt` and `LORRY_LOADS` in `boats/yard.ts`; the gantry's load in `structures/seaport-renderer.ts`; `PortLife.lorry`. Test in `boats/yard.test.ts`.
+- **A port with a bay of stacks** (a Port III) has its lorry stand at the gate for 7 seconds before it goes. In that time the yard gantry fetches a box from its stack, rolls out past the back of its bay over the lorry lane, and sets the box down on the lorry's back; the lorry then drives off with it. The gantry has a spreader on two ropes now, and a box in the colour of the place it came from.
+- **The sequence is one pure function**, `carryAt(e)`: to the stack, down, up with the box, across, down onto the lorry, up empty. The renderer moves the gantry to follow it, and lowers only once it stands over the place.
+- **The gantry goes to the lorry, not the lorry to the gantry.** A lorry sets off from the kerb where its lane begins, which is the road's to say: on the harbour fixture that is a little past the end of the gantry's beam, whichever tile it is sent from. So the spreader reaches up to 0.3 of a tile past its rail to either side (`RTG_REACH`), and the gantry rolls 0.6 of a tile off its bay. A lorry that sets off further away than that is not loaded and does not wait.
+- **Seen** (`/?fixture=harbour`, by day, one bank facing): the gantry over its stack; out over the road with a green box above the waiting lorry; the box down on the lorry's back.
+- **Not done:** the box does not ride away on the lorry — it is hidden as the lorry leaves, and the lorry is the box lorry it was. Ports I and II have no gantry, and their lorries leave as before. Not seen at night, on the other three facings, or with the road somewhere other than behind the port.
+- **For looking at it:** `__traffic()` and `__app` are on the window with the other hooks. A hidden tab gets no frames; `__app.ticker.update(t)` steps the clock by hand.
 
 Fixed while play-testing, not in the phases above: a port is placed by pointing at its quay or the water off it; the pointer picks the water with a port in hand or dredging; boats are sent by the berths their class can use, ports alike take turns; a low river is said once it has stayed low (`LOW_HOLD`). `?fixture=shoal` is the harbour with a bar to dredge.
 

@@ -14,7 +14,11 @@ export type ShipAt = {
   id: number; x: number; y: number; z: number; heading: number; cls: number; look: string; boxes: number;
   lift: number; phase: number; loading: boolean; cargo: boolean; slot: number;
 };
-export type PortLife = { berths: { state: BerthState; ship?: ShipAt }[]; yard: number; night: number };
+export type PortLife = {
+  berths: { state: BerthState; ship?: ShipAt }[]; yard: number; night: number;
+  /** A LORRY STANDING AT THE GATE to be loaded: where, in tiles, and the seconds it has left to stand. @see LORRY_LOADS */
+  lorry?: { x: number; y: number; left: number };
+};
 
 let source: ((port: number) => PortLife | null) | null = null;
 /** Say how to find a port's life; null for nobody to ask. */

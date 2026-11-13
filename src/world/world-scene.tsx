@@ -93,7 +93,9 @@ import { fitting } from "./boats/fittings";
 import { creditTrade, stepTrade } from "./boats/trade";
 import { BARGE_COST, BARGE_HOLDS, bargeLoad, bargeTakes } from "./boats/slop-loader";
 import { pushWater } from "./boats/wake";
-import { stepYards, yardFill } from "./boats/yard";
+import { LORRY_LOADS, stepYards, yardFill } from "./boats/yard";
+import { RTG_REACH, stackBayOf } from "./structures/seaport-renderer";
+import { NEIGHBOUR } from "../iso/dir";
 import { PORT_LORRY_COLOUR } from "./agents/cars/fleet";
 import { portWork } from "./boats/traffic";
 import { setPortLife } from "./structures/port-life";
@@ -722,7 +724,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         (window as unknown as { __boats?: () => unknown }).__boats = () => getFleet();
         // And the town's traffic. @see world/agents
         (window as unknown as { __town?: () => unknown }).__town = () => getTown();
+        // And the rivers' traffic, with the ports' yards. @see boats/traffic
+        (window as unknown as { __traffic?: () => unknown }).__traffic = () => getTraffic();
         window.__renderer = app.renderer;
+        // And the app, to step its clock by hand where frames are not coming: `__app.ticker.update(t)`. A hidden tab's do not. @see hidden-tab-fakes-perf
+        (window as unknown as { __app?: unknown }).__app = app;
         // What the readback costs, answered by not doing it. @see setReadback
         window.__readback = setReadback;
         // And whether the dispatch region is the box or the map. @see setWholeMap
@@ -1724,6 +1730,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           return {
             berths: portWork(t, getFleet(), id, berths, fits),
             yard: yardFill(t.yards, id, berths),
+            // Its lorry, while it stands at the gate being loaded.
+            ...(() => { const m = getTown().movers.find((q) => q.job?.role === "freight" && q.job.site === id && (q.wait ?? 0) > 0); return m ? { lorry: { x: m.x, y: m.y, left: m.wait! } } : {}; })(),
             night: useGlobalSettingsStore.getState().dayNight && useWorldStore.getState().playing ? darkness(phaseNow()) / NIGHT_DARK : 0,
           };
         });
@@ -3839,8 +3847,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const out = door && town.places.find((pl) => pl.kind === "gateway" && pl.net === door.net);
             if (!door || !out) return "none";
             if (town.movers.some((m) => m.job?.role === "freight" && m.job.site === port)) return "busy";
+            // WHERE THE PORT HAS A YARD GANTRY and the lorry sets off from within its reach — the road behind its bay
+            // of stacks, or a little to either side — it stands there while the gantry sets a box on it. @see carryAt
+            const ps = st.grid.structures.get(port), bay = stackBayOf(ps);
             const lorry = sendOnJob(town, st.grid, "truck", door, out, { site: port, role: "freight" });
-            if (lorry) lorry.colour = PORT_LORRY_COLOUR;
+            if (lorry) {
+              lorry.colour = PORT_LORRY_COLOUR;
+              const a = ps?.facing && NEIGHBOUR[ps.facing][0] === 0 ? lorry.x - (ps.x - 0.5) : lorry.y - ((ps?.y ?? 0) - 0.5);
+              if (bay >= 0 && a > bay - RTG_REACH && a < bay + 1 + RTG_REACH) lorry.wait = LORRY_LOADS;
+            }
             return lorry ? "sent" : "busy";
           });
         }

@@ -28,12 +28,13 @@ import { Container, Graphics, Matrix, Sprite } from "pixi.js";
 import { NEIGHBOUR } from "../../iso/dir";
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { fitOf, type FitId } from "../boats/fittings";
+import { LORRY_LOADS, carryAt } from "../boats/yard";
 import { BOX_TINTS, CRATE_TINTS, cargoOf, slotTint } from "../boats/cargo";
 import { idx, inBounds, type Structure } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { portLife, type BerthState } from "./port-life";
 import { cranesLoaded, craneSprites, framePiece, lightPiece, makePiece, type Piece } from "./cranes/crane-sheet";
-import { BOX, CRATE, HARBOUR, LUFFING, M_STEP, M_TILE, STS, TURNS, type Turning } from "./cranes/models";
+import { BOX, CRATE, HARBOUR, LUFFING, M_STEP, M_TILE, RTG, STS, TURNS, type Turning } from "./cranes/models";
 import { registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
 
 const STONE = 0xa29d93, STONE_SIDE = 0x7d786f, STONE_SHADE = 0x625e57;
@@ -81,6 +82,19 @@ const LAYOUT: Record<number, readonly ("shed" | "yard" | "stack")[]> = {
   4: ["yard", "stack", "yard", "yard"],
 };
 const layoutOf = (n: number) => LAYOUT[n] ?? Array.from({ length: n }, (_, k) => (k % 2 ? "shed" : "yard"));
+/** Which bay of a port is its bay of stacks, with a yard gantry to load its lorries, counted along its quay; −1 with none. */
+export const stackBayOf = (s: Structure | undefined): number =>
+  !s || s.build ? -1 : layoutOf(NEIGHBOUR[s.facing ?? "W"][0] === 0 ? s.w : s.h).indexOf("stack");
+/** How high a lorry's back stands over the road, half steps: where the yard gantry sets a box down on it. */
+const LORRY_BED = 0.9;
+/** How far past the back of its bay the yard gantry rolls to stand over the lorry lane, tiles. */
+const RTG_OUT = 0.6;
+/**
+ * How far to either side of its bay the yard gantry's spreader reaches for a
+ * lorry, tiles. A lorry sets off from the kerb where its lane begins, which
+ * is the road's to say and need not be square behind the stacks.
+ */
+export const RTG_REACH = 0.3;
 
 const shade = (c: number, k = BOX_SHADE) => (((c >> 16) * k) << 16) | ((((c >> 8) & 255) * k) << 8) | ((c & 255) * k);
 
@@ -268,6 +282,8 @@ const SLOTS = {
  * the yard. A box set down by a crane keeps the colour it came with.
  */
 type Yard = {
+  /** The bay it is on. */
+  c: number;
   kind: "box" | "crate";
   at: { a: number; d: number; z: number; turn: number }[];
   pieces: Piece[];
@@ -344,7 +360,14 @@ type SeaportHandle = StructureHandle & {
   statics: Statics[];
   yards: Yard[];
   /** The yard gantry over a bay of stacks: its parts, and where along the bay it is and is going. @see RTG */
-  rtgs: { c: number; parts: Piece[]; d: number; v: number; to: number; wait: number }[];
+  rtgs: {
+    c: number; parts: Piece[]; d: number; v: number; to: number; wait: number;
+    /** What hangs under its beam: two ropes, a spreader and a box; where its trolley is along the beam and how high its spreader, and how fast each is going. */
+    load: { ropes: Graphics[]; spreader: Piece; box: Piece } | null;
+    a: number; va: number; hook: number; vh: number;
+    /** The place on its stack it is fetching a box from for the lorry at the gate, chosen as the lorry draws up; null with none. @see carryAt */
+    from: { a: number; d: number; z: number; tint: number } | null;
+  }[];
   rigs: Rig[];
   nodes: Container[];
   beacon: Graphics | null;
@@ -451,7 +474,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
         pc.c.alpha = p.turn < base ? 1 : 0;
         return pc;
       });
-      const y: Yard = { kind, at, pieces: made, tints, base, shown: base };
+      const y: Yard = { c, kind, at, pieces: made, tints, base, shown: base };
       yards.push(y);
       return y;
     };
@@ -463,8 +486,19 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
       const bNear = Math.cos(FACING[fi]) - Math.sin(FACING[fi]) > 0;
       const mk = (where: Container, id: string) => { const pc = makePiece(RP, where, id, fi, 0xe3ac1f, sc); nodes.push(pc.c); return pc; };
       const parts = [mk(slot.base, bNear ? "rtg-side-a" : "rtg-side-b")];
-      rtgs.push({ c, parts, d: f.depth * 0.5, v: 0, to: f.depth * 0.5, wait: 2 });
-      later.push(() => { parts.push(mk(f.away ? slot.loadA : slot.front, bNear ? "rtg-side-b" : "rtg-side-a"), mk(f.away ? slot.loadA : slot.top, "rtg-top")); });
+      const up = QUAY + (RTG.top - 1.6) / M_STEP;
+      const rtg: SeaportHandle["rtgs"][number] = { c, parts, d: f.depth * 0.5, v: 0, to: f.depth * 0.5, wait: 2, load: null, a: c + 0.5, va: 0, hook: up, vh: 0, from: null };
+      rtgs.push(rtg);
+      later.push(() => {
+        // WHAT IT CARRIES hangs between its two sides: made after the stacks and the far side, before the near side and the beams.
+        const where = f.away ? slot.loadA : slot.front;
+        const ropes = [0, 1].map(() => add(where, bar(ROPE, Math.max(1, 1.1 * sc))));
+        const box = makePiece(RP, where, "box", (fi * 8 + 8) % TURNS, 0xffffff, sc), spreader = makePiece(RP, where, "sts-spreader", fi, 0xe3ac1f, sc);
+        nodes.push(box.c, spreader.c);
+        box.c.alpha = 0;
+        rtg.load = { ropes, spreader, box };
+        parts.push(mk(f.away ? slot.loadA : slot.front, bNear ? "rtg-side-b" : "rtg-side-a"), mk(f.away ? slot.loadA : slot.top, "rtg-top"));
+      });
     }
     if (f.kinds[c] === "stack") yardOf("box", [0.27, 0.73], Array.from({ length: Math.floor((f.depth - 0.55) / 0.24) }, (_, k) => 0.2 + k * 0.24), 3, 2 * Math.floor((f.depth - 0.55) / 0.24));
     // What goes in front of the stacks is made after them.
@@ -605,14 +639,6 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
     y.at.forEach((p, k) => { y.pieces[k].c.alpha = p.turn < want ? 1 : 0; if (p.turn >= y.shown && p.turn < want) y.pieces[k].sp[0].tint = y.tints[p.turn]; });
     y.shown = want;
   }
-  // THE YARD GANTRY trundles along its bay from one row to another, and stands a while at each.
-  for (const g of h.rtgs) {
-    g.wait -= dt;
-    if (g.wait <= 0 && Math.abs(g.d - g.to) < 0.02) { g.to = 0.5 + ((Math.sin(h.t * 0.37 + g.c * 2.1) + 1) / 2) * (f.depth - 1.15); g.wait = 5 + 3 * Math.abs(Math.sin(h.t + g.c)); }
-    [g.d, g.v] = damp(g.d, g.v, g.to, 1.1, dt);
-    const at = f.Q(g.c + 0.5, g.d, QUAY);
-    for (const pc of g.parts) pc.c.position.set(at[0], at[1]);
-  }
   const P = peopleLoaded();
   const ground = inBounds(ctx.grid, s.x, s.y) ? ctx.grid.height[idx(ctx.grid, s.x, s.y)] : 0;
   const [fx, fy] = NEIGHBOUR[s.facing ?? "W"];
@@ -620,6 +646,55 @@ function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, 
   const local = (x: number, y: number): [number, number] => f.alongU
     ? [x - (s.x - 0.5), fy > 0 ? y - (s.y - 0.5) : s.y + s.h - 0.5 - y]
     : [y - (s.y - 0.5), fx > 0 ? x - (s.x - 0.5) : s.x + s.w - 0.5 - x];
+  // THE YARD GANTRY trundles along its bay from one row to another, and stands a while at each — until a
+  // lorry draws up at the gate: then it fetches a box from its stack, rolls out over the lorry and sets it
+  // down on its back, in the time the lorry stands there. @see carryAt
+  for (const g of h.rtgs) {
+    const up = QUAY + (RTG.top - 1.6) / M_STEP, under = (UNDER_SPREADER + BOX.tall) / M_STEP;
+    const lorry = life?.lorry;
+    let wantA = g.c + 0.5, wantHook = up, carried = false;
+    if (lorry) {
+      const yard = h.yards.find((y) => y.c === g.c);
+      if (!g.from) {
+        // The place the yard has just given up, or will next: the one whose turn it is.
+        const k = yard ? yard.at.findIndex((p) => p.turn === Math.min(yard.shown, yard.at.length - 1)) : -1;
+        g.from = k >= 0 ? { a: yard!.at[k].a, d: yard!.at[k].d, z: yard!.at[k].z, tint: yard!.tints[yard!.at[k].turn] } : { a: g.c + 0.5, d: f.depth * 0.5, z: QUAY, tint: 0xffffff };
+        if (g.load) g.load.box.sp[0].tint = g.from.tint;
+      }
+      const step = carryAt(1 - lorry.left / LORRY_LOADS);
+      const [la, ld] = local(lorry.x, lorry.y);
+      // Over the lorry where it stands behind this bay; else at the back of the bay, as near it as its rails go.
+      const behind = la > g.c - RTG_REACH && la < g.c + 1 + RTG_REACH;
+      const to = step.over === "stack"
+        ? { a: g.from.a, d: g.from.d, z: g.from.z }
+        : { a: behind ? la : Math.max(g.c + 0.2, Math.min(g.c + 0.8, la)), d: behind ? Math.max(-RTG_OUT, Math.min(0.5, ld)) : 0.5, z: behind ? LORRY_BED : QUAY };
+      g.to = to.d;
+      wantA = to.a;
+      // Down only once it stands over the place.
+      const there = Math.abs(g.d - to.d) < 0.12 && Math.abs(g.a - to.a) < 0.12 ? 1 : 0;
+      wantHook = up - step.down * there * Math.max(0, up - to.z - under);
+      carried = step.carried;
+      g.wait = 2;
+    } else {
+      g.from = null;
+      g.wait -= dt;
+      if (g.wait <= 0 && Math.abs(g.d - g.to) < 0.02) { g.to = 0.5 + ((Math.sin(h.t * 0.37 + g.c * 2.1) + 1) / 2) * (f.depth - 1.15); g.wait = 5 + 3 * Math.abs(Math.sin(h.t + g.c)); }
+      // Back onto its own bay, if it was out over the lane.
+      if (g.to < 0.5) g.to = 0.5;
+    }
+    [g.d, g.v] = damp(g.d, g.v, g.to, lorry ? 0.32 : 1.1, dt);
+    [g.a, g.va] = damp(g.a, g.va, wantA, 0.3, dt);
+    [g.hook, g.vh] = damp(g.hook, g.vh, wantHook, 0.22, dt);
+    const at = f.Q(g.c + 0.5, g.d, QUAY);
+    for (const pc of g.parts) pc.c.position.set(at[0], at[1]);
+    if (g.load) {
+      const [tx, ty] = f.Q(g.a, g.d, QUAY + (RTG.top - 0.6) / M_STEP), [hx, hy] = f.Q(g.a, g.d, g.hook);
+      g.load.ropes.forEach((rope, e) => lay(rope, [tx + (e ? 8 : -8) * sc, ty], [hx + (e ? 9 : -9) * sc, hy]));
+      g.load.spreader.c.position.set(hx, hy);
+      g.load.box.c.position.set(hx, hy + under * HEIGHT_UNIT * sc);
+      g.load.box.c.alpha = carried ? 1 : 0;
+    }
+  }
 
   for (const r of h.rigs) {
     const at = life?.berths[r.berth];
