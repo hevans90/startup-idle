@@ -285,7 +285,8 @@ What it found, and what was done:
 
 Seen live (`/?fixture=harbour`, the three ports fitted): 4 calls a minute before, 11 after; the tier 3 furthest up from 0.25 to 3; no ship stuck or turned away. About three times the boats on the river at once (27 against 9).
 
-- **Not done:** `simulate-map-run.ts` still knows nothing of ports, so what a port adds to a whole run's pacing is not measured; the slop loader's bill and the yacht's and ferry's effects on a run are unmeasured for the same reason; a river with several ports was measured only on the fixture; the busier river was not checked for frame time.
+- **Not done:** `simulate-map-run.ts` still knows nothing of ports, so what a port adds to a whole run's pacing is not measured; the slop loader's bill and the yacht's and ferry's effects on a run are unmeasured for the same reason; a river with several ports was measured only on the fixture; three tier 3 ports far up one long river (some hundred boats) were not tried.
+- **Frame time with the busier river** (`/?fixture=harbour`, 64 tiles, pane visible, the ticker stepped by hand at a sixtieth and timed): 3 boats 1.3 ms a tick (p99 2.4), 24 boats 1.85 ms (p99 2.8) — about 0.025 ms a boat, most of it under `town` (0.13 to 0.22 ms). The GPU's render pass did not move (1.2 and 1.0 ms), nor the draw calls (212), and no render group rebuilt its draw list. Nothing changed for it.
 
 Fixed while play-testing, not in the phases above: a port is placed by pointing at its quay or the water off it; the pointer picks the water with a port in hand or dredging; boats are sent by the berths their class can use, ports alike take turns; a low river is said once it has stayed low (`LOW_HOLD`). `?fixture=shoal` is the harbour with a bar to dredge.
 
