@@ -121,14 +121,14 @@ describe("what a building costs", () => {
 
 describe("seaports have a price", () => {
   test("off the boats a minute they turn round, the same deal at every tier", () => {
-    expect(buildCost("seaport")!.toNumber()).toBe(240);
-    expect(buildCost("seaport-2")!.toNumber()).toBe(640);
-    expect(buildCost("seaport-3")!.toNumber()).toBe(1440);
+    expect(buildCost("seaport")!.toNumber()).toBe(200);
+    expect(buildCost("seaport-2")!.toNumber()).toBe(505);
+    expect(buildCost("seaport-3")!.toNumber()).toBe(1029);
   });
 
   test("and an upgrade costs the step up, so building up costs what building outright does", () => {
-    expect(upgradeCost("seaport", "seaport-2")!.toNumber()).toBe(400);
-    expect(upgradeCost("seaport-2", "seaport-3")!.toNumber()).toBe(800);
+    expect(upgradeCost("seaport", "seaport-2")!.toNumber()).toBe(305);
+    expect(upgradeCost("seaport-2", "seaport-3")!.toNumber()).toBe(524);
     expect(upgradeCost("kit:intern.t0", "nothing")).toBeNull();
   });
 });

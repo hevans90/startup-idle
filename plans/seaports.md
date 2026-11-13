@@ -1,6 +1,6 @@
 # Seaports and boats, rebuilt
 
-**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **The pipe plan is done; of what waited for it, the slop loader, the ferry's far bank and the investor's yacht are built** (2026-11-12), the yard gantry loads the lorries and a port straightens a slanted bank (2026-11-13), the wake's foam is the water's own, a tug turns the ships, and one item is left: the balance pass: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
+**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **The pipe plan is done; of what waited for it, the slop loader, the ferry's far bank and the investor's yacht are built** (2026-11-12), the yard gantry loads the lorries and a port straightens a slanted bank (2026-11-13), the wake's foam is the water's own, a tug turns the ships, and the balance pass is done: nothing is left of the list under "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
 
 ## Why
 
@@ -226,7 +226,7 @@ Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then 
 | ~~Yard gantry lifts~~ | **Built 2026-11-13**, see below | — |
 | ~~Boxes onto lorries~~ | **Built 2026-11-13**, see below | — |
 | ~~Wake foam~~ | **Built 2026-11-13**: the water's own, see below | — |
-| Balance | Ship classes, fees and fittings through the balance sim | Nothing |
+| ~~Balance~~ | **Measured and set 2026-11-13**, see below | — |
 | ~~Generated banks~~ | **Measured and built 2026-11-13**, see below | — |
 
 **Built from this list, 2026-11-12** (after the pipe plan). Tests in `boats/slop-loader.test.ts`, `ferry-links.test.ts`, `fittings.test.ts`.
@@ -268,6 +268,24 @@ Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then 
 - **Ships only** (the third class). Coasters and boats come alongside as they did. A port with water for coasters and no more has no tug.
 - **Seen** (`/?fixture=harbour`, by day): the tug at its home off the quay's end; a container ship caught mid-swing, square to the quay, the tug against her; the same ship after, alongside and head to the stream, the tug home again.
 - **Not done:** no tow line is drawn; the tug does not go out to the river's mouth, only to the basin; the room-to-turn check is still the nine tiles round the berth and was not re-derived from the swing; not seen at night or with two ships at one port; fees are unchanged, so a ship's call earns the same over 18 seconds longer — for the balance pass.
+
+**The balance pass, 2026-11-13** (`simulation/port-balance.test.ts`; `BALANCE=1 bun test src/simulation/port-balance.test.ts` prints the table). The balance sim (`simulate-map-run.ts`) has no rivers in it, so the ports were measured where their trade is made: the real traffic run past one port on a straight river for minutes on end, every tier, on water for each size of ship, with each fitting.
+
+What it found, and what was done:
+
+- **A port's trade fell with its distance from the inflow.** Boats on their way counted against its berths, so the next was sent only when the last had arrived: a tier 3 turned 8 boats a minute by the inflow and under 3 sixty tiles up. Now a port is sent, ahead, what its berths will be clear for by the time it arrives (`onTheWay`), spaced apart. Calls a minute are the same anywhere on the river: **2.5, 6.0 and 12.8** by tier.
+- **The price was set on trade a port never had** (3, 8 and 18 calls a minute). It is now priced on the call and the four seconds alongside and away (`callsAMinute`): **200, 505 and 1029** at the floor, were 240, 640 and 1440. Payback, boats alone: **20, 14 and 10 minutes**.
+- **A ship lost her port money.** Turned by the tug she holds two berths for about 52 seconds, and at 7.5 boats' fees a port with ships earned a quarter less than the same port with coasters. She now pays **16**. Fees a minute against water for boats alone: tier 2 with coasters a fifth more; tier 3 with coasters a fifth more, with ships a third more.
+- **Ships stuck bow to the quay.** On her berth's own tile a ship was steered into the wall, a little too far from where she lies to tie up, and stayed there. She is steered at her lie. Two boats given berths together that crossed on the way in now change berths.
+- **A waiting ship gave up before the call ahead of her ended** (45 seconds' patience against a 48-second call). Patience is now the longest call at the port, and 45 seconds over.
+- **Mixed ports stood half idle.** A boat came for a fitting chosen in turn, whether or not its berth was free; one waiting for the quay held up ships for the gantries; and when a ship was wanted and could not be sent, nothing was. Now a boat is sent for a fitting that has room, a ship passes a boat waiting for other berths, another size is sent when the wanted one has no berth, and a ship comes for a fitting only where her whole length is of it (a lone gantry excepted).
+- **Gantry: fee and a quarter**, was a half. Two gantries and a quay earn **1.6 times** a tier 3 of quays (27 against 17 boats' fees a minute); three gantries 1.3 times.
+- **The fittings' meters never filled.** At 0.12 a call against three minutes' run-down, a tier 1 ferry ramp held under an eighth. Now 0.2 a call against five minutes: a ferry ramp, a crane beside a quay and a pontoon beside two quays each hold over 0.9.
+- **What a fitting costs in fees:** a ferry ramp half the port's; a crane beside a quay a third of a tier 2's; a pontoon beside two quays a quarter of a tier 3's; a slop loader beside a quay half, and about three barges a minute, more than the loader fills.
+
+Seen live (`/?fixture=harbour`, the three ports fitted): 4 calls a minute before, 11 after; the tier 3 furthest up from 0.25 to 3; no ship stuck or turned away. About three times the boats on the river at once (27 against 9).
+
+- **Not done:** `simulate-map-run.ts` still knows nothing of ports, so what a port adds to a whole run's pacing is not measured; the slop loader's bill and the yacht's and ferry's effects on a run are unmeasured for the same reason; a river with several ports was measured only on the fixture; the busier river was not checked for frame time.
 
 Fixed while play-testing, not in the phases above: a port is placed by pointing at its quay or the water off it; the pointer picks the water with a port in hand or dredging; boats are sent by the berths their class can use, ports alike take turns; a low river is said once it has stayed low (`LOW_HOLD`). `?fixture=shoal` is the harbour with a bar to dredge.
 

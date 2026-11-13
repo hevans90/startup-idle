@@ -9,7 +9,7 @@
  * in them cost to hire; it grows from there, by the needs met near it.
  * @see world/agents/services
  */
-import { classOf } from "../world/boats/classes";
+import { ALONGSIDE, classOf } from "../world/boats/classes";
 import { hardwareMult } from "../world/boats/trade";
 import Decimal from "break_infinity.js";
 
@@ -142,7 +142,7 @@ const OFFICE_FOR: Record<string, { who: GeneratorId; floor: number }> = {
   "office-10x": { who: "10x_dev", floor: 50_000 },
 };
 
-/** Seconds of income a seaport costs, per boat a minute: 30 s, 80 s, 180 s by tier. */
+/** Seconds of income a seaport costs, per boat a minute: 25 s, 63 s, 129 s by tier. */
 const PORT_INCOME_SECONDS_PER_CALL = 10;
 
 const safeIncome = () => {
@@ -152,16 +152,18 @@ const safeIncome = () => {
 
 /**
  * A SEAPORT IS PRICED OFF WHAT IT HANDLES: the boats a minute it can turn
- * round, every berth busy. So a tier that takes six times the traffic costs
- * six times as much — the same deal at every size, and the choice is about
- * the ground on the bank, not the price per boat:
+ * round, every berth busy — the call, and the few seconds getting alongside
+ * and away. So a tier that takes five times the traffic costs five times as
+ * much — the same deal at every size, and the choice is about the ground on
+ * the bank, not the price per boat. What the traffic really turns round,
+ * measured (simulation/port-balance.test.ts), is within a boat a minute of it:
  *
- *   tier 1 — 1 berth, 20 s a call —  3 a minute —  240
- *   tier 2 — 2 berths, 15 s       —  8 a minute —  640
- *   tier 3 — 3 berths, 10 s       — 18 a minute — 1440
+ *   tier 1 — 1 berth, 20 s a call —  2.5 a minute —  200
+ *   tier 2 — 2 berths, 15 s       —  6.3 a minute —  505
+ *   tier 3 — 3 berths, 10 s       — 12.9 a minute — 1029
  */
 const PORT_PER_CALL_A_MINUTE = 80;
-const callsAMinute = (p: { berths: number; dockSeconds: number }) => (p.berths * 60) / p.dockSeconds;
+export const callsAMinute = (p: { berths: number; dockSeconds: number }) => (p.berths * 60) / (p.dockSeconds + ALONGSIDE);
 
 /**
  * WHAT A PORT IS PAID FOR A CALL: a boat that lay its time alongside and cast
@@ -169,9 +171,9 @@ const callsAMinute = (p: { berths: number; dockSeconds: number }) => (p.berths *
  * under a floor — so a port earns its keep at any size of company, and pays
  * itself back in ten to twenty minutes of steady trade.
  *
- *   tier 1 — 0.5 s of income a call, at least 4 —  3 calls a minute
- *   tier 2 — 0.75 s,                 at least 8 —  8 a minute
- *   tier 3 — 1 s,                    at least 16 — 18 a minute
+ *   tier 1 — 0.5 s of income a call, at least 4 —  2.5 calls a minute — back in 20 minutes
+ *   tier 2 — 0.75 s,                 at least 8 —  6.3 a minute      — in 13
+ *   tier 3 — 1 s,                    at least 16 — 12.9 a minute     — in 10
  *
  * Null for anything that is not a port.
  */

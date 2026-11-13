@@ -8,8 +8,17 @@
  *
  * A CALL IS WORTH THE BERTH-TIME IT TAKES, and a little over: a coaster lies
  * twice as long as a boat and pays 2.2 times; a ship lies three times as long
- * across two berths and pays 7.5 times. So deep water is worth having, by a
- * tenth and a quarter, and a port of boats alone earns what it always did.
+ * across two berths, is turned by the tug at either end of it, and pays 16
+ * times. MEASURED through the traffic (simulation/port-balance.test.ts), a
+ * port's fees a minute against the same port on water for boats alone:
+ *
+ *   tier 2, coasters           — a fifth more
+ *   tier 3, coasters           — a fifth more
+ *   tier 3, coasters and ships — a third more
+ *
+ * So deep water is worth having, and deeper worth more. At 7.5, as she paid
+ * before she was turned, a ship earned her port a quarter LESS than the
+ * coasters she kept off the quay.
  */
 export type ShipClass = {
   id: "boat" | "coaster" | "ship";
@@ -37,8 +46,11 @@ export type ShipClass = {
 export const SHIP_CLASSES: readonly ShipClass[] = [
   { id: "boat", name: "Boat", length: 0.84, beam: 0.36, draft: 0.5, depth: 1, tier: 1, dock: 1, pay: 1, span: 1, basin: 0 },
   { id: "coaster", name: "Coaster", length: 1.5, beam: 0.5, draft: 1.5, depth: 3, tier: 2, dock: 2, pay: 2.2, span: 1, basin: 4 },
-  { id: "ship", name: "Ship", length: 2.4, beam: 0.62, draft: 2.5, depth: 5, tier: 3, dock: 3, pay: 7.5, span: 2, basin: 6, tall: true },
+  { id: "ship", name: "Ship", length: 2.4, beam: 0.62, draft: 2.5, depth: 5, tier: 3, dock: 3, pay: 16, span: 2, basin: 6, tall: true },
 ];
+
+/** Seconds a call takes beyond its time alongside: coming in from where she waited, and getting away. Measured. */
+export const ALONGSIDE = 4;
 
 /** A class by its number, a boat for anything else. */
 export const classOf = (k: number | undefined): ShipClass => SHIP_CLASSES[k ?? 0] ?? SHIP_CLASSES[0];

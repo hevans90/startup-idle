@@ -14,10 +14,17 @@ export type TradeKind = "materials" | "hardware" | "ferries" | "yachts";
 
 const meters: Record<TradeKind, number> = { materials: 0, hardware: 0, ferries: 0, yachts: 0 };
 
-/** Seconds for a full meter to run down with no trade. */
-export const TRADE_LASTS = 180;
-/** What a boat's call adds to its meter; a bigger ship's adds by its berth-time. */
-export const TRADE_A_CALL = 0.12;
+/**
+ * Seconds for a full meter to run down with no trade; and what a boat's call
+ * adds to its meter, a bigger ship's by its berth-time. Set so ONE BERTH OF
+ * THE SMALLEST PORT, kept busy, fills its meter in a few minutes and holds
+ * it: a ferry ramp at a tier 1 turns a boat round in 24 seconds. At 0.12 a
+ * call against three minutes' run-down that ramp never got its meter over an
+ * eighth, and a pontoon among quays not much further.
+ * @see simulation/port-balance.test.ts
+ */
+export const TRADE_LASTS = 300;
+export const TRADE_A_CALL = 0.2;
 
 /** At full, a site's loads cost this much less; racks and the AI's buildings this much less. */
 export const MATERIALS_OFF = 0.3;

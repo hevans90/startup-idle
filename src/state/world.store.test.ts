@@ -552,28 +552,28 @@ describe("a seaport under play rules", () => {
     money(5000);
     s().commitStructure({ x: 8, y: 4 });
     expect(port()?.def).toBe("seaport");
-    expect(useMoneyStore.getState().money.toNumber()).toBe(5000 - 240);
+    expect(useMoneyStore.getState().money.toNumber()).toBe(5000 - 200);
     s().commitStructure({ x: 8, y: 4 });
     expect(port()?.def).toBe("seaport-2");
-    expect(useMoneyStore.getState().money.toNumber()).toBe(5000 - 640);
+    expect(useMoneyStore.getState().money.toNumber()).toBe(5000 - 505);
     s().commitStructure({ x: 8, y: 4 });
     expect(port()?.def).toBe("seaport-3");
     // Built a tier at a time, it costs what the top tier does outright.
-    expect(useMoneyStore.getState().money.toNumber()).toBe(5000 - 1440);
+    expect(useMoneyStore.getState().money.toNumber()).toBe(5000 - 1029);
   });
 
   test("and is refused, with nothing spent, when the money is not there", () => {
     harbour();
-    money(239);
+    money(199);
     s().commitStructure({ x: 8, y: 4 });
     expect(port()).toBeUndefined();
-    expect(useMoneyStore.getState().money.toNumber()).toBe(239);
+    expect(useMoneyStore.getState().money.toNumber()).toBe(199);
     money(300);
     s().commitStructure({ x: 8, y: 4 });
     expect(port()?.def).toBe("seaport");
-    s().commitStructure({ x: 8, y: 4 });                 // 400 for the step up: short
+    s().commitStructure({ x: 8, y: 4 });                 // 305 for the step up: short
     expect(port()?.def).toBe("seaport");
-    expect(useMoneyStore.getState().money.toNumber()).toBe(60);
+    expect(useMoneyStore.getState().money.toNumber()).toBe(100);
   });
 });
 

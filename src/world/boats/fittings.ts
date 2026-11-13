@@ -38,7 +38,7 @@ export const FITTINGS: readonly Fitting[] = [
   { id: "ferry", name: "Ferry ramp", tier: 1, classes: [0], pay: 0.5, keeps: "ferries", does: "Hires arrive sooner; the far bank is near" },
   { id: "crane", name: "Cargo crane", tier: 2, classes: [0, 1], pay: 0.35, keeps: "materials", does: "Site loads cost less" },
   { id: "hardware", name: "Hardware berth", tier: 2, classes: [0, 1], pay: 0.35, keeps: "hardware", does: "Racks cost less", needs: "datacentre" },
-  { id: "gantry", name: "Container gantry", tier: 3, classes: [2], pay: 1.5, does: "Ships only, fee and a half" },
+  { id: "gantry", name: "Container gantry", tier: 3, classes: [2], pay: 1.25, does: "Ships only, fee and a quarter" },
   { id: "pontoon", name: "Pontoon", tier: 3, classes: [0], pay: 0.6, keeps: "yachts", does: "Valuation grows faster" },
   // A way out for slop: a sewer ends at the port, a barge takes it away and bills for it. @see slop-loader
   { id: "slop", name: "Slop loader", tier: 2, classes: [0], pay: 0, does: "A barge takes slop away, for a charge", needs: "sewers" },

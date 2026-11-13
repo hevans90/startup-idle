@@ -115,7 +115,10 @@ describe("a berth's fitting", () => {
     const deep = river(6), shallow = river(2);
     const a = port(deep, 3, ["trade", "gantry", "trade"]);
     const p = portsOf(deep, mapRiver(deep, poolDepthOf(deep))).get(a.id)!;
-    expect(fitsFor(p, 2)).toEqual(["trade", "gantry"]);
+    // A ship comes for the gantry, lying across a quay beside it — not for a quay, across the gantry.
+    expect(fitsFor(p, 2)).toEqual(["gantry"]);
+    expect(berthsFor(p, 2, "gantry")).toEqual([0, 1]);
+    expect(berthsFor(p, 2, "trade")).toEqual([]);
     expect(berthsFor(p, 0, "gantry")).toEqual([]);
     expect(berthsFor(p, 0)).toEqual([0, 2]);
     const b = port(shallow, 3, ["gantry", "gantry", "gantry"]);
