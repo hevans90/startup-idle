@@ -1,5 +1,7 @@
 # AI mode planning, drastically better: tall and wide
 
+**Status** (checked against the code 2026-11-13): **built, but for §5.** The town model, the style dial (`tallness`, `targetTier`, `reachOnly`), lots planned to a projected tier and shown at it, the look-ahead (`lookahead.ts`, "Chosen of N"), the panel's style and pull lines, and the three-way benchmark are in. Changed since: services became organic (`plans/services-overhaul.md`), so park-first blocks, `serve` and the café/gym steps of §2–3 went. **Not built:** §5, rebuilding on payback — there is no `replace` step or `rebuild.ts`; AI mode only clears a house in a street's way and lifts dead-end spurs. `commuteCap` is set by the style and read by nothing.
+
 ## Context
 
 AI mode (The Model's autopilot, `src/world/ai/autopilot.ts`) now plans one 9×9 block at a time (`blockAt` in `masterplan/plan.ts`). It plans the block's streets and frontage (`planTown`) and builds it step by step (`nextStep` in `masterplan/schedule.ts`). It is greedy about lots: every free tile of frontage gets a starter lot, and services go in only once enough lots are unserved. Traits barely touch it (`masterplan/style.ts`: service thresholds, water margin, growing out from the Data Centre).

@@ -1,6 +1,6 @@
 # The innovation overhaul: Morale, policies, leaders, LinkedOut
 
-Status: **plan**, agreed in conversation on 2026-10-27; not started.
+Status: **all eight phases built** (each marked Done under "Phases"; checked against the code 2026-11-13). Agreed in conversation on 2026-10-27. Since changed: the work policies of §3 were replaced by the culture deck (`plans/culture-deck.md`). Left over: `game/satisfaction.ts` and its identifiers keep the old name, and `innovation.store` still holds an `unlocks` record, set by the projects rather than bought.
 
 ## Why
 

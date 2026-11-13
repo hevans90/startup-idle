@@ -1,5 +1,7 @@
 # Services & landmarks overhaul
 
+**Status:** all five sections built (each marked Done below; files checked 2026-11-13). Nothing left.
+
 The town builds its own shops. Neighbourhoods form from the roads. Each employee kind has needs, and met needs make that kind work faster. Well-served streets grow beautiful. The 15 projects become 6 tiered landmarks.
 
 ## Today

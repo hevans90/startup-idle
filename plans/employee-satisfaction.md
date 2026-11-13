@@ -1,5 +1,7 @@
 # Employee satisfaction (revised — per-type effects)
 
+**Status** (checked against the code 2026-11-13): **built, then replaced.** `game/satisfaction.ts` has the scores, the interns' innovation multiplier and the 10x devs' cost-curve delta as planned. `plans/innovation-overhaul.md` §2 then made it Morale: ±40 not ±100, shown in the Morale panel, and unhappy vibe coders make more slop instead of filling a singularity meter. Not built as written here, and superseded: the interns' valuation and manager-accrual multipliers, `ai-singularity.store.ts`, the two corner overlays.
+
 ## Unlock and core state
 
 - **Unlock:** Same as before: active when `unlocks.employeeManagement` is purchased ([`innovation.store`](src/state/innovation.store.ts)).
