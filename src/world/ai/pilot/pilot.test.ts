@@ -118,6 +118,15 @@ describe("the pilot", () => {
     expect(p.log().every((l) => l.kind === "did")).toBe(true);
   });
 
+  test("given how to read the purse, reads it when it looks and not every frame", () => {
+    let read = 0;
+    const p = createPilot([desk(() => [job("hire", 10, 1)])]);
+    for (let k = 0; k < 100; k++) p.tick(0.05, () => { read++; return purse(1000); }, 0);
+    // Five seconds at twenty frames a second, and a look every half second.
+    expect(read).toBe(10);
+    expect(p.done()).toBeGreaterThan(0);
+  });
+
   test("an urgent job does not wait for the pace", () => {
     let n = 0;
     const p = createPilot([desk(() => [job("answer", 0, 0, { urgent: true, run: () => { n++; return { ok: true }; } })])]);

@@ -35,6 +35,7 @@ import { desksShort, liftStep, lotStep, officeStep, roadTiles, streetStep, type 
 import { PLAIN, styleOf, type Style } from "../../masterplan/style";
 import type { Job, Need, Outcome } from "../job";
 import type { Desk } from "../pilot";
+import { inYard } from "./landmarks";
 
 /** Looks between two tries at planning a block when the last found nowhere to grow: planning is the dearest thing it does. */
 const PLAN_AGAIN = 40;
@@ -170,7 +171,7 @@ export function townDesk(): Desk {
     const style = townStyle();
     const rules = playRules(g);
     const wants: Wants = { rules: { ...rules, owned: (x, y) => (rules.owned?.(x, y) ?? true) && !bad.has(idx(g, x, y)) }, kinds, offices: true, style };
-    const forLots: Wants = { ...wants, rules: { ...wants.rules, owned: (x, y) => (wants.rules.owned?.(x, y) ?? true) && !kept.has(idx(g, x, y)) } };
+    const forLots: Wants = { ...wants, rules: { ...wants.rules, owned: (x, y) => (wants.rules.owned?.(x, y) ?? true) && !kept.has(idx(g, x, y)) && !inYard(g, x, y) } };
     const key = kinds.join();
     sinceFresh++; sinceNone++;
     const moved = !seen || seen.grid !== g || seen.kinds !== key;

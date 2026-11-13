@@ -21,7 +21,8 @@ import { GENERATOR_TYPES, useGeneratorStore, type GeneratorId } from "../../../.
 import { PROJECTS, gateParts, projectCost, tierBelow, type ProjectDef, type ProjectId } from "../../../../game/projects";
 import { nextPerSet, upgradeSet } from "../../../../game/upgrade-sets";
 import { UPGRADES, useUpgradeStore } from "../../../../state/upgrades.store";
-import { playRules, useWorldStore } from "../../../../state/world.store";
+import { getNetwork, playRules, useWorldStore } from "../../../../state/world.store";
+import { placesOf } from "../../../agents/roads";
 import { hasRiver } from "../../../boats/river";
 import { loadPriceMult } from "../../../events/convoy";
 import type { Grid } from "../../../grid";
@@ -52,7 +53,58 @@ const UNLOCK_WORTH = 1;
 const OPENS_WORTH = 0.25;
 const OTHER_BONUS_WORTH = 0.3;
 
+/**
+ * How far in from where the road leaves the map the garage is put, tiles.
+ * THE GARAGE IS THE COMPANY'S YARD: every other site's loads come from it —
+ * but its own line's, the HQ, the Boardroom and the IPO Tower that rise over
+ * it, come one truck at a time from where a road leaves the map. Put in the
+ * middle of the map, thirty-five tiles from there, the Boardroom's fourteen
+ * loads took forty-six minutes with its crew of thirty-six stood waiting.
+ * @see depotFor
+ */
+const GARAGE_IN = 6;
+
+/**
+ * How far round the yard is kept for the company's own buildings, tiles: no
+ * lot is zoned there. Houses go on the best frontage there is, and took the
+ * road by the garage before the Campus was open to build — which then stood
+ * in the middle of town, twenty tiles of the one busy road from its loads,
+ * three minutes a truck. @see yardSite, town desk `forLots`
+ */
+export const YARD_KEPT = 8;
+
+/** Whether a tile is in the yard, kept for landmarks. */
+export function inYard(g: Grid, x: number, y: number): boolean {
+  const at = yardSite(g);
+  return Math.abs(x - at.x) <= YARD_KEPT && Math.abs(y - at.y) <= YARD_KEPT;
+}
+
+/** Where the garage should stand: a little in from the road's way out of the map, toward the middle; the town's middle with no way out. */
+function yardSite(g: Grid): { x: number; y: number } {
+  if (yard && yard.grid === g) return yard.at;
+  const at = yardNow(g);
+  yard = { grid: g, at };
+  return at;
+}
+let yard: { grid: Grid; at: { x: number; y: number } } | null = null;
+function yardNow(g: Grid): { x: number; y: number } {
+  const net = getNetwork();
+  const out = net ? placesOf(g, net).find((pl) => pl.kind === "gateway") : undefined;
+  if (!out) return townCentre(g);
+  const dx = g.w / 2 - out.x, dy = g.h / 2 - out.y, d = Math.hypot(dx, dy) || 1;
+  return { x: Math.round(out.x + (dx / d) * GARAGE_IN), y: Math.round(out.y + (dy / d) * GARAGE_IN) };
+}
+
 const STREET: Need = { id: "street", says: "a street with room beside it" };
+/**
+ * What a building that stands at the water waits on, with nowhere to stand:
+ * NOT a street. The town's blocks are laid where the town is, not down to the
+ * river, and no number of them makes a quay — said to wait on a street, the
+ * Harbour had block after block paved for it, one over the last, till the
+ * middle of town was a slab of asphalt and it still had nowhere. Nobody
+ * proposes this yet: it is the Harbour desk's. @see plans/ai-mode-rebuild.md phase 5
+ */
+const QUAY: Need = { id: "quay", says: "a road at the water's edge" };
 
 const kindName = (id: GeneratorId, n = 2) => { const name = GENERATOR_TYPES.find((g) => g.id === id)?.name ?? id; return n === 1 ? name : `${name}s`; };
 
@@ -125,9 +177,9 @@ export function landmarksDesk(): Desk {
       // A SITE: where its landmark stands, or the nearest spot to the town there is.
       const from = upgradeFrom(g, p), def = structureDef(p.structure);
       if (!def) continue;
-      if (!from && !sites.has(p.id)) sites.set(p.id, needs.length ? null : nearestSpot(g, def, playRules(g), townCentre(g)));
+      if (!from && !sites.has(p.id)) sites.set(p.id, needs.length ? null : nearestSpot(g, def, playRules(g), yardSite(g)));
       const at = from ? { x: from.x, y: from.y } : sites.get(p.id) ?? null;
-      if (!from && !at && !needs.length) needs.push(STREET);
+      if (!from && !at && !needs.length) needs.push(def.placement?.waterside || def.placement?.riverside || def.placement?.nearRiver ? QUAY : STREET);
 
       jobs.push({
         id: `project:${p.id}`, desk: "landmarks",

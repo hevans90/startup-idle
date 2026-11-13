@@ -1440,6 +1440,10 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     const c = m.path[k];
     if (isPaved(g, c.x, c.y)) return true;
     letGo(T, m, true);
+    // OFF THE ROAD, and on a job: counted as there, as one whose road was lifted is. Dropped unsaid, a truck that set off
+    // from a tile with no road under it was a load paid for and never delivered — and the site, seeing none on its way,
+    // paid for another every frame till the company had nothing. @see stepWorks
+    if (m.job) t.arrived.push(m);
     if (m.toCar !== undefined) boarded(t, m.toCar);
     return false;
   });

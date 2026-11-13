@@ -1,6 +1,6 @@
 # AI mode, rebuilt: a pilot that plays the whole run, and shows its work
 
-**Status:** phases 0 to 3 built, 2026-11-13 (see "Built so far" at the end). Phases 4 to 9 not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
+**Status:** phases 0 to 3 built, and the landmarks sped up, 2026-11-13 (see "Built so far" at the end). Phases 4 to 9 not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
 
 ## Why
 
@@ -328,3 +328,26 @@ At the end: 520 interns, 248 vibe coders, 10 10x devs; 776 living on the map; 26
   - **The order is by what is ready first.** The HQ was begun before the Campus because its upgrade was bought first, and the Campus then waited sixteen minutes for the site. Nothing looks ahead at a better project about to open.
   - 58 vibe coders have no desk at the end: their office waits on a sewer (phase 4).
   - The Harbour and two wonders wait on "a street with room beside it" on a 64-tile map that is nearly full; bigger maps were not run to the Tower.
+
+**Landmarks sped up, 2026-11-13** (asked for before phase 4). The first note above was wrong about the lever: a site's crew is capped by its footprint and stood waiting; what sets the pace is its LOADS, one truck at a time, and how far each drives.
+
+- **The garage stands by the road's way into the map** (`yardSite`, six tiles in). The HQ line's loads come from where a road leaves the map; put in the middle, thirty-five tiles off, the Boardroom's fourteen took forty-six minutes.
+- **Every other landmark stands by the garage**, since its loads come from the garage's line; and **no lot is zoned within eight tiles of it** (`inYard`, `YARD_KEPT`). Houses took the road by the garage first, the Campus then stood in the middle of town, and each of its trucks took three minutes down the one busy road.
+- **A building at the water waits on "a road at the water's edge", not a street** (`QUAY`; the Harbour desk's, phase 5). Said to wait on a street, the Harbour had block after block paved for it, each a tile along from the last, till the middle of town was a slab of asphalt: an 81-tile junction that took the lane graph 31 seconds to rebuild at every change to the roads. The hour-long sim hung on it.
+- **The purse is read when the pilot looks**, twice a second, not every frame (`tick` takes the purse or how to read it): income is a sum over every upgrade, 4 ms a frame late on.
+- **A game bug, fixed** (`stepTown`): a truck that set off from a tile with no road under it was dropped without counting as arrived, so its site paid for another load every frame till the company had nothing.
+
+Seed 1, 64 tiles, an hour (`BALANCE=1 SEED=1 HOUR=1 bun test src/simulation/pilot-run.test.ts -t "six maps"`, about a minute to run):
+
+| | Before | Now |
+|---|---|---|
+| Studio, first vibe coder | 15.6 min | 5.3 min |
+| Company HQ | 40.6 min | 12.3 min |
+| Campus, first 10x dev | 44.3 min | 17.5 min |
+| Boardroom Tower | 90.0 min | 29.1 min |
+| **IPO Tower** | **114.7 min** | **46.3 min** |
+| Could be sold | 89.8 min | 59.4 min |
+| Talent Agency | not built | 56.0 min |
+
+On the six maps, two hundred people housed and at desks in 17 to 20 minutes, the Studio by 6.3 on every one, no refusal. Still true: one project at a time, in the order they come ready; the vibe coders' office waits on a sewer (73 without a desk at the hour); the Town desk lays no street nobody waits for, so the town stays on its first block and its one road is busy.
+

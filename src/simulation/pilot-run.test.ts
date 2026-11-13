@@ -89,7 +89,7 @@ describe("a company played on a real map with no screen", () => {
         setProjectReader(() => ({ built: new Set(PROJECTS.map((p) => p.id)), away: {} }));
       },
       drive: (g, dt) => {
-        const st = pilot.tick(dt, livePurse(), g.rev);
+        const st = pilot.tick(dt, livePurse, g.rev);
         frames++;
         if (!st.says) unnamed++;
         ready = st.kind === "next" ? ready + dt : 0;
@@ -123,7 +123,7 @@ describe("a company played on a real map with no screen", () => {
     const pilot = createPilot([peopleDesk()], { strict: true });
     const r = playCompany(jest.advanceTimersByTime.bind(jest), {
       seed: 1, size: 64, minutes: 5,
-      drive: (g, dt) => { pilot.tick(dt, livePurse(), g.rev); },
+      drive: (g, dt) => { pilot.tick(dt, livePurse, g.rev); },
       steps: pilot.done, said: pilot.last,
     });
     if (process.env.BALANCE) console.log("fresh, People only: " + pilot.status().says + " · staff " + JSON.stringify(r.staff));
@@ -145,7 +145,7 @@ describe("a company played on a real map with no screen", () => {
     const r = playCompany(jest.advanceTimersByTime.bind(jest), {
       seed, size, minutes, until,
       begin: (g) => { map = g; },
-      drive: (g, dt) => { if (!pilot.tick(dt, livePurse(), g.rev).says) unnamed++; },
+      drive: (g, dt) => { if (!pilot.tick(dt, livePurse, g.rev).says) unnamed++; },
       steps: pilot.done, said: pilot.last,
     });
     const g = map!;

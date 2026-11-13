@@ -51,7 +51,8 @@ export type PilotOptions = {
 
 export type Pilot = {
   /** A frame: `rev` is the map's revision, for what was refused till it changes. What it is doing now. */
-  tick: (dt: number, purse: Purse, rev: number) => Status;
+  /** The purse may be given as how to read it: it is read only when the pilot looks, not every frame — the company's income is a sum over every upgrade. */
+  tick: (dt: number, purse: Purse | (() => Purse), rev: number) => Status;
   status: () => Status;
   /** Every job proposed at the last look, with its state, the best first. */
   queue: () => readonly Queued[];
@@ -150,7 +151,7 @@ export function createPilot(desks: readonly Desk[], options: PilotOptions = {}):
       if (paused) { status = { kind: "paused", says: "Paused" }; readySince = null; return status; }
       if (sinceLook < LOOK_EVERY) return status;
       sinceLook = 0;
-      status = look(purse, rev);
+      status = look(typeof purse === "function" ? purse() : purse, rev);
       return status;
     },
     status: () => status,
