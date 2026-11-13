@@ -23,7 +23,7 @@
 import type { ColumnField } from "../../fluid/columns";
 import type { Grid } from "../grid";
 import { structureDef } from "../structures/def";
-import { addBoat, type Boat, type Fleet, type Steer } from "./fleet";
+import { addBoat, sampleWater, type Boat, type Fleet, type Steer } from "./fleet";
 import { notable } from "../../game/machine";
 import { inAiDistrictNow } from "../ai/district";
 import {
@@ -403,6 +403,26 @@ export const trafficSteer = (t: Traffic): Steer | undefined => {
   };
 };
 
+/** Seconds a tug takes to swing a ship end for end; how far off her berth she is held at the middle of it, in her own lengths; the class that is turned. */
+export const SWING_SECONDS = 9;
+const SWING_OUT = 0.5;
+export const TURNED_CLASS = 2;
+
+/**
+ * WHERE A SHIP IS IN HER CALL, with the swings at either end of it taken out:
+ * how far through the work of it, nought to one; and how far round she has
+ * been turned, nought as she came, one head to the stream, two as she came
+ * again and ready to go. A boat nobody turns is at one throughout.
+ */
+export function swingOf(b: Pick<Boat, "dockLeft" | "dockFor" | "swing">): { work: number; turn: number } {
+  const left = b.dockLeft ?? 0, dock = b.dockFor ?? 0, secs = b.swing?.secs ?? 0;
+  if (!(dock > 0)) return { work: 0, turn: 1 };
+  const gone = dock + 2 * secs - left;
+  const ease = (u: number) => { const k = Math.max(0, Math.min(1, u)); return k * k * (3 - 2 * k); };
+  const turn = secs > 0 ? ease(gone / secs) + ease((gone - secs - dock) / secs) : 1;
+  return { work: Math.max(0, Math.min(1, (gone - secs) / dock)), turn };
+}
+
 /** Let a boat go from the port it is at, or was bound for. */
 function castOff(t: Traffic, b: Boat): void {
   const port = b.route?.shift();
@@ -410,6 +430,7 @@ function castOff(t: Traffic, b: Boat): void {
   b.dockLeft = 0;
   b.berth = undefined;
   b.lie = undefined;
+  b.swing = undefined;
   b.waited = 0;
   if (port !== undefined) t.queues.set(port, (t.queues.get(port) ?? []).filter((id) => id !== b.id));
 }
@@ -441,7 +462,13 @@ function stepCalls(t: Traffic, f: Fleet, dt: number, sailed: { port: number; cls
         // WORKED BY THE CRANES as the call goes, a box a lift: off her, and
         // for some back on. What a landing berth takes off goes into the yard
         // as each box is set down there. @see workOf, yard
-        const at = 1 - b.dockLeft! / b.dockFor, fit = b.fit ?? "trade";
+        const turned = swingOf(b), at = turned.work, fit = b.fit ?? "trade";
+        // TURNED BY THE TUG: round about her middle, held off her berth while she swings so her ends clear the quay.
+        if (b.swing) {
+          b.lie = b.swing.lie + Math.PI * turned.turn;
+          const off = Math.sin(Math.PI * (turned.turn % 1)) * SWING_OUT * classOf(cls).length;
+          b.moor = { x: b.swing.at.x + b.swing.out.x * off, y: b.swing.at.y + b.swing.out.y * off };
+        }
         const w = b.work;
         if (w) {
           b.boxes = aboard(w, at);
@@ -503,11 +530,65 @@ function stepCalls(t: Traffic, f: Fleet, dt: number, sailed: { port: number; cls
       b.lie = Math.cos(at.lie - b.heading) >= 0 ? at.lie : at.lie + Math.PI;
       // A FULL YARD slows the cranes that fill it. @see yardSlows
       const slow = lands(b.fit ?? "trade") ? yardSlows(t.yards, port.id, port.berths.length) : 1;
-      b.dockLeft = (port.dock * classOf(cls).dock * slow) / t.rush;
-      b.dockFor = b.dockLeft;
+      b.dockFor = (port.dock * classOf(cls).dock * slow) / t.rush;
+      // A SHIP IS TURNED where the port has a tug: head to the stream to be worked, and back to go. @see stepTugs
+      const berthAt = port.berths[b.berth];
+      const qx = berthAt.tx - berthAt.x, qy = berthAt.ty - berthAt.y, qm = Math.hypot(qx, qy) || 1;
+      b.swing = cls >= TURNED_CLASS && f.boats.some((o) => o.tug === port.id)
+        ? { lie: b.lie, secs: SWING_SECONDS, at: { x: at.x, y: at.y }, out: { x: qx / qm, y: qy / qm } } : undefined;
+      b.dockLeft = b.dockFor + 2 * (b.swing?.secs ?? 0);
       b.work = workOf(lookOf(cls, b.fit, !!b.ai, b.id % 2 === 1), b.fit ?? "trade", classOf(cls).span, b.dockFor) ?? undefined;
       b.landed = 0;
     }
+  }
+}
+
+/** How near her berth a ship is met by the port's tug, tiles. */
+const TUG_MEETS = 4;
+
+/**
+ * THE PORTS' TUGS. A port that takes ships keeps a tug, lying off the end of
+ * its quay. It goes out to meet a ship that has been given a berth, lays
+ * itself against her bow, and pushes it round as she swings — head to the
+ * stream when her call begins, and back the way she came when it ends — and
+ * goes home between. It is held where it should be as a moored boat is, by a
+ * line that moves: so it rides the water, bobs and leaves a wake like any
+ * other, and steers nowhere of its own. A port that takes no ships, or has
+ * gone, has none. @see Boat.tug, swingOf
+ */
+function stepTugs(t: Traffic, f: Fleet, c: ColumnField): void {
+  for (let k = f.boats.length - 1; k >= 0; k--) {
+    const b = f.boats[k];
+    if (b.tug !== undefined && !t.ports.get(b.tug)?.accepts[TURNED_CLASS]) f.boats.splice(k, 1);
+  }
+  for (const p of t.ports.values()) {
+    if (!p.accepts[TURNED_CLASS] || !p.berths.length) continue;
+    // HOME: off the end of the quay, a boat's length past its last berth — or its first, where that end has no water.
+    const a = p.berths[0], z = p.berths[p.berths.length - 1];
+    const along = p.berths.length > 1 ? { x: z.x - a.x, y: z.y - a.y } : { x: -(a.ty - a.y), y: a.tx - a.x };
+    const am = Math.hypot(along.x, along.y) || 1, ux = along.x / am, uy = along.y / am;
+    const homes = [{ x: z.x + ux * 1.1, y: z.y + uy * 1.1 }, { x: a.x - ux * 1.1, y: a.y - uy * 1.1 }];
+    let tug = f.boats.find((b) => b.tug === p.id);
+    if (!tug) {
+      const home = homes.find((h) => sampleWater(c, h.x, h.y).depth > classOf(0).draft);
+      const made = home ? addBoat(f, c, home.x, home.y, 0) : null;
+      if (!made) continue;
+      made.tug = p.id; made.fit = "tug"; made.heading = Math.atan2(uy, ux);
+      made.moor = { x: made.x, y: made.y };
+      tug = made;
+    }
+    const home = homes.find((h) => sampleWater(c, h.x, h.y).depth > classOf(0).draft) ?? { x: tug.x, y: tug.y };
+    // THE SHIP IT IS WORKING: one being swung; else one given a berth here and near it.
+    const mine = f.boats.filter((b) => b.route?.[0] === p.id && (b.cls ?? 0) >= TURNED_CLASS && b.berth !== undefined);
+    const swinging = mine.find((b) => b.swing && (b.dockLeft ?? 0) > 0 && swingOf(b).turn % 1 !== 0);
+    const coming = mine.find((b) => !(b.dockLeft! > 0) && Math.hypot(b.x - p.berths[b.berth!].x, b.y - p.berths[b.berth!].y) < TUG_MEETS);
+    const ship = swinging ?? coming;
+    if (!ship) { tug.moor = home; tug.lie = Math.atan2(uy, ux); continue; }
+    // AGAINST HER BOW, on the side she is being pushed from: she turns the way her bow is shoved.
+    const cls = classOf(ship.cls), ch = Math.cos(ship.heading), sh = Math.sin(ship.heading);
+    const side = cls.beam / 2 + classOf(0).beam * 0.62;
+    tug.moor = { x: ship.x + ch * cls.length * 0.36 + sh * side, y: ship.y + sh * cls.length * 0.36 - ch * side };
+    tug.lie = ship.heading + Math.PI / 2;
   }
 }
 
@@ -581,6 +662,7 @@ export function stepTraffic(t: Traffic, f: Fleet, g: Grid, c: ColumnField, dt: n
     t.firsts.push(c);
   }
 
+  stepTugs(t, f, c);
   // LEAVING: a boat at its river's way out, against the rim, is gone.
   for (let k = f.boats.length - 1; k >= 0; k--) {
     const b = f.boats[k];
@@ -691,7 +773,7 @@ export function portWork(t: Traffic, f: Fleet, port: number, berths: number, fit
   }));
   for (const b of f.boats) {
     if (b.route?.[0] !== port || b.berth === undefined || (b.dockLeft ?? 0) <= 0 || !b.dockFor) continue;
-    const at = 1 - b.dockLeft! / b.dockFor, fit = b.fit ?? "trade";
+    const at = swingOf(b).work, fit = b.fit ?? "trade";
     const look = lookOf(b.cls ?? 0, fit, !!b.ai, b.id % 2 === 1);
     const lift = b.work ? liftAt(b.work, at) : null;
     const first = lift && b.work ? slotAt(b.work, lift.n, lift.mode) : -1;

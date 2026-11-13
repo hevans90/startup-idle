@@ -7,10 +7,11 @@ import { createGrid, edited, idx, setInflow, type Grid } from "../grid";
 import { SEAPORTS } from "../structures/def";
 import { placeCommand, quayBanks } from "../structures/place";
 import { SHIP_CLASSES } from "./classes";
-import { createFleet, stepFleet } from "./fleet";
+import { createFleet, saveFleet, stepFleet } from "./fleet";
 import { dredgeCells } from "./quay";
 import { mapRiver, poolDepthOf } from "./river";
-import { LOW_HOLD, PATIENCE, berthsFor, createTraffic, portsOf, stepTraffic, trafficSteer } from "./traffic";
+import { LOW_HOLD, PATIENCE, SWING_SECONDS, berthsFor, createTraffic, portsOf, stepTraffic, swingOf, trafficSteer } from "./traffic";
+import { lookOf } from "./cargo";
 
 /** A river across a flat map, rows 6 to 10, `depth` deep, in over the west edge. */
 function river(depth: number, w = 40): Grid {
@@ -209,7 +210,8 @@ describe("moments on the river", () => {
     const t = createTraffic();
     t.convoy = true;
     const seen = new Set<string>();
-    run(g, 60, t, (f) => { for (const b of f.boats) seen.add(`${b.cls ?? 0}|${!!b.convoy}`); });
+    // The port's own tug is not of the convoy.
+    run(g, 60, t, (f) => { for (const b of f.boats) if (b.tug === undefined) seen.add(`${b.cls ?? 0}|${!!b.convoy}`); });
     expect(seen).toEqual(new Set(["2|true"]));
   });
 
@@ -250,3 +252,81 @@ describe("moments on the river", () => {
     expect(t.lows).toEqual([]);
   });
 });
+
+describe("a port's tug, and a ship turned", () => {
+  const turn = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+
+  test("a call with a swing at each end of it: the work between, and the ship round and back", () => {
+    const b = { dockFor: 30, dockLeft: 30 + 2 * 9, swing: { lie: 0, secs: 9, at: { x: 0, y: 0 }, out: { x: 0, y: 1 } } };
+    expect(swingOf(b)).toEqual({ work: 0, turn: 0 });
+    expect(swingOf({ ...b, dockLeft: 30 + 9 })).toEqual({ work: 0, turn: 1 });
+    expect(swingOf({ ...b, dockLeft: 15 + 9 })).toEqual({ work: 0.5, turn: 1 });
+    expect(swingOf({ ...b, dockLeft: 9 })).toEqual({ work: 1, turn: 1 });
+    expect(swingOf({ ...b, dockLeft: 4.5 }).turn).toBeCloseTo(1.5, 6);
+    expect(swingOf({ ...b, dockLeft: 0.001 }).turn).toBeCloseTo(2, 3);
+    // A boat nobody turns is worked from the moment she ties up to the moment she goes.
+    expect(swingOf({ dockFor: 20, dockLeft: 5 })).toEqual({ work: 0.75, turn: 1 });
+  });
+
+  test("a port that takes ships keeps a tug off the end of its quay; one that takes none has none; it is not saved", () => {
+    const deep = river(6), shallow = river(4);
+    port(deep, 3); port(shallow, 3);
+    const run = (g: Grid) => {
+      const c = fieldOf(g), f = createFleet(), t = createTraffic();
+      for (let k = 0; k < 60; k++) { stepTraffic(t, f, g, c, 1 / 30); stepFleet(f, c, 1 / 30, trafficSteer(t)); }
+      return f;
+    };
+    const f = run(deep), tugs = f.boats.filter((b) => b.tug !== undefined);
+    expect(tugs).toHaveLength(1);
+    expect(lookOf(tugs[0].cls ?? 0, tugs[0].fit, false, false)).toBe("tug");
+    // On the river, by the port, and going nowhere.
+    expect(tugs[0].y).toBeGreaterThan(5.5);
+    expect(tugs[0].route).toBeUndefined();
+    expect(saveFleet(f).length).toBe(f.boats.length - 1);
+    // Water for coasters and no more: nothing to turn, and no tug.
+    expect(run(shallow).boats.some((b) => b.tug !== undefined)).toBe(false);
+  });
+
+  test("the tug lays itself on a ship's bow and she is swung head to the stream, worked, and swung back to go", () => {
+    const g = river(6);
+    const s = port(g, 3);
+    const c = fieldOf(g), f = createFleet(), t = createTraffic();
+    t.convoy = true;   // ships, one after another
+    let came: number | null = null, worked: number | null = null, tugNear = Infinity, tugHomeWhileWorked = false, callFor = 0, left: number | null = null;
+    let shipId = -1;
+    for (let k = 0; k < 30 * 240 && left === null; k++) {
+      stepTraffic(t, f, g, c, 1 / 30);
+      stepFleet(f, c, 1 / 30, trafficSteer(t));
+      const tug = f.boats.find((b) => b.tug === s.id)!;
+      const ship = shipId < 0 ? f.boats.find((b) => (b.cls ?? 0) === 2 && (b.dockLeft ?? 0) > 0) : f.boats.find((b) => b.id === shipId);
+      if (!ship) { if (shipId >= 0) left = 1; continue; }
+      if (shipId < 0) { shipId = ship.id; came = ship.swing!.lie; }
+      if ((ship.dockLeft ?? 0) > 0) {
+        callFor += 1 / 30;
+        const at = swingOf(ship);
+        if (at.turn > 0.3 && at.turn < 0.7) {
+          // Mid-swing: the tug is against her bow, a boat's length or so from her middle.
+          const bow = { x: ship.x + Math.cos(ship.heading) * 0.86, y: ship.y + Math.sin(ship.heading) * 0.86 };
+          tugNear = Math.min(tugNear, Math.hypot(tug.x - bow.x, tug.y - bow.y));
+        }
+        if (at.turn === 1 && at.work > 0.4 && at.work < 0.6) {
+          worked = ship.heading;
+          tugHomeWhileWorked = Math.hypot(tug.x - ship.x, tug.y - ship.y) > 1.5;
+        }
+      } else if (worked !== null && left === null) {
+        // Cast off: she heads the way she came.
+        expect(turn(ship.heading, came!)).toBeLessThan(0.5);
+        left = 1;
+      }
+    }
+    expect(came).not.toBeNull();
+    // Worked lying the other way round from how she came.
+    expect(turn(worked!, came! + Math.PI)).toBeLessThan(0.25);
+    expect(tugNear).toBeLessThan(0.9);
+    expect(tugHomeWhileWorked).toBe(true);
+    // Her call was the longer by two swings.
+    expect(left).toBe(1);
+    expect(callFor).toBeGreaterThan(2 * SWING_SECONDS + 5);
+  }, 60_000);
+});
+

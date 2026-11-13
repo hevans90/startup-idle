@@ -40,6 +40,8 @@ export const cargoOf = (look: string): Cargo | null => CARGO[look] ?? null;
 
 /** Which look a ship is: by its size, and what it has come for. `odd` varies the plain trading boats. */
 export function lookOf(cls: number, fit: string | undefined, ai: boolean, odd: boolean): string {
+  // A port's tug is its own look, whatever else. @see traffic tugs
+  if (fit === "tug") return "tug";
   if (cls === 2) return "container";
   if (cls === 1) return "coaster";
   if (ai) return "drone";

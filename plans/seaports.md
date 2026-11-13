@@ -1,6 +1,6 @@
 # Seaports and boats, rebuilt
 
-**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **The pipe plan is done; of what waited for it, the slop loader, the ferry's far bank and the investor's yacht are built** (2026-11-12), the yard gantry loads the lorries and a port straightens a slanted bank (2026-11-13), the wake's foam is the water's own, and two items are left: the tug and ships turning, and the balance pass: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
+**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **The pipe plan is done; of what waited for it, the slop loader, the ferry's far bank and the investor's yacht are built** (2026-11-12), the yard gantry loads the lorries and a port straightens a slanted bank (2026-11-13), the wake's foam is the water's own, a tug turns the ships, and one item is left: the balance pass: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
 
 ## Why
 
@@ -220,7 +220,7 @@ Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then 
 | Item | What it is | Waits on |
 |---|---|---|
 | ~~Slop loader and slop barge~~ | **Built 2026-11-12**, see below | — |
-| Tug, and ships turning | A tug meets a ship and turns it in the basin; today room to turn is only a check | Nothing |
+| ~~Tug, and ships turning~~ | **Built 2026-11-13**, see below | — |
 | ~~Ferry: homes across the water~~ | **Built 2026-11-12**, see below | — |
 | ~~Investor yacht~~ | **Built 2026-11-12**, see below | — |
 | ~~Yard gantry lifts~~ | **Built 2026-11-13**, see below | — |
@@ -260,6 +260,14 @@ Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then 
 - **As white as its mark.** Foam born from a mark is as white as the mark and no whiter, a column wide. Marked in proportion to an arm's strength it measured as 3% of the pixels behind a coaster at full speed gone pale; eased (a power of 0.6, arms to 1 and churn to 0.9) it is about a quarter.
 - **Seen** (`/?fixture=harbour`, by day): a pale V trailing a coaster under way. It is softer and broader than the drawn lines were: a column is a quarter of a tile.
 - **Not done:** not baked, and no crisp arms close up; not looked at at night, under a bridge, or with a convoy in; not run under `?gpucheck`.
+
+**The tug, and a ship turned** (2026-11-13). `tug` in `boats/models.ts` (baked: `bun run bake:boats`, 13 looks, still two pages); `stepTugs`, `swingOf`, `SWING_SECONDS` in `boats/traffic.ts`; `Boat.tug`, `Boat.swing`. Tests in `boats/classes.test.ts`.
+- **A port that takes ships keeps a tug**, lying off the end of its quay. It is a boat of the fleet held where it should be by a line that moves, as a moored boat is held: so it rides the water, bobs and leaves a wake, and steers nowhere of its own. It calls nowhere, is not saved, and goes with the port or with the water for ships.
+- **It meets a ship** given a berth there as she comes within four tiles, and lays itself against her bow.
+- **She is turned twice.** As her call begins she is swung end for end, about her middle, to lie head to the stream; as it ends, back the way she came, and she goes. Nine seconds a swing, the tug on the side her bow is pushed from; she is held half her length off her berth at the middle of each, so her ends clear the quay. Her call is the longer by the two swings; the cranes work her in between (`swingOf` gives the work and the turn apart).
+- **Ships only** (the third class). Coasters and boats come alongside as they did. A port with water for coasters and no more has no tug.
+- **Seen** (`/?fixture=harbour`, by day): the tug at its home off the quay's end; a container ship caught mid-swing, square to the quay, the tug against her; the same ship after, alongside and head to the stream, the tug home again.
+- **Not done:** no tow line is drawn; the tug does not go out to the river's mouth, only to the basin; the room-to-turn check is still the nine tiles round the berth and was not re-derived from the swing; not seen at night or with two ships at one port; fees are unchanged, so a ship's call earns the same over 18 seconds longer — for the balance pass.
 
 Fixed while play-testing, not in the phases above: a port is placed by pointing at its quay or the water off it; the pointer picks the water with a port in hand or dredging; boats are sent by the berths their class can use, ports alike take turns; a low river is said once it has stayed low (`LOW_HOLD`). `?fixture=shoal` is the harbour with a bar to dredge.
 

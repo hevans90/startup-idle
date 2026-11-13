@@ -166,6 +166,32 @@ function lighterHouse(): Tri[] {
   return out;
 }
 
+/**
+ * A HARBOUR TUG: short and broad for her length, a high bow, a wheelhouse
+ * well forward with windows all round, a fat funnel behind it, a towing post
+ * on the long low deck aft, and tyres down both sides for where she leans
+ * on a ship. @see traffic tugs
+ */
+function tug(): Tri[] {
+  const { L, B } = sizeOf(0), out: Tri[] = [];
+  hull(lines(L * 0.82, B * 1.22, 1.15, 0.7, 0.9), "trim", "paint", out);
+  // The wheelhouse, on a low deckhouse; and her funnel, in the line's colour.
+  house(-0.4, 2.2, B * 0.4, 1.2, 2.5, out);
+  house(0.5, 2.0, B * 0.3, 2.62, 4.3, out);
+  funnel(-0.9, 1.2, 3.2, 0.5, "paint", out);
+  lights(1.2, B * 0.3, 3.7, 0.4, 6.4, out, 4.3);
+  // The towing post and its rail, aft.
+  limb([-2.3, 0, 1.15], [-2.3, 0, 2.1], 0.16, 0.16, "iron", out, 8);
+  box(-2.5, -2.1, -B * 0.3, B * 0.3, 2.0, 2.14, "iron", out);
+  // Tyres along her sides, and one over the bow.
+  for (const s of [1, -1]) for (const x of [-2.4, -1.2, 0, 1.2, 2.3]) {
+    const half = B * 0.61 * (x > 2 ? 0.74 : x < -2 ? 0.92 : 1);
+    box(x - 0.3, x + 0.3, s * half - 0.09, s * half + 0.09, 0.45, 1.05, "iron", out);
+  }
+  box(L * 0.4 - 0.12, L * 0.4 + 0.12, -0.32, 0.32, 0.7, 1.5, "iron", out);
+  return out;
+}
+
 function drone(): Tri[] {
   const { L, B } = sizeOf(0), out: Tri[] = [];
   // The Machine's: a low dark hull, no house, nobody aboard — a strip of light down it and one at the bow.
@@ -235,6 +261,7 @@ export const BOATS: readonly BoatModel[] = [
     { id: "yacht", cls: 0, tris: yacht },
     { id: "lighter", cls: 0, tris: lighter },
     { id: "drone", cls: 0, tris: drone },
+    { id: "tug", cls: 0, tris: tug },
     { id: "coaster", cls: 1, tris: coaster },
     { id: "container", cls: 2, tris: containerShip },
   ].map((m) => ({ ...m, shadow: shadowOf(sizeOf(m.cls).L, sizeOf(m.cls).B) })),

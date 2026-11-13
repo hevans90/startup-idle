@@ -89,6 +89,15 @@ export type Boat = {
   vip?: boolean;
   /** One of the Machine's freighters: violet, crewless, a light at the bow. @see Market Maker */
   ai?: boolean;
+  /**
+   * A SHIP TURNED BY A TUG: the way she lay as she came alongside, and how
+   * long each of her two swings takes, seconds — round to lie head to the
+   * stream as her call begins, and back to head out as it ends. Her call is
+   * that much the longer at each end. @see traffic swingOf
+   */
+  swing?: { lie: number; secs: number; at: { x: number; y: number }; out: { x: number; y: number } };
+  /** A PORT'S TUG: whose, by the port's structure id. Not one of the river's boats: it calls nowhere and is not saved. @see traffic stepTugs */
+  tug?: number;
 };
 
 export type Fleet = { boats: Boat[]; next: number; t: number };
@@ -269,6 +278,8 @@ export function stepFleet(f: Fleet, c: ColumnField, dt: number, steer?: Steer): 
       const dx = o.x - a.x, dy = o.y - a.y;
       const d = Math.hypot(dx, dy);
       // By their lengths: a ship keeps more water round it than a boat.
+      // A tug is up against the ship it works: it pushes nothing off, and is not pushed.
+      if (a.tug !== undefined || o.tug !== undefined) continue;
       const apart = KEEP_APART * (classOf(a.cls).length + classOf(o.cls).length) / (2 * BOAT_LENGTH);
       if (d >= apart || d < 1e-6) continue;
       const push = (apart - d) * 2;
@@ -313,7 +324,8 @@ export function stepFleet(f: Fleet, c: ColumnField, dt: number, steer?: Steer): 
 export type SavedBoat = { x: number; y: number; heading: number; motor?: number; cls?: number };
 
 export const saveFleet = (f: Fleet): SavedBoat[] =>
-  f.boats.map((b) => ({ x: b.x, y: b.y, heading: b.heading, ...(b.motor ? { motor: b.motor } : {}), ...(b.cls ? { cls: b.cls } : {}) }));
+  // A port's tug is the port's: made again with it, not kept as a boat.
+  f.boats.filter((b) => b.tug === undefined).map((b) => ({ x: b.x, y: b.y, heading: b.heading, ...(b.motor ? { motor: b.motor } : {}), ...(b.cls ? { cls: b.cls } : {}) }));
 
 /**
  * Put saved boats back on a fresh field's water.
