@@ -1,6 +1,6 @@
 # AI mode, rebuilt: a pilot that plays the whole run, and shows its work
 
-**Status:** phase 0 built, 2026-11-13 (see "Built so far" at the end). Phases 1 to 9 not started. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
+**Status:** phases 0 and 1 built, 2026-11-13 (see "Built so far" at the end). Phases 2 to 9 not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
 
 ## Why
 
@@ -238,3 +238,31 @@ From a fresh company it builds the garage and then never hires anyone: an intern
 - repairs, cleanup, the leaders' walks.
 
 These come out of the scene the same way, a slice at a time, at the start of the phase that needs them.
+
+**Phase 1, the core and the People desk, 2026-11-13.** In `src/world/ai/pilot/`.
+
+- **`job.ts`:** the `Job` shape as planned, with two changes made in building it. `needs` carries words as well as an id (`{ id, says }`), so a wait is named even when no desk proposes what it waits on yet. `done` is only for a job done once; a job that recurs (a hire) checks the world inside `run` and returns a refusal if nothing changed.
+- **`chooser.ts`:** `choose` is pure. Worth is income a second per dollar, and a job others wait on is worth the best chain it begins. Saving: a cheaper job is taken meanwhile exactly when `cost ÷ gain` is no more than the time to save for the best (that is when buying it first reaches the best sooner). The reserve, urgent, pinned, cancelled and refused are all in. Innovation is its own coin and never waits behind money.
+- **`pilot.ts`:** `createPilot(desks, { strict })`. It looks twice a second, does a job every two seconds (urgent ones at once), and its status always has words. A job that reports success while `done()` says otherwise is refused as "it changed nothing". A refusal is kept till its time or till the map's revision changes. The watchdog faults after two minutes with a job ready and none done, rests that job ten minutes, and throws when strict. Cancel, do next, pause and desks on or off are there for the interface.
+- **`desks/people.ts`:** a hire for each of the three kinds, batched to the empty beds and the money, the batch's average price no more than half again the first's. A kind with no bed waits on `beds:<kind>`; a kind not open waits on its project or the headcount that opens it. Every upgrade the Employees tab offers (the next of each set), worth its multiplier on what that kind earns now, never under 1% of income so none is left for ever.
+- **`live.ts`:** the purse read off the stores.
+
+**In the sim** (`pilot-run.test.ts`, 90 game minutes, a town given to it: beds for 400 interns, 150 vibe coders and 8 10x devs, every project standing):
+
+| | Today's AI mode, $10,000 to start | The pilot, People desk only, $5 |
+|---|---|---|
+| Vibe coders first hired | never | 0.3 min |
+| 10x devs first hired | never | 1.9 min |
+| Staff | 51 interns | 400 / 150 / 8: every bed filled |
+| Upgrades | 0 | 26 of 29 (the other three cost more than it has) |
+| Could be sold | never | at 24.8 min |
+| Income at the end | $7.3/s | $3.8B/s |
+
+The two columns are not the same test: the old one had to build its own town and the new one was given one. The row that compares is the first three: given beds and open kinds, it hires all three and buys what is offered.
+
+- Not a frame without words, no fault, and never a job ready and not done beyond its pace.
+- 96% of frames are "saving": after 36 minutes everything left costs trillions. That is right, and it says so with the amount and the time.
+- On a fresh company with no other desk it waits, and says: "Hire the first intern · after the Founder's Garage".
+- 17 unit tests on the chooser and the pilot (`pilot/pilot.test.ts`).
+
+- **Not done:** the pace is a flat two seconds (hangars do not quicken it yet); the goal's tilt is a parameter nothing sets; a hire's worth ignores that a new hire has to arrive and find a desk; the worth of an upgrade that cuts costs is a guess (half the same cut in output).

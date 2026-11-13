@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, jest, test } from "bun:test";
 
-import { housedBy, roomFor } from "../game/housing";
+import { housedBy, roomFor, setHousingReader } from "../game/housing";
+import { PROJECTS, setProjectReader } from "../game/projects";
+import { peopleDesk } from "../world/ai/pilot/desks/people";
+import { livePurse } from "../world/ai/pilot/live";
+import { PACE, createPilot } from "../world/ai/pilot/pilot";
+import { shownAs } from "../world/ai/pilot/job";
 import { useGeneratorStore } from "../state/generators.store";
 import { useSessionStore } from "../state/session.store";
 import { playRules } from "../state/world.store";
@@ -69,6 +74,62 @@ describe("a company played on a real map with no screen", () => {
     // Hired, they came up the road and moved in.
     expect(r.residents).toBeGreaterThan(2);
     expect(r.income).toBeGreaterThan(0);
+  }, 120_000);
+
+  test("the People desk, on a town given to it: all three kinds hired, every upgrade bought, never a tick without words, never a fault", () => {
+    const pilot = createPilot([peopleDesk()], { strict: true });
+    let unnamed = 0, frames = 0, ready = 0, longestReady = 0;
+    const kinds: Record<string, number> = {};
+    const r = playCompany(jest.advanceTimersByTime.bind(jest), {
+      seed: 1, size: 64, minutes: 90,
+      // THE TOWN GIVEN: beds for everyone and every project standing, so only the desk is on trial.
+      begin: () => {
+        setHousingReader(() => ({ intern: 400, vibe_coder: 150, "10x_dev": 8 }));
+        setProjectReader(() => ({ built: new Set(PROJECTS.map((p) => p.id)), away: {} }));
+      },
+      drive: (g, dt) => {
+        const st = pilot.tick(dt, livePurse(), g.rev);
+        frames++;
+        if (!st.says) unnamed++;
+        ready = st.kind === "next" ? ready + dt : 0;
+        longestReady = Math.max(longestReady, ready);
+        kinds[st.kind] = (kinds[st.kind] ?? 0) + 1;
+      },
+      steps: pilot.done,
+      said: pilot.last,
+    });
+    if (process.env.BALANCE) {
+      print(r);
+      console.log("states, share of frames: " + Object.entries(kinds).map(([k, n]) => k + " " + ((100 * n) / frames).toFixed(1) + "%").join(", "));
+      console.log("queue at the end: " + pilot.queue().map((q) => q.job.says + " [$" + q.job.cost.toExponential(2) + ", +" + q.job.gain.toExponential(2) + "/s, " + shownAs(q.shown) + "]").join(" | "));
+      console.log("log: " + pilot.log().slice(0, 6).map((l) => mins(l.at) + " " + l.text).join(" | "));
+    }
+    expect(unnamed).toBe(0);
+    expect(pilot.faults()).toBe(0);
+    for (const kind of ["intern", "vibe_coder", "10x_dev"] as const) expect(r.staff[kind] ?? 0).toBeGreaterThan(0);
+    // Every bed filled; and every upgrade bought that could be: what is left costs more than the company has.
+    expect(r.staff).toEqual({ intern: 400, vibe_coder: 150, "10x_dev": 8 });
+    expect(r.upgrades.bought).toBeGreaterThanOrEqual(25);
+    for (const q of pilot.queue()) {
+      expect(["waiting", "saving"]).toContain(q.shown.state);
+      if (q.shown.state === "saving") expect(q.job.cost).toBeGreaterThan(r.money);
+    }
+    // Never with a job ready and not done, beyond its pace.
+    expect(longestReady).toBeLessThanOrEqual(PACE + 1);
+  }, 300_000);
+
+  test("the People desk alone on a fresh company: with nothing it can do, it says what it is waiting for", () => {
+    const pilot = createPilot([peopleDesk()], { strict: true });
+    const r = playCompany(jest.advanceTimersByTime.bind(jest), {
+      seed: 1, size: 64, minutes: 5,
+      drive: (g, dt) => { pilot.tick(dt, livePurse(), g.rev); },
+      steps: pilot.done, said: pilot.last,
+    });
+    if (process.env.BALANCE) console.log("fresh, People only: " + pilot.status().says + " · staff " + JSON.stringify(r.staff));
+    // No Landmarks desk yet to build the garage that opens hiring: it waits, and names the garage.
+    expect(pilot.status().kind).toBe("waiting");
+    expect(pilot.status().says).toMatch(/after .*garage/i);
+    expect(pilot.faults()).toBe(0);
   }, 120_000);
 
   // THE NUMBER TO BEAT: today's AI mode, an hour on each of three maps. Printed, not held to anything.
