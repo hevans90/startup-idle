@@ -56,6 +56,8 @@ export type PlacementCheck = {
   facing?: Facing;
   /** Every reason it fails, not only the first; empty when it may stand. */
   reasons: string[];
+  /** A seaport's: the tiles of bank it would fill or cut to make its quay straight, if any. @see straightenFor */
+  straighten?: Straighten;
 };
 
 const OK: CellVerdict = { ok: true };
@@ -237,13 +239,19 @@ export function validatePlacement(
  * build on, so a port that cannot stand cornered there is tried with that
  * tile anywhere along its quay — or, pointed at the water, with that tile
  * one of its berths. Where it then stands is the check's `at`.
+ *
+ * A SLANTED BANK IS STRAIGHTENED where no straight one is to be had there:
+ * the check says what it would fill and cut. @see straightenFor
  */
 function validatePort(grid: Grid, def: StructureDef, ox: number, oy: number, rules: PlaceRules, facing?: Facing): PlacementCheck {
   let best: PlacementCheck | null = null, bestWet = -1;
   const rivers = steadyRivers(grid);
   const length = def.footprint.w;
+  // One that may stand only by straightening the bank is kept for last: a place where the bank is straight already is taken first.
+  let mended: PlacementCheck | null = null;
   const judge = (at: Rect, f: Facing): PlacementCheck | null => {
     const check = portCheck(grid, def, at, f, rules);
+    if (check.ok && check.straighten) { mended ??= check; return null; }
     if (check.ok) return check;
     const wet = quayTiles(at, f).filter((q) => riverAt(rivers, q.wx, q.wy)).length - check.reasons.length / 16;
     if (wet > bestWet) { best = check; bestWet = wet; }
@@ -253,7 +261,7 @@ function validatePort(grid: Grid, def: StructureDef, ox: number, oy: number, rul
     const ok = judge({ x: ox, y: oy, ...portShape(length, f) }, f);
     if (ok) return ok;
   }
-  if (facing) return best!;
+  if (facing) return mended ?? best!;
   // Pointed at the water off a bank, it is that bank's: the tile is its berth.
   const wet = riverAt(rivers, ox, oy) !== 0;
   for (const f of FACINGS) {
@@ -265,7 +273,7 @@ function validatePort(grid: Grid, def: StructureDef, ox: number, oy: number, rul
       if (ok) return ok;
     }
   }
-  return best!;
+  return mended ?? best!;
 }
 
 /** The footprint of a port facing `f` whose quay has (x, y) as its `k`th tile. */
@@ -274,6 +282,52 @@ function quayWith(x: number, y: number, k: number, f: Facing, length: number): R
   return alongX(f)
     ? { x: x - k, y: dy > 0 ? y - (PORT_DEPTH - 1) : y, ...portShape(length, f) }
     : { x: dx > 0 ? x - (PORT_DEPTH - 1) : x, y: y - k, ...portShape(length, f) };
+}
+
+/**
+ * A BANK STRAIGHTENED. What a port set down at `at`, facing `f`, would have
+ * to do to a slanted bank to have a straight quay on the water:
+ *  - FILL a tile of its quay the river has got into — one against the bank,
+ *    with the river still beyond it — up to the quay's level;
+ *  - CUT the land in front of a tile of its quay where the bank sticks out —
+ *    empty ground with the river just past it, no higher over the water
+ *    than a quay may be — down to the river's bed there, to the same depth.
+ * A tile or two, by the port's size, and never all of its quay: a port
+ * straightens a bank, it does not make one. Null where it has nothing to
+ * do, or more than that, or something in the way. @see STRAIGHTEN_MOST
+ */
+export type Straighten = { fill: { x: number; y: number }[]; cut: { x: number; y: number; height: number; pool: number }[] };
+/** How many tiles of bank a port may fill or cut, for a quay this long. */
+export const STRAIGHTEN_MOST = (length: number) => Math.max(1, Math.floor(length / 2));
+
+export function straightenFor(grid: Grid, at: Rect, f: Facing): Straighten | null {
+  const rivers = steadyRivers(grid), quay = quayTiles(at, f), [dx, dy] = NEIGHBOUR[f];
+  const out: Straighten = { fill: [], cut: [] };
+  let river = 0, onWater = 0;
+  /** The one river, all along it. */
+  const same = (k: number) => { if (!river) river = k; return k === river; };
+  for (const q of quay) {
+    if (!inBounds(grid, q.x, q.y) || !inBounds(grid, q.wx, q.wy)) return null;
+    const here = riverAt(rivers, q.x, q.y), front = riverAt(rivers, q.wx, q.wy);
+    if (here) {
+      // IN THE RIVER: filled, where it is the river's edge and the river goes on in front.
+      if (!front || !same(here) || !same(front) || rivers.shore[idx(grid, q.x, q.y)] > 1) return null;
+      out.fill.push({ x: q.x, y: q.y });
+    } else if (!front) {
+      // LAND IN FRONT: cut, where it is bare ground and the river is the next tile on.
+      const bx = q.wx + dx, by = q.wy + dy;
+      if (!inBounds(grid, bx, by)) return null;
+      const i = idx(grid, q.wx, q.wy), j = idx(grid, bx, by), beyond = riverAt(rivers, bx, by);
+      if (!beyond || !same(beyond) || structureAt(grid, q.wx, q.wy) >= 0 || grid.paved[i] !== VOID || hasSewer(grid, i) || grid.terrain[i] === VOID) return null;
+      if (grid.height[i] - (grid.height[j] + grid.pool[j]) > QUAY_MAX_DROP) return null;
+      out.cut.push({ x: q.wx, y: q.wy, height: grid.height[j], pool: grid.pool[j] });
+    } else {
+      if (!same(front)) return null;
+      onWater++;
+    }
+  }
+  const n = out.fill.length + out.cut.length;
+  return n > 0 && n <= STRAIGHTEN_MOST(quay.length) && onWater > 0 ? out : null;
 }
 
 /**
@@ -291,9 +345,14 @@ function portCheck(grid: Grid, def: StructureDef, at: Rect, f: Facing, rules: Pl
   const verdicts = cells.map((c) => cellVerdict(grid, def, c.x, c.y, { ...rules, rivers }));
   const quay = quayTiles(at, f);
   const river = quayRiver(rivers, quay);
+  // A SLANTED BANK, straightened by the port that is built on it: a tile of quay in the river is filled,
+  // and land in front of one is cut. Not for one being grown, which stands where it stands. @see straightenFor
+  const fix = standing ? null : straightenFor(grid, at, f);
   for (const q of quay) {
     const k = (q.y - at.y) * at.w + (q.x - at.x);
-    if (verdicts[k].ok && !(river && riverAt(rivers, q.wx, q.wy) === river)) verdicts[k] = { ok: false, reason: "quay off the water" };
+    if (fix?.fill.some((c) => c.x === q.x && c.y === q.y) && verdicts[k].reason === "in the river") verdicts[k] = OK;
+    const cut = fix?.cut.some((c) => c.x === q.wx && c.y === q.wy);
+    if (verdicts[k].ok && !cut && !(river && riverAt(rivers, q.wx, q.wy) === river)) verdicts[k] = { ok: false, reason: "quay off the water" };
   }
   const reasons = [...new Set(verdicts.filter((v) => !v.ok).map((v) => v.reason ?? "blocked"))];
 
@@ -306,7 +365,7 @@ function portCheck(grid: Grid, def: StructureDef, at: Rect, f: Facing, rules: Pl
   // What is wrong with the whole of it is said by every cell that had nothing of its own to say.
   if (whole.length) for (let k = 0; k < verdicts.length; k++) if (verdicts[k].ok) verdicts[k] = { ok: false, reason: whole[0] };
   reasons.push(...whole);
-  return { ok: !reasons.length, cells: verdicts, reason: reasons[0] ?? null, reasons, groundHeight, at, facing: f };
+  return { ok: !reasons.length, cells: verdicts, reason: reasons[0] ?? null, reasons, groundHeight, at, facing: f, ...(fix && !reasons.length ? { straighten: fix } : {}) };
 }
 
 /**
@@ -340,6 +399,14 @@ export function placeCommand(
       b.set("ramp", c.x, c.y, RAMP.NONE);
     }
     b.set("structureAt", c.x, c.y, structure.id);
+  }
+  // THE BANK MADE STRAIGHT under and in front of a port's quay: what it fills stands dry, at the quay's
+  // level with the rest; what it cuts is river, to the bed and the depth of the river beside it.
+  for (const c of check.straighten?.fill ?? []) b.set("pool", c.x, c.y, 0);
+  for (const c of check.straighten?.cut ?? []) {
+    b.set("height", c.x, c.y, c.height);
+    b.set("pool", c.x, c.y, c.pool);
+    b.set("ramp", c.x, c.y, RAMP.NONE);
   }
   b.addStructure(structure);
   return b.build(`place ${def.name}`);

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { commit, createHistory } from "../edit/commands";
+import { commit, createHistory, undo } from "../edit/commands";
 import { createGrid, idx, setInflow, stampFootprint, type Grid, type Structure } from "../grid";
 import { SEAPORTS, structureDef } from "../structures/def";
-import { placeCommand, planUpgrade, quayBanks, upgradeCommand, validatePlacement } from "../structures/place";
+import { STRAIGHTEN_MOST, placeCommand, planUpgrade, quayBanks, straightenFor, upgradeCommand, validatePlacement } from "../structures/place";
 import { berthsAlong, channelTo, facePorts, steadyRivers } from "./quay";
 import { mapRiver, poolDepthOf } from "./river";
 import { portsOf } from "./traffic";
@@ -161,3 +161,67 @@ describe("a seaport from before ports faced the water", () => {
     expect(upgradeCommand(g, s.id)).toBeNull();
   });
 });
+
+describe("a slanted bank, straightened by the port built on it", () => {
+  /** The west bank at x = 5, with a NOTCH — the river a tile into the land at (5, 10) — and a SPUR — land a tile into the river at (6, 14). */
+  const slanted = () => {
+    const g = alongY();
+    g.pool[idx(g, 5, 10)] = 3; g.height[idx(g, 5, 10)] = -4;
+    g.pool[idx(g, 6, 14)] = 0; g.height[idx(g, 6, 14)] = 0;
+    return g;
+  };
+
+  test("a tile of its quay the river has got into is filled, dry and level with the rest", () => {
+    const g = slanted();
+    // A tier 3 down the bank from y = 8: its quay is x = 5, y 8–11, and (5, 10) is river.
+    const check = validatePlacement(g, T3, 4, 8, {}, "S");
+    expect(check.ok).toBe(true);
+    expect(check.straighten).toEqual({ fill: [{ x: 5, y: 10 }], cut: [] });
+    const port = place(g, T3, 4, 8)!;
+    expect([port.x, port.y, port.w, port.h, port.facing]).toEqual([4, 8, 2, 4, "S"]);
+    expect(g.pool[idx(g, 5, 10)]).toBe(0);
+    expect(g.height[idx(g, 5, 10)]).toBe(g.height[idx(g, 5, 9)]);
+    // Every tile of its quay has the river in front of it: it has its three berths.
+    expect(berthsAlong(steadyRivers(g), port, "S", 3)).toHaveLength(3);
+  });
+
+  test("land in front of a tile of its quay is cut, to the river's bed and depth beside it", () => {
+    const g = slanted();
+    // Its quay is x = 5, y 12–15, and the tile in front of (5, 14) is the spur.
+    const check = validatePlacement(g, T3, 4, 12, {}, "S");
+    expect(check.ok).toBe(true);
+    expect(check.straighten).toEqual({ fill: [], cut: [{ x: 6, y: 14, height: -4, pool: 3 }] });
+    const h = createHistory(), cmd = placeCommand(g, T3, 4, 12, {}, "S")!;
+    commit(g, h, cmd);
+    expect([g.height[idx(g, 6, 14)], g.pool[idx(g, 6, 14)]]).toEqual([-4, 3]);
+    expect(steadyRivers(g).river[idx(g, 6, 14)]).toBeGreaterThan(0);
+    // Taken back, the bank is as it was: the spur stands, dry.
+    undo(g, h);
+    expect([g.height[idx(g, 6, 14)], g.pool[idx(g, 6, 14)]]).toEqual([0, 0]);
+    expect(g.structures.size).toBe(0);
+  });
+
+  test("where the bank is straight a step along, the port goes there and changes nothing", () => {
+    const g = slanted();
+    // Pointed at (5, 9), a tier 1 could take in the notch at (5, 10) — or stand on (5, 8) and (5, 9), which are straight.
+    const check = validatePlacement(g, T1, 5, 9);
+    expect(check.ok).toBe(true);
+    expect(check.straighten).toBeUndefined();
+  });
+
+  test("a tile or two, by its size, and never where something is in the way", () => {
+    expect([2, 3, 4].map(STRAIGHTEN_MOST)).toEqual([1, 1, 2]);
+    const g = slanted();
+    // Two notches in a tier 1's two tiles of quay: more than it may fill, and none of its quay on the water as it is.
+    g.pool[idx(g, 5, 11)] = 3; g.height[idx(g, 5, 11)] = -4;
+    expect(straightenFor(g, { x: 4, y: 10, w: 2, h: 2 }, "S")).toBeNull();
+    // A road on the spur: it is not cut.
+    g.paved[idx(g, 6, 14)] = 1;
+    g.rev++;
+    expect(straightenFor(g, { x: 4, y: 12, w: 2, h: 4 }, "S")).toBeNull();
+    expect(validatePlacement(g, T3, 4, 12, {}, "S").reasons).toEqual(["quay off the water"]);
+    // A straight bank has nothing to straighten.
+    expect(straightenFor(alongY(), { x: 4, y: 8, w: 2, h: 4 }, "S")).toBeNull();
+  });
+});
+

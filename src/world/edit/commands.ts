@@ -18,7 +18,9 @@ import { edited, recomputeHeightRange, type Grid, type Structure } from "../grid
 /** Which dense layer a patch applies to. */
 export type LayerKey =
   | "terrain" | "height" | "paved" | "fluid" | "source" | "main" | "mainEnd" | "sewer" | "sewerFit" | "ramp"
-  | "structureAt";
+  | "structureAt"
+  // The standing water: a port placed on a slanted bank fills or cuts a tile of it. @see straightenFor
+  | "pool";
 
 export type CellPatch = {
   layer: LayerKey;

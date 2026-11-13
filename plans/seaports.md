@@ -1,6 +1,6 @@
 # Seaports and boats, rebuilt
 
-**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **The pipe plan is done; of what waited for it, the slop loader, the ferry's far bank and the investor's yacht are built** (2026-11-12), the yard gantry loads the lorries (2026-11-13), and four items are left: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
+**Status:** phases 0–8 built, 2026-11-11, with the gaps listed under "Built so far". **The pipe plan is done; of what waited for it, the slop loader, the ferry's far bank and the investor's yacht are built** (2026-11-12), the yard gantry loads the lorries and a port straightens a slanted bank (2026-11-13), and three items are left: see "Left to do, after the pipes". Written from a read of `src/world/boats/*`, `structures/place.ts`, `structures/def.ts`, `structures/seaport-renderer.ts`, `game/build-cost.ts` and the events that touch ports. **Seen in the browser** since: play-tested in the game by day and at night (2026-11-11), every bank facing, a ferry call, a shoal dredged until ships came, and draw-list rebuilds counted (about 0.4 ms a frame with 19 boats, the per-band mover groups only). Claims below tagged [read] date from the first write.
 
 ## Why
 
@@ -227,7 +227,7 @@ Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then 
 | ~~Boxes onto lorries~~ | **Built 2026-11-13**, see below | — |
 | Wake foam | Foam from the water, or baked, in place of the drawn foam | Nothing |
 | Balance | Ship classes, fees and fittings through the balance sim | Nothing |
-| Generated banks | How often a Port III fits on generated maps' slanted banks, and whether placing should straighten a bank | Nothing |
+| ~~Generated banks~~ | **Measured and built 2026-11-13**, see below | — |
 
 **Built from this list, 2026-11-12** (after the pipe plan). Tests in `boats/slop-loader.test.ts`, `ferry-links.test.ts`, `fittings.test.ts`.
 - **Slop loader** (`boats/slop-loader.ts`, `loaderPorts` in `water/ports.ts`): a berth fitting for a port of two berths or more, once sewers are open. Fitted, the port has a slop inlet on each END, at the corner away from the water, so a sewer connection or a trunk ends there as at a processor. Its tank takes half a unit a second and holds 30 a slop berth; full, it backs the sewer up. A barge (the lighter's hull: none of its own is baked) calls at the berth, takes up to 20 and bills for it — half a plain call's fee for a full hold, less for less; what the company cannot pay for is left. The berth earns nothing. Refitted or demolished, what it held goes on the ground by the port. The card shows the tank's fill where a trade's meter is.
@@ -245,6 +245,14 @@ Decided 2026-11-11: the pipe plan (`plans/pipe-network.md`) is done first, then 
 - **Seen** (`/?fixture=harbour`, by day, one bank facing): the gantry over its stack; out over the road with a green box above the waiting lorry; the box down on the lorry's back.
 - **Not done:** the box does not ride away on the lorry — it is hidden as the lorry leaves, and the lorry is the box lorry it was. Ports I and II have no gantry, and their lorries leave as before. Not seen at night, on the other three facings, or with the road somewhere other than behind the port.
 - **For looking at it:** `__traffic()` and `__app` are on the window with the other hooks. A hidden tab gets no frames; `__app.ticker.update(t)` steps the clock by hand.
+
+**Generated banks, and a port that straightens one** (2026-11-13). `straightenFor` and `STRAIGHTEN_MOST` in `structures/place.ts`; `pool` a patched layer in `edit/commands.ts`. Tests in `boats/quay.test.ts`.
+- **Measured first**, on 15 generated maps (64², 96², 128², seeds 1–5; 3,778 bank tiles): a Port III fitted on 65% of bank tiles (38–79% a map) and a Port I on 81%. Of the misses for a Port III, 1,058 were a footprint tile in the river and 149 a tile of quay with land in front of it; roads, the map's edge and height made up the rest (145).
+- **Decided: yes, placing straightens a bank, a little.** A port may FILL a tile of its quay the river has got into — one against the bank, with the river still in front of it — and CUT the land in front of a tile of its quay — bare ground, the river the next tile on, no higher over the water than a quay may be — to the river's bed and depth there. One tile for a Port I or II, two for a Port III, and never all of its quay. The check says what it would do (`PlacementCheck.straighten`); the placing command does it, and undo puts the bank back.
+- **A straight bank is taken first.** Where the port can stand a step along with nothing to change, it stands there.
+- **Measured after:** a Port III fits on 82% of bank tiles (65–91% a map), a Port I on 95%. What still misses is mostly the BACK row of the port in the river — a spit, or a bank that turns a corner — which is not a slant to straighten.
+- **Seen** (`?world=1&fixture=harbour`): a Port I placed beside the big port where one tile of bank stuck out; the tile cut, and the river standing in it as deep as beside it (6.9 half steps against 6.84).
+- **Not done:** the ghost does not show which tiles will be filled or cut; it costs nothing more than the port; upgrading a port does not straighten; the fill was tested, not seen in the browser.
 
 Fixed while play-testing, not in the phases above: a port is placed by pointing at its quay or the water off it; the pointer picks the water with a port in hand or dredging; boats are sent by the berths their class can use, ports alike take turns; a low river is said once it has stayed low (`LOW_HOLD`). `?fixture=shoal` is the harbour with a bar to dredge.
 
