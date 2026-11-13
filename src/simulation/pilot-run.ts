@@ -55,6 +55,8 @@ export type PilotRunOptions = {
   said: () => string | null;
   /** Stop as soon as the company could be sold. */
   untilSale?: boolean;
+  /** Stop once this is so, looked at each game second. */
+  until?: (g: Grid) => boolean;
 };
 
 export type PilotRunReport = {
@@ -151,6 +153,7 @@ export function playCompany(advanceTimersByTime: (ms: number) => void, o: PilotR
       for (const gen of useGeneratorStore.getState().generators) if (gen.amount > 0) report.firstHire[gen.id as GeneratorId] ??= t + 1;
       for (const id of builtProjects(g)) report.opened[id] ??= t + 1;
       if (report.saleAt === undefined && canAcquire()) { report.saleAt = t + 1; if (o.untilSale) break; }
+      if (o.until?.(g)) break;
     }
     endWait(report.seconds);
   } finally {

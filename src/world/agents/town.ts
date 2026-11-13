@@ -1677,7 +1677,9 @@ function companyFor(t: Town, m: Mover, room: number): Mover[] {
       // Quick enough to catch up; the leader's pace keeps them to it.
       cruise: m.cruise * 1.4,
       x: m.x, y: m.y, z: m.z, heading: m.heading, stuck: 0, colour: pick(t, SHIRTS), phase: rand(t) * Math.PI * 2,
-      walk: { ...m.walk!, k: 0, on: false, waited: 0 },
+      // Their leader's way over the roads, where it has one: spread from none it was a walk with no crossings, and the first
+      // look at whether they were on one threw. @see walker-life crossing
+      walk: m.walk ? { ...m.walk, k: 0, on: false, waited: 0 } : undefined,
       side: KEEP - (kid ? HAND_GAP : 0.065), sideTo: KEEP - (kid ? HAND_GAP : 0.065),
       group: { lead: m.id, k },
     };

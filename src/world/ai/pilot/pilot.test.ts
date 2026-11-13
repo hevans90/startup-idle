@@ -75,9 +75,19 @@ describe("the pilot's choice", () => {
   });
 
   test("innovation is its own coin: saving money does not hold up what innovation buys", () => {
-    const card = job("card", 5, 0, { costs: "innovation" });
+    const card = job("card", 5, 0.1, { costs: "innovation" });
     const d = choose([job("best", 1000, 500), card], { ...purse(0, 10), innovation: 10, innovationRate: 1 }, newMemory(), 0, 0).decision;
     expect(d).toMatchObject({ kind: "do", job: { id: "card" } });
+  });
+
+  test("spends nothing on what is worth nothing: a street nobody waits for is not laid for want of anything else to do", () => {
+    const street = job("street", 20, 0);
+    expect(pick([street], purse(1000))).toMatchObject({ kind: "idle" });
+    // Something waits on it: now it is worth that.
+    const lot = job("beds:intern", 50, 3, { needs: [{ id: "street", says: "a street with room beside it" }] });
+    expect(pick([street, lot], purse(1000))).toMatchObject({ kind: "do", job: { id: "street" } });
+    // And what is free is done whatever it is worth.
+    expect(pick([job("lift", 0, 0)], purse(0))).toMatchObject({ kind: "do", job: { id: "lift" } });
   });
 
   test("every state has words", () => {

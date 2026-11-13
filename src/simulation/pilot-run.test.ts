@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, jest, test } from "bun:test";
 
-import { housedBy, roomFor, setHousingReader } from "../game/housing";
+import { housedBy, residentsIn, roomFor, setHousingReader } from "../game/housing";
 import { PROJECTS, setProjectReader } from "../game/projects";
 import { peopleDesk } from "../world/ai/pilot/desks/people";
-import { livePurse } from "../world/ai/pilot/live";
+import { allDesks, livePurse } from "../world/ai/pilot/live";
+import { desksShort } from "../world/ai/masterplan/schedule";
 import { PACE, createPilot } from "../world/ai/pilot/pilot";
 import { shownAs } from "../world/ai/pilot/job";
 import { useGeneratorStore } from "../state/generators.store";
@@ -131,6 +132,73 @@ describe("a company played on a real map with no screen", () => {
     expect(pilot.status().says).toMatch(/after .*garage/i);
     expect(pilot.faults()).toBe(0);
   }, 120_000);
+
+  /** People living on the map with no desk to go to, by kind. */
+  const perched = (g: Grid) => desksShort(g, { rules: playRules(g), kinds: ["intern", "vibe_coder"], offices: true }).map((k) => [k.who, k.now] as const);
+  const housed = (g: Grid) => { let n = 0; for (const s of g.structures.values()) if (!s.build && housedBy(s.def)) n += residentsIn(s); return n; };
+
+  /** The pilot from an empty map, the garage and the studio begun by hand: the Landmarks desk is not built yet. */
+  const townRun = (seed: number, size: number, minutes: number, until?: (g: Grid) => boolean) => {
+    const pilot = createPilot(allDesks(), { strict: true });
+    let unnamed = 0, clock = 0, studio = false;
+    let map: Grid | null = null;
+    const r = playCompany(jest.advanceTimersByTime.bind(jest), {
+      seed, size, minutes, until,
+      begin: (g) => { map = g; startProject("garage", nearestSpot(g, structureDef("garage")!, playRules(g))!); },
+      drive: (g, dt) => {
+        if (!pilot.tick(dt, livePurse(), g.rev).says) unnamed++;
+        // THE STUDIO, once its upgrade is bought: vibe coders are how a company gets past the interns' price.
+        if ((clock += dt) >= 5 && !studio) { clock = 0; const at = nearestSpot(g, structureDef("studio")!, playRules(g)); studio = !!at && startProject("studio", at); }
+      },
+      steps: pilot.done, said: pilot.last,
+    });
+    const g = map!;
+    if (process.env.BALANCE) {
+      print(r);
+      console.log("at the end: " + pilot.status().says + " · perched " + JSON.stringify(perched(g)) + " · refusals " + pilot.log().filter((l) => l.kind === "refused").length);
+      console.log("queue: " + pilot.queue().map((q) => q.job.says + " [" + shownAs(q.shown) + "]").join(" | "));
+    }
+    expect(unnamed).toBe(0);
+    expect(pilot.faults()).toBe(0);
+    return { r, g, pilot };
+  };
+  /** Two hundred hired, living on the map, and none of them without a desk. */
+  const settled = (g: Grid) => {
+    const staff = useGeneratorStore.getState().generators.reduce((n, x) => n + x.amount, 0);
+    return staff >= 200 && housed(g) >= 200 && perched(g).every(([, n]) => n <= 0);
+  };
+
+  test("the Town desk, from an empty map: two hundred people housed and at desks, and never a fault", () => {
+    for (const [seed, size] of [[1, 64], [7, 96]] as const) {
+      const { r, g } = townRun(seed, size, 40, settled);
+      expect(settled(g)).toBe(true);
+      // Inside half an hour.
+      expect(r.seconds).toBeLessThan(30 * 60);
+    }
+  }, 600_000);
+
+  // ON EVERY SEED, and then an hour of it: the town it has built still housed and desked at the end.
+  test.skipIf(!process.env.BALANCE)("the Town desk on six maps, and an hour on one", () => {
+    const only = process.env.SEED ? Number(process.env.SEED) : null;
+    for (const [seed, size] of ([[1, 64], [2, 64], [7, 96], [11, 96], [23, 128], [42, 128]] as const).filter(([n]) => !process.env.HOUR && (only === null || n === only))) {
+      const { r, g } = townRun(seed, size, 40, settled);
+      expect(settled(g)).toBe(true);
+      expect(r.seconds).toBeLessThan(30 * 60);
+    }
+    if (only === null || process.env.HOUR) {
+      const { r, g, pilot } = townRun(only ?? 1, only === null || only < 7 ? 64 : 96, Number(process.env.MINUTES) || 60);
+      expect(r.residents).toBeGreaterThan(400);
+      // None perched beyond what one more office holds — or, more, the office is waiting on something it names:
+      // the vibe coders' on a sewer, which is the Water desk's and not built yet.
+      for (const [who, n] of perched(g)) {
+        if (n <= 40) continue;
+        const office = pilot.queue().find((q) => q.job.id === "desks:" + who);
+        expect(office?.shown).toEqual({ state: "waiting", on: { id: "sewer:" + who, says: "a sewer to take its slop" } });
+      }
+      // And no street laid for anything it could not help.
+      expect(pilot.log().filter((l) => l.kind === "refused").length).toBeLessThan(5);
+    }
+  }, 3_000_000);
 
   // THE NUMBER TO BEAT: today's AI mode, an hour on each of three maps. Printed, not held to anything.
   test.skipIf(!process.env.BALANCE)("today's AI mode, an hour a map", () => {

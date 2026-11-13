@@ -97,27 +97,36 @@ const joined = (g: Grid, r: Road) => {
   return false;
 };
 
-/** The next step for the town as it stands, or null with nothing left to do. */
-export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | null {
+type Build = Extract<PlanStep, { kind: "build" }>;
+
+/** The wants, with the style's rules on where it may build put in: Paranoid, no building within reach of the water. */
+function styled(g: Grid, given: Wants): { w: Wants; style: Style } {
   const style = given.style ?? PLAIN;
-  // PARANOID: no building within reach of the water.
   const w: Wants = style.dryMargin
     ? { ...given, rules: { ...given.rules, owned: (x, y) => (given.rules.owned?.(x, y) ?? true) && !nearWater(g, x, y, style.dryMargin) } }
     : given;
-  const skip = w.skip ?? (() => false);
-  // 0. A SPUR, while it is still a dead end with nothing beside it.
+  return { w, style };
+}
+
+/** A SPUR of the plan's to lift, while it is still a dead end with nothing beside it. */
+export function liftStep(g: Grid, plan: Masterplan, skip: (s: PlanStep) => boolean = () => false): PlanStep | null {
   for (const s of plan.steps) {
     if (s.kind !== "lift" || skip(s) || !inBounds(g, s.at.x, s.at.y) || !isPaved(g, s.at.x, s.at.y)) continue;
     const sides = SIDES.filter(([dx, dy]) => inBounds(g, s.at.x + dx, s.at.y + dy) && isPaved(g, s.at.x + dx, s.at.y + dy)).length;
     const beside = SIDES.some(([dx, dy]) => inBounds(g, s.at.x + dx, s.at.y + dy) && structureAt(g, s.at.x + dx, s.at.y + dy) >= 0);
     if (sides <= 1 && !beside) return s;
   }
-  const structures = [...g.structures.values()];
-  const lots = structures.filter((s) => housedBy(s.def) && !s.build);
+  return null;
+}
 
-  // 1. AN OFFICE, for the kind most short of desks: who lives on the map with
-  // no desk to go to now, and, looking ahead, what its lots will sleep grown.
-  const short = (Object.keys(OFFICE_FOR) as GeneratorId[])
+/** A kind short of desks: who lives on the map with no desk to go to `now`, and — `ahead` — what its lots will sleep grown. */
+export type Short = { who: GeneratorId; now: number; ahead: number; need: number };
+
+/** The kinds short of desks, the shortest first. */
+export function desksShort(g: Grid, given: Wants): Short[] {
+  const { w, style } = styled(g, given);
+  const structures = [...g.structures.values()];
+  return (Object.keys(OFFICE_FOR) as GeneratorId[])
     .filter((who) => w.kinds.includes(who))
     .map((who) => {
       let residents = 0, grown = 0, have = 0;
@@ -128,59 +137,68 @@ export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | nu
         if ((WORKPLACES[who] as readonly string[]).includes(s.def)) have += DESKS[s.def] ?? 0;
       }
       const now = residents - have, ahead = grown - have - style.spareDesks;
-      return { who, need: Math.max(now, ahead) };
+      return { who, now, ahead, need: Math.max(now, ahead) };
     })
     .filter((k) => k.need > 0)
     .sort((a, b) => b.need - a.need);
-  if (w.offices && short.length) {
-    for (const { who } of short) {
-      const def = OFFICE_FOR[who]!;
-      const mine = lots.filter((l) => housedBy(l.def)?.id === who);
-      const d = structureDef(def)!;
-      const fits = plan.steps
-        .filter((s): s is Extract<PlanStep, { kind: "build" }> => s.kind === "build" && s.def === def)
-        .filter((p) => validatePlacement(g, d, p.at.x, p.at.y, w.rules).ok)
-        .sort((a, b) => manhattan(a.at, plan.centre) - manhattan(b.at, plan.centre));
-      if (fits.length) return { kind: "build", def, at: fits[0].at, value: 0 };
-      let best: Cell | null = null, most = -1, nearest = Infinity;
-      for (const c of spots(g, def, w.rules)) {
-        if (style.compact && mine.length) {
-          // TALL: where its houses' walk is shortest, so no commute costs them a tier.
-          const walk = mine.reduce((sum, l) => sum + manhattan(l, c), 0) / mine.length;
-          if (walk < nearest) { nearest = walk; best = c; }
-          continue;
-        }
-        const near = mine.filter((l) => manhattan(l, c) <= 8).length;
-        if (near > most) { most = near; best = c; }
-      }
-      if (best) return { kind: "build", def, at: best, value: 0 };
-    }
-  }
+}
 
-  // 2. A LOT, on the most desirable frontage there is now.
-  const who = w.kinds[0];
-  if (who) {
-    const all = spots(g, `kit:${who}.t0`, w.rules);
-    const maps = all.length ? desireMapsOf(g, placesOf(g, createNetwork(g))) : null;
-    // TALL: only frontage a house would grow on to the tier it plans for —
-    // or, where none would yet, any. @see projectTier
-    const want: Tier = atLeast(style.targetTier, "t2") ? "t2" : style.targetTier;
-    const growing = style.reachOnly && maps
-      ? all.filter((c) => { const m = desireAt(g, maps, c.x, c.y, who); return !!m && atLeast(projectTier(m, who), want); })
-      : all;
-    const free = growing.length ? growing : all;
-    if (free.length && maps) {
-      let best = free[0], top = -Infinity;
-      for (const c of free) {
-        // HYDROPHILE: by the water, the better.
-        const d = (desireAt(g, maps, c.x, c.y, who)?.total ?? -Infinity) + (style.wetPull && nearWater(g, c.x, c.y, 2) ? style.wetPull : 0);
-        if (d > top) { top = d; best = c; }
-      }
-      return { kind: "build", def: `kit:${who}.t0`, at: best, value: top };
-    }
+/** AN OFFICE for a kind: one of the plan's that still fits, or wherever its houses are thickest — tall, where their walk is shortest. */
+export function officeStep(g: Grid, plan: Masterplan | null, given: Wants, who: GeneratorId): Build | null {
+  const { w, style } = styled(g, given);
+  const def = OFFICE_FOR[who];
+  const d = def && structureDef(def);
+  if (!def || !d) return null;
+  const mine = [...g.structures.values()].filter((s) => !s.build && housedBy(s.def)?.id === who);
+  if (plan) {
+    const fits = plan.steps
+      .filter((s): s is Build => s.kind === "build" && s.def === def)
+      .filter((p) => validatePlacement(g, d, p.at.x, p.at.y, w.rules).ok)
+      .sort((a, b) => manhattan(a.at, plan.centre) - manhattan(b.at, plan.centre));
+    if (fits.length) return { kind: "build", def, at: fits[0].at, value: 0 };
   }
+  let best: Cell | null = null, most = -1, nearest = Infinity;
+  for (const c of spots(g, def, w.rules)) {
+    if (style.compact && mine.length) {
+      // TALL: where its houses' walk is shortest, so no commute costs them a tier.
+      const walk = mine.reduce((sum, l) => sum + manhattan(l, c), 0) / mine.length;
+      if (walk < nearest) { nearest = walk; best = c; }
+      continue;
+    }
+    const near = mine.filter((l) => manhattan(l, c) <= 8).length;
+    if (near > most) { most = near; best = c; }
+  }
+  return best ? { kind: "build", def, at: best, value: 0 } : null;
+}
 
-  // 4. THE NEXT PIECE OF PLANNED STREET, joined on and nearest the middle.
+/** A LOT for a kind, on the most desirable frontage there is now. */
+export function lotStep(g: Grid, given: Wants, who: GeneratorId): Build | null {
+  const { w, style } = styled(g, given);
+  const all = spots(g, `kit:${who}.t0`, w.rules);
+  const maps = all.length ? desireMapsOf(g, placesOf(g, createNetwork(g))) : null;
+  // TALL: only frontage a house would grow on to the tier it plans for —
+  // or, where none would yet, any. @see projectTier
+  const want: Tier = atLeast(style.targetTier, "t2") ? "t2" : style.targetTier;
+  const growing = style.reachOnly && maps
+    ? all.filter((c) => { const m = desireAt(g, maps, c.x, c.y, who); return !!m && atLeast(projectTier(m, who), want); })
+    : all;
+  const free = growing.length ? growing : all;
+  if (!free.length || !maps) return null;
+  let best = free[0], top = -Infinity;
+  for (const c of free) {
+    // HYDROPHILE: by the water, the better.
+    const d = (desireAt(g, maps, c.x, c.y, who)?.total ?? -Infinity) + (style.wetPull && nearWater(g, c.x, c.y, 2) ? style.wetPull : 0);
+    if (d > top) { top = d; best = c; }
+  }
+  return { kind: "build", def: `kit:${who}.t0`, at: best, value: top };
+}
+
+/**
+ * THE NEXT PIECE OF PLANNED STREET, joined on and nearest the middle — or
+ * what must be done first for it: its ground levelled, or the house in its
+ * way cleared, if the plan says so. A piece blocked any other way waits.
+ */
+export function streetStep(g: Grid, plan: Masterplan, skip: (s: PlanStep) => boolean = () => false): PlanStep | null {
   const pieces = plan.steps.filter((s): s is Road => s.kind === "road" && !skip(s) && !laid(g, s) && joined(g, s));
   if (!pieces.length) return null;
   const mid = (r: Road): Cell => ({ x: (r.from.x + r.to.x) / 2, y: (r.from.y + r.to.y) / 2 });
@@ -216,6 +234,27 @@ export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | nu
     return r;
   }
   return null;
+}
+
+/** The next step for the town as it stands, or null with nothing left to do. */
+export function nextStep(g: Grid, plan: Masterplan, given: Wants): PlanStep | null {
+  const skip = given.skip ?? (() => false);
+  // 0. A SPUR, while it is still a dead end with nothing beside it.
+  const lift = liftStep(g, plan, skip);
+  if (lift) return lift;
+  // 1. AN OFFICE, for the kind most short of desks.
+  if (given.offices) {
+    for (const { who } of desksShort(g, given)) {
+      const office = officeStep(g, plan, given, who);
+      if (office) return office;
+    }
+  }
+  // 2. A LOT, on the most desirable frontage there is now.
+  const who = given.kinds[0];
+  const lot = who ? lotStep(g, given, who) : null;
+  if (lot) return lot;
+  // 3. THE NEXT PIECE OF PLANNED STREET, joined on and nearest the middle.
+  return streetStep(g, plan, skip);
 }
 
 /** Tiles of road a step lays. */

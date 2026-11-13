@@ -1,6 +1,6 @@
 # AI mode, rebuilt: a pilot that plays the whole run, and shows its work
 
-**Status:** phases 0 and 1 built, 2026-11-13 (see "Built so far" at the end). Phases 2 to 9 not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
+**Status:** phases 0 to 2 built, 2026-11-13 (see "Built so far" at the end). Phases 3 to 9 not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
 
 ## Why
 
@@ -266,3 +266,34 @@ The two columns are not the same test: the old one had to build its own town and
 - 17 unit tests on the chooser and the pilot (`pilot/pilot.test.ts`).
 
 - **Not done:** the pace is a flat two seconds (hangars do not quicken it yet); the goal's tilt is a parameter nothing sets; a hire's worth ignores that a new hire has to arrive and find a desk; the worth of an upgrade that cuts costs is a guess (half the same cut in output).
+
+**Phase 2, the Town desk, 2026-11-13.**
+
+- **`masterplan/schedule.ts`:** the old scheduler's one fixed order is split into the steps it was made of, each exported: `liftStep`, `desksShort`, `officeStep`, `lotStep`, `streetStep`. `nextStep` composes them as before, so the old autopilot is unchanged.
+- **`pilot/desks/town.ts`:** proposes a lot for a kind whose beds are nearly all taken (`beds:<kind>`, the job a hire waits on); an office for a kind short of desks (`desks:<kind>`), worth what the people perched without one are losing; and the next piece of the block's street (`street`), which is worth nothing itself and is laid when a lot or an office is waiting on it. Blocks are planned one at a time by the kept planner (`chooseNext`). Lots go on the best frontage anywhere on the map, not only inside the block.
+- **The chooser gained a rule:** nothing is spent on a job worth nothing. Without it a street nobody was waiting for was laid whenever there was nothing else to do.
+- **Refusals are the desk's to route round.** A street piece or a spot that is refused is not offered again; the next piece is, and when a block has none left the next block is planned.
+- **What it offered is spent once tried.** The lot just zoned and the piece just laid were kept till the next walk of the map, offered again and refused as "occupied". Every attempt now drops what was kept.
+- **A wait names what would end it.** An office that makes slop, with ground for it and no sewer by it, waits on `sewer:<kind>`, not on a street. Said to be waiting on a street, the vibe coders' office had 330 tiles of street laid for it in vain, each a road change that had every car in town plan its way again; a 35-minute run took nine minutes to simulate.
+- **Lots keep off the block's office sites.** Zoned on the best frontage anywhere, they took the tiles the plan meant for offices.
+- **A piece of street with nothing left to lay but water is never offered.**
+- **Not every look walks the map.** Where things could stand is worked out again at most every three seconds, and a block is planned at most every twenty when the last try found none. The map's revision moves with every house that grows; walking the whole map twice a second for a town of three hundred took the sim from seconds to minutes.
+
+**In the sim** (`pilot-run.test.ts`): from an empty generated map, with the garage and the Studio begun by hand (the Landmarks desk is phase 3), the bar is two hundred people hired, living on the map, and none without a desk.
+
+| Map | Reached at | Staff then | Refusals |
+|---|---|---|---|
+| seed 1, 64² | 12.5 min | 193 interns, 40 vibe coders | 0 |
+| seed 2, 64² | 12.9 min | 211, 47 | 0 |
+| seed 7, 96² | 14.6 min | 191, 47 | 0 |
+| seed 11, 96² | 23.6 min | 214, 50 | 0 |
+| seed 23, 128² | 17.2 min | 193, 71 | 0 |
+| seed 42, 128² | 15.6 min | 192, 62 | 0 |
+
+**An hour on one** (seed 1): 355 interns and 190 vibe coders, 543 of them living on the map, no intern without a desk, no refusal, and not a tile of street laid beyond the first block's. Eighty vibe coders have no desk: their office reads "After: a sewer to take its slop", which is the Water desk's to lay (phase 4).
+
+No fault and no frame without words on any. Two of the six run in the suite; all six, and an hour on one, under `BALANCE=1`. The plan's bar said "200 people" and meant it of any kind: interns alone stop near 150, where the next costs thirty billion, which is the game's own wall and why the Studio is in the test.
+
+**Found on the way, in the game itself:** `companyFor` in `agents/town.ts` gave a walker's companions a walk spread from their leader's, and a leader with none gave them a walk with no crossings, which threw the first time anyone asked whether they were on one. It took about forty game minutes and three hundred people to happen. Fixed.
+
+- **Not done:** the pilot's builds are done at once, with no drone flown for them and no hologram (the interface phases); blocks are planned on the main thread, not in the worker; the town is not seen in the browser, since the pilot is not in the game yet; the sim slows as the town grows (an hour for a town of five hundred takes about three minutes; where the time goes was not profiled, Bun here having no CPU profiler); the 10x devs' Campus and the vibe coders' sewers wait on phases 3 and 4.

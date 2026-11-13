@@ -96,7 +96,9 @@ export function choose(jobs: readonly Job[], purse: Purse, memory: Memory, now: 
   const first = (q: Queued) => (q.job.id === pinned ? 2 : q.job.urgent ? 1 : 0);
   queue.sort((a, b) => first(b) - first(a) || b.worth - a.worth || a.job.cost - b.job.cost || (a.job.id < b.job.id ? -1 : 1));
 
-  const open = queue.filter((q) => q.shown.state === "ready" || q.shown.state === "saving");
+  // NOTHING IS SPENT ON WHAT IS WORTH NOTHING: a street nobody is waiting for is not laid for want of anything else to do.
+  const wanted = (q: Queued) => q.worth > 0 || q.job.cost <= 0 || q.job.urgent || q.job.id === pinned;
+  const open = queue.filter((q) => (q.shown.state === "ready" || q.shown.state === "saving") && wanted(q));
   const best = open[0];
   if (!best) {
     // NOTHING IT COULD DO: what it is waiting for, or what refused it — the best of them, named.

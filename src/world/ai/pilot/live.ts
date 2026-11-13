@@ -7,6 +7,7 @@ import { useInnovationStore } from "../../../state/innovation.store";
 import { useMoneyStore } from "../../../state/money.store";
 import type { Purse } from "./chooser";
 import { peopleDesk } from "./desks/people";
+import { townDesk } from "./desks/town";
 import type { Desk } from "./pilot";
 
 /** What the company has to spend now, and how fast it comes in. */
@@ -22,4 +23,4 @@ export function livePurse(reserve = 0): Purse {
 }
 
 /** Every desk built so far. */
-export const allDesks = (): Desk[] => [peopleDesk()];
+export const allDesks = (): Desk[] => [peopleDesk(), townDesk()];
