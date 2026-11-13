@@ -5,7 +5,9 @@
 import { useGeneratorStore } from "../../../state/generators.store";
 import { useInnovationStore } from "../../../state/innovation.store";
 import { useMoneyStore } from "../../../state/money.store";
+import { useWorldStore } from "../../../state/world.store";
 import type { Purse } from "./chooser";
+import { landmarksDesk, owedOnSites } from "./desks/landmarks";
 import { peopleDesk } from "./desks/people";
 import { townDesk } from "./desks/town";
 import type { Desk } from "./pilot";
@@ -16,11 +18,12 @@ export function livePurse(reserve = 0): Purse {
   return {
     money: useMoneyStore.getState().money.toNumber(),
     income: gens.getMoneyPerSecond(),
-    reserve,
+    // And what a site under way still owes for its loads: spent elsewhere, the site stalls. @see owedOnSites
+    reserve: reserve + owedOnSites(useWorldStore.getState().grid),
     innovation: useInnovationStore.getState().innovation.toNumber(),
     innovationRate: gens.getInnovationPerSecond(),
   };
 }
 
 /** Every desk built so far. */
-export const allDesks = (): Desk[] => [peopleDesk(), townDesk()];
+export const allDesks = (): Desk[] => [peopleDesk(), townDesk(), landmarksDesk()];

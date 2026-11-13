@@ -1,6 +1,6 @@
 # AI mode, rebuilt: a pilot that plays the whole run, and shows its work
 
-**Status:** phases 0 to 2 built, 2026-11-13 (see "Built so far" at the end). Phases 3 to 9 not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
+**Status:** phases 0 to 3 built, 2026-11-13 (see "Built so far" at the end). Phases 4 to 9 not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
 
 ## Why
 
@@ -297,3 +297,34 @@ No fault and no frame without words on any. Two of the six run in the suite; all
 **Found on the way, in the game itself:** `companyFor` in `agents/town.ts` gave a walker's companions a walk spread from their leader's, and a leader with none gave them a walk with no crossings, which threw the first time anyone asked whether they were on one. It took about forty game minutes and three hundred people to happen. Fixed.
 
 - **Not done:** the pilot's builds are done at once, with no drone flown for them and no hologram (the interface phases); blocks are planned on the main thread, not in the worker; the town is not seen in the browser, since the pilot is not in the game yet; the sim slows as the town grows (an hour for a town of five hundred takes about three minutes; where the time goes was not profiled, Bun here having no CPU profiler); the 10x devs' Campus and the vibe coders' sewers wait on phases 3 and 4.
+
+**Phase 3, the Landmarks desk, 2026-11-13.**
+
+- **`pilot/desks/landmarks.ts`:** a job for each project not yet built (`project:<id>`), with its site: where its landmark stands for a tier that rises over one, else the nearest spot to the town. What it waits on is named and, where another desk can do it, is that desk's job: the upgrade its gate asks for (as the next of its set on offer), the people, the tier below, the site in hand finished (one project at a time), a street with room.
+- **What a project is worth.** One that opens a new kind is taken to be worth the company's income over again; one that opens a part of the game (managers, mandates, ports, leaders), a quarter of income; a wonder, its money bonus on income, and three tenths of any other. These are set high on purpose: a project costs little against the company and takes a long time to go up, so the thing to do is start it early. At a twentieth, the HQ stood open twenty minutes before it was begun.
+- **Loads are kept back for.** A site's materials are paid a load at a time out of the money the pilot spends; what a site still owes is added to the reserve (`owedOnSites`), so a hire cannot starve a build.
+- **Of a fork, the one that multiplies money** (the Hackerspace over the Conference Centre), unless the other is begun. The goal will choose in phase 8.
+- **Not its own:** the slop processors' projects (the Water desk's, phase 4).
+- **People desk:** a hire with no desk to go to is now worth what the deskless manage (about a third), so a hire no longer always beats the office its people need.
+- **Town desk:** lots keep off the block's planned streets as well as its office sites. Lots across the lines the streets were to run on blocked every piece, the block was dropped, and after a few the town had "no room to grow" with one street on the map.
+
+**In the sim**, from the Model's $5 on a 64-tile map, nothing done by hand (`IPO=1 BALANCE=1 bun test src/simulation/pilot-run.test.ts -t "to the IPO Tower"`):
+
+| | When |
+|---|---|
+| Garage | 1.1 min |
+| First intern | 1.2 min |
+| Studio, first vibe coder | 15.6 min |
+| Company HQ | 40.6 min |
+| Campus, first 10x dev | 44.3 min |
+| Could be sold | 89.8 min |
+| Boardroom Tower | 90.0 min |
+| **IPO Tower** | **114.7 min** |
+
+At the end: 520 interns, 248 vibe coders, 10 10x devs; 776 living on the map; 26 of 32 upgrades; $6.6B a second; no refusal, no fault. The suite's own test (one map, about twenty game minutes) holds the garage, the studio, vibe coders hired and two hundred people housed and at desks.
+
+- **Not done, and what the run shows:**
+  - **The landmarks go up slowly, and one at a time.** The Boardroom took 46 minutes to build and the IPO Tower 25; the Harbour, the Data Centre, the Hackerspace and the Agency were all still waiting at the end. The balance sim's greedy player finishes the core in about 1.25 hours. The pilot never raises a site's priority: that is the lever, and it is not pulled.
+  - **The order is by what is ready first.** The HQ was begun before the Campus because its upgrade was bought first, and the Campus then waited sixteen minutes for the site. Nothing looks ahead at a better project about to open.
+  - 58 vibe coders have no desk at the end: their office waits on a sewer (phase 4).
+  - The Harbour and two wonders wait on "a street with room beside it" on a 64-tile map that is nearly full; bigger maps were not run to the Tower.

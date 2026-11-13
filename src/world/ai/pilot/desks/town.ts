@@ -124,11 +124,21 @@ export function townDesk(): Desk {
   const skipped = new Set<string>(), bad = new Set<number>();
   // And a piece with no tile left to lay that is still not laid — all that is left of it is water — is never tried at all.
   const skip = (s: PlanStep) => skipped.has(JSON.stringify(s)) || (s.kind === "road" && roadTiles(useWorldStore.getState().grid, s) === 0);
-  /** Tiles the block in hand means for its offices: no lot goes on them. Zoned on the best frontage anywhere, lots took them, and a kind's office then had nowhere to stand. */
+  /**
+   * Tiles the block in hand means for its offices and its streets: no lot goes
+   * on them. Zoned on the best frontage anywhere, lots took the offices' sites,
+   * and stood across the lines the block's streets were to run on — every
+   * piece blocked, the block dropped, and after a few the town had "no room
+   * to grow" with one street on the map.
+   */
   let kept = new Set<number>();
   const keep = (g: Grid) => {
     kept = new Set();
     for (const s of plan?.steps ?? []) {
+      if (s.kind === "road") {
+        for (let y = Math.min(s.from.y, s.to.y); y <= Math.max(s.from.y, s.to.y); y++) for (let x = Math.min(s.from.x, s.to.x); x <= Math.max(s.from.x, s.to.x); x++) kept.add(idx(g, x, y));
+        continue;
+      }
       const d = s.kind === "build" && !housedBy(s.def) ? structureDef(s.def) : null;
       if (!d || s.kind !== "build") continue;
       for (let y = 0; y < d.footprint.h; y++) for (let x = 0; x < d.footprint.w; x++) kept.add(idx(g, s.at.x + x, s.at.y + y));

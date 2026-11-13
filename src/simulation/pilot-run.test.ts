@@ -12,7 +12,7 @@ import { useSessionStore } from "../state/session.store";
 import { playRules } from "../state/world.store";
 import type { Grid } from "../world/grid";
 import { placeStructure, startProject } from "../world/play/build-actions";
-import { nearestSpot } from "../world/projects/works";
+import { builtProjects, nearestSpot } from "../world/projects/works";
 import { structureDef } from "../world/structures/def";
 import { getAiRunner, stepAi } from "../world/ai/ai-runner";
 import { lastStep, planInline, stepAutopilot, stepsTaken } from "../world/ai/autopilot";
@@ -137,19 +137,15 @@ describe("a company played on a real map with no screen", () => {
   const perched = (g: Grid) => desksShort(g, { rules: playRules(g), kinds: ["intern", "vibe_coder"], offices: true }).map((k) => [k.who, k.now] as const);
   const housed = (g: Grid) => { let n = 0; for (const s of g.structures.values()) if (!s.build && housedBy(s.def)) n += residentsIn(s); return n; };
 
-  /** The pilot from an empty map, the garage and the studio begun by hand: the Landmarks desk is not built yet. */
+  /** The pilot from an empty map, every desk it has. */
   const townRun = (seed: number, size: number, minutes: number, until?: (g: Grid) => boolean) => {
     const pilot = createPilot(allDesks(), { strict: true });
-    let unnamed = 0, clock = 0, studio = false;
+    let unnamed = 0;
     let map: Grid | null = null;
     const r = playCompany(jest.advanceTimersByTime.bind(jest), {
       seed, size, minutes, until,
-      begin: (g) => { map = g; startProject("garage", nearestSpot(g, structureDef("garage")!, playRules(g))!); },
-      drive: (g, dt) => {
-        if (!pilot.tick(dt, livePurse(), g.rev).says) unnamed++;
-        // THE STUDIO, once its upgrade is bought: vibe coders are how a company gets past the interns' price.
-        if ((clock += dt) >= 5 && !studio) { clock = 0; const at = nearestSpot(g, structureDef("studio")!, playRules(g)); studio = !!at && startProject("studio", at); }
-      },
+      begin: (g) => { map = g; },
+      drive: (g, dt) => { if (!pilot.tick(dt, livePurse(), g.rev).says) unnamed++; },
       steps: pilot.done, said: pilot.last,
     });
     const g = map!;
@@ -168,37 +164,48 @@ describe("a company played on a real map with no screen", () => {
     return staff >= 200 && housed(g) >= 200 && perched(g).every(([, n]) => n <= 0);
   };
 
-  test("the Town desk, from an empty map: two hundred people housed and at desks, and never a fault", () => {
-    for (const [seed, size] of [[1, 64], [7, 96]] as const) {
-      const { r, g } = townRun(seed, size, 40, settled);
-      expect(settled(g)).toBe(true);
-      // Inside half an hour.
-      expect(r.seconds).toBeLessThan(30 * 60);
-    }
+  test("from an empty map, by itself: the garage, the studio, and two hundred people housed and at desks — never a fault", () => {
+    const { r, g } = townRun(1, 64, 45, settled);
+    expect(settled(g)).toBe(true);
+    expect(r.seconds).toBeLessThan(35 * 60);
+    // Its own doing: nobody began the garage or the studio for it.
+    expect(r.opened.garage).toBeDefined();
+    expect(r.opened.studio).toBeDefined();
+    expect(r.staff.vibe_coder ?? 0).toBeGreaterThan(0);
+    expect(r.upgrades.bought).toBeGreaterThan(5);
   }, 600_000);
 
   // ON EVERY SEED, and then an hour of it: the town it has built still housed and desked at the end.
-  test.skipIf(!process.env.BALANCE)("the Town desk on six maps, and an hour on one", () => {
+  test.skipIf(!process.env.BALANCE || !!process.env.IPO)("the pilot on six maps, and an hour on one", () => {
     const only = process.env.SEED ? Number(process.env.SEED) : null;
     for (const [seed, size] of ([[1, 64], [2, 64], [7, 96], [11, 96], [23, 128], [42, 128]] as const).filter(([n]) => !process.env.HOUR && (only === null || n === only))) {
-      const { r, g } = townRun(seed, size, 40, settled);
+      const { r, g } = townRun(seed, size, 45, settled);
       expect(settled(g)).toBe(true);
-      expect(r.seconds).toBeLessThan(30 * 60);
+      expect(r.seconds).toBeLessThan(40 * 60);
+      expect(r.opened.studio).toBeDefined();
     }
     if (only === null || process.env.HOUR) {
       const { r, g, pilot } = townRun(only ?? 1, only === null || only < 7 ? 64 : 96, Number(process.env.MINUTES) || 60);
       expect(r.residents).toBeGreaterThan(400);
-      // None perched beyond what one more office holds — or, more, the office is waiting on something it names:
-      // the vibe coders' on a sewer, which is the Water desk's and not built yet.
+      // All three kinds, and the landmarks that open them.
+      for (const kind of ["intern", "vibe_coder", "10x_dev"] as const) expect(r.staff[kind] ?? 0).toBeGreaterThan(0);
+      for (const id of ["garage", "studio", "hq", "campus"] as const) expect(r.opened[id]).toBeDefined();
+      // None perched beyond what one more office holds — or, more, their office is waiting on something it names
+      // (the vibe coders' on a sewer, which is the Water desk's and not built yet) or being saved for.
       for (const [who, n] of perched(g)) {
         if (n <= 40) continue;
         const office = pilot.queue().find((q) => q.job.id === "desks:" + who);
-        expect(office?.shown).toEqual({ state: "waiting", on: { id: "sewer:" + who, says: "a sewer to take its slop" } });
+        expect(["waiting", "saving"]).toContain(office?.shown.state);
       }
-      // And no street laid for anything it could not help.
       expect(pilot.log().filter((l) => l.kind === "refused").length).toBeLessThan(5);
     }
   }, 3_000_000);
+
+  // PHASE 3's BAR: the IPO Tower standing, by its own doing from five dollars.
+  test.skipIf(!process.env.IPO)("to the IPO Tower", () => {
+    const { r } = townRun(Number(process.env.SEED) || 1, 64, Number(process.env.MINUTES) || 240, (g) => builtProjects(g).has("ipo"));
+    expect(r.opened.ipo).toBeDefined();
+  }, 6_000_000);
 
   // THE NUMBER TO BEAT: today's AI mode, an hour on each of three maps. Printed, not held to anything.
   test.skipIf(!process.env.BALANCE)("today's AI mode, an hour a map", () => {

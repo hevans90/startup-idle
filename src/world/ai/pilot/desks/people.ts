@@ -17,6 +17,7 @@ import { GENERATOR_TYPES, useGeneratorStore, type GeneratorId } from "../../../.
 import { useUpgradeStore, type Upgrade } from "../../../../state/upgrades.store";
 import { useWorldStore } from "../../../../state/world.store";
 import { getGeneratorCost } from "../../../../utils/generator-utils";
+import { DESKS, WORKPLACES, desklessShare } from "../../../agents/commute";
 import { builtProjects } from "../../../projects/works";
 import type { Purse } from "../chooser";
 import type { Job, Need } from "../job";
@@ -54,6 +55,26 @@ function batch(id: GeneratorId, room: number, have: number): number {
   return lo;
 }
 
+/** Desks standing empty for a kind: its workplaces' desks, less everyone it employs. */
+function freeDesks(id: GeneratorId): number {
+  let desks = 0;
+  for (const s of useWorldStore.getState().grid.structures.values()) {
+    if (!s.build && (WORKPLACES[id] as readonly string[] | undefined)?.includes(s.def)) desks += DESKS[s.def] ?? 0;
+  }
+  return Math.max(0, desks - amountOf(id));
+}
+
+/**
+ * What `n` more of a kind would earn: in full for those with a desk to go to,
+ * and what the deskless manage for the rest. Taken at full whatever the
+ * desks, a hire always beat the office its people needed.
+ */
+function earns(id: GeneratorId, n: number): number {
+  const each = useGeneratorStore.getState().getGeneratorMoneyPerSecond(id, 1);
+  const seated = Math.min(n, freeDesks(id));
+  return each * (seated + (n - seated) * desklessShare());
+}
+
 /** A hire for each kind. */
 function hires(purse: Purse): Job[] {
   const gens = useGeneratorStore.getState();
@@ -79,7 +100,7 @@ function hires(purse: Purse): Job[] {
       says: `Hire ${n} ${plural(base.name, n)}`,
       why: room >= 1 ? `${room} ${plural("bed", room)} standing empty` : `no bed for ${an(base.name)}`,
       cost: getGeneratorCost(id, n).toNumber(),
-      gain: gens.getGeneratorMoneyPerSecond(id, n),
+      gain: earns(id, n),
       needs,
       run: () => {
         const before = amountOf(id);
