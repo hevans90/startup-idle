@@ -46,9 +46,10 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { demolishLifts, getTownServices, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { demolishLifts, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
+import { stepGrowth, stepPeople, stepSites, type WorksSeen } from "./step-world";
 import {
   bandShown, createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
   type BandLayer,
@@ -93,10 +94,9 @@ import { fitting } from "./boats/fittings";
 import { creditTrade, stepTrade } from "./boats/trade";
 import { BARGE_COST, BARGE_HOLDS, bargeLoad, bargeTakes } from "./boats/slop-loader";
 import { pushWater } from "./boats/wake";
-import { LORRY_LOADS, stepYards, yardFill } from "./boats/yard";
+import { LORRY_LOADS, yardFill } from "./boats/yard";
 import { RTG_REACH, stackBayOf } from "./structures/seaport-renderer";
 import { NEIGHBOUR } from "../iso/dir";
-import { PORT_LORRY_COLOUR } from "./agents/cars/fleet";
 import { portWork } from "./boats/traffic";
 import { setPortLife } from "./structures/port-life";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
@@ -141,15 +141,12 @@ const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
-import { seatsByCell, sendOnJob, stepTown, trafficOf, type Seat } from "./agents/town";
-import { createEmergency, stepEmergency } from "./agents/emergency";
-import { moveOut, stepArrivals } from "./agents/arrivals";
-import { liveCoverage, stepEvolution, townChanged, withTier } from "./agents/services";
-import { stepTown as stepTownServices } from "./agents/town-services";
-import { ladderOf, stepLadder } from "./agents/unlocks";
+import { seatsByCell, trafficOf, type Seat } from "./agents/town";
+import { moveOut } from "./agents/arrivals";
+import { withTier } from "./agents/services";
 import { liveBeauty } from "./agents/beauty";
 import { WORKPLACES, liveSeating, workplaceKind } from "./agents/commute";
-import { liveMoods, moodTint, setFlooded, setFouled, setSludged, stepMood, type Unrest } from "./agents/mood";
+import { liveMoods, moodTint, setFlooded, setFouled, setSludged, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
 import { CONVOY_PAYS, convoyPays, loadPriceMult, setConvoyIn, setStrike } from "./events/convoy";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
@@ -184,8 +181,8 @@ import { ROUTE_BONUS } from "./events/defs/convoy";
 import { fusionNow } from "../game/fusion";
 import { skillOf, training, useTrainingStore } from "../state/training.store";
 import { useSessionStore } from "../state/session.store";
-import { sitesOf, stepWorks } from "./projects/works";
-import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
+import { sitesOf } from "./projects/works";
+import { ownedNow } from "./projects/economy";
 import { stepFleet, wantFleet } from "./boats/fleet";
 import { callInvestor, stepTraffic, trafficSteer } from "./boats/traffic";
 import { termStatus } from "../game/term-sheets";
@@ -523,7 +520,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   /** The cars and people, drawn among the movers too. @see world/agents */
   const townRef = useRef<TownLayer | null>(null);
   /** The works' revision last told to the store, so autosave hears of progress. */
-  const worksRevRef = useRef(0);
+  const worksSeen = useRef<WorksSeen>({ rev: 0 });
   /**
    * When the ports' rate a second was last kept — starting a minute ahead,
    * so the first one is measured over a whole minute of calls and not the
@@ -3371,26 +3368,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const net = getNetwork();
       if (net) {
         const st = useWorldStore.getState();
-        { const e = section("tick: stepTown"); stepTown(getTown(), st.grid, net, st.revision, dt); e(); }
-        // THE EMERGENCY SERVICES, to what the disasters have damaged. @see world/agents/emergency
-        { const town = getTown(); stepEmergency(town.emergency ??= createEmergency(), town, st.grid, damagedNow(), dt); }
-        // THE PROJECTS going up: crews walking out, loads trucked in, work
-        // done — after the town has moved, so who arrived this frame is known.
-        // Paid for out of the company's money under the game's rules; free in
-        // the editor, which must never spend anybody's money. @see stepWorks
-        // NEW HIRES ARRIVING, in the game: by bus, car or limousine from the
-        // edge of the map to a lot with room, and moving in. Before the works,
-        // which clears who arrived. @see world/agents/arrivals
+        // THE TOWN MOVING, the emergency services out, and new hires arriving
+        // — before the works, which clears who arrived. The rules are the
+        // world's, not the scene's. @see stepPeople
         // (`__fakeHires`, in development: people to send for that nobody has
         // hired, so a bus can be watched without touching the economy.)
-        const fake = import.meta.env.DEV ? window.__fakeHires : undefined;
-        if (st.playing || fake) {
-          const arrivals = getArrivals();
-          const owned = ownedNow();
-          for (const [id, n] of Object.entries(fake ?? {})) owned[id as keyof typeof owned] = (owned[id as keyof typeof owned] ?? 0) + n;
-          { const e = section("tick: arrivals"); stepArrivals(arrivals, st.grid, net, getTown(), owned, fake ? {} : useSessionStore.getState().remoteBeds ?? {}, dt); e(); }
-          if (arrivals.moved.length) useWorldStore.getState().housingMoved(arrivals.moved.splice(0));
-        }
+        stepPeople(st.grid, net, st.revision, dt, st.playing, import.meta.env.DEV ? window.__fakeHires : undefined);
         // EVENTS, in the game: the director's look twice a second, and what
         // an event under way does to the map. @see world/events
         const sEvents = section("tick: leaders, events, flood");
@@ -3802,32 +3785,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
         sAi();
         const sMood = section("tick: mood, evolution");
-        // PEOPLE LEAVING MISERABLE HOUSES, in the game, one now and then.
-        // @see stepMood
+        // PEOPLE LEAVING MISERABLE HOUSES, THE TOWN EVOLVING, and what it
+        // opens and closes, in the game. @see stepGrowth
         if (st.playing) {
-          const left = stepMood(unrestRef.current, st.grid, liveMoods(st.grid, net), dt);
-          if (left.length) useWorldStore.getState().housingMoved(left);
-        }
-        // THE TOWN EVOLVING, in the game: houses growing where their needs
-        // are met, and declining when they lose them; and the town opening
-        // what its people need, and closing what nobody does. @see stepTown
-        if (st.playing) {
-          // WHAT IT KNOWS HOW TO OPEN, by its headcount, one at a time. @see stepLadder
-          const ladder = ladderOf(st.grid);
-          if (ladder && stepLadder(ladder, ownedNow(), dt).length) townChanged();
-          const cover = liveCoverage(st.grid, net);
-          // THE FINEST STREETS, out for a stroll. @see Town.strollers
-          let strollers = 0;
-          for (const level of liveBeauty(st.grid, net).home.values()) if (level >= 3) strollers++;
-          getTown().strollers = strollers;
-          const grew = stepEvolution(getEvolution(), st.grid, liveMoods(st.grid, net), cover, dt);
-          if (grew.length) useWorldStore.getState().housingMoved(grew);
-          const ws = useWorldStore.getState();
-          const changed = stepTownServices(getTownServices(), st.grid, net, cover, dt, {
-            canPlace: (def, x, y) => { const d = structureDef(def); return !!d && validatePlacement(st.grid, d, x, y, playRules(st.grid)).ok; },
-            place: ws.townPlace, clear: ws.townClear, rand: Math.random,
-          });
-          if (changed.length) ws.housingMoved(changed.map((e) => e.structure));
+          const changed = stepGrowth(st.grid, net, unrestRef.current, dt);
           // A SHOP OPENED: its pop, and its name floating up. @see Juice.opened
           const juice = juiceRef.current, bands = blRef.current, tex = texRef.current;
           for (const e of changed) {
@@ -3838,33 +3799,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
         sMood();
         const sWorks = section("tick: works");
-        const works = getWorks();
-        // THE PORTS' YARDS, out by the gate: a lorry from the port's door to where its road leaves the map, one on the road a port. @see yard
-        {
-          const town = getTown();
-          stepYards(getTraffic().yards, dt, (port) => {
-            const door = town.places.find((pl) => pl.kind === "door" && pl.structure === port);
-            const out = door && town.places.find((pl) => pl.kind === "gateway" && pl.net === door.net);
-            if (!door || !out) return "none";
-            if (town.movers.some((m) => m.job?.role === "freight" && m.job.site === port)) return "busy";
-            // WHERE THE PORT HAS A YARD GANTRY and the lorry sets off from within its reach — the road behind its bay
-            // of stacks, or a little to either side — it stands there while the gantry sets a box on it. @see carryAt
-            const ps = st.grid.structures.get(port), bay = stackBayOf(ps);
-            const lorry = sendOnJob(town, st.grid, "truck", door, out, { site: port, role: "freight" });
-            if (lorry) {
-              lorry.colour = PORT_LORRY_COLOUR;
-              const a = ps?.facing && NEIGHBOUR[ps.facing][0] === 0 ? lorry.x - (ps.x - 0.5) : lorry.y - ((ps?.y ?? 0) - 0.5);
-              if (bay >= 0 && a > bay - RTG_REACH && a < bay + 1 + RTG_REACH) lorry.wait = LORRY_LOADS;
-            }
-            return lorry ? "sent" : "busy";
-          });
-        }
-        stepWorks(works, st.grid, net, getTown(), ownedNow(), st.playing ? payForLoad : () => true, dt, Date.now());
-        if (works.opened.length) announceOpened(works.opened.splice(0));
-        if (works.rev !== worksRevRef.current) {
-          worksRevRef.current = works.rev;
-          useWorldStore.setState({ projectRev: st.projectRev + 1 });
-        }
+        // THE PORTS' YARDS, out by the gate, and THE PROJECTS going up. @see stepSites
+        stepSites(st.grid, net, worksSeen.current, dt, st.playing, (lorry, port) => {
+          // WHERE THE PORT HAS A YARD GANTRY and the lorry sets off from within its reach — the road behind its bay
+          // of stacks, or a little to either side — it stands there while the gantry sets a box on it. @see carryAt
+          const ps = st.grid.structures.get(port), bay = stackBayOf(ps);
+          const a = ps?.facing && NEIGHBOUR[ps.facing][0] === 0 ? lorry.x - (ps.x - 0.5) : lorry.y - ((ps?.y ?? 0) - 0.5);
+          if (bay >= 0 && a > bay - RTG_REACH && a < bay + 1 + RTG_REACH) lorry.wait = LORRY_LOADS;
+        });
         sWorks();
         { const e = section("tick: town draw"); townRef.current?.draw(getTown(), scale, nightNowRef.current); e(); }
       }
