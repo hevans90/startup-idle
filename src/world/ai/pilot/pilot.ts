@@ -83,6 +83,8 @@ export type Pilot = {
   doNext: (id: string | null) => void;
   pinned: () => string | null;
   setGoal: (goal: Goal) => void;
+  /** Seconds between two jobs done: its drone hangars quicken it. */
+  setPace: (seconds: number) => void;
   goal: () => Goal;
   pause: (on: boolean) => void;
   setDesk: (id: DeskId, on: boolean) => void;
@@ -102,7 +104,7 @@ function saysOf(d: Decision): Status {
 }
 
 export function createPilot(desks: readonly Desk[], options: PilotOptions = {}): Pilot {
-  const pace = options.pace ?? PACE;
+  let pace = options.pace ?? PACE;
   let memory: Memory = newMemory();
   let t = 0, sinceLook = Infinity, sinceJob = Infinity, done = 0, faults = 0;
   let last: string | null = null;
@@ -184,6 +186,7 @@ export function createPilot(desks: readonly Desk[], options: PilotOptions = {}):
     doNext: (id) => { memory.pinned = id; if (id) memory.cancelled.delete(id); },
     pinned: () => memory.pinned,
     setGoal: (to) => { goal = to; },
+    setPace: (seconds) => { pace = seconds; },
     goal: () => goal,
     pause: (on) => { paused = on; },
     setDesk: (id, on) => { if (on) off.delete(id); else off.add(id); },

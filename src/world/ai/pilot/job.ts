@@ -7,7 +7,7 @@
  * A job is always in exactly one STATE, and every state has words for the
  * player. That is the point of the shape: "cannot afford it yet", "waiting
  * on a sewer", "refused" and "nothing to do" were one bare `false` in the
- * autopilot this replaces, and a town that had stopped could not say why.
+ * autopilot this replaced, and a town that had stopped could not say why.
  * @see choose, Pilot, plans/ai-mode-rebuild.md
  */
 

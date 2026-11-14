@@ -1,7 +1,7 @@
 /**
  * World v2 — THE NEXT BLOCK: what the planning worker works out, here so the
  * main thread can work it out too, where there is no worker. @see chooseBlock,
- * masterplan.worker
+ * townDesk
  */
 import type { GeneratorId } from "../../../state/generators.store";
 import type { Grid } from "../../grid";

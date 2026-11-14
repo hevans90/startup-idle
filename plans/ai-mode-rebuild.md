@@ -1,6 +1,6 @@
 # AI mode, rebuilt: a pilot that plays the whole run, and shows its work
 
-**Status:** phases 0 to 8 built, 2026-11-14 (see "Built so far" at the end): the brain is whole, it drives the game, the controls are off while it does, every job it has in mind is shown, and it can be steered. Phase 9 (taking the old one out, the play-through) not started. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
+**Status:** all ten phases built, 2026-11-14 (see "Built so far" at the end), but for phase 9's play-through: the old autopilot is gone and there is one path in the code; the three start-to-sale play-throughs in the browser were not made (one seven-minute run was). Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
 
 ## Why
 
@@ -489,4 +489,27 @@ Played on past the sale on seed 1 (75 minutes): the Harbour at 60, a seaport, th
   - **AI mode beside the takeover** (question 3): both run, and the pilot does not yet tell the takeover's buildings from its own. Not played.
   - **A non-Model founder's run was not played in the browser**: no fixture is one past its first Ascension.
   - **The pace** (question 4) is as it was: two seconds a job, urgent ones at once.
+
+**Phase 9, out with the old, 2026-11-14.**
+
+- **Deleted:** `world/ai/autopilot.ts` and its tests, `play/ai-mode-panel.tsx`, `masterplan/masterplan.worker.ts` (only the old brain used it; the Town desk plans a block on the main thread), the old plan's ghost in the scene (streets, levelling, clearances, the pending pipe) and `pendingPipe` in the AI layer, the sim's "number to beat" run.
+- **Settings:** `aiBudget` and `showPlan` are gone from the session. An old save's values are read and never written back.
+- **Kept:** `masterplan/schedule.ts`'s `nextStep`. Nothing in the game calls it; four tests of the kept street planner drive it, and its parts (`liftStep`, `officeStep`, `lotStep`, `streetStep`) are the Town desk's.
+- **Drone hangars quicken the pilot**, as they quickened the old one: a job the sooner for each, to six. The old code's going would have left the Model's hangars doing nothing.
+- **The cooling test** that drove the old autopilot to lay a main now drives the pilot's Water desk. It showed the desk lays no main for a company with no income, a main being worth a share of income: so in the game, where anything that drinks has a company behind it.
+
+**The play-through.** The bar was start to sale on three maps in the browser. **Not made.** A run is an hour of real time a map, the economy keeping the wall clock; and the isolated preview's save is a first run, whose founders have no AI mode till an Ascension, which is not to be given by hand. What was played: `/?fixture=singularity&nosave`, the Model's seeded company with $1M, AI mode on, for seven minutes.
+
+| At | What |
+|---|---|
+| 0:00 to 0:30 | its own free buildings, three training runs begun in turn, three upgrades, the Vibe Coder Studio begun, eight offices and five pumps with mains: the million spent |
+| to 3:36 | forty jobs done; 14 rounds of intern hires; none refused |
+| 6:30 | the Studio open, vibe coders hired and a lot zoned for them; saving for the Company HQ ($129k short, 0:49) and the Campus |
+
+No refusal, no fault, no console error. The dev server reloaded the page at seven minutes (a file was saved) and the fixture began again.
+
+- **Seen in that run and not looked into:**
+  - **The million went in thirty seconds**, on eight intern offices ("their houses will outgrow their desks") and five pumped mains for the Model's own buildings. Each may be right; a company handed a fortune is not what the sim plays.
+  - **The bar's Now can read a wait of forty days**: "Spin up an agent · saving, 71 innovation short · 959h". It is the best job and it is being saved for, in its own coin, while money jobs go on; as the headline it reads as stuck.
+- **Still open from earlier phases:** the time bound against the balance sim's greedy player; seed 7's 4.4-minute spill; the gateway road that slows two maps; events in the sim; the "needs you" card unseen in the browser; a non-Model founder's AI mode unplayed; no Fine town goal.
 

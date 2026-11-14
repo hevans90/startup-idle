@@ -19,7 +19,6 @@ import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 import { structureDef } from "../structures/def";
 import type { Masterplan } from "./masterplan/plan";
-import type { PipeRoute } from "./pipe-route";
 import { isPaved } from "../roads/mask";
 import { powered as rackPowered } from "../projects/racks";
 import { tankFor } from "../projects/cooling";
@@ -53,12 +52,10 @@ export type AiView = {
   ascension: number;
   /** The AI's drones aloft, and whether each is scanning its spot. @see stepAi */
   drones?: readonly { x: number; y: number; scanning: boolean }[];
-  /** AI mode's masterplan, to show as a ghost of the town to come. @see autopilot */
+  /** A masterplan, to show as a ghost of the town to come: the editor's preview. */
   plan?: Masterplan | null;
   /** The masterplan's buildings shown as holograms, as `def@x,y`: the flat ghost leaves them out. */
   planHolos?: ReadonlySet<string>;
-  /** A pipe AI mode means to lay and cannot yet pay for: cyan, its pump a square. @see pendingPipe */
-  pipe?: PipeRoute | null;
   /** How well the Data Centre is cooled, 0–1, and how full its tank is; both 1 by default. @see game/cooling */
   cooled?: number;
   tank?: number;
@@ -225,19 +222,6 @@ export function createAiLayer(overlay: Container): AiLayer {
       }
       // THE MASTERPLAN: planned streets outlined, planned buildings a tint on the ground.
       if (view.plan) drawPlan(g, sc, view.plan, view.planHolos);
-      // AND THE PIPE IT MEANS TO LAY, cyan; its pump house a square.
-      if (view.pipe) {
-        for (const c of view.pipe.pipe) {
-          const z = ground(g, c.x, c.y);
-          gfx.poly([...P(sc, c.x - 0.18, c.y - 0.18, z), ...P(sc, c.x + 0.18, c.y - 0.18, z), ...P(sc, c.x + 0.18, c.y + 0.18, z), ...P(sc, c.x - 0.18, c.y + 0.18, z)]);
-          gfx.fill({ color: 0x22d3ee, alpha: 0.7 });
-        }
-        if (view.pipe.pump) {
-          const c = view.pipe.pump, z = ground(g, c.x, c.y);
-          gfx.poly([...P(sc, c.x - 0.4, c.y - 0.4, z), ...P(sc, c.x + 0.4, c.y - 0.4, z), ...P(sc, c.x + 0.4, c.y + 0.4, z), ...P(sc, c.x - 0.4, c.y + 0.4, z)]);
-          gfx.stroke({ color: 0x22d3ee, width: Math.max(1, 1.5 * sc), alpha: 0.9 });
-        }
-      }
       const dc = structures.find((s) => s.def === "datacentre" && !s.build);
       if (!dc) { holos = []; return; }
       if (!dcTop || dcTop.def !== dc.def) dcTop = { def: dc.def, z: topOf(lookOf(dc.def, { w: dc.w, h: dc.h })) };

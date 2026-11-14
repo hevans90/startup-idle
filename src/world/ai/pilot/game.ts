@@ -5,13 +5,13 @@
  * thing is done already. @see createPilot, PilotBar, plans/ai-mode-rebuild.md phase 6
  */
 import type { Grid } from "../../grid";
-import { DRONE_SPEED, MAX_DRONES, getAiRunner } from "../ai-runner";
+import { DRONE_SPEED, HANGAR_SPEED, MAX_DRONES, MAX_HANGARS, getAiRunner } from "../ai-runner";
 import { allDesks, livePurse } from "./live";
 import { usePilotView, type PilotView } from "../../../state/pilot-view.store";
 import { useFounderStore } from "../../../state/founder.store";
 import { useSessionStore } from "../../../state/session.store";
 import { shownAs, type DeskId } from "./job";
-import { LOOK_EVERY, createPilot, type Pilot } from "./pilot";
+import { LOOK_EVERY, PACE, createPilot, type Pilot } from "./pilot";
 
 const pilot: Pilot = createPilot(allDesks());
 let flown = 0;
@@ -67,7 +67,13 @@ function droneHome(g: Grid): { x: number; y: number } | null {
 export function stepGamePilot(g: Grid, dt: number) {
   // Another map is another company: nothing remembered of the last.
   if (company !== g) { if (company) resetGamePilot(); company = g; }
-  if (sincePublish + dt >= LOOK_EVERY) steer();
+  if (sincePublish + dt >= LOOK_EVERY) {
+    steer();
+    // ITS HANGARS: each a job the sooner, as they quicken the company's AI. @see HANGAR_SPEED
+    let hangars = 0;
+    for (const s of g.structures.values()) if (s.def === "drone-hangar" && !s.build) hangars++;
+    pilot.setPace(PACE / (1 + HANGAR_SPEED * Math.min(MAX_HANGARS, hangars)));
+  }
   const st = pilot.tick(dt, () => livePurse(useSessionStore.getState().aiReserve ?? 0), g.rev);
   // SAID TO THE INTERFACE, as often as it looks.
   sincePublish += dt;

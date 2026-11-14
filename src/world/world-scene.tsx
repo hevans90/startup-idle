@@ -26,7 +26,6 @@ import { aiFixturePreview, sequenceIntensity, stepSequence } from "./ai/ascensio
 import { catchUpAi, droneAt, getAiRunner, stepAi, stepMemos, vetoAt } from "./ai/ai-runner";
 import { VETO_REPLIES } from "./ai/memos";
 import { useGenerationStore } from "../state/generation.store";
-import { currentPlan, pendingPipe } from "./ai/autopilot";
 import { stepGamePilot } from "./ai/pilot/game";
 import { usePilotView } from "../state/pilot-view.store";
 import { aiDriving } from "../hooks/use-ai-driving";
@@ -143,7 +142,6 @@ import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { seatsByCell, trafficOf, type Seat } from "./agents/town";
 import { moveOut } from "./agents/arrivals";
-import { withTier } from "./agents/services";
 import { liveBeauty } from "./agents/beauty";
 import { WORKPLACES, liveSeating, workplaceKind } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setFouled, setSludged, type Unrest } from "./agents/mood";
@@ -188,7 +186,7 @@ import "./structures/project-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
-import { MAIN_END, footprintCells, idx, inBounds, structureAt, surfaceHeightAt, surfaceSampler, wetSurfaceSampler, type Grid, type Structure } from "./grid";
+import { MAIN_END, footprintCells, idx, inBounds, structureAt, surfaceSampler, wetSurfaceSampler, type Grid, type Structure } from "./grid";
 import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { pourAt, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
@@ -236,7 +234,7 @@ const phaseNow = () => (import.meta.env.DEV ? (window as unknown as { __dayPhase
 
 /** Movers on the map at which the town sounds as busy as it gets. */
 const TOWN_FULL = 80;
-import { HOLO_BLOCKED, HOLO_OK, HOLO_SAVING, PLAN_HOLOGRAMS, createHolograms, partsOf, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
+import { HOLO_SAVING, createHolograms, partsOf, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
@@ -390,14 +388,6 @@ function dcCooling(g: Grid): { cooled: number; tank: number } {
   return { cooled: 1, tank: 1 };
 }
 
-/** A number for each masterplan seen, to tell a new one from the last. */
-const planIds = new WeakMap<object, number>();
-let planSeq = 0;
-const planId = (plan: object) => {
-  let id = planIds.get(plan);
-  if (id === undefined) { id = ++planSeq; planIds.set(plan, id); }
-  return id;
-};
 
 
 /** A look-tool press let go within this many px of where it went down is a click, not a pan. */
@@ -2272,13 +2262,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       flying.add(`take:${into}@${at.x},${at.y}`);
       holos.push({ key: `take:${into}@${at.x},${at.y}`, def: into, x: at.x, y: at.y, ok: false });
     }
-    const ss = useSessionStore.getState(), st = useWorldStore.getState();
-    const show = ss.showPlan && ss.aiMode && st.playing;
-    const plan = show ? currentPlan() : null;
-    const pipe = show ? pendingPipe() : null;
+    const st = useWorldStore.getState();
     // WHAT THE PILOT HAS IN MIND, each building where it would stand, tinted by its state. @see usePilotView
     const queued = st.playing && aiDriving() ? usePilotView.getState().queue.filter((j) => j.at && j.puts && j.state !== "cancelled") : [];
-    const sig = `${[...flying].join("|")}#${plan ? planId(plan) : -1}#${pipe ? planId(pipe) : -1}#${st.revision}#${queued.map((j) => `${j.puts}@${j.at!.x},${j.at!.y}:${j.state}`).join("|")}`;
+    const sig = `${[...flying].join("|")}#${st.revision}#${queued.map((j) => `${j.puts}@${j.at!.x},${j.at!.y}:${j.state}`).join("|")}`;
     if (sig !== aiHoloSig.current) {
       aiHoloSig.current = sig;
       const g = st.grid;
@@ -2288,59 +2275,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (flying.has(`${def}@${at.x},${at.y}`) || !structureDef(def) || holos.some((h) => h.x === at.x && h.y === at.y)) continue;
         holos.push({ key: `pilot:${def}@${at.x},${at.y}`, def, x: at.x, y: at.y, ok: j.state !== "blocked", planned: true, tint: j.state === "ready" || j.state === "blocked" ? undefined : HOLO_SAVING });
       }
-      if (plan) {
-        // ITS BUILDINGS, every one not up nor under way, nearest the middle first.
-        const builds = plan.steps
-          .filter((s): s is Extract<typeof s, { kind: "build" }> => s.kind === "build")
-          .filter((s) => !flying.has(`${s.def}@${s.at.x},${s.at.y}`) && structureAt(g, s.at.x, s.at.y) < 0)
-          .sort((a, b) => Math.abs(a.at.x - plan.centre.x) + Math.abs(a.at.y - plan.centre.y) - Math.abs(b.at.x - plan.centre.x) - Math.abs(b.at.y - plan.centre.y))
-          .slice(0, PLAN_HOLOGRAMS);
-        // A lot as the house it is planned to grow to: the district it builds toward. (It starts at I.)
-        for (const s of builds) holos.push({ key: `plan:${s.def}@${s.at.x},${s.at.y}`, def: s.tier && structureDef(withTier(s.def, s.tier)) ? withTier(s.def, s.tier) : s.def, x: s.at.x, y: s.at.y, ok: true, planned: true });
-        // ITS STREETS, as the tiles they will be: each one's road art worked
-        // out as if every planned street were laid, so they join up.
-        const ghost = { ...g, paved: Uint16Array.from(g.paved) };
-        const streets: { x: number; y: number }[] = [];
-        for (const s of plan.steps) {
-          if (s.kind !== "road") continue;
-          for (let y = Math.min(s.from.y, s.to.y); y <= Math.max(s.from.y, s.to.y); y++) {
-            for (let x = Math.min(s.from.x, s.to.x); x <= Math.max(s.from.x, s.to.x); x++) {
-              if (!inBounds(g, x, y) || isPaved(g, x, y)) continue;
-              ghost.paved[idx(g, x, y)] = 1;
-              streets.push({ x, y });
-            }
-          }
-        }
-        for (const c of streets) {
-          const frame = roadSpriteFor(ROAD_TABLE, maskAt(ghost, c.x, c.y)).frame;
-          if (frame) tiles.push({ key: `road:${c.x},${c.y}`, x: c.x, y: c.y, z: surfaceHeightAt(g, c.x, c.y), frame, colour: HOLO_OK, alpha: 0.5 });
-        }
-        for (const s of plan.steps) {
-          // ITS GROUND LEVELLED: each tile's own terrain at the height it will be.
-          if (s.kind === "level") {
-            for (let y = Math.min(s.from.y, s.to.y); y <= Math.max(s.from.y, s.to.y); y++) {
-              for (let x = Math.min(s.from.x, s.to.x); x <= Math.max(s.from.x, s.to.x); x++) {
-                if (!inBounds(g, x, y) || g.height[idx(g, x, y)] === s.z) continue;
-                const frame = st.palette[g.terrain[idx(g, x, y)]];
-                if (frame) tiles.push({ key: `level:${x},${y}`, x, y, z: s.z, frame, colour: HOLO_OK, alpha: 0.55 });
-              }
-            }
-          }
-          // ITS ROAD TO LIFT, red over the road that is there.
-          if (s.kind === "lift" && isPaved(g, s.at.x, s.at.y)) {
-            const frame = roadSpriteFor(ROAD_TABLE, maskAt(g, s.at.x, s.at.y)).frame;
-            if (frame) tiles.push({ key: `lift:${s.at.x},${s.at.y}`, x: s.at.x, y: s.at.y, z: surfaceHeightAt(g, s.at.x, s.at.y), frame, colour: HOLO_BLOCKED, alpha: 0.6 });
-          }
-          // ITS HOUSE TO CLEAR, red glass over the house.
-          if (s.kind === "clear") {
-            const id = structureAt(g, s.at.x, s.at.y);
-            const there = id >= 0 ? g.structures.get(id) : undefined;
-            if (there) holos.push({ key: `clear:${there.id}`, def: there.def, x: there.x, y: there.y, ok: false, planned: true });
-          }
-        }
-      }
-      // AND THE PUMP HOUSE OF A PIPE IT MEANS TO LAY.
-      if (pipe?.pump) holos.push({ key: `pump:${pipe.pump.x},${pipe.pump.y}`, def: "pump", x: pipe.pump.x, y: pipe.pump.y, ok: true, planned: true });
       planHoloKeys.current = new Set(holos.filter((h) => h.planned).map((h) => `${h.def}@${h.x},${h.y}`));
       aiHolos.current = holos;
       showHolos();
@@ -3965,7 +3899,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           reservoirs: playing ? useSessionStore.getState().aiReservoirs : undefined,
           // WHAT THE ARC IS PICKING, under the pointer; or the block picked. @see useQuestStore.picking
           pick: playing ? questPickBox() : null,
-          pipe: useSessionStore.getState().showPlan && useSessionStore.getState().aiMode ? pendingPipe() : null,
         }, raw, now);
       } else ai?.clear();
       const r = rain.current;

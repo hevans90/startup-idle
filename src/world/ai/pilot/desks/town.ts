@@ -12,7 +12,7 @@
  *    needs it, and is worth what that is worth.
  *
  * The streets are planned a block at a time by the planner kept from the old
- * autopilot (`chooseNext`); the order things are built in is the chooser's.
+ * old autopilot (`chooseNext`); the order things are built in is the chooser's.
  * What is costly to work out — every spot a building could stand — is worked
  * out again only when the map changes. @see lotStep, officeStep, streetStep
  */

@@ -1,7 +1,7 @@
 /**
  * THE UPGRADES ON OFFER: within a generator's set only the next — the
  * cheapest available — is shown, so a set reveals one at a time. What the
- * Employees tab offers, and so all AI mode may buy. @see Upgrades, autopilot
+ * Employees tab offers, and so all AI mode may buy. @see Upgrades, peopleDesk
  */
 import type { Upgrade } from "../state/upgrades.store";
 

@@ -6,7 +6,7 @@
  *
  * What a placement would put down, under the build tool; what AI mode's
  * drones are about to put down, while they fly out and scan. A hologram that
- * cannot go where it is shown is red. @see world-scene, autopilot
+ * cannot go where it is shown is red. @see world-scene, pilot/game
  *
  * IMAGINARY STRUCTURES: records the grid never holds, mounted through the
  * renderer registry like any other, under ids no real structure has.
@@ -40,8 +40,6 @@ export const HOLO_BLOCKED = 0xff5a5a;
 export const HOLO_SAVING = 0xffb84d;
 /** The most shown at once: a dragged row of lots, the AI's drones, and the masterplan's nearest. */
 export const MAX_HOLOGRAMS = 2100;
-/** The masterplan's buildings shown as holograms at most: all of them, in practice. */
-export const PLAN_HOLOGRAMS = 2000;
 /** How a planned building looks: fainter than one on its way. */
 const PLANNED_ALPHA = 0.45;
 /** How the build tool's hologram looks: steady glass, a touch clearer than a planned one. */

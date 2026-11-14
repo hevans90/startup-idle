@@ -15,29 +15,16 @@ import { placeStructure, startProject } from "../world/play/build-actions";
 import { builtProjects, nearestSpot } from "../world/projects/works";
 import { structureDef } from "../world/structures/def";
 import { getAiRunner, stepAi } from "../world/ai/ai-runner";
-import { lastStep, planInline, stepAutopilot, stepsTaken } from "../world/ai/autopilot";
 import { neededSewer } from "../world/ai/sewer-ai";
 import { tanksOf } from "../world/slop/tanks";
 import { portsOf } from "../world/water/ports";
 import { playCompany, type PilotRunReport } from "./pilot-run";
 import { resetAllGameStores } from "./reset-game-stores";
 
-planInline();
 afterEach(resetAllGameStores);
 
-const IDLE = { stage: "tool" as const, running: 0, agents: 0 };
 const mins = (s?: number) => (s === undefined ? "never" : (s / 60).toFixed(1) + " min");
 
-/** AI mode as it is today, driving. @see stepAutopilot */
-const autopilot = {
-  begin: () => useSessionStore.getState().setAiMode({ aiMode: true, aiBudget: 0.8 }),
-  drive: (g: Parameters<typeof stepAutopilot>[0], dt: number, now: number) => {
-    stepAutopilot(g, dt, now);
-    stepAi(getAiRunner(), g, IDLE, dt, now);
-  },
-  steps: stepsTaken,
-  said: lastStep,
-};
 
 const print = (r: PilotRunReport) => {
   const firsts = Object.entries(r.firstHire).map(([k, v]) => k + " " + mins(v)).join(", ");
@@ -233,13 +220,4 @@ describe("a company played on a real map with no screen", () => {
     const { r } = townRun(seed, size, Number(process.env.MINUTES) || 120, undefined, !process.env.FULL);
     expect(r.saleAt).toBeDefined();
   }, 6_000_000);
-
-  // THE NUMBER TO BEAT: today's AI mode, an hour on each of three maps. Printed, not held to anything.
-  test.skipIf(!process.env.BALANCE)("today's AI mode, an hour a map", () => {
-    for (const [seed, size] of [[1, 64], [7, 96], [23, 128]] as const) {
-      print(playCompany(jest.advanceTimersByTime.bind(jest), { seed, size, minutes: 60, untilSale: true, ...autopilot }));
-    }
-    // And given $10,000 to start on, which gets it past its first hire.
-    print(playCompany(jest.advanceTimersByTime.bind(jest), { seed: 1, size: 64, minutes: 60, untilSale: true, money: 10_000, ...autopilot }));
-  }, 1_800_000);
 });

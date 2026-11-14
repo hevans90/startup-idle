@@ -6,7 +6,6 @@ import { useTrainingStore } from "../state/training.store";
 import { clearMorale } from "../game/morale";
 import { setSlopMaking, setSlopRate } from "../game/slop";
 import { setProcessorUse } from "../game/processors";
-import { resetAutopilot } from "../world/ai/autopilot";
 import { resetGamePilot } from "../world/ai/pilot/game";
 import { resetCooling } from "../world/projects/cooling";
 import { resetPlanner } from "../world/ai/planner";
@@ -49,7 +48,6 @@ export function resetRunStores(): void {
   setSlopMaking(0);
   setSlopRate(0);
   setProcessorUse({ refinery: 0, dataplant: 0, contentfarm: 0 });
-  resetAutopilot();
   resetGamePilot();
   resetCooling();
   resetPlanner();

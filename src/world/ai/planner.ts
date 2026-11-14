@@ -75,11 +75,11 @@ export type AiAction =
   | { kind: "pipe"; route: PipeRoute; at: Cell; why: string }
   /** A main widened, twice the water through it, for water to spare. @see moreWater */
   | { kind: "widen"; at: Cell; price: number; why: string }
-  /** Nothing: a drone sent for the look of it, AI mode's work being done already. @see autopilot */
+  /** Nothing: a drone sent for the look of it, AI mode's work being done already. @see stepGamePilot */
   | { kind: "noop"; at: Cell; why: string }
   /**
    * AI MODE'S STEP, carried out by the drone when it has scanned: `run` does
-   * it; `holo` is the building to show as a hologram till then. @see autopilot
+   * it; `holo` is the building to show as a hologram till then. @see stepGamePilot
    */
   | { kind: "deferred"; at: Cell; why: string; run: () => boolean; holo?: { def: string; x: number; y: number } };
 
@@ -146,7 +146,7 @@ function spots(g: Grid, defId: string, d: District, near?: { at: Cell; within: n
 
 /** Anywhere on the map: AI mode's own, which has no district. */
 const NO_DISTRICT: District = { cx: 0, cy: 0, r: Infinity };
-/** Where AI mode puts one of the AI's buildings: within a rack's reach of the Data Centre, the nearest to it. @see aiBuildingStep */
+/** Where AI mode puts one of the AI's buildings: within a rack's reach of the Data Centre, the nearest to it. @see machineDesk */
 export function aiBuildingSite(g: Grid, defId: string, dc: Structure): Cell | null {
   const c = centre(dc);
   const options = spots(g, defId, NO_DISTRICT, { at: c, within: RACK_RANGE });

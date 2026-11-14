@@ -24,7 +24,7 @@ const opts = (owned: (x: number, y: number) => boolean = everywhere) => ({ owned
 const wants = (owned: (x: number, y: number) => boolean = everywhere) => ({ rules: { needsRoad: true, owned }, kinds: [], services: false, offices: false });
 const kinds = (steps: PlanStep[]) => steps.map((s) => s.kind);
 
-/** Take the schedule's steps on the grid, as the autopilot would, till it has none; what it took. */
+/** Take the schedule's steps on the grid, as AI mode would, till it has none; what it took. */
 function build(g: Grid, owned = everywhere): PlanStep[] {
   const plan = planTown(g, opts(owned));
   const took: PlanStep[] = [];

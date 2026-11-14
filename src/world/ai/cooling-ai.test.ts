@@ -11,10 +11,11 @@ import { createGrid, fillTerrain, idx, setHeight } from "../grid";
 import { resetCooling, stepCooling, tankFor } from "../projects/cooling";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
-import { AUTOPILOT_EVERY, lastStep, planInline, stepAutopilot } from "./autopilot";
+import { waterDesk } from "./pilot/desks/water";
+import { livePurse } from "./pilot/live";
+import { createPilot } from "./pilot/pilot";
 import { intakesInto, neededPipe } from "./cooling-ai";
 
-planInline();
 
 /** Water down column 1, above the town; a Data Centre with a rack, on a road; no beds to hire into. */
 function town() {
@@ -53,13 +54,14 @@ describe("the AI keeps its Data Centre cool", () => {
     expect(need.price).toBeGreaterThan(0);
   });
 
-  test("AI mode lays the pipe, paying for it, and the Data Centre is fed", () => {
+  test("the pilot's Water desk lays the pipe, paying for it, and the Data Centre is fed", () => {
     const { g, dc } = town();
     useMoneyStore.setState({ money: new Decimal(1e9) });
-    useSessionStore.getState().setAiMode({ aiMode: true });
-    for (let k = 0; k < 4 && intakesInto(g, dc) === 0; k++) stepAutopilot(g, AUTOPILOT_EVERY, Date.now());
+    // A company that earns: a main is worth a share of income, and nothing to one with none.
+    const pilot = createPilot([waterDesk()]);
+    for (let k = 0; k < 40 && intakesInto(g, dc) === 0; k++) pilot.tick(1, () => ({ ...livePurse(), income: 100 }), g.rev);
     expect(intakesInto(g, dc)).toBe(1);
-    expect(lastStep()).toMatch(/pipe/);
+    expect(pilot.last()).toMatch(/main/);
     expect(useMoneyStore.getState().money.lt(1e9)).toBe(true);
     // Fed, it is not short again.
     Object.assign(tankFor(dc.id)!, { share: 1 });

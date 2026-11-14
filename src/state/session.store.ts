@@ -86,12 +86,10 @@ type SessionState = {
   aiSaid: string[];
   markAiSaid: (stage: string) => void;
   /**
-   * THE MODEL'S AI MODE: whether the town builds itself, the most of the
-   * money it may spend at once, and whether its masterplan is shown.
-   * @see world/ai/autopilot
+   * AI MODE: whether the pilot is playing the company.
+   * @see world/ai/pilot
    */
   aiMode: boolean;
-  aiBudget: number;
   /**
    * HOW AI MODE IS STEERED: what it leans toward, the seconds of income it
    * keeps back, and the desks switched off, whose controls are the player's
@@ -117,8 +115,7 @@ type SessionState = {
   /** What the company's AI is to work at. @see world/ai/focus */
   aiFocus: AiFocus;
   setAiFocus: (aiFocus: AiFocus) => void;
-  showPlan: boolean;
-  setAiMode: (patch: Partial<{ aiMode: boolean; aiBudget: number; showPlan: boolean }>) => void;
+  setAiMode: (patch: Partial<{ aiMode: boolean }>) => void;
   setMapEventsOff: (off: boolean) => void;
   setHintsOff: (off: boolean) => void;
   /** Whether the projects log is open or folded away. */
@@ -167,7 +164,6 @@ export const useSessionStore = create<SessionState>()(
       aiAt: null,
       setAiAt: (aiAt) => set({ aiAt }),
       aiMode: false,
-      aiBudget: 0.8,
       aiGoal: "grow",
       aiReserve: 0,
       aiDesksOff: [],
@@ -181,7 +177,6 @@ export const useSessionStore = create<SessionState>()(
       setAiReservoirs: (aiReservoirs) => set({ aiReservoirs }),
       aiFocus: "grow",
       setAiFocus: (aiFocus) => set({ aiFocus }),
-      showPlan: true,
       setAiMode: (patch) => set(patch),
       aiSaid: [],
       markAiSaid: (stage) => set((s) => ({ aiSaid: [...(s.aiSaid ?? []), stage] })),
@@ -225,13 +220,11 @@ export const useSessionStore = create<SessionState>()(
         aiGoal: s.aiGoal,
         aiReserve: s.aiReserve,
         aiDesksOff: s.aiDesksOff,
-        aiBudget: s.aiBudget,
         aiShare: s.aiShare,
         aiWallet: s.aiWallet,
         aiFocus: s.aiFocus,
         aiReservoirs: s.aiReservoirs,
         aiLattice: s.aiLattice,
-        showPlan: s.showPlan,
       }),
     },
   ),

@@ -42,7 +42,7 @@ function named(def: string): string {
 }
 
 const COOLING: Need = { id: "cooling", says: "water for what already drinks" };
-/** The Model's own, in the order it puts them up, and how many of each. @see aiBuildingStep */
+/** The Model's own, in the order it puts them up, and how many of each. */
 const OWN: readonly (readonly [string, number])[] = [["gpu-farm", MAX_FARMS], ["compute-spire", MAX_SPIRES], ["drone-hangar", MAX_HANGARS], ["monolith", 1], ["lattice", 1]];
 
 export function machineDesk(): Desk {

@@ -207,7 +207,7 @@ function Focus() {
   const value = useAiSingularityStore((s) => s.value);
   const grid = useWorldStore((s) => s.grid);
   const agents = useAgentsStore((s) => s.agents);
-  // The Model's own runs are AI mode's. @see AiModePanel
+  // The Model's own runs are AI mode's. @see PilotTab
   if (founder === "model") return null;
   // AIR-GAPPED, there is nothing for it to work at. @see game/machine KEYSTONES
   if (keystone("airgap"))
@@ -270,7 +270,7 @@ function Allowance() {
   const wallet = useSessionStore((s) => s.aiWallet);
   const set = useSessionStore((s) => s.setAiWallet);
   const founder = useFounderStore((s) => s.selectedFounderId);
-  // The Model's own runs are AI mode's, with its own budget; air-gapped, it spends nothing. @see AiModePanel
+  // The Model's own runs are AI mode's, with its own reserve; air-gapped, it spends nothing. @see PilotTab
   if (founder === "model" || keystone("airgap")) return null;
   const cap = walletCap();
   return (

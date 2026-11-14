@@ -3,7 +3,7 @@
  * one down, lay or lift road, reshape the ground, start a project.
  * Each goes through exactly the store action a click goes through — the same
  * prices, the same rules, the same refusals — so whatever calls these (the
- * company's AI, The Model's autopilot) builds as a player builds and cannot
+ * company's AI, AI mode's pilot) builds as a player builds and cannot
  * cheat. @see world/ai/planner, plans/singularity.md
  *
  * QUIET: a refusal is an answer here, not a notice for the player, and what
