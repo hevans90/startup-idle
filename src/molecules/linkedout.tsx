@@ -21,6 +21,7 @@ import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
 import { EmployeeAvatar } from "./innovation/employee-avatar";
 import { KIND_PLURAL } from "./leaders-panel";
+import { Manual } from "../ui/manual";
 
 const clock = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -76,6 +77,7 @@ function ApplicantCard({ a, now }: { a: Applicant; now: number }) {
         <p className={twMerge("text-[11px]", !a.flagKnown ? "text-fg-muted" : flag?.bad ? "text-bad" : "text-good")}>
           {!a.flagKnown ? "Background: unknown" : flag ? `${flag.name}: ${flag.says}` : "Background: clean"}
         </p>
+        <Manual>
         <div className="flex flex-wrap justify-end gap-1 pt-1">
           <Button size="sm" variant="quiet" onClick={() => pass(a.id)}>Pass</Button>
           {!a.flagKnown && (
@@ -86,6 +88,7 @@ function ApplicantCard({ a, now }: { a: Applicant; now: number }) {
             Hire · <span className="text-innovation">{cost}</span>
           </Button>
         </div>
+        </Manual>
       </div>
     </article>
   );
@@ -114,7 +117,7 @@ function Jobs() {
               <span className="font-display text-sm uppercase tracking-wider">Leader of <KindName id={k} plural /></span>
               {open
                 ? <span className="text-[11px] tabular-nums text-fg-muted">Posted · up to {open.left} more · closes in {clock(open.closesAt - now)}</span>
-                : <Button size="sm" disabled={innovation.lt(cost)} onClick={() => post(k)}>Post a job · <span className="text-innovation">{cost} innovation</span></Button>}
+                : <Manual><Button size="sm" disabled={innovation.lt(cost)} onClick={() => post(k)}>Post a job · <span className="text-innovation">{cost} innovation</span></Button></Manual>}
             </div>
             {theirs.length ? theirs.map((a) => <ApplicantCard key={a.id} a={a} now={now} />)
               : <p className="py-1 text-[11px] text-fg-muted">{open ? "No one yet." : "No post up: nobody is applying."}</p>}
@@ -175,10 +178,12 @@ function Connections() {
               <b>{c.name}</b> <span className="text-fg-muted">· {PERSONALITIES[c.personality].name} · {KIND_ONE[c.role]}, was rank {c.rankWas}</span>
               <p className={twMerge("text-[10px]", flag?.bad ? "text-bad" : flag ? "text-good" : "text-fg-faint")}>{flag ? flag.name : "Background: clean"}</p>
             </div>
+            <Manual>
             <Button size="sm" disabled={!kinds.has(c.role) || innovation.lt(REHIRE_COST)} confirm={current ? `${current.name.split(" ")[0]} leaves: sure?` : undefined}
               title={kinds.has(c.role) ? "Back at rank 1" : `No ${KIND_PLURAL[c.role]} here to lead`} onClick={() => rehire(c.id)}>
               Rehire · <span className="text-innovation">{REHIRE_COST}</span>
             </Button>
+            </Manual>
           </div>
         );
       })}

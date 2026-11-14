@@ -19,6 +19,7 @@ import { Generators } from "./generators";
 import { InnovationManagers } from "./innovation/innovation-managers";
 import { InnovationSummary } from "./innovation/innovation-summary";
 import { PurchaseModeToggle } from "./purchase-mode-toggle";
+import { Manual } from "../ui/manual";
 import { Upgrades } from "./upgrades";
 import { ValuationTab } from "./valuation-tab";
 import { useValuationVisible } from "../hooks/use-valuation-visible";
@@ -58,7 +59,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   const body: Record<SidebarTab, ReactNode> = {
     employees: (
       <div className="flex flex-col gap-6 p-2">
-        <PurchaseModeToggle />
+        <Manual><PurchaseModeToggle /></Manual>
         <Generators />
         {/* MORALE, here until the HQ opens the Innovation tab, where it is in full. */}
         {!managersOpen && <MoraleStrip className="mx-2" />}

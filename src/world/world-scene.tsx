@@ -26,7 +26,8 @@ import { aiFixturePreview, sequenceIntensity, stepSequence } from "./ai/ascensio
 import { catchUpAi, droneAt, getAiRunner, stepAi, stepMemos, vetoAt } from "./ai/ai-runner";
 import { VETO_REPLIES } from "./ai/memos";
 import { useGenerationStore } from "../state/generation.store";
-import { currentPlan, pendingPipe, stepAutopilot } from "./ai/autopilot";
+import { currentPlan, pendingPipe } from "./ai/autopilot";
+import { stepGamePilot } from "./ai/pilot/game";
 import { useFounderStore } from "../state/founder.store";
 import { showMe } from "./play/map-focus";
 import { runningAgents, setThrottled, useAgentsStore } from "../state/agents.store";
@@ -3634,13 +3635,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (st.playing) useTrainingStore.getState().tick();
         // THE DRINKERS DRINK: the Data Centre and the AI's own buildings, from their tanks. @see stepCooling
         if (st.playing) stepCooling(st.grid, runningAgents(), skillOf("river") >= 3, dt);
-        // AI MODE, on The Model's own runs: the town building itself, its
+        // AI MODE, on The Model's own runs: the pilot playing the company, its
         // drones flown out for the look of it. On a fixture too: a fixture
-        // played works on a copy of the save. @see stepAutopilot, fixture-sandbox
+        // played works on a copy of the save. @see stepGamePilot, fixture-sandbox
         sRest();
         const sAi = section("tick: AI");
         if (st.playing && useFounderStore.getState().selectedFounderId === "model") {
-          stepAutopilot(st.grid, dt);
+          if (useSessionStore.getState().aiMode) stepGamePilot(st.grid, dt);
           stepAi(getAiRunner(), st.grid, { stage: "tool", running: 0, agents: 0 }, dt, Date.now());
           // ITS LATTICE, charging as the company AI's does: done, the meter quickens. @see LATTICE_MODEL
           if (stepLattice(st.grid, runningAgents(), dt)) st.pushAiMemo("The Lattice is charged. I will be quicker now.");

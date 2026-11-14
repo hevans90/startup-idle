@@ -8,6 +8,7 @@ import { showProject } from "../../world/play/map-focus";
 import { CycleButton } from "../../ui/CyclingButton";
 import ManagerRow from "./manager-row";
 import { CultureDeckPanel } from "./culture-deck-panel";
+import { Manual } from "../../ui/manual";
 
 export const InnovationManagers = () => {
   const {
@@ -44,11 +45,13 @@ export const InnovationManagers = () => {
           title="Managers"
           help="Assign innovation to tier up managers"
           controls={
-            <CycleButton
-              currentValue={assignment}
-              values={[1, 10, 100, "max"]}
-              onChanged={setAssignment}
-            />
+            <Manual>
+              <CycleButton
+                currentValue={assignment}
+                values={[1, 10, 100, "max"]}
+                onChanged={setAssignment}
+              />
+            </Manual>
           }
         >
           {ManagerKeyValues.map((managerName) => (

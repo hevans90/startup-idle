@@ -18,6 +18,7 @@ import { builtProjects, ruledOut, sitesOf } from "../projects/works";
 import { projectForStructure } from "../../game/projects";
 import { nextHint, type HintState } from "./hints";
 import { Button, Card } from "../../ui/console";
+import { useAiDriving } from "../../hooks/use-ai-driving";
 
 /** What the hints can see, read from the game now. */
 function snapshot(): HintState {
@@ -79,6 +80,7 @@ export function HintCard() {
   const setOff = useSessionStore((s) => s.setHintsOff);
   const [hint, setHint] = useState<ReturnType<typeof nextHint>["show"]>(null);
   const [settled, setSettled] = useState(false);
+  const driving = useAiDriving();
   useEffect(() => {
     const id = setTimeout(() => setSettled(true), SETTLE_MS);
     return () => clearTimeout(id);
@@ -100,13 +102,14 @@ export function HintCard() {
 
   // WHAT IT POINTS AT, glowing while it is up.
   useEffect(() => {
-    if (!hint?.target || !settled) return;
+    if (!hint?.target || !settled || driving) return;
     const els = [...document.querySelectorAll(`[data-hint="${hint.target}"]`)];
     for (const el of els) el.classList.add("hint-glow");
     return () => { for (const el of els) el.classList.remove("hint-glow"); };
-  }, [hint, settled]);
+  }, [hint, settled, driving]);
 
-  if (!hint || !settled) return null;
+  // Under AI mode there is nobody to tip: the pilot is building. @see useAiDriving
+  if (!hint || !settled || driving) return null;
   // A HINT, in comms: quiet, the good tone, put away with ✕ or for good. @see CommsDock
   return (
     <Card tone="good" onClose={() => markDone([hint.id])} className="w-[min(24rem,calc(100vw-1rem))]">

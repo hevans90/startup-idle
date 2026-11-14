@@ -3,6 +3,7 @@ import { MANDATES, useValuationStore } from "../../state/valuation.store";
 import { Locked, Tile } from "../../ui/console";
 import { formatCurrency } from "../../utils/money-utils";
 import { showProject } from "../../world/play/map-focus";
+import { useAiDriving } from "../../hooks/use-ai-driving";
 
 /**
  * THE BOARD'S MANDATES: a tile each — its name and level, what it does, and
@@ -15,6 +16,8 @@ export const ValuationMandatesPanel = () => {
   const canAffordMandate = useValuationStore((s) => s.canAffordMandate);
   const getMandateCost = useValuationStore((s) => s.getMandateCost);
   const open = featureGateOpen("mandates");
+  // UNDER AI MODE each is a readout: the pilot passes them. @see useAiDriving
+  const driving = useAiDriving();
 
   return (
     <div className="flex flex-col gap-2">
@@ -23,7 +26,7 @@ export const ValuationMandatesPanel = () => {
       <div className="grid grid-cols-2 gap-2">
         {MANDATES.map((m) => {
           const level = mandateLevels[m.id];
-          const affordable = open && canAffordMandate(m.id);
+          const affordable = open && !driving && canAffordMandate(m.id);
           return (
             <Tile key={m.id} lit={affordable} disabled={!affordable} onClick={() => purchaseMandate(m.id)}
               className="flex flex-col gap-1 p-2.5">

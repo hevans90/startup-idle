@@ -16,6 +16,7 @@ import type { GameEvent } from "../events/events";
 import { clearOfferPremium, offerPremium, setOfferPremium } from "../../game/acquisition";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
 import { Button, Card, Tile } from "../../ui/console";
+import { useAiDriving } from "../../hooks/use-ai-driving";
 
 /**
  * AN ACQUIRER'S OFFER, answered: looking at it puts their premium on the sale
@@ -40,6 +41,8 @@ export function EventCard({ e }: { e: GameEvent }) {
   const respond = useWorldStore((s) => s.respondToEvent);
   const setOff = useSessionStore((s) => s.setMapEventsOff);
   const chosen = e.choices.find((c) => c.id === e.chosen);
+  // Under AI mode the answer is the pilot's. @see eventsDesk
+  const driving = useAiDriving();
   return (
     <Card tone={e.phase === "over" ? "console" : e.phase === "active" ? "bad" : "warn"} className={twMerge("w-[min(24rem,calc(100vw-1rem))]", e.phase === "over" && "opacity-70")}
       title={<span className="flex items-baseline justify-between gap-2"><span>{e.title}</span>
@@ -49,7 +52,7 @@ export function EventCard({ e }: { e: GameEvent }) {
         {e.phase !== "over" && (
           <div className="grid grid-cols-2 gap-1.5">
             {e.choices.map((c) => (
-              <Tile key={c.id} selected={e.chosen === c.id} disabled={!!c.unavailable} title={c.unavailable}
+              <Tile key={c.id} selected={e.chosen === c.id} disabled={!!c.unavailable || driving} title={c.unavailable}
                 onClick={() => { respond(e.id, c.id); answerOffer(e, c.id); }} className="flex flex-col items-start gap-0.5 px-2 py-1.5 pointer-coarse:min-h-11">
                 <span className="font-bold">{c.label}</span>
                 <span className="text-[10px] text-fg-muted">{c.unavailable ?? c.cost}</span>

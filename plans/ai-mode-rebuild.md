@@ -1,6 +1,6 @@
 # AI mode, rebuilt: a pilot that plays the whole run, and shows its work
 
-**Status:** phases 0 to 5 built, 2026-11-14 (see "Built so far" at the end): the brain is whole. Phases 6 to 9, the interface and taking the old one out, not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
+**Status:** phases 0 to 6 built, 2026-11-14 (see "Built so far" at the end): the brain is whole, it drives the game, and the controls are off while it does. Phases 7 to 9 (showing its work, steering, taking the old one out) not started. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
 
 ## Why
 
@@ -418,3 +418,23 @@ Played on past the sale on seed 1 (75 minutes): the Harbour at 60, a seaport, th
   - **Berths are left trading quays; nothing is dredged.** The plan named both.
   - **The slop processors' projects** are still nobody's (phase 4's list).
   - On seed 23 the Harbour's site was once refused by the click as too far from a river: the desk and the click read the river at different moments. It tries again.
+
+**Phase 6, watching mode, 2026-11-14.**
+
+- **The pilot drives the game.** `pilot/game.ts` holds the one pilot a company has; the scene's tick steps it where it stepped the old autopilot, which is no longer called (its file and its tests stay till phase 9). A drone is flown to each thing it does that has a place, for the look of it. A new map is a new company: nothing is remembered.
+- **`useAiDriving()` and `<Manual>`** (`hooks/use-ai-driving.ts`, `ui/manual.tsx`). Driving is AI mode on, on the Model's run (any founder is phase 8).
+- **Controls off.** Gone under AI mode: the hire buttons and ×1/Max, an agent's spin-up, LinkedOut's post, check, hire, pass and rehire, a leader's perk, place, move and let go, a manager's plus and minus and the amount, a landmark's Choose site and its priority, a pipe's pump, widen, move, delete, manhole and storm drain, the pump offer. Shown and not pressable: upgrade tiles, mandates, the deck (in force is listed, the board stays shut), a port's berths, an event's choices, the agents' throttle, the training runs. Hints are hidden.
+- **The tools give way to the pilot bar** (`play/pilot-bar.tsx`), in the build bar's own row with the views after it: `● AI`, what it is doing now, what is next with its state, and Pause. Now and Next fly the camera to the job when it has a place. Going into AI mode puts down whatever was in hand (a tool, a pipe half laid, a landmark or a leader being placed); the keys 1 to 5 do nothing.
+- **"The AI needs you"** (`play/needs-you.tsx`): one card at the head of comms, listing the acquisition offer (Open), the Ascension when it was told "not yet" (Begin), and a story choice, whose own card is under it.
+- **The old panel is not shown** (`ai-mode-panel.tsx`): the budget slider and Show plans went with it. The reserve and the goal are phase 8.
+
+**Seen in the browser** (`/?fixture=singularity&nosave`, both themes): AI mode on, the bar reads "Put up a Drone hangar · Next: Train on the town"; within a minute it began the Vibe Coder Studio, bought five upgrades, hired from 40 to 108 interns and laid a pump and a main. No enabled control on the Employees or AI tabs changes the company. Pause reads "Paused" and Resume carries on. AI mode off: the tools, the hire button, ×1/Max and the landmark's priority are back at once. No console errors.
+
+- **Not done:**
+  - **The "needs you" card was not seen in the browser**: no fixture stands at an offer, and the stores are not to be set by hand. Its list is unit-tested.
+  - **The goal on the bar** (`[Grow ▾]`): there are no goals till phase 8.
+  - **A tap on the money on a phone still earns.** It is the player's hand on the company; left, as it is not a decision.
+  - **The vape shop and the skill tree are untouched**: the pilot plays neither.
+  - **The scene still answers an event itself under AI mode**, the moment it comes, as before; the Events desk finds nothing left to answer.
+  - **No holograms**: the old plan's ghost went with the old autopilot, and the pilot's are phase 7.
+  - On a phone the bar shows Now and Pause; Next is dropped where there is no room.

@@ -15,6 +15,8 @@ import { loaderFill } from "../boats/slop-loader";
 import { structureOf } from "../grid";
 import { structureDef } from "../structures/def";
 
+import { useAiDriving } from "../../hooks/use-ai-driving";
+
 export function PortCard() {
   useTicking(1000);
   const looked = useWorldStore((s) => s.lookedAt);
@@ -22,12 +24,14 @@ export function PortCard() {
   const tool = useWorldStore((s) => s.tool);
   useWorldStore((s) => s.revision);
   const setFit = useWorldStore((s) => s.setBerthFit);
+  const driving = useAiDriving();
   const [shut, setShut] = useState<number | null>(null);
   useEffect(() => { setShut(null); }, [looked?.n]);
   if (!playing || !looked || shut === looked.n || tool !== "inspect") return null;
   const s = structureOf(useWorldStore.getState().grid, looked.x, looked.y);
   const def = s && !s.build ? structureDef(s.def) : null;
   if (!s || !def?.port) return null;
+  // Under AI mode the berths are the pilot's: shown, not changed. @see useAiDriving
   const berths = def.port.berths;
   const hasYard = Array.from({ length: berths }, (_, k) => fitOf(s, k).id).some(lands);
   const fill = yardFill(getTraffic().yards, s.id, berths);
@@ -41,7 +45,7 @@ export function PortCard() {
         return (
           <label key={k} className="flex items-center gap-2 py-0.5" title={fit.does}>
             <span className="w-12 shrink-0 whitespace-nowrap text-fg-muted">Berth {k + 1}</span>
-            <select value={fit.id} onChange={(e) => setFit(s.id, k, e.target.value)}
+            <select value={fit.id} disabled={driving} onChange={(e) => setFit(s.id, k, e.target.value)}
               className="min-w-0 flex-1 cursor-pointer border border-line-quiet bg-surface-2 px-1 py-0.5 text-xs text-fg dark:bg-surface-2 dark:text-fg">
               {offered.map((f) => <option key={f.id} value={f.id} title={f.does}>{f.name}</option>)}
             </select>

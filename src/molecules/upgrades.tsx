@@ -18,6 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/Popover";
 import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
+import { useAiDriving } from "../hooks/use-ai-driving";
 
 function GenLabel({
   id,
@@ -110,6 +111,8 @@ export const Upgrades = () => {
   );
 
   const { money } = useMoneyStore();
+  // UNDER AI MODE each is a readout: the pilot buys them. @see useAiDriving
+  const driving = useAiDriving();
   // WHAT OPENS NEXT, when there is nothing to buy: the cheapest still locked.
   const next = [...UPGRADES].sort((a, b) => a.cost - b.cost).find((u) => !unlockedUpgrades.some((b) => b.id === u.id) && !availableUpgrades.includes(u));
 
@@ -123,7 +126,7 @@ export const Upgrades = () => {
             return (
               <Popover key={upg.id} openOnHover={true} placement="bottom">
                 <PopoverTrigger asChild>
-                  <Tile lit={can} disabled={!can} onClick={() => unlockUpgrade(upg.id)}
+                  <Tile lit={can && !driving} disabled={!can || driving} onClick={() => unlockUpgrade(upg.id)}
                     className="flex w-full flex-col items-start gap-0.5 p-2 text-xs">
                     <GenLabel id={upg.id} text={upg.name} />
                     <span className={twMerge("tabular-nums", can ? "text-money" : "text-fg-faint")}>{formatCurrency(upg.cost)}</span>

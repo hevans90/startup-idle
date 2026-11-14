@@ -42,7 +42,8 @@ import { runningAgents } from "../../state/agents.store";
 import { useFounderStore } from "../../state/founder.store";
 import { getAiRunner } from "../ai/ai-runner";
 import { useTicking } from "../../hooks/use-ticking";
-import { AiModePanel } from "./ai-mode-panel";
+import { PilotBar } from "./pilot-bar";
+import { useTeamLeadersEmployeesStore } from "../../state/team-leaders.store";
 import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
 import { AGENTS_A_RACK, agentsOpen } from "../../game/agents";
@@ -203,10 +204,21 @@ export function BuildBar({ className }: { className?: string }) {
   const revision = useWorldStore((s) => s.revision);
   const labels = useWorldStore((s) => s.labels);
   const setLabels = useWorldStore((s) => s.setLabels);
-  // AI MODE, a view on The Model's runs: its switch here, its settings above. @see AiModePanel
+  // AI MODE, a view on The Model's runs: its switch here, and while it drives the tools give way to its bar. @see PilotBar
   const model = useFounderStore((s) => s.selectedFounderId) === "model";
   const aiMode = useSessionStore((s) => s.aiMode);
   const setAiMode = useSessionStore((s) => s.setAiMode);
+  const driving = model && aiMode;
+  // HANDS OFF, the moment it drives: whatever was in hand is put down. @see useAiDriving
+  useEffect(() => {
+    if (!driving) return;
+    const st = useWorldStore.getState();
+    st.cancelStroke();
+    st.placeProject(null);
+    st.setTool("inspect");
+    useTeamLeadersEmployeesStore.getState().setPlacing(null);
+    setPicking(false);
+  }, [driving]);
   const money = useMoneyStore((s) => s.money);
   const generators = useGeneratorStore((s) => s.generators);
   const [picking, setPicking] = useState(false);
@@ -293,13 +305,13 @@ export function BuildBar({ className }: { className?: string }) {
       const el = e.target as HTMLElement | null;
       if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
       const n = Number(e.key);
-      if (!Number.isInteger(n) || n < 1 || n > shown.length) return;
+      if (driving || !Number.isInteger(n) || n < 1 || n > shown.length) return;
       e.preventDefault();
       keyed.current(shown[n - 1].id);
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [shown]);
+  }, [shown, driving]);
 
   const views = (
     <>
@@ -339,11 +351,10 @@ export function BuildBar({ className }: { className?: string }) {
 
   return (
     <div className={twMerge("flex flex-col items-center gap-1.5 text-fg", className)}>
-      <AiModePanel />
       <MainCard />
       <SewerCard />
       <SuggestCard />
-      {picking && (
+      {picking && !driving && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>
           {sale.map((sec) => (
@@ -422,6 +433,8 @@ export function BuildBar({ className }: { className?: string }) {
         {phone && viewsOpen && <div className="flex items-stretch overflow-x-auto border-b border-line-quiet">{views}</div>}
         {/* THE TOOLS: a rail that scrolls, on a phone. */}
         <div className="flex items-stretch overflow-x-auto">
+          {/* UNDER AI MODE, no tools: what the pilot is doing, and a pause. @see PilotBar */}
+          {driving ? <PilotBar tool={TOOL} className="flex-1" /> : (<>
           {shown.map((t, k) => (
             <button key={t.id} type="button" title={`${aiRoads && ROAD_TOOLS.has(t.id) ? `${t.hint} — outside the AI's district: its streets are its own now` : t.hint} (${k + 1})`}
               onClick={() => choose(t.id)} aria-pressed={tool === t.id} aria-keyshortcuts={String(k + 1)}
@@ -450,6 +463,7 @@ export function BuildBar({ className }: { className?: string }) {
               <span>Undo +{formatCurrency(lastBuild!.refund)}</span>
             </button>
           )}
+          </>)}
           {/* VIEWS from here: what you see, not what you hold — on a phone, behind a button. */}
           <span className="mx-0.5 my-1 w-px bg-surface-3" />
           {phone ? (

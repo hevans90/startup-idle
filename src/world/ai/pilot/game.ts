@@ -1,0 +1,45 @@
+/**
+ * World v2 — THE PILOT, DRIVING THE GAME: the one pilot a company has, stepped
+ * by the scene's tick while AI mode is on, and read by the pilot bar. A drone
+ * is flown to each thing it does that has a place, for the look of it: the
+ * thing is done already. @see createPilot, PilotBar, plans/ai-mode-rebuild.md phase 6
+ */
+import type { Grid } from "../../grid";
+import { DRONE_SPEED, MAX_DRONES, getAiRunner } from "../ai-runner";
+import { allDesks, livePurse } from "./live";
+import { createPilot, type Pilot } from "./pilot";
+
+const pilot: Pilot = createPilot(allDesks());
+let flown = 0;
+let company: Grid | null = null;
+
+export const gamePilot = (): Pilot => pilot;
+
+/** Where its drones fly from: the company's own building. */
+function droneHome(g: Grid): { x: number; y: number } | null {
+  let home: { x: number; y: number } | null = null, rank = -1;
+  for (const s of g.structures.values()) {
+    const r = s.build ? -1 : ["garage", "hq", "boardroom", "ipo"].indexOf(s.def);
+    if (r > rank) { rank = r; home = { x: s.x + s.w / 2, y: s.y + s.h / 2 }; }
+  }
+  return home;
+}
+
+/** A frame of AI mode. */
+export function stepGamePilot(g: Grid, dt: number) {
+  // Another map is another company: nothing remembered of the last.
+  if (company !== g) { if (company) resetGamePilot(); company = g; }
+  const st = pilot.tick(dt, livePurse, g.rev);
+  if (pilot.done() === flown) return;
+  flown = pilot.done();
+  const to = st.kind === "did" ? st.job?.at : undefined, from = droneHome(g), r = getAiRunner();
+  if (!to || !from || r.jobs.length >= MAX_DRONES) return;
+  r.jobs.push({ action: { kind: "deferred", at: to, why: "", run: () => true }, from, to, t: 0, fly: Math.hypot(to.x - from.x, to.y - from.y) / DRONE_SPEED });
+}
+
+/** A new company: a pilot with nothing remembered. */
+export function resetGamePilot() {
+  pilot.reset();
+  flown = 0;
+  company = null;
+}

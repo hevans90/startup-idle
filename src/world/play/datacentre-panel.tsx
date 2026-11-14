@@ -42,6 +42,7 @@ import { MAIN_END } from "../grid";
 import { allTanks, hotAgents } from "../projects/cooling";
 import { powered as rackPowered } from "../projects/racks";
 import { showMe } from "./map-focus";
+import { useAiDriving } from "../../hooks/use-ai-driving";
 
 /** A rate a second as so much a minute, signed. */
 const perMinute = (r: number) =>
@@ -51,6 +52,8 @@ export function DataCentre({ className }: { className?: string }) {
   useTicking(500);
   const agents = useAgentsStore((s) => s.agents);
   const setRunning = useAgentsStore((s) => s.setRunning);
+  // Under AI mode the throttle is the pilot's. @see machineDesk
+  const driving = useAiDriving();
   const value = useAiSingularityStore((s) => s.value);
   const waiting = useAscensionUiStore((s) => s.waiting);
   const built = agentsOpen();
@@ -112,6 +115,7 @@ export function DataCentre({ className }: { className?: string }) {
                   max={agents}
                   step={1}
                   value={running}
+                  disabled={driving}
                   onChange={setRunning}
                   className="my-1 w-full"
                 />
@@ -400,6 +404,8 @@ function Training() {
   const start = useTrainingStore((s) => s.start);
   const skills = useTrainingStore((s) => s.skills);
   const blocked = useTrainingStore.getState().blocked();
+  // Under AI mode the runs are the pilot's. @see machineDesk
+  const driving = useAiDriving();
   const seconds = useTrainingStore.getState().seconds();
   const on = dataset(current?.dataset);
   const level = on ? (skills[on.id] ?? 0) : 0;
@@ -427,8 +433,8 @@ function Training() {
             return (
               <Tile
                 key={d.id}
-                lit={!blocked}
-                disabled={!!blocked}
+                lit={!blocked && !driving}
+                disabled={!!blocked || driving}
                 onClick={() => start(d.id)}
                 title={n < MAX_SKILL ? `Next: ${d.skills[n]}` : "Learned"}
                 className="flex w-full items-center justify-between gap-1 px-2 py-1"

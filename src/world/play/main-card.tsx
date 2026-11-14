@@ -36,6 +36,8 @@ import { lateralsOf, sewerReportsFor } from "../sewers/flow";
 import { planNode, planStormDrain } from "../sewers/lay";
 import { hasSewer, solveSewers } from "../sewers/solve";
 import type { SewerState } from "../pipes/report";
+import { Manual } from "../../ui/manual";
+import { useAiDriving } from "../../hooks/use-ai-driving";
 
 const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
 
@@ -45,7 +47,9 @@ export function MainCard() {
   const offer = useWorldStore((s) => s.pumpOffer);
   const accept = useWorldStore((s) => s.acceptPump);
   const dismiss = useWorldStore((s) => s.dismissPumpOffer);
-  if (!playing) return null;
+  // Under AI mode the pumps are the pilot's. @see useAiDriving
+  const driving = useAiDriving();
+  if (!playing || driving) return null;
   if (offer && !stroke) {
     return (
       <div role="status" className={twMerge(CARD, "flex items-center gap-2 border-l-2 border-l-warn")}>
@@ -164,6 +168,7 @@ export function MainInfo() {
         {r.intakes.length ? r.intakes.map((k) => `${k.pump ? "Pump" : "Intake"}${k.surface === null ? " (dry)" : k.fouled >= 0.05 ? ` (${Math.round(k.fouled * 100)}% fouled: cools ${Math.round(coolingKept(r.fouled ?? k.fouled) * 100)}%)` : ""}`).join(", ") : "No intake"}
         {" → "}{names.length ? names.join(", ") : "nothing"}
       </p>
+      <Manual>
       <div className="mt-0.5 flex flex-wrap gap-1">
         {r.state === "no-head" && intake !== undefined && (
           <Button size="sm" onClick={() => st.offerPump({ x: intake % g.w, y: (intake / g.w) | 0, price: buildCost("pump")?.toNumber() ?? 0, why: say.text })}>Add a pump…</Button>
@@ -174,6 +179,7 @@ export function MainInfo() {
         {part && <Button size="sm" confirm="Move it? Press again" onClick={() => st.moveStretchAt(looked)} title="Delete this stretch and lay it again from its other end">Move</Button>}
         <Button size="sm" variant="danger" confirm="Delete it? Press again" onClick={() => st.deleteMainAt(looked, !!part)}>Delete</Button>
       </div>
+      </Manual>
       <PipeProfileStrip profile={mainProfile(g, st.getWaterField(), idx(g, looked.x, looked.y))} />
     </Card>
   );
@@ -194,6 +200,7 @@ function SewerInfo({ r, at, part, onClose }: { r: MainReport; at: { x: number; y
       <p className={TONE[say.tone]}>{say.text}</p>
       <p className="tabular-nums" title={`Carries up to ${r.capacity.toFixed(2)} slop a second`}>Drains {from.length} workplace{from.length === 1 ? "" : "s"}</p>
       <p className="text-fg-muted">{from.length ? from.join(", ") : "No workplace"}{" → "}{to.length ? to.join(", ") : "nothing"}</p>
+      <Manual>
       <div className="mt-0.5 flex flex-wrap gap-1">
         {narrow > 0 && (
           <Button size="sm" onClick={() => st.widenMainAt(at, !!part)} title="Twice the slop through the same run">Widen: {formatCurrency(boreCost(narrow).toNumber())}</Button>
@@ -201,6 +208,7 @@ function SewerInfo({ r, at, part, onClose }: { r: MainReport; at: { x: number; y
         {part && <Button size="sm" confirm="Move it? Press again" onClick={() => st.moveStretchAt(at)} title="Delete this stretch and lay it again from its other end">Move</Button>}
         <Button size="sm" variant="danger" confirm="Delete it? Press again" onClick={() => st.deleteMainAt(at, !!part)}>Delete</Button>
       </div>
+      </Manual>
     </Card>
   );
 }
@@ -250,10 +258,12 @@ export function TrunkInfo() {
         Drains {drains} workplace{drains === 1 ? "" : "s"}{lifts > 0 && <> · {lifts} lift station{lifts === 1 ? "" : "s"}</>}
       </p>
       {(manhole || storm) && (
+        <Manual>
         <div className="mt-0.5 flex flex-wrap gap-1">
           {manhole && <Button size="sm" onClick={() => st.addManholeAt(looked)} title="Where a workplace's connection comes down into it">Add a manhole here</Button>}
           {storm && <Button size="sm" onClick={() => st.addStormDrainAt(looked)} title="A grate: water standing in the street here goes down it, as much as the sewer can take">Add a storm drain here</Button>}
         </div>
+        </Manual>
       )}
       <PipeProfileStrip profile={sewerProfile(g, solve, g.sewerFit, i)} />
     </Card>

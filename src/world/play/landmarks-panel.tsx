@@ -34,6 +34,7 @@ import { useGateUnlocks } from "./gates";
 import { useLandmarkPicture } from "./landmark-picture";
 import { SlopCard } from "./slop-card";
 import { siteTrucks } from "../../game/site-trucks";
+import { Manual } from "../../ui/manual";
 
 /** AT MOST TWO AT A TIME: what is going up or ready first, then what comes next in the game. */
 const SHOWN = 2;
@@ -209,10 +210,12 @@ function ReadyFoot({ p }: { p: ProjectDef }) {
           <span className="text-fg-muted"> · {who}</span>
         </span>
       )}
+      <Manual>
       <Button size="sm" variant="primary" className="shrink-0 font-bold" onClick={() => placeProject(p.id)}
         title={here ? `Built over the ${structureDef(here.def)?.name ?? "building"}, where it stands` : "Then click a spot beside a road"}>
         {here ? "Build" : "Choose site"}
       </Button>
+      </Manual>
     </div>
   );
 }
@@ -250,6 +253,7 @@ function GoingFoot({ p }: { p: ProjectDef }) {
         <span>{crew.working + crew.walking} building · {b.delivered}/{b.deliveries} loads</span>
         {problem && <span className={twMerge("truncate", stalledFor > 0 ? "text-bad" : "text-warn")}>{problem}</span>}
       </div>
+      <Manual>
       <div className="flex items-center justify-between gap-2"
         title={p.founderBuilds ? "You build it yourself."
           : `How much of the company builds: ${buildersFor(p, b.priority, owned, site.w * site.h)} of your ${who} now. Builders don't work at their desks.`}>
@@ -257,6 +261,7 @@ function GoingFoot({ p }: { p: ProjectDef }) {
         <Segmented label={`${p.name}: priority`} value={String(b.priority)} onChange={(v) => setPriority(site.id, Number(v) as Priority)}
           options={PRIORITY_NAMES.map((name, k) => ({ value: String(k), label: name }))} />
       </div>
+      </Manual>
     </div>
   );
 }

@@ -15,6 +15,7 @@ import { agentTrade, runningAgents, useAgentsStore } from "../state/agents.store
 import { useInnovationStore } from "../state/innovation.store";
 import { InfoPop } from "../ui/InfoPop";
 import { percent } from "../game/wording";
+import { Manual } from "../ui/manual";
 
 const fmt = (n: number) => (n < 100 ? n.toFixed(n < 10 ? 2 : 1) : Math.round(n).toLocaleString());
 
@@ -61,6 +62,7 @@ export function AgentsRow() {
         </p>
       </InfoPop>
       <span className="text-right responsive-text-sm tabular-nums">{roomText}</span>
+      <Manual>
       <Button disabled={!!blocked} onClick={() => spinUp()} title={blocked ? WHY[blocked] : "Spin up an agent"}
         className="ml-2 w-2/5 min-w-32 responsive-text-xs">
         <span className="flex flex-col leading-tight">
@@ -68,6 +70,7 @@ export function AgentsRow() {
           {!blocked && <span className={twMerge("text-[10px]", trade.net >= 1 ? "text-good" : "text-bad")}>{pct(trade.net)} income</span>}
         </span>
       </Button>
+      </Manual>
     </div>
   );
 }

@@ -13,6 +13,7 @@ import { Button, Meter, Panel } from "../../ui/console";
 import { toneVar } from "../../ui/console/frame";
 import { CultureBoard } from "./culture/culture-board";
 import { TAG_NAME, TAG_TONE, TagMark } from "./culture/culture-card";
+import { useAiDriving } from "../../hooks/use-ai-driving";
 
 const TRACK_NAME: Record<Track, string> = { agile: "Agile", corpo: "Corpo", sales: "Sales" };
 
@@ -24,6 +25,8 @@ export function CultureDeckPanel() {
   // The board, open: on its offers first when opened from the button.
   const [open, setOpen] = useState<null | "deck" | "offer">(null);
   const offers = deck.offers.length;
+  // Under AI mode the deck is the pilot's to play: in force is shown, the board stays shut. @see cultureDesk
+  const driving = useAiDriving();
 
   return (
     <Panel title="Culture deck"
@@ -31,17 +34,17 @@ export function CultureDeckPanel() {
       controls={<span className="whitespace-nowrap text-[10px] uppercase tracking-widest text-fg-muted">{points} {points === 1 ? "point" : "points"}</span>}>
       {open && <CultureBoard offerFirst={open === "offer"} onClose={() => setOpen(null)} />}
       <div className="flex flex-col gap-4">
-        {offers > 0 && (
+        {offers > 0 && !driving && (
           <Button variant="primary" className="w-full animate-pulse" onClick={() => setOpen("offer")}>
             {offers} {offers === 1 ? "card offer" : "card offers"} waiting
           </Button>
         )}
 
         {/* IN FORCE: each slot, a line. */}
-        <button type="button" onClick={() => setOpen("deck")} className="group flex cursor-pointer flex-col gap-1 text-left">
+        <button type="button" disabled={driving} onClick={() => setOpen("deck")} className="group flex cursor-pointer flex-col gap-1 text-left disabled:cursor-default">
           <span className="flex items-baseline justify-between text-xs">
             <span className="font-display uppercase tracking-wider">In force · {deck.slotted.length}/{deck.slots}</span>
-            <span className="text-[10px] uppercase tracking-widest text-fg-muted group-hover:text-fg">Open deck ›</span>
+            {!driving && <span className="text-[10px] uppercase tracking-widest text-fg-muted group-hover:text-fg">Open deck ›</span>}
           </span>
           {/* And Pivot Weekly's guest, after them. @see pivot */}
           {[...Array.from({ length: deck.slots }, (_, k) => deck.slotted[k]), ...inForce(deck).filter((id) => !deck.slotted.includes(id))].map((id: CardId | undefined, k) => {

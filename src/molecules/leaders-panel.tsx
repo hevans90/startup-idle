@@ -20,6 +20,8 @@ import { useTicking } from "../hooks/use-ticking";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
 import { EmployeeAvatar } from "./innovation/employee-avatar";
+import { Manual } from "../ui/manual";
+import { useAiDriving } from "../hooks/use-ai-driving";
 
 export const KIND_PLURAL: Record<GeneratorId, string> = { intern: "interns", vibe_coder: "vibe coders", "10x_dev": "10x devs" };
 
@@ -42,6 +44,7 @@ function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
   const letGo = useLinkedOutStore((s) => s.letGo);
   const flag = l.flag ? RED_FLAGS[l.flag] : null;
   const placing = useTeamLeadersEmployeesStore((s) => s.placing === l.role);
+  const driving = useAiDriving();
   const p = PERSONALITIES[l.personality];
   const offer = perkOffer(l);
   const where = whereText(l, owned);
@@ -69,7 +72,7 @@ function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
       <p className={twMerge("text-[11px]", where.ok ? "text-fg-muted" : "text-bad")}>
         {placing ? `Click a building where your ${KIND_PLURAL[l.role]} work.` : where.text}
       </p>
-      {offer.length > 0 && (
+      {offer.length > 0 && !driving && (
         <div className="flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-widest text-warn">Rank {l.perks.length + 1}: pick one</span>
           <div className="grid grid-cols-3 gap-1">
@@ -87,6 +90,7 @@ function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
           {l.perks.map((k) => <span key={k} title={LEADER_PERKS[k].says} className="border border-line-quiet px-1 py-px">{LEADER_PERKS[k].name}</span>)}
         </p>
       )}
+      <Manual>
       <div className="flex justify-end gap-1">
         {placing
           ? <Button size="sm" variant="quiet" onClick={() => setPlacing(null)}>Cancel</Button>
@@ -94,6 +98,7 @@ function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
         {l.placedAt !== null && !placing && <Button size="sm" variant="quiet" onClick={() => placeLeader(l.id, null)}>Take out</Button>}
         <Button size="sm" variant="danger" confirm={`Let ${l.name.split(" ")[0]} go?`} onClick={() => letGo(l.id)}>Let go</Button>
       </div>
+      </Manual>
     </div>
   );
 }

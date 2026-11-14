@@ -7,6 +7,7 @@ import { clearMorale } from "../game/morale";
 import { setSlopMaking, setSlopRate } from "../game/slop";
 import { setProcessorUse } from "../game/processors";
 import { resetAutopilot } from "../world/ai/autopilot";
+import { resetGamePilot } from "../world/ai/pilot/game";
 import { resetCooling } from "../world/projects/cooling";
 import { resetPlanner } from "../world/ai/planner";
 import { useAgentsStore } from "../state/agents.store";
@@ -49,6 +50,7 @@ export function resetRunStores(): void {
   setSlopRate(0);
   setProcessorUse({ refinery: 0, dataplant: 0, contentfarm: 0 });
   resetAutopilot();
+  resetGamePilot();
   resetCooling();
   resetPlanner();
   // A new company, a new map: the arc's block and site were the last one's. @see newCompany

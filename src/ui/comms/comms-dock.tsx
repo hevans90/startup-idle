@@ -13,6 +13,7 @@ import { useWorldStore } from "../../state/world.store";
 import { QuestArc } from "../../quest-ui/arc";
 import { EventCard, liveEvents } from "../../world/play/event-cards";
 import { HintCard } from "../../world/play/hint-card";
+import { NeedsYouCard } from "../../world/play/needs-you";
 import { Badge, Button, Card, useGlitch } from "../console";
 import { CommsLog } from "./comms-log";
 import { useTicking } from "../../hooks/use-ticking";
@@ -122,6 +123,8 @@ export function CommsDock({ most = DOCK_MOST }: { most?: number }) {
         </div>
       )}
       <div className="pointer-events-auto flex flex-col items-end gap-2">
+        {/* UNDER AI MODE, what only you can answer, before all else. @see NeedsYouCard */}
+        <NeedsYouCard />
         {/* The arc: its tracker and its transmission, each if it has a slot. */}
         {(has("quest:tracker") || has("quest:offer")) && <QuestArc tracker={has("quest:tracker")} offer={has("quest:offer")} />}
         {shown.filter((i) => i.node).map((i) => <div key={i.key}>{i.node}</div>)}
