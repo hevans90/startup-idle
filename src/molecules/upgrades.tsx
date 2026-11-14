@@ -19,6 +19,7 @@ import { formatCurrency } from "../utils/money-utils";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
 import { useAiDriving } from "../hooks/use-ai-driving";
+import { JobState } from "./pilot-tab";
 
 function GenLabel({
   id,
@@ -131,6 +132,7 @@ export const Upgrades = () => {
                     <GenLabel id={upg.id} text={upg.name} />
                     <span className={twMerge("tabular-nums", can ? "text-money" : "text-fg-faint")}>{formatCurrency(upg.cost)}</span>
                     <OpensMark upg={upg} />
+                    {driving && <JobState id={`upgrade:${upg.id}`} />}
                   </Tile>
                 </PopoverTrigger>
                 <PopoverContent className={POPOVER_BARE}>

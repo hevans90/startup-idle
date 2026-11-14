@@ -4,6 +4,7 @@ import { Locked, Tile } from "../../ui/console";
 import { formatCurrency } from "../../utils/money-utils";
 import { showProject } from "../../world/play/map-focus";
 import { useAiDriving } from "../../hooks/use-ai-driving";
+import { JobState } from "../pilot-tab";
 
 /**
  * THE BOARD'S MANDATES: a tile each — its name and level, what it does, and
@@ -38,6 +39,7 @@ export const ValuationMandatesPanel = () => {
               <span className="mt-auto pt-1 text-xs tabular-nums text-valuation">
                 {formatCurrency(getMandateCost(m.id), { showDollarSign: false })} valuation
               </span>
+              {driving && <JobState id={`mandate:${m.id}`} />}
             </Tile>
           );
         })}

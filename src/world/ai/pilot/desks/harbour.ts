@@ -152,7 +152,7 @@ export function harbourDesk(): Desk {
       jobs.push({
         id: "port:new", desk: "harbour",
         says: "Build a seaport", why: "boats pay for every call",
-        at: at ?? portQuay?.at, cost: buildCost("seaport")?.toNumber() ?? 0, gain: fee("seaport"),
+        at: at ?? portQuay?.at, puts: at ? "seaport" : undefined, cost: buildCost("seaport")?.toNumber() ?? 0, gain: fee("seaport"),
         needs: needs.length ? needs : undefined,
         run: () => {
           stale = true;

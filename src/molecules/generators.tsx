@@ -13,6 +13,7 @@ import { RainbowText } from "../utils/vibe-utils";
 import { GeneratorBuyButton } from "./generator-buy-button";
 import { AgentsRow } from "./agents-row";
 import { Manual } from "../ui/manual";
+import { JobState } from "./pilot-tab";
 
 
 /** WHO THEY ARE, AT A GLANCE: their kind's icon on their map colour. @see KIND_COLOUR */
@@ -82,7 +83,7 @@ export const Generators = () => {
               </span>
 
               <span className="shrink-0 text-right tabular-nums">{gen.amount}</span>
-              <Manual>
+              <Manual instead={<JobState id={`hire:${gen.id}`} className="ml-1 max-w-[45%] shrink-0 text-right" />}>
                 <GeneratorBuyButton
                   id={gen.id}
                   className="ml-1 w-auto min-w-28 shrink-0 whitespace-nowrap px-2 responsive-text-xs"

@@ -49,7 +49,7 @@ export function EventCard({ e }: { e: GameEvent }) {
         {e.phase === "warning" && e.strikesAt !== null && <span className="tabular-nums text-warn">in {clock(e.strikesAt - Date.now())}</span>}</span>}>
       <div role="alert" className="flex flex-col gap-1.5">
         <p className="text-fg-muted">{e.phase === "over" ? e.outcome : e.text}</p>
-        {e.phase !== "over" && (
+        {e.phase !== "over" && !(driving && chosen) && (
           <div className="grid grid-cols-2 gap-1.5">
             {e.choices.map((c) => (
               <Tile key={c.id} selected={e.chosen === c.id} disabled={!!c.unavailable || driving} title={c.unavailable}
@@ -61,7 +61,7 @@ export function EventCard({ e }: { e: GameEvent }) {
           </div>
         )}
         <div className="flex items-center justify-between text-[10px] text-fg-muted">
-          <span>{chosen ? `You chose: ${chosen.label.toLowerCase()}` : ""}</span>
+          <span title={driving && chosen ? chosen.cost : undefined}>{chosen ? `${driving ? "The AI" : "You"} chose: ${chosen.label.toLowerCase()}` : ""}</span>
           <span className="flex gap-1">
             <Button size="sm" variant="quiet" onClick={() => setOff(true)} title="No more floods or overflows. Back on in Settings.">No events</Button>
             <Button size="sm" variant="secondary" onClick={() => showMe(e.where)}>Show me</Button>

@@ -42,7 +42,7 @@ export function PilotBar({ tool, className }: { tool: string; className?: string
       <Where job={now.job} title={now.job?.why ?? now.says} className={twMerge("max-w-[28rem] font-bold", TONE[now.kind])}>{now.says}</Where>
       {next && (
         <Where job={next.job} title={next.job.why} className="max-w-[22rem] text-fg-muted @max-4xl:hidden">
-          Next: {next.job.says}{next.shown.state !== "ready" && <> · {shownAs(next.shown).toLowerCase()}</>}
+          Next: {next.job.says}{next.shown.state !== "ready" && <> · {shownAs(next.shown, next.job.costs).toLowerCase()}</>}
         </Where>
       )}
       <button type="button" aria-pressed={paused} title={paused ? "Let the AI carry on" : "Stop the AI where it is"}

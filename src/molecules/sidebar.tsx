@@ -20,6 +20,8 @@ import { InnovationManagers } from "./innovation/innovation-managers";
 import { InnovationSummary } from "./innovation/innovation-summary";
 import { PurchaseModeToggle } from "./purchase-mode-toggle";
 import { Manual } from "../ui/manual";
+import { useAiDriving } from "../hooks/use-ai-driving";
+import { PilotTab } from "./pilot-tab";
 import { Upgrades } from "./upgrades";
 import { ValuationTab } from "./valuation-tab";
 import { useValuationVisible } from "../hooks/use-valuation-visible";
@@ -31,6 +33,7 @@ function useVapeVisible() {
 export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   const { sidebarTab, setSidebarTab } = useGlobalSettingsStore();
   const vapeVisible = useVapeVisible();
+  const driving = useAiDriving();
   const managersOpen = useInnovationStore((s) => s.unlocks.managers?.unlocked ?? false);
   const leadersOpen = useInnovationStore((s) => s.unlocks.leaders?.unlocked ?? false);
   const valuationVisible = useValuationVisible();
@@ -51,6 +54,8 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
     ...(acquisitionVisible ? [{ id: "acquisition" as SidebarTab, label: "Acquisition" }] : []),
     ...(vapeVisible ? [{ id: "achievements" as SidebarTab, label: "Vape shop" }] : []),
     ...(aiVisible ? [{ id: "ai" as SidebarTab, label: "AI" }] : []),
+    // UNDER AI MODE, its own: the queue and the log. @see PilotTab
+    ...(driving ? [{ id: "pilot" as SidebarTab, label: "Pilot" }] : []),
   ];
   // A tab no longer shown — the AI's, after a sale — falls back to the first, and says so.
   const tab = tabs.some((t) => t.id === sidebarTab) ? sidebarTab : tabs[0].id;
@@ -79,6 +84,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
     acquisition: <AcquisitionTab />,
     achievements: <AchievementsTab />,
     ai: <AiTab />,
+    pilot: <PilotTab />,
   };
 
   return (

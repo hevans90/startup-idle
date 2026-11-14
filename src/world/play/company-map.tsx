@@ -26,6 +26,7 @@ import { useWorldStore } from "../../state/world.store";
 import { structureOf } from "../grid";
 import { useFoundWorld, WorldCanvas } from "../world-canvas";
 import { BuildBar } from "./build-bar";
+import { PilotPins } from "./pilot-pins";
 import { BuildingLabels } from "./building-labels";
 import { PortIncome } from "./port-income";
 import { LandmarksPanel } from "./landmarks-panel";
@@ -113,6 +114,8 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
         </>
       )}
       <EventMarkers />
+      {/* UNDER AI MODE, a pin on each thing the pilot has in mind. @see PilotPins */}
+      <PilotPins />
       {/* THE ARC's ring on the map, where an objective has a place. @see QuestArcMarkers */}
       <QuestArcMarkers />
       <LeaderTags />

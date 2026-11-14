@@ -35,6 +35,7 @@ import { useLandmarkPicture } from "./landmark-picture";
 import { SlopCard } from "./slop-card";
 import { siteTrucks } from "../../game/site-trucks";
 import { Manual } from "../../ui/manual";
+import { useAiDriving } from "../../hooks/use-ai-driving";
 
 /** AT MOST TWO AT A TIME: what is going up or ready first, then what comes next in the game. */
 const SHOWN = 2;
@@ -63,6 +64,7 @@ export function LandmarksPanel({ className }: { className?: string }) {
   const only = useFounderStore((s) => s.onlyGenerator);
   const unlocked = useGateUnlocks();
   const isOpen = useSessionStore((s) => s.projectsOpen);
+  const driving = useAiDriving();
   const setOpen = useSessionStore((s) => s.setProjectsOpen);
   const seen = useSessionStore((s) => s.seenProjects);
   const markSeen = useSessionStore((s) => s.markProjectsSeen);
@@ -105,12 +107,13 @@ export function LandmarksPanel({ className }: { className?: string }) {
     if (anyBuilt && freshKey) setOpen(true);
   }, [anyBuilt, freshKey, setOpen]);
 
-  if (!shown.length && !slop) return null;
+  // UNDER AI MODE the landmarks are the pilot's: on its tab, and pinned on the map. @see PilotTab
+  if ((!shown.length || driving) && !slop) return null;
   const status = busy ? "Building" : ready.length ? `${ready.length} ready` : null;
   return (
     <div className={twMerge("flex max-w-[calc(100vw-1rem)] flex-col items-start gap-2", className)}>
       {slop && <SlopCard />}
-      {shown.length > 0 && (
+      {shown.length > 0 && !driving && (
         <section className="w-80 max-w-full border border-line-quiet bg-surface-1/95 text-xs text-fg shadow-lg backdrop-blur-sm dark:bg-surface-1/95">
           <button type="button" onClick={() => setOpen(!isOpen)} data-hint="projects" aria-expanded={isOpen}
             className={twMerge(

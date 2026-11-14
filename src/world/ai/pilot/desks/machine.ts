@@ -77,7 +77,7 @@ export function machineDesk(): Desk {
     const building = (def: string, why: string, gain: number): Job => ({
       id: `machine:${def}`, desk: "machine",
       says: `Put up ${named(def)}`, why,
-      at: siteOf(def) ?? undefined, cost: buildCost(def)?.toNumber() ?? 0, gain,
+      at: siteOf(def) ?? undefined, puts: def, cost: buildCost(def)?.toNumber() ?? 0, gain,
       needs: short && isDrinker(def) ? [COOLING] : undefined,
       run: () => put(def),
     });

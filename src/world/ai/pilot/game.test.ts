@@ -5,7 +5,9 @@ import { playCompany } from "../../../simulation/pilot-run";
 import { resetAllGameStores } from "../../../simulation/reset-game-stores";
 import { useFounderStore } from "../../../state/founder.store";
 import { useSessionStore } from "../../../state/session.store";
+import { jobIn, usePilotView } from "../../../state/pilot-view.store";
 import { needsYou } from "../../play/needs-you";
+import { pinned } from "../../play/pilot-pins";
 import { getAiRunner } from "../ai-runner";
 import { gamePilot, resetGamePilot, stepGamePilot } from "./game";
 
@@ -37,7 +39,7 @@ describe("AI mode driving", () => {
     resetGamePilot();
     expect(gamePilot().done()).toBe(0);
     expect(gamePilot().log()).toHaveLength(0);
-  });
+  }, 60_000);
 
   test("paused, it does nothing and says so", () => {
     const r = playCompany(jest.advanceTimersByTime.bind(jest), {
@@ -48,6 +50,35 @@ describe("AI mode driving", () => {
     });
     expect(r.steps).toBe(0);
     expect(gamePilot().status().kind).toBe("paused");
+  }, 60_000);
+});
+
+describe("the pilot as the interface reads it", () => {
+  test("every job in the queue is published with its state in words and its reason, and the log newest first", () => {
+    playCompany(jest.advanceTimersByTime.bind(jest), {
+      seed: 2, size: 64, minutes: 4,
+      drive: (g, dt) => stepGamePilot(g, dt),
+      steps: gamePilot().done, said: gamePilot().last,
+    });
+    const v = usePilotView.getState();
+    expect(v.says).toBeTruthy();
+    expect(v.queue.length).toBe(gamePilot().queue().length);
+    expect(v.queue.length).toBeGreaterThan(0);
+    for (const j of v.queue) { expect(j.says).toBeTruthy(); expect(j.why).toBeTruthy(); expect(j.shown).toBeTruthy(); }
+    // What it builds is said where it has a place, for its hologram.
+    for (const j of v.queue) if (j.puts) expect(j.at).toBeDefined();
+    expect(v.log.length).toBeGreaterThan(1);
+    expect(v.log[0].at).toBeGreaterThanOrEqual(v.log[v.log.length - 1].at);
+    expect(jobIn(v.queue, "hire:intern")?.desk).toBe("people");
+    resetGamePilot();
+    expect(usePilotView.getState().queue).toHaveLength(0);
+  }, 60_000);
+
+  test("a pin a tile, for the jobs with a place", () => {
+    const job = (id: string, at?: { x: number; y: number }, state: "ready" | "cancelled" = "ready") =>
+      ({ id, desk: "town" as const, says: id, why: "w", at, cost: 0, costs: "money" as const, state, shown: "Next" });
+    const pins = pinned([job("a", { x: 1, y: 1 }), job("b"), job("c", { x: 1, y: 1 }), job("d", { x: 2, y: 1 }), job("e", { x: 3, y: 3 }, "cancelled")]);
+    expect(pins.map((p) => p.id)).toEqual(["a", "d"]);
   });
 });
 

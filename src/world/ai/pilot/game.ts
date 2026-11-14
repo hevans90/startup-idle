@@ -7,11 +7,27 @@
 import type { Grid } from "../../grid";
 import { DRONE_SPEED, MAX_DRONES, getAiRunner } from "../ai-runner";
 import { allDesks, livePurse } from "./live";
-import { createPilot, type Pilot } from "./pilot";
+import { usePilotView, type PilotView } from "../../../state/pilot-view.store";
+import { shownAs } from "./job";
+import { LOOK_EVERY, createPilot, type Pilot } from "./pilot";
 
 const pilot: Pilot = createPilot(allDesks());
 let flown = 0;
 let company: Grid | null = null;
+let sincePublish = Infinity;
+
+/** The pilot as the interface reads it: plain words and numbers. @see usePilotView */
+export function viewOf(p: Pilot): PilotView {
+  const st = p.status();
+  return {
+    kind: st.kind, says: st.says, job: st.job?.id ?? null, now: p.now(),
+    queue: p.queue().map(({ job, shown }) => ({
+      id: job.id, desk: job.desk, says: job.says, why: job.why, at: job.at, puts: job.at ? job.puts : undefined,
+      cost: job.cost, costs: job.costs ?? "money", state: shown.state, shown: shownAs(shown, job.costs),
+    })),
+    log: [...p.log()].reverse(),
+  };
+}
 
 export const gamePilot = (): Pilot => pilot;
 
@@ -30,6 +46,9 @@ export function stepGamePilot(g: Grid, dt: number) {
   // Another map is another company: nothing remembered of the last.
   if (company !== g) { if (company) resetGamePilot(); company = g; }
   const st = pilot.tick(dt, livePurse, g.rev);
+  // SAID TO THE INTERFACE, as often as it looks.
+  sincePublish += dt;
+  if (sincePublish >= LOOK_EVERY) { sincePublish = 0; usePilotView.getState().publish(viewOf(pilot)); }
   if (pilot.done() === flown) return;
   flown = pilot.done();
   const to = st.kind === "did" ? st.job?.at : undefined, from = droneHome(g), r = getAiRunner();
@@ -42,4 +61,6 @@ export function resetGamePilot() {
   pilot.reset();
   flown = 0;
   company = null;
+  sincePublish = Infinity;
+  usePilotView.getState().clear();
 }

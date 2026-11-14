@@ -231,7 +231,7 @@ export function landmarksDesk(): Desk {
 
       jobs.push({
         id: `project:${p.id}`, desk: "landmarks",
-        says: `Build the ${p.name}`, why: opens(p), at: at ?? undefined,
+        says: `Build the ${p.name}`, why: opens(p), at: at ?? undefined, puts: p.structure,
         cost: projectCost(p, purse.income), gain: gainOf(p, purse.income),
         needs: needs.length ? needs : undefined,
         done: () => builtProjects(g).has(p.id) || projectUnderWay(g)?.id === p.id,

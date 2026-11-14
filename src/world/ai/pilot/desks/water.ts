@@ -144,7 +144,7 @@ export function waterDesk(): Desk {
       jobs.push({
         id: "refinery:more", desk: "water",
         says: "Build another Slop Refinery", why: `${slopMaking().toFixed(1)} slop a second, more than the refineries take`,
-        at: r.at ?? undefined, cost: r.price, gain: purse.income * REFINERY_INNOVATION * INNOVATION_WORTH,
+        at: r.at ?? undefined, puts: "refinery", cost: r.price, gain: purse.income * REFINERY_INNOVATION * INNOVATION_WORTH,
         run: () => {
           stale = true;
           if (!r.at) return { ok: false, because: "nowhere to put it", retry: "on-change" };

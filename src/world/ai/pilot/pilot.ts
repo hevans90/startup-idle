@@ -19,7 +19,7 @@
  * status out. @see choose, Job, plans/ai-mode-rebuild.md §4
  */
 import { choose, newMemory, type Decision, type Memory, type Purse } from "./chooser";
-import { clock, dollars, type DeskId, type Job, type Queued } from "./job";
+import { clock, shortOf, type DeskId, type Job, type Queued } from "./job";
 
 /** One part of the company, proposing what could be done there. It neither chooses nor acts. */
 export type Desk = { id: DeskId; propose: (purse: Purse) => Job[] };
@@ -77,7 +77,7 @@ export type Pilot = {
 function saysOf(d: Decision): Status {
   switch (d.kind) {
     case "do": return { kind: "next", says: d.job.says, job: d.job };
-    case "saving": return { kind: "saving", says: `${d.job.says} · saving, ${dollars(d.short)} short${Number.isFinite(d.seconds) ? ` · ${clock(d.seconds)}` : ""}`, job: d.job };
+    case "saving": return { kind: "saving", says: `${d.job.says} · saving, ${shortOf(d.short, d.job.costs)} short${Number.isFinite(d.seconds) ? ` · ${clock(d.seconds)}` : ""}`, job: d.job };
     case "waiting": return { kind: "waiting", says: `${d.job.says} · after ${d.on.says}`, job: d.job };
     case "blocked": return { kind: "blocked", says: `${d.job.says} · can't: ${d.because}`, job: d.job };
     case "idle": return { kind: "idle", says: "Nothing to do" };
@@ -141,7 +141,7 @@ export function createPilot(desks: readonly Desk[], options: PilotOptions = {}):
     done++; sinceJob = 0; readySince = null;
     last = job.says;
     if (memory.pinned === job.id) memory.pinned = null;
-    note("did", `${job.says}. ${job.why}`);
+    note("did", `${job.says}. ${job.why.charAt(0).toUpperCase()}${job.why.slice(1)}.`);
     return { kind: "did", says: job.says, job };
   };
 

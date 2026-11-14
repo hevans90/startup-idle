@@ -28,6 +28,8 @@ import { VETO_REPLIES } from "./ai/memos";
 import { useGenerationStore } from "../state/generation.store";
 import { currentPlan, pendingPipe } from "./ai/autopilot";
 import { stepGamePilot } from "./ai/pilot/game";
+import { usePilotView } from "../state/pilot-view.store";
+import { aiDriving } from "../hooks/use-ai-driving";
 import { useFounderStore } from "../state/founder.store";
 import { showMe } from "./play/map-focus";
 import { runningAgents, setThrottled, useAgentsStore } from "../state/agents.store";
@@ -234,7 +236,7 @@ const phaseNow = () => (import.meta.env.DEV ? (window as unknown as { __dayPhase
 
 /** Movers on the map at which the town sounds as busy as it gets. */
 const TOWN_FULL = 80;
-import { HOLO_BLOCKED, HOLO_OK, PLAN_HOLOGRAMS, createHolograms, partsOf, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
+import { HOLO_BLOCKED, HOLO_OK, HOLO_SAVING, PLAN_HOLOGRAMS, createHolograms, partsOf, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
@@ -2274,11 +2276,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const show = ss.showPlan && ss.aiMode && st.playing;
     const plan = show ? currentPlan() : null;
     const pipe = show ? pendingPipe() : null;
-    const sig = `${[...flying].join("|")}#${plan ? planId(plan) : -1}#${pipe ? planId(pipe) : -1}#${st.revision}`;
+    // WHAT THE PILOT HAS IN MIND, each building where it would stand, tinted by its state. @see usePilotView
+    const queued = st.playing && aiDriving() ? usePilotView.getState().queue.filter((j) => j.at && j.puts && j.state !== "cancelled") : [];
+    const sig = `${[...flying].join("|")}#${plan ? planId(plan) : -1}#${pipe ? planId(pipe) : -1}#${st.revision}#${queued.map((j) => `${j.puts}@${j.at!.x},${j.at!.y}:${j.state}`).join("|")}`;
     if (sig !== aiHoloSig.current) {
       aiHoloSig.current = sig;
       const g = st.grid;
       const tiles: TileHolo[] = [];
+      for (const j of queued) {
+        const at = j.at!, def = j.puts!;
+        if (flying.has(`${def}@${at.x},${at.y}`) || !structureDef(def) || holos.some((h) => h.x === at.x && h.y === at.y)) continue;
+        holos.push({ key: `pilot:${def}@${at.x},${at.y}`, def, x: at.x, y: at.y, ok: j.state !== "blocked", planned: true, tint: j.state === "ready" || j.state === "blocked" ? undefined : HOLO_SAVING });
+      }
       if (plan) {
         // ITS BUILDINGS, every one not up nor under way, nearest the middle first.
         const builds = plan.steps

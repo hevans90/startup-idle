@@ -14,6 +14,7 @@ import { toneVar } from "../../ui/console/frame";
 import { CultureBoard } from "./culture/culture-board";
 import { TAG_NAME, TAG_TONE, TagMark } from "./culture/culture-card";
 import { useAiDriving } from "../../hooks/use-ai-driving";
+import { JobState } from "../pilot-tab";
 
 const TRACK_NAME: Record<Track, string> = { agile: "Agile", corpo: "Corpo", sales: "Sales" };
 
@@ -44,7 +45,7 @@ export function CultureDeckPanel() {
         <button type="button" disabled={driving} onClick={() => setOpen("deck")} className="group flex cursor-pointer flex-col gap-1 text-left disabled:cursor-default">
           <span className="flex items-baseline justify-between text-xs">
             <span className="font-display uppercase tracking-wider">In force · {deck.slotted.length}/{deck.slots}</span>
-            {!driving && <span className="text-[10px] uppercase tracking-widest text-fg-muted group-hover:text-fg">Open deck ›</span>}
+            {driving ? <JobState id="culture:" prefix /> : <span className="text-[10px] uppercase tracking-widest text-fg-muted group-hover:text-fg">Open deck ›</span>}
           </span>
           {/* And Pivot Weekly's guest, after them. @see pivot */}
           {[...Array.from({ length: deck.slots }, (_, k) => deck.slotted[k]), ...inForce(deck).filter((id) => !deck.slotted.includes(id))].map((id: CardId | undefined, k) => {

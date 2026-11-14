@@ -43,6 +43,7 @@ import { allTanks, hotAgents } from "../projects/cooling";
 import { powered as rackPowered } from "../projects/racks";
 import { showMe } from "./map-focus";
 import { useAiDriving } from "../../hooks/use-ai-driving";
+import { JobState } from "../../molecules/pilot-tab";
 
 /** A rate a second as so much a minute, signed. */
 const perMinute = (r: number) =>
@@ -440,6 +441,7 @@ function Training() {
                 className="flex w-full items-center justify-between gap-1 px-2 py-1"
               >
                 <b className="truncate">{d.name}</b>
+                {driving && <JobState id={`train:${d.id}`} />}
                 <span className="shrink-0 tabular-nums text-ai" aria-label={`level ${n} of ${MAX_SKILL}, jumps ${d.jump}%`}>
                   {"●".repeat(n)}{"○".repeat(MAX_SKILL - n)} +{d.jump}%
                 </span>

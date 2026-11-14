@@ -260,7 +260,7 @@ export function townDesk(): Desk {
       jobs.push({
         id: `beds:${who}`, desk: "town",
         says: `Zone a lot for ${name(who)}s`, why: room > 0 ? `only ${room} ${room === 1 ? "bed" : "beds"} left` : "every bed is taken",
-        at: at?.at, cost: buildCost(def)?.toNumber() ?? 0, gain: beds * earns(who) * BED_WORTH,
+        at: at?.at, puts: def, cost: buildCost(def)?.toNumber() ?? 0, gain: beds * earns(who) * BED_WORTH,
         needs: at ? undefined : wait,
         run: () => (at ? attempt(g, at) : { ok: false, because: "no frontage", retry: "on-change" }),
       });
@@ -286,7 +286,7 @@ export function townDesk(): Desk {
         id: `desks:${who}`, desk: "town",
         says: `An office for the ${name(who)}s`,
         why: short.now > 0 ? `${short.now} ${name(who)}${short.now === 1 ? " has" : "s have"} no desk` : "their houses will outgrow their desks",
-        at: (at ?? dry)?.at, cost: buildCost(def)?.toNumber() ?? 0,
+        at: (at ?? dry)?.at, puts: def || undefined, cost: buildCost(def)?.toNumber() ?? 0,
         gain: earns(who) * (1 - DESKLESS) * (perched + Math.max(0, coming) * AHEAD_WORTH),
         needs: at ? undefined : dry ? [sewerFor(who)] : wait,
         run: () => (at ? attempt(g, at) : { ok: false, because: "no frontage", retry: "on-change" }),

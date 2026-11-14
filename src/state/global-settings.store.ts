@@ -7,7 +7,8 @@ export type SidebarTab =
   | "valuation"
   | "acquisition"
   | "achievements"
-  | "ai";
+  | "ai"
+  | "pilot";
 
 type GlobalSettingsStore = {
   sidebarTab: SidebarTab;

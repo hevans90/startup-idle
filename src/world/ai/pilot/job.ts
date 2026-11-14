@@ -29,8 +29,9 @@ export type Job = {
   says: string;
   /** Why: "12 beds stand empty". */
   why: string;
-  /** Where, for the map. */
+  /** Where, for the map; and the building it puts there, for its hologram. */
   at?: { x: number; y: number };
+  puts?: string;
   /** What it costs now, and in what. Nought for free. */
   cost: number;
   costs?: "money" | "innovation";
@@ -74,11 +75,15 @@ export function dollars(n: number): string {
   return `$${Math.round(n)}`;
 }
 
-/** A job's state, in words. */
-export function shownAs(s: Shown): string {
+/** What a job is short of, in its own coin: "$361k", "71 innovation". */
+export const shortOf = (n: number, coin: Job["costs"] = "money"): string =>
+  coin === "innovation" ? `${dollars(n).slice(1)} innovation` : dollars(n);
+
+/** A job's state, in words; `coin` is what it is paid in. */
+export function shownAs(s: Shown, coin: Job["costs"] = "money"): string {
   switch (s.state) {
     case "ready": return "Next";
-    case "saving": return `Saving · ${dollars(s.short)} short · ${clock(s.seconds)}`;
+    case "saving": return `Saving · ${shortOf(s.short, coin)} short · ${clock(s.seconds)}`;
     case "waiting": return `After: ${s.on.says}`;
     case "blocked": return `Can't: ${s.because}`;
     case "cancelled": return "Cancelled";

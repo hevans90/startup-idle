@@ -28,12 +28,16 @@ import { rendererFor, type RenderCtx, type StructureHandle, type StructureRender
  */
 export type HoloSpec = {
   key: string; def: string; x: number; y: number; ok: boolean; planned?: boolean; steady?: boolean;
+  /** Its colour, where that is neither of the two: the pilot's, saving for it. @see HOLO_SAVING */
+  tint?: number;
   /** A seaport's footprint and the side its quay is on, where they are not its definition's. @see validatePort */
   w?: number; h?: number; facing?: Structure["facing"];
 };
 
 export const HOLO_OK = 0x5fe3ff;
 export const HOLO_BLOCKED = 0xff5a5a;
+/** What AI mode's pilot is saving for, or has waiting on something else. */
+export const HOLO_SAVING = 0xffb84d;
 /** The most shown at once: a dragged row of lots, the AI's drones, and the masterplan's nearest. */
 export const MAX_HOLOGRAMS = 2100;
 /** The masterplan's buildings shown as holograms at most: all of them, in practice. */
@@ -91,7 +95,7 @@ export function createHolograms(): Holograms {
       for (const [key, m] of shown) {
         const w = want.get(key);
         if (!w || w.def !== m.spec.def || w.x !== m.spec.x || w.y !== m.spec.y || w.w !== m.spec.w || w.h !== m.spec.h || w.facing !== m.spec.facing) unmount(key);
-        else { if (w.planned !== m.spec.planned || w.steady !== m.spec.steady || w.ok !== m.spec.ok) m.styled = false; m.spec = w; }
+        else { if (w.planned !== m.spec.planned || w.steady !== m.spec.steady || w.ok !== m.spec.ok || w.tint !== m.spec.tint) m.styled = false; m.spec = w; }
       }
       for (const [key, spec] of want) {
         if (shown.has(key)) continue;
@@ -106,7 +110,7 @@ export function createHolograms(): Holograms {
     tick(t, scan) {
       scan.clear();
       for (const m of shown.values()) {
-        const colour = m.spec.ok ? HOLO_OK : HOLO_BLOCKED;
+        const colour = m.spec.tint ?? (m.spec.ok ? HOLO_OK : HOLO_BLOCKED);
         // PLANNED: styled once, and left — no flicker, no scan lines.
         if (m.spec.planned) {
           if (m.styled) continue;

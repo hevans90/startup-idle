@@ -1,6 +1,6 @@
 # AI mode, rebuilt: a pilot that plays the whole run, and shows its work
 
-**Status:** phases 0 to 6 built, 2026-11-14 (see "Built so far" at the end): the brain is whole, it drives the game, and the controls are off while it does. Phases 7 to 9 (showing its work, steering, taking the old one out) not started. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
+**Status:** phases 0 to 7 built, 2026-11-14 (see "Built so far" at the end): the brain is whole, it drives the game, the controls are off while it does, and every job it has in mind is shown. Phases 8 and 9 (steering, taking the old one out) not started. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
 
 ## Why
 
@@ -438,3 +438,24 @@ Played on past the sale on seed 1 (75 minutes): the Harbour at 60, a seaport, th
   - **The scene still answers an event itself under AI mode**, the moment it comes, as before; the Events desk finds nothing left to answer.
   - **No holograms**: the old plan's ghost went with the old autopilot, and the pilot's are phase 7.
   - On a phone the bar shows Now and Pause; Next is dropped where there is no room.
+
+
+**Phase 7, showing its work, 2026-11-14.**
+
+- **`state/pilot-view.store.ts`:** the pilot's status, queue and log as plain words and numbers, published by the game's pilot as often as it looks. The sidebar reads this and never the pilot, so the map's engine stays out of its bundle.
+- **The Pilot tab** (`molecules/pilot-tab.tsx`), there while AI mode drives: what it is on now; its queue a desk at a time, each job with its state in words and its reason on hover, a click flying to it where it has a place; its log, the newest first, refusals and faults in their own colours.
+- **On the other tabs, where a control was, what the pilot means to do** (`JobState`): each kind's hire, each upgrade tile, the agents' row, each manager, each mandate, the deck, each training run.
+- **Pins** (`play/pilot-pins.tsx`): one on the map for every queued job with a place, cyan ready, amber saving or waiting, red blocked. A click opens its card: what, why, cost, state.
+- **Holograms**: a job says what it builds (`Job.puts`), and the scene shows it where it would stand, tinted the same way (`HoloSpec.tint`, `HOLO_SAVING`).
+- **The Landmarks list is hidden** under AI mode (the slop card stays); **an event card** answered by the AI says "The AI chose: …" and drops its choices.
+- **Found on the way:** an agent's shortfall was said in dollars ("$71 short") though it is paid in innovation; the log's reasons now read as sentences.
+
+**Seen in the browser** (`/?fixture=singularity&nosave`): the Pilot tab lists People, Town, Landmarks, Water and slop and The machine with states such as "After: the Campus" and "Saving · 71 innovation short"; the log fills a line a job; the Employees tab reads "Next" by the interns and on the upgrade it will buy; three pins stand on the map and one opens its card ("Lay a piece of street · it makes frontage to build on · $14 · Next"); zoomed in, the Company HQ stands as an amber hologram where it is waiting on an upgrade. No console errors.
+
+- **Not done:**
+  - **Cancel and Do next on a job's card** are phase 8, with the rest of the steering.
+  - **The tabs are not rebuilt as the plan's table has them** (three rows a kind, upgrades as an ordered list): the tabs as they were, with the pilot's line where the control stood.
+  - **An event card does not say why** the AI chose as it did, nor close itself: the answer has no reason to give yet.
+  - **Streets, pipes and sewers have a pin but no hologram**: only buildings are drawn ahead.
+  - **Seen in the fixture: four offices for the interns in eight seconds**, each "their houses will outgrow their desks". It may be right for a company with a million dollars and 24 houses without a desk; not looked into.
+  - A pin can sit over a building's label.
