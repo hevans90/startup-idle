@@ -20,7 +20,8 @@ import { useGenerationStore } from "../../state/generation.store";
 import { GENERATOR_TYPES, useGeneratorStore } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useQuestStore } from "../../state/quest.store";
-import { startFixture } from "../../state/world.store";
+import { useSessionStore } from "../../state/session.store";
+import { startFixture, useWorldStore } from "../../state/world.store";
 import { setTownCaps } from "../agents/town";
 
 /** The `bigtown` stress scene's people: enough to fill its houses. @see buildBigTown */
@@ -142,6 +143,17 @@ export function seedFixtureCompany(): void {
   if (startFixture() === "harbour" || startFixture() === "shoal") { seedHarbour(); return; }
   if (startFixture() === "ascension") { seedAscension(); return; }
   if (startFixture() !== "singularity") return;
+  // WITH `&seed=N` (and `&size=`), A COMPANY FROM NOTHING instead: the Model's second generation on a generated map, AI
+  // mode on — a whole run, start to sale, watched in the browser. @see plans/ai-mode-rebuild.md phase 9
+  const from = new URLSearchParams(location.search);
+  if (from.has("seed")) {
+    resetAllGameStores();
+    useGenerationStore.setState({ generation: 2, past: [{ generation: 1, trait: "aesthete", mutated: false, founder: "hustler", weights: 0 }] });
+    useFounderStore.getState().chooseFounder("model");
+    useWorldStore.getState().generateWorld(Number(from.get("seed")) || 1, Number(from.get("size")) || 64);
+    useSessionStore.getState().setAiMode({ aiMode: true });
+    return;
+  }
   resetAllGameStores();
   useGenerationStore.setState({
     generation: 2,

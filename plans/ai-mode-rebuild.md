@@ -511,5 +511,24 @@ No refusal, no fault, no console error. The dev server reloaded the page at seve
 - **Seen in that run and not looked into:**
   - **The million went in thirty seconds**, on eight intern offices ("their houses will outgrow their desks") and five pumped mains for the Model's own buildings. Each may be right; a company handed a fortune is not what the sim plays.
   - **The bar's Now can read a wait of forty days**: "Spin up an agent · saving, 71 innovation short · 959h". It is the best job and it is being saved for, in its own coin, while money jobs go on; as the headline it reads as stuck.
-- **Still open from earlier phases:** the time bound against the balance sim's greedy player; seed 7's 4.4-minute spill; the gateway road that slows two maps; events in the sim; the "needs you" card unseen in the browser; a non-Model founder's AI mode unplayed; no Fine town goal.
+**The play-through, made (14 Nov 2026).** Three companies from the Model's $5, AI mode on, nothing done by hand, each in its own tab of the isolated preview: `/?fixture=singularity&seed=N&size=S` (a new option on the fixture: the second generation's Model, a generated map, no gift). **One of three reached the sale. The other two tabs died of memory first.**
+
+| Map | Reached | How it ended |
+|---|---|---|
+| seed 1, 64² | **the offer at 73 min** (+23 Equity; the sim says 70); the "needs you" card up over the map, its Open and the sale's dialog working | stopped at the dialog |
+| seed 7, 96² | 512 of 1,000 valuation at 59 min; six workplaces sewered, none spilling | **the tab died at about 62 min**, its JS heap 4.7 GB of a 4.4 GB limit |
+| seed 23, 128² | $3B at 37 min, behind the others from a blackout at 16 | **the tab died between 37 and 46 min** |
+
+No console error, no fault and no refusal in any of them, and the pilot answered every event (road works, a blackout, a flood).
+
+- **Found, and not fixed:**
+  - **The game runs out of memory in the browser within the hour.** Heap at 47 min: 2.7 GB on 64², 3.7 GB on 96²; the 64² map levelled off near 3.1 GB once it had no room left to build, which points at something kept per building or per change of the map. The scene is small (8,800 display objects, 154 buildings), the undo history and the pilot's lists are capped. Whether a hand-played game does the same is not known. The headless sim of seed 7 peaks at 1.46 GB.
+  - **A tank spilled for 35 minutes and more on seed 1**, from the flood at 36 min to the sale, with no job for it in the queue and nothing said of why: the silence the rebuild was to end.
+  - **Flood damage stood for 38 minutes**: twelve buildings still "flood damaged" at the sale. The pilot's answer to the flood was a levee the water got past.
+  - **A 64² map is full by 36 minutes**: "room to grow, and none is left on this map" for offices and lots, people over beds (448/442) and "42 houses, no desk" at the sale.
+  - **"Hire 1 10x dev. Infinity beds standing empty."** in the log.
+  - **The vape overlaps the pilot bar** at the map's lower left.
+  - The sale came 3 to 15 minutes later than the sim's, on the one map that got there; events are in the browser and not in the sim.
+
+- **Still open from earlier phases:** the time bound against the balance sim's greedy player; seed 7's 4.4-minute spill; the gateway road that slows two maps; events in the sim; a non-Model founder's AI mode unplayed; no Fine town goal.
 
