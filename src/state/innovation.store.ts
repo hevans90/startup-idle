@@ -60,6 +60,10 @@ export type ManagerState = {
 const baseManagerCost = new Decimal(1);
 const managerCostGrowth = new Decimal(1.5);
 
+/** What assigning one more manager costs, whatever the tab's amount is set to. */
+export const nextManagerCost = (key: ManagerKeys): Decimal =>
+  baseManagerCost.mul(managerCostGrowth.pow(useInnovationStore.getState().managers[key].assignment));
+
 export function getManagerCost(key: ManagerKeys): {
   count: number;
   totalCost: Decimal;

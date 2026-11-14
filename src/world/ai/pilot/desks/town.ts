@@ -36,7 +36,7 @@ import { PLAIN, styleOf, type Style } from "../../masterplan/style";
 import type { Job, Need, Outcome } from "../job";
 import type { Desk } from "../pilot";
 import { lateralGround } from "../../../sewers/reach";
-import { portTiles } from "../../../water/ports";
+import { portTileSet, portTiles } from "../../../water/ports";
 import { inYard } from "./landmarks";
 import { sewerAsks } from "./water";
 
@@ -171,6 +171,16 @@ export function townDesk(): Desk {
   let stale = false;
   /** Take a step; refused, it is not offered again, and where things could stand is worked out afresh. */
   const attempt = (g: Grid, s: PlanStep): Outcome => {
+    // LOOKED AT AGAIN as it is built: the spot was chosen a few looks ago, and a lot zoned since may stand where its slop comes out.
+    if (s.kind === "build") {
+      const d = structureDef(s.def);
+      const out = d ? portTiles(g, s.def, s.at.x, s.at.y, d.footprint.w, d.footprint.h).filter((p) => p.port.fluid === "slop" && p.port.dir === "out") : [];
+      if (!out.every((p) => lateralGround(g, idx(g, p.x, p.y)))) {
+        bad.add(idx(g, s.at.x, s.at.y));
+        stale = true; forget();
+        return { ok: false, because: "its slop would have nowhere to come out", retry: 3 };
+      }
+    }
     const out = take(g, s);
     // DONE OR NOT, what was offered is spent: kept till the next walk of the map, the lot just zoned was offered again and
     // refused as occupied, and the piece just laid as nothing to lay.
@@ -193,7 +203,9 @@ export function townDesk(): Desk {
     if (!kinds.length) return [];
     const style = townStyle();
     const rules = playRules(g);
-    const wants: Wants = { rules: { ...rules, owned: (x, y) => (rules.owned?.(x, y) ?? true) && !bad.has(idx(g, x, y)) && !inYard(g, x, y) }, kinds, offices: true, style };
+    // EVERY PORT KEPT CLEAR: a house on the tile an office's slop comes out at, and it spills for good. @see portTileSet
+    const ports = portTileSet(g);
+    const wants: Wants = { rules: { ...rules, owned: (x, y) => (rules.owned?.(x, y) ?? true) && !bad.has(idx(g, x, y)) && !inYard(g, x, y) && !ports.has(idx(g, x, y)) }, kinds, offices: true, style };
     const forLots: Wants = { ...wants, rules: { ...wants.rules, owned: (x, y) => (wants.rules.owned?.(x, y) ?? true) && !kept.has(idx(g, x, y)) } };
     const key = kinds.join();
     sinceFresh++; sinceNone++;

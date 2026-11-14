@@ -16,7 +16,7 @@ import { slopRate } from "../game/slop";
 import { section } from "../hitches";
 import { useGeneratorStore } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
-import { getArrivals, getEvolution, getNetwork, getTown, getTownServices, getTraffic, getWorks, playRules, useWorldStore } from "../state/world.store";
+import { getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTownServices, getTraffic, getWorks, playRules, useWorldStore } from "../state/world.store";
 import { useSessionStore } from "../state/session.store";
 import type { GeneratorId } from "../state/generators.store";
 import { stepArrivals } from "./agents/arrivals";
@@ -29,7 +29,19 @@ import { liveCoverage, stepEvolution, townChanged } from "./agents/services";
 import { sendOnJob, stepTown, type Mover } from "./agents/town";
 import { stepTown as stepTownServices, type TownEvent } from "./agents/town-services";
 import { ladderOf, stepLadder } from "./agents/unlocks";
+import { classOf } from "./boats/classes";
+import { perMinute, recordCall } from "./boats/exports";
+import { fitting } from "./boats/fittings";
+import { stepFleet } from "./boats/fleet";
+import { BARGE_COST, BARGE_HOLDS, bargeLoad, bargeTakes } from "./boats/slop-loader";
+import { creditTrade, stepTrade } from "./boats/trade";
+import { stepTraffic, trafficSteer } from "./boats/traffic";
 import { stepYards } from "./boats/yard";
+import { CONVOY_PAYS, convoyPays } from "./events/convoy";
+import { ROUTE_BONUS } from "./events/defs/convoy";
+import { portShut } from "./events/flood";
+import { tallyCall } from "./events/town-events";
+import { portCallFee } from "../game/build-cost";
 import { damagedNow } from "./events/damage";
 import type { Grid } from "./grid";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
@@ -38,6 +50,7 @@ import { stepWorks } from "./projects/works";
 import type { Network } from "./roads/network";
 import { structureDef } from "./structures/def";
 import { validatePlacement } from "./structures/place";
+import { keepsPorts, portTileSet } from "./water/ports";
 import { runSources, type WaterField } from "./water/field";
 import { stepPollution } from "./water/pollution";
 
@@ -118,7 +131,8 @@ export function stepGrowth(g: Grid, net: Network, unrest: Unrest, dt: number): T
   if (grew.length) useWorldStore.getState().housingMoved(grew);
   const ws = useWorldStore.getState();
   const changed = stepTownServices(getTownServices(), g, net, cover, dt, {
-    canPlace: (def, x, y) => { const d = structureDef(def); return !!d && validatePlacement(g, d, x, y, playRules(g)).ok; },
+    // And never over a building's port: a shop on the tile an office's slop comes out at, and it spills for good. @see keepsPorts
+    canPlace: (def, x, y) => { const d = structureDef(def); return !!d && validatePlacement(g, d, x, y, playRules(g)).ok && keepsPorts(g, portsNow(g), def, x, y, d.footprint.w, d.footprint.h); },
     place: ws.townPlace, clear: ws.townClear, rand: Math.random,
   });
   if (changed.length) ws.housingMoved(changed.map((e) => e.structure));
@@ -156,4 +170,84 @@ export function stepSites(g: Grid, net: Network, seen: WorksSeen, dt: number, pl
     seen.rev = works.rev;
     useWorldStore.setState({ projectRev: useWorldStore.getState().projectRev + 1 });
   }
+}
+
+/** Every port's tile on a map, kept till the map changes. @see portTileSet */
+let portsKept: { grid: Grid; rev: number; tiles: Set<number> } | null = null;
+function portsNow(g: Grid): Set<number> {
+  if (!portsKept || portsKept.grid !== g || portsKept.rev !== g.rev) portsKept = { grid: g, rev: g.rev, tiles: portTileSet(g) };
+  return portsKept.tiles;
+}
+
+/** What the harbour did this step that the scene sounds and says. */
+export type HarbourSeen = {
+  /** The first coaster or ship to call at a port. @see Traffic.firsts */
+  firsts: { port: number; cls: number }[];
+  /** Ports whose river has fallen too low for their bigger ships. */
+  lows: number[];
+  /** The investor's yacht has called. @see callInvestor */
+  vip: boolean;
+  /** Calls paid for. */
+  paid: number;
+};
+
+/** When what the ports earn a second was last worked out, on the frame clock: begun a minute ahead, so the first is measured over a whole minute of calls. */
+let portRateAt: number | null = null;
+
+/**
+ * THE HARBOUR: boats in off the rivers and away, every boat moved, and THE
+ * PORTS PAID for the calls they finished — in the game, into the company's
+ * money; in the editor, counted and never paid. What the ports earn a second
+ * is kept with the company for the time away. @see portCallFee, stepTraffic
+ */
+export function stepHarbour(g: Grid, field: WaterField, dt: number, playing: boolean, now = performance.now()): HarbourSeen {
+  const traffic = getTraffic(), fleet = getFleet();
+  stepTraffic(traffic, fleet, g, field.columns, dt);
+  stepTrade(dt);
+  const seen: HarbourSeen = { firsts: traffic.firsts.splice(0), lows: traffic.lows.splice(0), vip: false, paid: 0 };
+  if (traffic.calls.length) {
+    const st = useWorldStore.getState();
+    for (const call of traffic.calls.splice(0)) {
+      const id = call.port;
+      const s = g.structures.get(id);
+      // By the size of ship that called, and by what its berth is fitted for: less of the fee, and something for the town. @see SHIP_CLASSES, FITTINGS
+      const fit = fitting(call.fit);
+      let fee = s ? portCallFee(s.def, undefined, call.cls) : null;
+      if (call.vip && playing) seen.vip = true;
+      // A SLOP BARGE takes a hold of what the loader has, and bills for it by how much: a full one, half a call's fee.
+      // What the company cannot pay for is left where it is.
+      if (fit.id === "slop" && s && fee !== null && !portShut(id)) {
+        const bill = fee * BARGE_COST * (bargeLoad(g, id) / BARGE_HOLDS);
+        if (bill > 0 && (!playing || useMoneyStore.getState().money.gte(bill))) {
+          bargeTakes(g, id);
+          if (playing) useMoneyStore.getState().spendMoney(bill);
+        }
+        continue;
+      }
+      if (fee !== null) fee *= fit.pay;
+      if (fit.keeps && s && !portShut(id)) creditTrade(fit.keeps, classOf(call.cls).dock * classOf(call.cls).span);
+      // A PORT UNDER WATER takes no trade. @see portShut
+      if (fee === null || portShut(id)) continue;
+      // REGULAR ROUTES, won by serving convoys, add to every call. @see ROUTE_BONUS
+      fee *= 1 + ROUTE_BONUS * (useSessionStore.getState().routes ?? 0);
+      // A CONVOY IN pays double, and is counted; treble at a port by the Conference Centre. @see convoyPays
+      const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
+      if (convoy) { fee *= s ? convoyPays(g, s) : CONVOY_PAYS; tallyCall(convoy.id, fee); }
+      if (playing) { useMoneyStore.getState().increaseMoney(fee); seen.paid++; }
+      recordCall(getExports(), id, fee, now);
+    }
+  }
+  // WHAT THE PORTS EARN A SECOND — a few times a minute, from the last minute's calls. @see portIncomePerSecond
+  if (playing) {
+    if (portRateAt === null || now < portRateAt - 60_000) portRateAt = now + 55_000;
+    if (now - portRateAt > 5000) {
+      portRateAt = now;
+      const ex = getExports();
+      let perMin = 0;
+      for (const id of ex.recent.keys()) perMin += perMinute(ex, id, now);
+      useSessionStore.getState().setPortIncome(perMin / 60);
+    }
+  }
+  stepFleet(fleet, field.columns, dt, trafficSteer(traffic));
+  return seen;
 }

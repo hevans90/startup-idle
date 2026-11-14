@@ -16,6 +16,10 @@ import { asAi } from "../ai/district";
 
 type Cell = { x: number; y: number };
 
+/** What the game said of the last action taken here, if it said anything: a refusal's reason, in its own words. */
+let lastWhy: string | null = null;
+export const whyNot = () => lastWhy;
+
 /** Run a store action with a tool in hand, then put back what the player had; whether the map changed. */
 function withTool(patch: Record<string, unknown>, act: () => void): boolean {
   const st = useWorldStore.getState();
@@ -27,6 +31,9 @@ function withTool(patch: Record<string, unknown>, act: () => void): boolean {
   useWorldStore.setState(patch);
   // As the AI: its own streets are not closed to it. @see asAi
   try { asAi(act); } finally {
+    // What the game said in refusing it, kept for whoever asked: the player's own notice is put back. @see whyNot
+    const said = useWorldStore.getState().notice;
+    lastWhy = said && said !== kept.notice ? said.text : null;
     // The AI's work is not the player's last build to take back. @see undoLastBuild
     useWorldStore.setState(kept);
   }

@@ -46,10 +46,10 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
-import { demolishLifts, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { demolishLifts, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
-import { stepGrowth, stepPeople, stepPlumbing, stepSites, type WorksSeen } from "./step-world";
+import { stepGrowth, stepHarbour, stepPeople, stepPlumbing, stepSites, type WorksSeen } from "./step-world";
 import {
   bandShown, createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
   type BandLayer,
@@ -90,9 +90,6 @@ import { createConnectGuide, type ConnectGuide } from "./render/connect-guide";
 import { connectPointsKept, pipeClick } from "./pipes/connect-points";
 import { dredgeCells, type Facing, type Rect as PortRect } from "./boats/quay";
 import { SHIP_CLASSES, classOf } from "./boats/classes";
-import { fitting } from "./boats/fittings";
-import { creditTrade, stepTrade } from "./boats/trade";
-import { BARGE_COST, BARGE_HOLDS, bargeLoad, bargeTakes } from "./boats/slop-loader";
 import { pushWater } from "./boats/wake";
 import { LORRY_LOADS, yardFill } from "./boats/yard";
 import { RTG_REACH, stackBayOf } from "./structures/seaport-renderer";
@@ -148,42 +145,40 @@ import { liveBeauty } from "./agents/beauty";
 import { WORKPLACES, liveSeating, workplaceKind } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setFouled, setSludged, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
-import { CONVOY_PAYS, convoyPays, loadPriceMult, setConvoyIn, setStrike } from "./events/convoy";
+import { loadPriceMult, setConvoyIn, setStrike } from "./events/convoy";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { CLEANERS_PER_TILE, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
 import { dryUp, mopAll, ring, sludgeAt, sludgedHouses } from "./events/sludge";
 import { emptyFull, slopSpike, tanksOf } from "./slop/tanks";
-import { convoyTally, tallyCall, townMood } from "./events/town-events";
+import { convoyTally, townMood } from "./events/town-events";
 import { createDirector, dueFollowUp, eventStarted, pickEvent, queueFollowUp, tickDirector } from "./events/director";
 import { EVENT_DEFS } from "./events/defs";
 import { HACKATHON_CODERS } from "./events/defs/hackathon";
 import { FLOOD_MS } from "./events/defs/flood";
 import {
-  droughtDrop, evacuatedAway, floodBaseline, floodedNow, floodMisery, floodPeak, portShut, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
+  droughtDrop, evacuatedAway, floodBaseline, floodedNow, floodMisery, floodPeak, riseAt, riverHead, setFloodState, soakAway, type FloodBase, type FloodShield,
 } from "./events/flood";
 import { burn, closeFor, damage, damageCause, damagedNow, firstOverheated, isDamaged, stepRepairs, type DamageCause } from "./events/damage";
 import { FIRE_MS, FIRE_SPREAD, HOSE_OUT_MS } from "./events/defs/fire";
 import { spreadTargets } from "./events/fire-spread";
-import { answerFor, startEvent, stepEvents, type TownView } from "./events/events";
+import { answerFor, setTownView, startEvent, stepEvents, type TownView } from "./events/events";
 import { busiestJunction, setClosed, tileOf } from "./events/closures";
 import { POACH_LEAST, POACH_SHARE, MATCH_SHARE } from "./events/defs/poaching";
 import { STRIKE_HOMES, STRIKE_MOOD } from "./events/defs/tenants";
 import { getGeneratorCost } from "../utils/generator-utils";
 import { AI_TAGS, CARDS, card as cultureCard, rankNow } from "../game/culture";
 import { LEVEE_RUSH, leveeCells } from "./events/levee";
-import { perMinute, recordCall } from "./boats/exports";
-import { buildCost, portCallFee, setRoadsFree } from "../game/build-cost";
+import { buildCost, setRoadsFree } from "../game/build-cost";
 import { useMoneyStore } from "../state/money.store";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
-import { ROUTE_BONUS } from "./events/defs/convoy";
 import { fusionNow } from "../game/fusion";
 import { skillOf, training, useTrainingStore } from "../state/training.store";
 import { useSessionStore } from "../state/session.store";
 import { sitesOf } from "./projects/works";
 import { ownedNow } from "./projects/economy";
-import { stepFleet, wantFleet } from "./boats/fleet";
-import { callInvestor, stepTraffic, trafficSteer } from "./boats/traffic";
+import { wantFleet } from "./boats/fleet";
+import { callInvestor } from "./boats/traffic";
 import { termStatus } from "../game/term-sheets";
 import "./structures/seaport-renderer";
 import "./structures/project-renderer";
@@ -508,12 +503,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const townRef = useRef<TownLayer | null>(null);
   /** The works' revision last told to the store, so autosave hears of progress. */
   const worksSeen = useRef<WorksSeen>({ rev: 0 });
-  /**
-   * When the ports' rate a second was last kept — starting a minute ahead,
-   * so the first one is measured over a whole minute of calls and not the
-   * empty one after a load. @see portIncomePerSecond
-   */
-  const portRateAt = useRef(performance.now() + 55_000);
   /** Whether the term sheet's goal was met when last looked at (null before the first look), and seconds since. @see callInvestor */
   const termLook = useRef<{ met: boolean | null; at: number }>({ met: null, at: 0 });
   /** How long each miserable house has been so. @see stepMood */
@@ -3222,8 +3211,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // The rivers' traffic first: boats in from a ported river's inflow, and
       // off at its exit. Then every boat, the ones under way steered for it.
       const traffic = getTraffic();
-      stepTraffic(traffic, fleet, useWorldStore.getState().grid, field.columns, dt);
-      stepTrade(dt);
       // A TERM SHEET'S GOAL, MET: its investor comes by water, if there is a pontoon to come to. Looked at twice a second;
       // one already met when the map opens is not news.
       if (useWorldStore.getState().playing && (termLook.current.at += dt) >= 0.5) {
@@ -3232,73 +3219,28 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (met && termLook.current.met === false) callInvestor(traffic);
         termLook.current.met = met;
       }
+      const harbour = stepHarbour(useWorldStore.getState().grid, field, dt, useWorldStore.getState().playing);
       // MOMENTS: the first coaster or ship to call at a port sounds its horn; a river fallen too low for a port's ships is said. @see Traffic.firsts
-      if (traffic.firsts.length || traffic.lows.length) {
+      if (harbour.firsts.length || harbour.lows.length) {
         const g = useWorldStore.getState().grid, playing = useWorldStore.getState().playing;
-        for (const first of traffic.firsts.splice(0)) {
+        for (const first of harbour.firsts) {
           sfx("horn");
           const name = (structureDef(g.structures.get(first.port)?.def ?? "")?.name ?? "seaport").replace(/^seaport/, "Seaport");
           if (playing) useWorldStore.setState({ notice: { text: `First ${classOf(first.cls).name.toLowerCase()} at ${name}`, at: Date.now() } });
         }
-        for (const id of traffic.lows.splice(0)) {
+        for (const id of harbour.lows) {
           const name = (structureDef(g.structures.get(id)?.def ?? "")?.name ?? "seaport").replace(/^seaport/, "Seaport");
           if (playing) useWorldStore.setState({ notice: { text: `River too low for ${name}'s bigger ships`, at: Date.now() } });
         }
       }
-      // THE PORTS PAID for the calls they finished — in the game, into the
-      // company's money; in the editor, shown and never paid. @see portCallFee
-      if (traffic.calls.length) {
-        const st = useWorldStore.getState(), now = performance.now();
-        for (const call of traffic.calls.splice(0)) {
-          const id = call.port;
-          const s = st.grid.structures.get(id);
-          // By the size of ship that called. @see SHIP_CLASSES
-          // And by what its berth is fitted for: less of the fee, and something for the town. @see FITTINGS
-          const fit = fitting(call.fit);
-          let fee = s ? portCallFee(s.def, undefined, call.cls) : null;
-          // THE INVESTOR, ARRIVED: their yacht has called at the pontoon. @see callInvestor
-          if (call.vip && st.playing) {
-            sfx("horn");
-            const who = termStatus()?.sheet.investor;
-            if (who) useWorldStore.setState({ notice: { text: `${who} arrives by yacht`, at: Date.now() } });
-          }
-          // A SLOP BARGE takes a hold of what the loader has, and bills for it by how much: a full one, half a call's fee.
-          // What the company cannot pay for is left where it is.
-          if (fit.id === "slop" && s && fee !== null && !portShut(id)) {
-            const bill = fee * BARGE_COST * (bargeLoad(st.grid, id) / BARGE_HOLDS);
-            if (bill > 0 && (!st.playing || useMoneyStore.getState().money.gte(bill))) {
-              bargeTakes(st.grid, id);
-              if (st.playing) useMoneyStore.getState().spendMoney(bill);
-            }
-            continue;
-          }
-          if (fee !== null) fee *= fit.pay;
-          if (fit.keeps && s && !portShut(id)) creditTrade(fit.keeps, classOf(call.cls).dock * classOf(call.cls).span);
-          // A PORT UNDER WATER takes no trade. @see portShut
-          if (fee === null || portShut(id)) continue;
-          // REGULAR ROUTES, won by serving convoys, add to every call. @see ROUTE_BONUS
-          fee *= 1 + ROUTE_BONUS * (useSessionStore.getState().routes ?? 0);
-          // A CONVOY IN pays double, and is counted. @see stepOpportunities
-          const convoy = st.events.find((e) => e.kind === "convoy" && e.phase === "active");
-          // Treble at a port by the Conference Centre. @see convoyPays
-          if (convoy) { fee *= s ? convoyPays(st.grid, s) : CONVOY_PAYS; tallyCall(convoy.id, fee); }
-          if (st.playing) { useMoneyStore.getState().increaseMoney(fee); sfx("coin"); }
-          recordCall(getExports(), id, fee, now);
-        }
+      // THE INVESTOR, ARRIVED: their yacht has called at the pontoon. @see callInvestor
+      if (harbour.vip) {
+        sfx("horn");
+        const who = termStatus()?.sheet.investor;
+        if (who) useWorldStore.setState({ notice: { text: `${who} arrives by yacht`, at: Date.now() } });
       }
-      // WHAT THE PORTS EARN A SECOND, kept with the company for the time away
-      // — a few times a minute, from the last minute's calls. @see portIncomePerSecond
-      if (useWorldStore.getState().playing) {
-        const now = performance.now();
-        if (now - portRateAt.current > 5000) {
-          portRateAt.current = now;
-          const ex = getExports();
-          let perMin = 0;
-          for (const id of ex.recent.keys()) perMin += perMinute(ex, id, now);
-          useSessionStore.getState().setPortIncome(perMin / 60);
-        }
-      }
-      stepFleet(fleet, field.columns, dt, trafficSteer(traffic));
+      // THE PORTS PAID for the calls they finished. @see stepHarbour
+      if (harbour.paid) sfx("coin");
       // HULLS MOVE THE WATER: a bow wave and a hollow astern, the water's own. @see pushWater
       pushWater(fleet, field.columns, dt);
       boatRef.current?.draw(fleet, field.columns, scale, dt, useGlobalSettingsStore.getState().dayNight && useWorldStore.getState().playing ? darkness(phaseNow()) / NIGHT_DARK : 0);
@@ -3512,6 +3454,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 street: () => { const best = liveStreetEarnings()[0]; return best ? streetName(best) : undefined; },
               } : null,
             };
+            setTownView(view);
             const on = !useSessionStore.getState().mapEventsOff;
             const stepped = on ? stepEvents(st.events, view, EVENT_DEFS) : { events: [], ended: [], acts: [] };
             let next = stepped.events;

@@ -16,13 +16,14 @@
  * `wantsRefinery`, `neededPipe`. Laid through the player's own tools.
  * @see sewer-ai, cooling-ai, plans/ai-mode-rebuild.md phase 4
  */
+import { pipeCost } from "../../../../game/build-cost";
 import { REFINERY_INNOVATION } from "../../../../game/processors";
 import { slopMaking } from "../../../../game/slop";
 import { useGeneratorStore, type GeneratorId } from "../../../../state/generators.store";
 import { playRules, useWorldStore } from "../../../../state/world.store";
 import { DESKS, WORKPLACES } from "../../../agents/commute";
 import type { Grid } from "../../../grid";
-import { laySewerPath, placeStructure } from "../../../play/build-actions";
+import { laySewerPath, placeStructure, whyNot } from "../../../play/build-actions";
 import { nearestSpot } from "../../../projects/works";
 import { structureDef } from "../../../structures/def";
 import { layRoute, neededPipe } from "../../cooling-ai";
@@ -39,6 +40,8 @@ export const sewerAsks = new Map<GeneratorId, { x: number; y: number; w: number;
 
 /** Looks between two workings-out of the routes, at the least: each solves the sewers and walks the map. @see town desk LOOK_AGAIN */
 const LOOK_AGAIN = 6;
+/** Looks a route that would not go down is left alone for: a minute. */
+const FAIL_REST = 120;
 /** How far round where an office would stand a manhole serves it, tiles: the box a trunk is laid into. */
 const ASK_ROUND = 2;
 /**
@@ -56,33 +59,47 @@ export function waterDesk(): Desk {
   let fix: SewerJob | null = null, refinery: { price: number; at: { x: number; y: number } | null } | null = null;
   let pipe: ReturnType<typeof neededPipe> = null;
   const asked = new Map<GeneratorId, SewerJob | null>();
-  /** Routes that would not go down, by the planner's own key: not offered again on this map. */
-  const failed = new Set<string>();
+  /**
+   * What a tile of pipe cost when the routes were priced. A route's price is of then, and a tile's follows income: it is
+   * offered at what it would cost NOW. Offered at the old price with income doubling by the minute, the chooser thought
+   * it paid for and the tool refused it, five times running on one map.
+   */
+  let unitThen = 1;
+  const now = (price: number) => price * Math.max(1, pipeCost(1).toNumber() / unitThen);
+  /**
+   * Routes that would not go down, by the planner's own key, and the look they failed at: left alone a while, and the
+   * next offered in their place. Not for good: a route is priced when it is planned, a few seconds before it is laid,
+   * and with income climbing fast the tool refuses it for want of money. Written off for ever, a town's tanks spilled
+   * for twenty minutes beside a sewer nobody would lay.
+   */
+  const failed = new Map<string, number>();
+  let looks = 0;
+  const resting = (key: string) => { const at = failed.get(key); return at !== undefined && looks - at < FAIL_REST; };
 
   const lay = (job: SewerJob): Outcome => {
     stale = true;
     if (laySewerPath(job.cells, job.kind === "lateral")) return { ok: true };
-    failed.add(job.key);
-    return { ok: false, because: useWorldStore.getState().notice?.text.toLowerCase() ?? "the sewer would not go down", retry: 3 };
+    failed.set(job.key, looks);
+    return { ok: false, because: whyNot()?.toLowerCase() ?? "the sewer would not go down", retry: 3 };
   };
 
   const propose = (purse: Purse): Job[] => {
     const g = useWorldStore.getState().grid;
     const gens = useGeneratorStore.getState();
-    since++;
+    since++; looks++;
     if (!seen || seen.grid !== g) failed.clear();
     const fresh = !seen || seen.grid !== g || stale || (seen.rev !== g.rev && since >= LOOK_AGAIN) || since >= LOOK_AGAIN * 10;
     if (fresh) {
       seen = { grid: g, rev: g.rev }; since = 0; stale = false;
+      unitThen = Math.max(1, pipeCost(1).toNumber());
       asked.clear();
-      fix = neededSewer(g);
-      if (fix && failed.has(fix.key)) fix = null;
+      fix = neededSewer(g, new Set([...failed.keys()].filter(resting)));
       const more = wantsRefinery(g);
       const vibe = more && [...g.structures.values()].find((s) => !s.build && WORKPLACES.vibe_coder.includes(s.def));
       const def = structureDef("refinery");
       refinery = more && def ? { price: more.price, at: nearestSpot(g, def, playRules(g), vibe ? { x: vibe.x, y: vibe.y } : undefined) } : null;
       pipe = neededPipe(g);
-      if (pipe && failed.has(`pipe:${pipe.s.id}`)) pipe = null;
+      if (pipe && resting(`pipe:${pipe.s.id}`)) pipe = null;
     }
 
     const jobs: Job[] = [];
@@ -97,7 +114,10 @@ export function waterDesk(): Desk {
         id: `sewer:${job.key}`, desk: "water",
         says: job.kind === "lateral" ? "Connect an office to the sewer" : "Lay a sewer for the slop",
         why: job.kind === "lateral" ? "its tank has nowhere to drain" : "an office's slop has nowhere to go",
-        at: job.cells[0], cost: job.price, gain: earns * desks * SPILL_WORTH,
+        at: job.cells[0], cost: now(job.price), gain: earns * desks * SPILL_WORTH,
+        // URGENT: a trunk costs minutes of income, and on its payback it sat ready behind every upgrade while the tanks
+        // spilled for half an hour. It does not wait behind a purchase.
+        urgent: true,
         run: () => lay(job),
       });
     }
@@ -106,14 +126,14 @@ export function waterDesk(): Desk {
     for (const [who, at] of sewerAsks) {
       if (!asked.has(who)) {
         const job = trunkInto(g, { x0: at.x - ASK_ROUND, y0: at.y - ASK_ROUND, x1: at.x + at.w - 1 + ASK_ROUND, y1: at.y + at.h - 1 + ASK_ROUND });
-        asked.set(who, job && !failed.has(job.key) ? job : null);
+        asked.set(who, job && !resting(job.key) ? job : null);
       }
       const job = asked.get(who);
       if (!job) continue;
       jobs.push({
         id: `sewer:${who}`, desk: "water",
         says: "Lay a sewer to where an office will go", why: "what makes slop is built by a manhole",
-        at: job.cells[0], cost: job.price, gain: 0,
+        at: job.cells[0], cost: now(job.price), gain: 0,
         run: () => lay(job),
       });
     }
@@ -128,7 +148,7 @@ export function waterDesk(): Desk {
         run: () => {
           stale = true;
           if (!r.at) return { ok: false, because: "nowhere to put it", retry: "on-change" };
-          return placeStructure("refinery", r.at) ? { ok: true } : { ok: false, because: useWorldStore.getState().notice?.text.toLowerCase() ?? "it would not go there", retry: "on-change" };
+          return placeStructure("refinery", r.at) ? { ok: true } : { ok: false, because: whyNot()?.toLowerCase() ?? "it would not go there", retry: "on-change" };
         },
       });
     }
@@ -139,12 +159,12 @@ export function waterDesk(): Desk {
       jobs.push({
         id: `pipe:${p.s.id}`, desk: "water",
         says: p.route.pump ? "Lay a pump and a main, for cooling" : "Lay a main, for cooling", why: "a building is running short of water",
-        at: p.route.pipe[p.route.pipe.length - 1], cost: p.price, gain: purse.income * DRY_WORTH,
+        at: p.route.pipe[p.route.pipe.length - 1], cost: now(p.price), gain: purse.income * DRY_WORTH,
         run: () => {
           stale = true;
           if (layRoute(p.route)) return { ok: true };
-          failed.add(`pipe:${p.s.id}`);
-          return { ok: false, because: useWorldStore.getState().notice?.text.toLowerCase() ?? "the main would not go down", retry: 3 };
+          failed.set(`pipe:${p.s.id}`, looks);
+          return { ok: false, because: whyNot()?.toLowerCase() ?? "the main would not go down", retry: 3 };
         },
       });
     }

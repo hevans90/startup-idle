@@ -7,10 +7,8 @@
  * this plays on the grid: it is how AI mode is held to "plays a whole run".
  * @see stepPeople, stepGrowth, stepSites, plans/ai-mode-rebuild.md phase 0
  *
- * NOT STEPPED YET, each the scene's still: the water and its pipes (the
- * river stands as it was generated; nothing drinks, nothing spills), the
- * boats and what ports are paid, the events, repairs. A port built here
- * earns nothing and a Data Centre is never short of water.
+ * NOT STEPPED YET, each the scene's still: the events and what they do to
+ * the map, repairs, cleanup. No flood comes and nothing breaks.
  */
 import { canAcquire, setTownBonusReader } from "../game/acquisition";
 import { foundingRemoteBeds, housedBy, residentsIn, setHousingReader } from "../game/housing";
@@ -31,12 +29,13 @@ import { bedsReading, foundPlayedProjects, projectReader, termReading, townMoodR
 import { townBonusOf } from "../world/projects/town-worth";
 import { builtProjects } from "../world/projects/works";
 import { isPaved } from "../world/roads/mask";
-import { stepGrowth, stepPeople, stepPlumbing, stepSites, type WorksSeen } from "../world/step-world";
+import { stepGrowth, stepHarbour, stepPeople, stepPlumbing, stepSites, type WorksSeen } from "../world/step-world";
 import { stepCooling } from "../world/projects/cooling";
 import { stepWater } from "../world/water/field";
 import { slopSpilling } from "../game/slop";
-import { runningAgents } from "../state/agents.store";
-import { skillOf } from "../state/training.store";
+import { runningAgents, useAgentsStore } from "../state/agents.store";
+import { skillOf, useTrainingStore } from "../state/training.store";
+import { structureDef } from "../world/structures/def";
 import { resetAllGameStores } from "./reset-game-stores";
 import { advanceGameplayOneSecond } from "./run-sim";
 
@@ -85,6 +84,10 @@ export type PilotRunReport = {
   money: number;
   income: number;
   steps: number;
+  /** Seaports standing, what their calls have paid in all, and the agents running. */
+  ports: number;
+  portsPaid: number;
+  agents: number;
   /** Seconds some tank of slop was spilling: in all, and the longest stretch. */
   spill: { seconds: number; longest: number };
   /** The longest the driver went without doing anything, game seconds, and when it began. */
@@ -127,7 +130,7 @@ export function playCompany(advanceTimersByTime: (ms: number) => void, o: PilotR
   const dt = 1 / FRAMES_A_SECOND;
   const report: PilotRunReport = {
     seed: o.seed, size, seconds: 0, firstHire: {}, staff: {}, opened: {}, upgrades: { bought: 0, of: 0 },
-    lots: 0, residents: 0, paved: 0, money: 0, income: 0, steps: 0, spill: { seconds: 0, longest: 0 }, longestWait: { seconds: 0, from: 0 }, waits: [], timeline: [],
+    lots: 0, residents: 0, paved: 0, money: 0, income: 0, steps: 0, ports: 0, portsPaid: 0, agents: 0, spill: { seconds: 0, longest: 0 }, longestWait: { seconds: 0, from: 0 }, waits: [], timeline: [],
   };
   let lastSteps = o.steps(), waitFrom = 0, lastSaid: string | null = null, spillFor = 0;
   const said = new Set<string>();
@@ -139,6 +142,7 @@ export function playCompany(advanceTimersByTime: (ms: number) => void, o: PilotR
   try {
     for (let t = 0; t < o.minutes * 60; t++) {
       advanceGameplayOneSecond(advanceTimersByTime);
+      const harbour = useWorldStore.getState().getWaterField();
       for (let f = 0; f < FRAMES_A_SECOND; f++) {
         const net = getNetwork(), st = useWorldStore.getState();
         if (!net) break;
@@ -146,6 +150,12 @@ export function playCompany(advanceTimersByTime: (ms: number) => void, o: PilotR
         o.drive(g, dt, Date.now());
         stepGrowth(g, net, unrest, dt);
         stepSites(g, net, seen, dt, true);
+        // THE BOATS, and the ports paid for their calls. @see stepHarbour
+        if (harbour) {
+          const before = useMoneyStore.getState().money;
+          const paid = stepHarbour(g, harbour, dt, true).paid;
+          if (paid) report.portsPaid += useMoneyStore.getState().money.sub(before).toNumber();
+        }
       }
       // THE WATER AND THE PIPES, a second at a time: the springs, the mains, the slop made and drained and spilled, the
       // water's own flow, and what drinks. (A second a step, as the takeover's sim runs it: the tanks hold two minutes.)
@@ -155,6 +165,7 @@ export function playCompany(advanceTimersByTime: (ms: number) => void, o: PilotR
       const flows = t % WATER_EVERY === 0;
       if (field) { stepPlumbing(g, field, 1, true, flows); if (flows) stepWater(field, 1); }
       stepCooling(g, runningAgents(), skillOf("river") >= 3, 1);
+      useTrainingStore.getState().tick();
       if (slopSpilling()) { spillFor++; report.spill.seconds++; report.spill.longest = Math.max(report.spill.longest, spillFor); } else spillFor = 0;
       report.seconds = t + 1;
       // WHAT HAPPENED this second.
@@ -184,6 +195,8 @@ export function playCompany(advanceTimersByTime: (ms: number) => void, o: PilotR
     report.money = Math.round(useMoneyStore.getState().money.toNumber());
     report.income = Math.round(useGeneratorStore.getState().getMoneyPerSecond() * 10) / 10;
     report.steps = o.steps();
+    for (const s of g.structures.values()) if (!s.build && structureDef(s.def)?.port) report.ports++;
+    report.agents = useAgentsStore.getState().agents;
     markWorldGone();
     for (const off of unwire.reverse()) off();
     useWorldStore.getState().setPlaying(false);

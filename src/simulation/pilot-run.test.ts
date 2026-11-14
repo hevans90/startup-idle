@@ -16,6 +16,9 @@ import { builtProjects, nearestSpot } from "../world/projects/works";
 import { structureDef } from "../world/structures/def";
 import { getAiRunner, stepAi } from "../world/ai/ai-runner";
 import { lastStep, planInline, stepAutopilot, stepsTaken } from "../world/ai/autopilot";
+import { neededSewer } from "../world/ai/sewer-ai";
+import { tanksOf } from "../world/slop/tanks";
+import { portsOf } from "../world/water/ports";
 import { playCompany, type PilotRunReport } from "./pilot-run";
 import { resetAllGameStores } from "./reset-game-stores";
 
@@ -41,6 +44,7 @@ const print = (r: PilotRunReport) => {
   console.log("\n=== seed " + r.seed + ", " + r.size + "² — " + mins(r.seconds) + " played");
   console.log("sale " + mins(r.saleAt) + " · staff " + JSON.stringify(r.staff) + " · first hires: " + firsts);
   console.log("upgrades " + r.upgrades.bought + "/" + r.upgrades.of + " · lots " + r.lots + " (" + r.residents + " living in them) · road " + r.paved + " · money " + r.money + " · income " + r.income + "/s · steps " + r.steps);
+  console.log("ports " + r.ports + ", paid $" + Math.round(r.portsPaid) + " · agents " + r.agents);
   console.log("slop spilling " + mins(r.spill.seconds) + " in all, " + mins(r.spill.longest) + " at a stretch");
   console.log("projects: " + (Object.entries(r.opened).map(([k, v]) => k + " " + mins(v)).join(", ") || "none"));
   console.log("longest wait " + mins(r.longestWait.seconds) + " from " + mins(r.longestWait.from) + "; waits of a minute or more: " + r.waits.length + ", " + mins(r.waits.reduce((n, w) => n + w.seconds, 0)) + " in all");
@@ -139,20 +143,32 @@ describe("a company played on a real map with no screen", () => {
   const housed = (g: Grid) => { let n = 0; for (const s of g.structures.values()) if (!s.build && housedBy(s.def)) n += residentsIn(s); return n; };
 
   /** The pilot from an empty map, every desk it has. */
-  const townRun = (seed: number, size: number, minutes: number, until?: (g: Grid) => boolean) => {
+  const townRun = (seed: number, size: number, minutes: number, until?: (g: Grid) => boolean, untilSale = false) => {
     const pilot = createPilot(allDesks(), { strict: true });
     let unnamed = 0;
     let map: Grid | null = null;
     const r = playCompany(jest.advanceTimersByTime.bind(jest), {
-      seed, size, minutes, until,
+      seed, size, minutes, until, untilSale,
       begin: (g) => { map = g; },
-      drive: (g, dt) => { if (!pilot.tick(dt, livePurse, g.rev).says) unnamed++; },
+      drive: (g, dt) => {
+        if (!pilot.tick(dt, livePurse, g.rev).says) unnamed++;
+      },
       steps: pilot.done, said: pilot.last,
     });
     const g = map!;
     if (process.env.BALANCE) {
       print(r);
       console.log("at the end: " + pilot.status().says + " · perched " + JSON.stringify(perched(g)) + " · refusals " + pilot.log().filter((l) => l.kind === "refused").length);
+      // EVERY TANK SPILLING at the end, and what the sewer planner makes of it.
+      for (const [id, tank] of tanksOf(g)) {
+        const x = g.structures.get(id);
+        if (!x || !tank.spilling) continue;
+        const p = portsOf(g, x).find((q) => q.port.fluid === "slop" && q.port.dir === "out");
+        console.log("spilling: " + x.def + " at " + x.x + "," + x.y + " · port " + (p ? p.x + "," + p.y + " main " + g.main[p.i] + " paved " + g.paved[p.i] + " under " + g.structureAt[p.i] : "none") + " · planner: " + (neededSewer(g)?.key ?? "nothing"));
+      }
+      const refused = new Map<string, number>();
+      for (const l of pilot.log()) if (l.kind === "refused") refused.set(l.text, (refused.get(l.text) ?? 0) + 1);
+      console.log("refused: " + ([...refused].map(([text, n]) => n + "× " + text).join(" | ") || "nothing"));
       console.log("queue: " + pilot.queue().map((q) => q.job.says + " [" + shownAs(q.shown) + "]").join(" | "));
     }
     expect(unnamed).toBe(0);
@@ -208,6 +224,14 @@ describe("a company played on a real map with no screen", () => {
   test.skipIf(!process.env.IPO)("to the IPO Tower", () => {
     const { r } = townRun(Number(process.env.SEED) || 1, 64, Number(process.env.MINUTES) || 240, (g) => builtProjects(g).has("ipo"));
     expect(r.opened.ipo).toBeDefined();
+  }, 6_000_000);
+
+  // PHASE 5's BAR: the company could be sold, by its own doing from five dollars, on every map.
+  test.skipIf(!process.env.SALE)("to the acquisition offer", () => {
+    const seed = Number(process.env.SEED) || 1;
+    const size = ({ 1: 64, 2: 64, 7: 96, 11: 96, 23: 128, 42: 128 } as Record<number, number>)[seed] ?? 64;
+    const { r } = townRun(seed, size, Number(process.env.MINUTES) || 120, undefined, !process.env.FULL);
+    expect(r.saleAt).toBeDefined();
   }, 6_000_000);
 
   // THE NUMBER TO BEAT: today's AI mode, an hour on each of three maps. Printed, not held to anything.

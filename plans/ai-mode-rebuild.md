@@ -1,6 +1,6 @@
 # AI mode, rebuilt: a pilot that plays the whole run, and shows its work
 
-**Status:** phases 0 to 4 built, 2026-11-14 (see "Built so far" at the end). Phases 5 to 9 not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
+**Status:** phases 0 to 5 built, 2026-11-14 (see "Built so far" at the end): the brain is whole. Phases 6 to 9, the interface and taking the old one out, not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
 
 ## Why
 
@@ -377,3 +377,44 @@ Seed 11 (96 tiles), 45 minutes: 1.2 minutes of spilling, one stretch. The suite'
   - **An office already standing with its port on a road** (a town the player built, when AI mode is switched on) stays unsewered: the fix is to move it, and no job does.
   - Sewers have been run to the hour on two maps only, since slop starts at fifty vibe coders, about minute twenty.
 
+**Phase 5, the rest of the company, 2026-11-14.** Four desks, and the boats out of the scene.
+
+- **`stepHarbour`** (`step-world.ts`): the rivers' traffic, every boat moved, the ports paid for the calls they finished and what they earn a second kept, out of the scene's tick as it stood. The scene sounds the horn and the coin for what it returns. `pilot-run.ts` steps it each frame, and a training run's finish each second.
+- **`desks/harbour.ts`:** a road from the nearest street to the nearest place the Harbour could stand (`quay`, which the Landmarks desk's Harbour waits on) or a seaport could (`quay:port`); a seaport once the Harbour has opened them, worth its fee by its calls a minute; each port grown where the bank has room. The Landmarks desk now reads the rivers when it sites what stands by one (`riverRules`): without them the Harbour was "too far from a river" everywhere.
+- **`desks/culture.ts`:** the deck and the leaders through the kept planner, now split into the step it would take and the taking of it (`peopleMove`); a manager to whichever of the three has fewest when the next costs under a twentieth of the innovation in hand; the mandate that pays most for its price.
+- **`desks/machine.ts`:** an agent when its trade is good (`agentTrade`, as the balance sim plays it), a rack when they have no room, a training run whenever none is on, and on the Model's own runs its free buildings. Nothing that drinks while what stands is short of water.
+- **`desks/events.ts`:** an urgent, free job for each card not yet answered: the event's own answer for AI mode on the town as the scene last showed it (`setTownView`), its default with no scene.
+- **Landmarks desk: the core first.** What opens a kind, and the head office through every tier, before anything else. Sited at last, the Harbour was begun at minute ten and took twenty-one minutes with the Campus and the HQ behind it.
+- **A refusal is in the game's words.** The tools put the player's notice back when the pilot is done with them, so every refusal read "it would not go down". `whyNot()` keeps what the game said.
+
+**What the six maps showed, each fixed:**
+
+- **A sewer priced when planned, paid for later.** With income doubling by the minute the tool refused it for want of money, and the desk wrote that route off for good: the tanks spilled to the end of the run. Routes are now offered at the price of the moment, and one refused comes back after a minute.
+- **A spilling tank's sewer is urgent.** A trunk costs minutes of income, and on its payback sat ready behind every upgrade for half an hour.
+- **The Studio with its slop port on the road**, where no connection can be laid: landmarks are sited with their ports on open ground, as offices were (`siteFor`).
+- **A house, or one of the town's own shops, on an office's slop port.** The Town desk keeps every port clear and looks again as it builds; the town's shops do too (`stepGrowth`, which is the game's and so the player's as well).
+- **A manhole beside the port was never joined to**: routed, two neighbouring tiles came back as one, which is no connection.
+- **An office hemmed in by its neighbours had no trunk**: one is now tried from anywhere a connection from its port could reach.
+
+**In the sim**, from the Model's $5, nothing done by hand (`SALE=1 BALANCE=1 SEED=n bun test src/simulation/pilot-run.test.ts -t "acquisition offer"`):
+
+| Map | Could be sold | IPO Tower | A tank spilling, longest |
+|---|---|---|---|
+| seed 1, 64² | 70.3 min | 65.4 | none |
+| seed 2, 64² | 58.2 min | 48.8 | none |
+| seed 7, 96² | 57.9 min | 48.9 | 4.4 min |
+| seed 11, 96² | 58.6 min | 49.7 | none |
+| seed 23, 128² | 58.2 min | 49.9 | none |
+| seed 42, 128² | 71.6 min | 67.9 | 0.5 min |
+
+Played on past the sale on seed 1 (75 minutes): the Harbour at 60, a seaport, the Talent Agency, the Data Centre at 73 with three agents running, mandates from minute 30, managers from 53, the deck from 57, a leader's job posted. No fault and no frame without words on any map. Eight unit tests on the new desks (`desks/desks.test.ts`). Seen in the browser after the move (`?fixture=harbour`): boats call, "First ship at Seaport III" is said, no console errors.
+
+- **Not done:**
+  - **The time bound was not measured.** The plan's bar is within a quarter of the balance sim's greedy player; that run was not made. The sale comes at 58 to 72 minutes.
+  - **Seed 7 spills for 4.4 minutes**, over the two-minute bar: the manhole in reach of one office sits on its neighbour's slop port, and its connection is refused till the town changes round it. New trunks keep off port tiles now; this one's order of building still finds it.
+  - **Two maps are ten minutes slower**, and it is the road. Every HQ-line load comes one truck at a time up the one road in from the map's edge, and when the build starts with two hundred commuters on it a load takes three minutes, not twelve seconds. On seed 1 the HQ took nine minutes to go up; begun eighty seconds sooner, two.
+  - **Events are not in the sim.** The desk is unit-tested; the events themselves, and what they do to the map, are still the scene's (about three hundred lines and a dozen refs). In the game the old autopilot still answers them.
+  - **The Harbour, the Data Centre and the wonders come after the sale** on every map, since the core goes first: the Machine desk has run for a few minutes on one map, cooling with it, and ports have paid on two.
+  - **Berths are left trading quays; nothing is dredged.** The plan named both.
+  - **The slop processors' projects** are still nobody's (phase 4's list).
+  - On seed 23 the Harbour's site was once refused by the click as too far from a river: the desk and the click read the river at different moments. It tries again.

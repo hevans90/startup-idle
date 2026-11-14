@@ -268,6 +268,14 @@ export function eventCrew(events: readonly GameEvent[], owned: Partial<Record<Ge
 }
 
 /**
+ * THE TOWN AS THE EVENTS LAST SAW IT, kept for whoever answers them from
+ * outside the scene: the pilot's Events desk. Null with no scene. @see TownView
+ */
+let lastView: TownView | null = null;
+export const setTownView = (v: TownView | null) => { lastView = v; };
+export const townView = () => lastView;
+
+/**
  * WHAT THE AI ANSWERS, in AI mode: its pick if it is on the card and can be
  * taken and paid for, else the default. @see EventDef.ai
  */

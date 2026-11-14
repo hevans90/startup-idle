@@ -7,7 +7,11 @@ import { useInnovationStore } from "../../../state/innovation.store";
 import { useMoneyStore } from "../../../state/money.store";
 import { useWorldStore } from "../../../state/world.store";
 import type { Purse } from "./chooser";
+import { cultureDesk } from "./desks/culture";
+import { eventsDesk } from "./desks/events";
+import { harbourDesk } from "./desks/harbour";
 import { landmarksDesk, owedOnSites } from "./desks/landmarks";
+import { machineDesk } from "./desks/machine";
 import { peopleDesk } from "./desks/people";
 import { townDesk } from "./desks/town";
 import { waterDesk } from "./desks/water";
@@ -26,5 +30,5 @@ export function livePurse(reserve = 0): Purse {
   };
 }
 
-/** Every desk built so far. */
-export const allDesks = (): Desk[] => [peopleDesk(), townDesk(), landmarksDesk(), waterDesk()];
+/** Every desk. */
+export const allDesks = (): Desk[] => [peopleDesk(), townDesk(), landmarksDesk(), waterDesk(), harbourDesk(), cultureDesk(), machineDesk(), eventsDesk()];

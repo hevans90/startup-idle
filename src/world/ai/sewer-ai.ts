@@ -23,10 +23,10 @@ import { upstreamOfTown } from "../water/pollution";
 import { WORKPLACES } from "../agents/commute";
 import { VOID, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 import { hasMain, routeMain } from "../water/mains";
-import { portsOf } from "../water/ports";
+import { portTileSet, portsOf } from "../water/ports";
 import { planLateral, planSewer } from "../sewers/lay";
 import { LATERAL_REACH, hasSewer, solveSewers } from "../sewers/solve";
-import { lateralReach } from "../sewers/reach";
+import { lateralGround, lateralReach } from "../sewers/reach";
 
 type Cell = { x: number; y: number };
 
@@ -35,6 +35,8 @@ export const SEWER_REACH = 60;
 /** What a step uphill, toward the exit, costs the route in tiles: slop has to be lifted over it. */
 const CLIMB = 3;
 const STEPS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+/** The most places a trunk is tried from for one tank: each try routes across the map. */
+const TRUNK_STARTS = 8;
 
 /** A sewer the AI wants: a lateral or a trunk, its tiles in order, its price, and what to remember it failed by. */
 export type SewerJob = { kind: "lateral" | "trunk"; cells: Cell[]; price: number; key: string };
@@ -136,27 +138,47 @@ function trunkFrom(g: Grid, from: Cell, key: string): SewerJob | null {
   return { kind: "trunk", cells, price: plan.price, key };
 }
 
-/** The sewer most wanted for a workplace with slop: a lateral to a live manhole in reach, else a trunk to the network. Null with no slop or no way. */
-export function neededSewer(g: Grid): SewerJob | null {
+/**
+ * The sewer most wanted for a workplace with slop: a lateral to a live manhole in reach, else a trunk to the network.
+ * Null with no slop or no way. `skip` is the keys of those that would not go down: the next is offered in their place.
+ */
+export function neededSewer(g: Grid, skip?: ReadonlySet<string>): SewerJob | null {
   if (slopMaking() <= 0) return null;
   const wet = mainWet(g), nodes = liveNodes(g);
+  // No manhole on the tile a building's slop comes out at: a neighbour's connection cannot end there, and it went without. @see portTileSet
+  const ports = portTileSet(g);
   for (const { s, port } of unsewered(g)) {
     // A LATERAL, to the nearest live manhole it reaches.
     const near = nodes
       .map((i) => ({ i, d: Math.abs((i % g.w) - port.x) + Math.abs(((i / g.w) | 0) - port.y) }))
       .filter((n) => n.d <= LATERAL_REACH).sort((a, b) => a.d - b.d);
-    for (const { i } of near) {
-      const route = routeMain(g, port, { x: i % g.w, y: (i / g.w) | 0 }, wet, true);
+    for (const { i, d } of near) {
+      // (A manhole beside the port is the two tiles themselves: routed, it came back as one, which is no connection,
+      // and an office with a sewer at its door was never joined to it.)
+      const node = { x: i % g.w, y: (i / g.w) | 0 };
+      const route = d === 1 ? [port, node] : routeMain(g, port, node, wet, true);
       const plan = route && planLateral(g, route, wet);
-      if (route && plan && !("refused" in plan)) return { kind: "lateral", cells: route, price: pipeCost(plan.fresh).toNumber(), key: `lateral:${s.id}` };
+      if (route && plan && !("refused" in plan) && !skip?.has(`lateral:${s.id}`)) return { kind: "lateral", cells: route, price: pipeCost(plan.fresh).toNumber(), key: `lateral:${s.id}` };
     }
-    // Else A TRUNK from beside its port, where the lateral will meet it.
-    for (const [dx, dy] of STEPS) {
-      const c = { x: port.x + dx, y: port.y + dy };
-      // Its manhole is where the connection will come down: on open ground, never in the street.
-      if (!inBounds(g, c.x, c.y) || structureAt(g, c.x, c.y) >= 0 || wet(c.x, c.y) || hasSewer(g, idx(g, c.x, c.y)) || g.paved[idx(g, c.x, c.y)] !== VOID) continue;
-      const job = trunkFrom(g, c, `trunk:${s.id}`);
-      if (job) return job;
+    // Else A TRUNK from where a connection from its port could come down: beside the port first, then further over open
+    // ground, as far as a connection reaches. (Beside it only, an office hemmed in by its neighbours had no sewer at all.)
+    if (skip?.has(`trunk:${s.id}`) || !lateralGround(g, idx(g, port.x, port.y))) continue;
+    const from = idx(g, port.x, port.y), steps = new Map<number, number>([[from, 0]]), queue = [from];
+    let tried = 0;
+    for (let q = 0; q < queue.length && tried < TRUNK_STARTS; q++) {
+      const i = queue[q], d = steps.get(i)!;
+      if (d >= LATERAL_REACH - 1) continue;
+      for (const [dx, dy] of STEPS) {
+        const c = { x: (i % g.w) + dx, y: ((i / g.w) | 0) + dy };
+        // Its manhole is where the connection will come down: on open ground, never in the street.
+        if (!inBounds(g, c.x, c.y) || steps.has(idx(g, c.x, c.y)) || !lateralGround(g, idx(g, c.x, c.y)) || hasSewer(g, idx(g, c.x, c.y))) continue;
+        steps.set(idx(g, c.x, c.y), d + 1);
+        queue.push(idx(g, c.x, c.y));
+        if (ports.has(idx(g, c.x, c.y))) continue;
+        if (tried++ >= TRUNK_STARTS) break;
+        const job = trunkFrom(g, c, `trunk:${s.id}`);
+        if (job) return job;
+      }
     }
   }
   return null;
@@ -172,11 +194,11 @@ export function trunkInto(g: Grid, box: { x0: number; y0: number; x1: number; y1
   // Reached already, if a connection could be laid to a live manhole from some open tile of it. @see lateralReach
   const reach = lateralReach(g);
   for (let y = box.y0; y <= box.y1; y++) for (let x = box.x0; x <= box.x1; x++) if (inBounds(g, x, y) && reach[idx(g, x, y)] >= 0) return null;
-  const wet = mainWet(g);
+  const wet = mainWet(g), ports = portTileSet(g);
   let best: Cell | null = null, bestD = Infinity;
   for (let y = box.y0; y <= box.y1; y++) {
     for (let x = box.x0; x <= box.x1; x++) {
-      if (!inBounds(g, x, y) || structureAt(g, x, y) >= 0 || wet(x, y) || hasSewer(g, idx(g, x, y)) || g.paved[idx(g, x, y)] !== VOID) continue;
+      if (!inBounds(g, x, y) || structureAt(g, x, y) >= 0 || wet(x, y) || hasSewer(g, idx(g, x, y)) || g.paved[idx(g, x, y)] !== VOID || ports.has(idx(g, x, y))) continue;
       const d = Math.abs(x - cx) + Math.abs(y - cy);
       if (d < bestD) { bestD = d; best = { x, y }; }
     }

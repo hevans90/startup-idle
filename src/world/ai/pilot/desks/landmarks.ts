@@ -18,17 +18,20 @@
  * back. @see owedOnSites, PROJECTS
  */
 import { GENERATOR_TYPES, useGeneratorStore, type GeneratorId } from "../../../../state/generators.store";
-import { PROJECTS, gateParts, projectCost, tierBelow, type ProjectDef, type ProjectId } from "../../../../game/projects";
+import { LANDMARKS, PROJECTS, gateParts, projectCost, tierBelow, type ProjectDef, type ProjectId } from "../../../../game/projects";
 import { nextPerSet, upgradeSet } from "../../../../game/upgrade-sets";
 import { UPGRADES, useUpgradeStore } from "../../../../state/upgrades.store";
 import { getNetwork, playRules, useWorldStore } from "../../../../state/world.store";
 import { placesOf } from "../../../agents/roads";
-import { hasRiver } from "../../../boats/river";
+import { hasRiver, mapRiver, tileDepthOf } from "../../../boats/river";
 import { loadPriceMult } from "../../../events/convoy";
-import type { Grid } from "../../../grid";
-import { startProject } from "../../../play/build-actions";
-import { builtProjects, nearestSpot, projectUnderWay, ruledOut, upgradeFrom } from "../../../projects/works";
-import { structureDef } from "../../../structures/def";
+import { idx, type Grid } from "../../../grid";
+import { startProject, whyNot } from "../../../play/build-actions";
+import { builtProjects, projectUnderWay, ruledOut, upgradeFrom } from "../../../projects/works";
+import { lateralGround } from "../../../sewers/reach";
+import { structureDef, type StructureDef } from "../../../structures/def";
+import { validatePlacement, type PlaceRules } from "../../../structures/place";
+import { keepsPorts, portTileSet, portTiles } from "../../../water/ports";
 import { townCentre } from "../../masterplan/plan";
 import type { Purse } from "../chooser";
 import type { Job, Need } from "../job";
@@ -36,6 +39,14 @@ import type { Desk } from "../pilot";
 
 /** The slop processors' projects: the Water desk's, with the sewers they stand on. */
 const WATERS: readonly ProjectId[] = ["refinery", "dataplant", "contentfarm"];
+/**
+ * THE CORE: what opens a kind, and the head office through every tier. One
+ * project goes up at a time, so anything else waits till these stand: begun
+ * the moment it opened, the Harbour — cheap, worth a little, and a long way
+ * from the yard — took twenty-one minutes to build with the Campus and the HQ
+ * waiting behind it, and the company could be sold eleven minutes later.
+ */
+const isCore = (p: ProjectDef) => !!p.unlocks || LANDMARKS.find((l) => l.id === "hq")!.tiers.includes(p.id);
 /** Looks between two searches of the map for a site, at the least. @see town desk LOOK_AGAIN */
 const LOOK_AGAIN = 6;
 /** How many of a kind a project that opens it is taken to bring, for its worth. */
@@ -80,7 +91,7 @@ export function inYard(g: Grid, x: number, y: number): boolean {
 }
 
 /** Where the garage should stand: a little in from the road's way out of the map, toward the middle; the town's middle with no way out. */
-function yardSite(g: Grid): { x: number; y: number } {
+export function yardSite(g: Grid): { x: number; y: number } {
   if (yard && yard.grid === g) return yard.at;
   const at = yardNow(g);
   yard = { grid: g, at };
@@ -95,14 +106,46 @@ function yardNow(g: Grid): { x: number; y: number } {
   return { x: Math.round(out.x + (dx / d) * GARAGE_IN), y: Math.round(out.y + (dy / d) * GARAGE_IN) };
 }
 
+/**
+ * THE GAME'S RULES WITH THE RIVERS AS THEY STAND, for what must be on a bank
+ * or near one: the click that places one reads them the same. @see playRules
+ */
+export function riverRules(g: Grid): PlaceRules {
+  const field = useWorldStore.getState().getWaterField();
+  return { ...playRules(g), ...(field ? { rivers: mapRiver(g, tileDepthOf(field.columns)) } : {}) };
+}
+
+/**
+ * WHERE A LANDMARK GOES: the nearest spot to the yard that keeps the ports —
+ * covering no building's, and with its own slop let out on open ground, where
+ * a sewer connection can be laid. The Studio put by the road with its port on
+ * the asphalt spilled from the fiftieth vibe coder on, and no job could mend
+ * it. @see nearestSpot, keepsPorts, town desk `drained`
+ */
+function siteFor(g: Grid, def: StructureDef, rules: PlaceRules): { x: number; y: number } | null {
+  const near = yardSite(g), taken = portTileSet(g), { w, h } = def.footprint;
+  let best: { x: number; y: number } | null = null, bestD = Infinity;
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      const d = Math.hypot(x - near.x, y - near.y);
+      if (d >= bestD || !validatePlacement(g, def, x, y, rules).ok || !keepsPorts(g, taken, def.id, x, y, w, h)) continue;
+      const out = portTiles(g, def.id, x, y, w, h).filter((p) => p.port.fluid === "slop" && p.port.dir === "out");
+      if (!out.every((p) => lateralGround(g, idx(g, p.x, p.y)))) continue;
+      best = { x, y };
+      bestD = d;
+    }
+  }
+  return best;
+}
+
 const STREET: Need = { id: "street", says: "a street with room beside it" };
 /**
  * What a building that stands at the water waits on, with nowhere to stand:
  * NOT a street. The town's blocks are laid where the town is, not down to the
  * river, and no number of them makes a quay — said to wait on a street, the
  * Harbour had block after block paved for it, one over the last, till the
- * middle of town was a slab of asphalt and it still had nowhere. Nobody
- * proposes this yet: it is the Harbour desk's. @see plans/ai-mode-rebuild.md phase 5
+ * middle of town was a slab of asphalt and it still had nowhere. The Harbour
+ * desk lays it. @see harbourDesk
  */
 const QUAY: Need = { id: "quay", says: "a road at the water's edge" };
 
@@ -172,15 +215,19 @@ export function landmarksDesk(): Desk {
       // THE TIER IT RISES OVER.
       const below = tierBelow(p.id);
       if (below && !built.has(below.id)) needs.push({ id: `project:${below.id}`, says: `the ${below.name}` });
+      // THE CORE FIRST.
+      const core = isCore(p) ? undefined : PROJECTS.find((x) => isCore(x) && !built.has(x.id));
+      if (core && !needs.some((n) => n.id === `project:${core.id}`)) needs.push({ id: `project:${core.id}`, says: `the ${core.name}` });
       // ONE PROJECT AT A TIME.
       if (busy) needs.push({ id: "site", says: `the ${busy.name} finished` });
       // A SITE: where its landmark stands, or the nearest spot to the town there is.
       const from = upgradeFrom(g, p), def = structureDef(p.structure);
       if (!def) continue;
       // (Looked for only once nothing else is in its way: and so never kept as "nowhere" from before it was looked for.)
-      if (!from && !needs.length && !sites.has(p.id)) sites.set(p.id, nearestSpot(g, def, playRules(g), yardSite(g)));
+      const byWater = !!(def.placement?.waterside || def.placement?.riverside || def.placement?.nearRiver);
+      if (!from && !needs.length && !sites.has(p.id)) sites.set(p.id, siteFor(g, def, byWater ? riverRules(g) : playRules(g)));
       const at = from ? { x: from.x, y: from.y } : sites.get(p.id) ?? null;
-      if (!from && !at && !needs.length) needs.push(def.placement?.waterside || def.placement?.riverside || def.placement?.nearRiver ? QUAY : STREET);
+      if (!from && !at && !needs.length) needs.push(byWater ? QUAY : STREET);
 
       jobs.push({
         id: `project:${p.id}`, desk: "landmarks",
@@ -194,7 +241,7 @@ export function landmarksDesk(): Desk {
           // BEGUN, where a site of it now stands. Its loads are paid for as they come. @see owedOnSites
           if (projectUnderWay(g)?.id === p.id || builtProjects(g).has(p.id)) return { ok: true };
           sites.delete(p.id);
-          return { ok: false, because: useWorldStore.getState().notice?.text.toLowerCase() ?? "it would not start there", retry: "on-change" };
+          return { ok: false, because: whyNot()?.toLowerCase() ?? "it would not start there", retry: "on-change" };
         },
       });
     }
