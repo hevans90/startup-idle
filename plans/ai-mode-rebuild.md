@@ -1,6 +1,6 @@
 # AI mode, rebuilt: a pilot that plays the whole run, and shows its work
 
-**Status:** phases 0 to 3 built, and the landmarks sped up, 2026-11-13 (see "Built so far" at the end). Phases 4 to 9 not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
+**Status:** phases 0 to 4 built, 2026-11-14 (see "Built so far" at the end). Phases 5 to 9 not started. The new pilot is not in the game yet: the old autopilot still runs there until the interface phases. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
 
 ## Why
 
@@ -350,4 +350,30 @@ Seed 1, 64 tiles, an hour (`BALANCE=1 SEED=1 HOUR=1 bun test src/simulation/pilo
 | Talent Agency | not built | 56.0 min |
 
 On the six maps, two hundred people housed and at desks in 17 to 20 minutes, the Studio by 6.3 on every one, no refusal. Still true: one project at a time, in the order they come ready; the vibe coders' office waits on a sewer (73 without a desk at the hour); the Town desk lays no street nobody waits for, so the town stays on its first block and its one road is busy.
+
+**Phase 4, the Water and slop desk, 2026-11-14.**
+
+- **`stepPlumbing`** (`step-world.ts`): the springs, every pipe (`stepPipes`: mains, the slop made, drained and spilled, pumps paid for) and the slop in the water, moved out of the scene's tick as it stood. The scene steps the water's flow after it, on its device; `pilot-run.ts` steps the pipes and the slop every game second, cooling with them, and the water's flow and its springs every ten (the dear part: every second, the six-map test took over ten minutes).
+- **`pilot/desks/water.ts`**, on the kept planners (`neededSewer`, `trunkInto`, `wantsRefinery`, `neededPipe`):
+  - a sewer for a tank that has none: a connection to a manhole in reach, else a trunk, the connection following (`sewer:<key>`), worth a quarter of what the people at its desks earn;
+  - a trunk to where an office waits for one (`sewer:<kind>`, the Town desk's need). The Town desk says where (`sewerAsks`); the job is worth nothing itself and the office that waits on it;
+  - another refinery with more slop than those standing take; a main for what drinks and runs short.
+- **Town desk: an office only where its slop can be taken away.** A connection lies on empty plots, never a road, so an office fronting the street with its slop port on the road can never be sewered. Two built so before there was slop spilled from the fiftieth vibe coder to the end of the hour. Its port is now looked at before the spot is taken (`drained`). And offices keep out of the yard, as lots do.
+- **Landmarks desk: a site is looked for only once nothing else is in a project's way.** Kept as "nowhere" from before it was looked for, the Campus asked for a street it did not need.
+
+In the sim, seed 1 for an hour, before the desk and with it:
+
+| | Before | Now |
+|---|---|---|
+| A tank spilling, in all | 38.6 min | 0.8 min |
+| The longest stretch | 35.3 min | 0.3 min |
+| Vibe coders with no desk at the hour | 97 | none |
+
+Seed 11 (96 tiles), 45 minutes: 1.2 minutes of spilling, one stretch. The suite's test now fails on a stretch of two minutes. The other landmarks moved a little with the changed town (IPO Tower 50.0 min, sellable at about the hour).
+
+- **Not done:**
+  - **Nothing drinks yet.** Cooling is stepped and the main's job is proposed, but the Data Centre only drinks for the agents on its racks, which are the Machine desk's (phase 5). Widening a main and adding pumps wait on that too: neither has been run.
+  - **The processors' projects** (refinery, data plant, content farm) are still skipped by the Landmarks desk, so "another refinery" never comes up: the first is a project nobody proposes. A refinery also only takes slop from a trunk laid to its inlet after it stands.
+  - **An office already standing with its port on a road** (a town the player built, when AI mode is switched on) stays unsewered: the fix is to move it, and no job does.
+  - Sewers have been run to the hour on two maps only, since slop starts at fifty vibe coders, about minute twenty.
 

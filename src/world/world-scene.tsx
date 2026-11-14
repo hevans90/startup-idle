@@ -5,7 +5,7 @@
  * reconciled directly, with React only mounting the container. Same pattern as
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
-import { fouledHouses, stepPollution } from "./water/pollution";
+import { fouledHouses } from "./water/pollution";
 import { suggestionsKept } from "./pipes/suggest";
 import { movableEnd, stretchAt } from "./pipes/stretch";
 import { founderIs } from "../game/founder-rules";
@@ -49,7 +49,7 @@ import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases"
 import { demolishLifts, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
-import { stepGrowth, stepPeople, stepSites, type WorksSeen } from "./step-world";
+import { stepGrowth, stepPeople, stepPlumbing, stepSites, type WorksSeen } from "./step-world";
 import {
   bandShown, createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
   type BandLayer,
@@ -154,7 +154,6 @@ import { CLEANERS_PER_TILE, createCleanup, setCleanupAway, stepCleanup } from ".
 import { usePrestigeStore } from "../state/prestige.store";
 import { dryUp, mopAll, ring, sludgeAt, sludgedHouses } from "./events/sludge";
 import { emptyFull, slopSpike, tanksOf } from "./slop/tanks";
-import { slopRate } from "../game/slop";
 import { convoyTally, tallyCall, townMood } from "./events/town-events";
 import { createDirector, dueFollowUp, eventStarted, pickEvent, queueFollowUp, tickDirector } from "./events/director";
 import { EVENT_DEFS } from "./events/defs";
@@ -193,16 +192,14 @@ import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
 import { MAIN_END, footprintCells, idx, inBounds, structureAt, surfaceHeightAt, surfaceSampler, wetSurfaceSampler, type Grid, type Structure } from "./grid";
 import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld, pickCell, worldToCellF } from "./iso";
-import { pourAt, runSources, stepWater, syncGround } from "./water/field";
+import { pourAt, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
-import { stepPipes } from "./pipes/tick";
 import { allTanks, hoseFor, onMains, setHeat, stepCooling, tankFor, wateredShare } from "./projects/cooling";
 import { HEAT_THIRST, OVERHEAT_SHARE } from "./events/defs/heatwave";
 import { CLEAN_RECORD } from "./events/defs/inspector";
 import { removeConditions } from "../game/conditions";
 import { digReservoir, siteFor } from "./ai/reservoir";
 import { isDrinker } from "../game/cooling";
-import { pumpUpkeep } from "../game/cooling";
 import { createGpuDripLayer, destroyGpuDripLayer, drawGpuDrips, type GpuDripLayer } from "./render/drips-gpu";
 import {
   createFallLayer, destroyFallLayer, drawFalls, type FallLayer,
@@ -404,16 +401,6 @@ const planId = (plan: object) => {
   return id;
 };
 
-/** Pump houses paid from the company's money, a second's upkeep at a time. @see pumpUpkeep */
-const PAID_PUMPS = {
-  pay: (seconds: number) => {
-    const cost = pumpUpkeep(useGeneratorStore.getState().getMoneyPerSecond()) * seconds;
-    const money = useMoneyStore.getState();
-    if (money.money.lt(cost)) return false;
-    money.spendMoney(cost);
-    return true;
-  },
-};
 
 /** A look-tool press let go within this many px of where it went down is a click, not a pan. */
 const LOOK_CLICK_SLOP = 5;
@@ -3123,20 +3110,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       let sw = section("water: sync, sources, pipes");
       solverRef.current?.sync(field.columns);
-      runSources(field, grid, dt);
-      // EVERY PIPE, in one call: the water mains solved and
-      // delivered, and in the game the slop — made by who sits at the vibe
-      // workplaces' desks, drained by the sewers, spilled when a tank is full.
-      // Pumps and lift stations are paid for while they run, in the game. @see stepPipes
-      {
-        const playing = useWorldStore.getState().playing, roads = getNetwork();
-        stepPipes(grid, field, dt, {
-          pumps: playing ? PAID_PUMPS : undefined,
-          slop: playing && roads ? { desks: liveSeating(grid, roads).desks, perCoder: slopRate() } : null,
-        });
-      }
-      // THE SLOP IN THE WATER, carried and diluted by it. @see stepPollution
-      stepPollution(field, dt);
+      // The springs, every pipe, and the slop in the water: the simulations' too. @see stepPlumbing
+      stepPlumbing(grid, field, dt, useWorldStore.getState().playing);
       // The columns the boats will read, asked for before the step uploads
       // the list. @see wantFleet
       wantFleet(getFleet(), field.columns);

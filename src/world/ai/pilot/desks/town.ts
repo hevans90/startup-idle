@@ -35,7 +35,10 @@ import { desksShort, liftStep, lotStep, officeStep, roadTiles, streetStep, type 
 import { PLAIN, styleOf, type Style } from "../../masterplan/style";
 import type { Job, Need, Outcome } from "../job";
 import type { Desk } from "../pilot";
+import { lateralGround } from "../../../sewers/reach";
+import { portTiles } from "../../../water/ports";
 import { inYard } from "./landmarks";
+import { sewerAsks } from "./water";
 
 /** Looks between two tries at planning a block when the last found nowhere to grow: planning is the dearest thing it does. */
 const PLAN_AGAIN = 40;
@@ -46,6 +49,8 @@ const PLAN_AGAIN = 40;
  * hundred had it walked twice a second, and the game crawled.
  */
 const LOOK_AGAIN = 6;
+/** Spots looked at for an office before giving up for this look. */
+const SPOTS_TRIED = 6;
 /** What a lot's beds are taken to be worth, against a hire into each: they have still to be hired into. */
 const BED_WORTH = 0.5;
 /** What desks nobody is short of yet are worth, against desks for people perched now. */
@@ -145,6 +150,24 @@ export function townDesk(): Desk {
       for (let y = 0; y < d.footprint.h; y++) for (let x = 0; x < d.footprint.w; x++) kept.add(idx(g, s.at.x + x, s.at.y + y));
     }
   };
+  /**
+   * A spot for an office WHOSE SLOP CAN BE TAKEN AWAY: its slop port on open
+   * ground, where a connection can be laid. One fronting the street with its
+   * port on the road can never be sewered — a connection lies on empty plots
+   * only — and the two built so before there was slop spilled on the street
+   * from the fiftieth vibe coder to the end of the run. Looked for a few
+   * times, each spot that fails struck off.
+   */
+  const drained = (g: Grid, find: () => Build | null): Build | null => {
+    for (let k = 0; k < SPOTS_TRIED; k++) {
+      const b = find(), d = b && structureDef(b.def);
+      if (!b || !d) return null;
+      const out = portTiles(g, b.def, b.at.x, b.at.y, d.footprint.w, d.footprint.h).filter((p) => p.port.fluid === "slop" && p.port.dir === "out");
+      if (out.every((p) => lateralGround(g, idx(g, p.x, p.y)))) return b;
+      bad.add(idx(g, b.at.x, b.at.y));
+    }
+    return null;
+  };
   let stale = false;
   /** Take a step; refused, it is not offered again, and where things could stand is worked out afresh. */
   const attempt = (g: Grid, s: PlanStep): Outcome => {
@@ -170,8 +193,8 @@ export function townDesk(): Desk {
     if (!kinds.length) return [];
     const style = townStyle();
     const rules = playRules(g);
-    const wants: Wants = { rules: { ...rules, owned: (x, y) => (rules.owned?.(x, y) ?? true) && !bad.has(idx(g, x, y)) }, kinds, offices: true, style };
-    const forLots: Wants = { ...wants, rules: { ...wants.rules, owned: (x, y) => (wants.rules.owned?.(x, y) ?? true) && !kept.has(idx(g, x, y)) && !inYard(g, x, y) } };
+    const wants: Wants = { rules: { ...rules, owned: (x, y) => (rules.owned?.(x, y) ?? true) && !bad.has(idx(g, x, y)) && !inYard(g, x, y) }, kinds, offices: true, style };
+    const forLots: Wants = { ...wants, rules: { ...wants.rules, owned: (x, y) => (wants.rules.owned?.(x, y) ?? true) && !kept.has(idx(g, x, y)) } };
     const key = kinds.join();
     sinceFresh++; sinceNone++;
     const moved = !seen || seen.grid !== g || seen.kinds !== key;
@@ -232,14 +255,18 @@ export function townDesk(): Desk {
     }
 
     // AN OFFICE, for each kind short of desks.
+    sewerAsks.clear();
     for (const short of desksShort(g, wants)) {
       const who = short.who;
-      if (!offices.has(who)) offices.set(who, officeStep(g, plan, wants, who));
+      if (!offices.has(who)) offices.set(who, drained(g, () => officeStep(g, plan, wants, who)));
       const at = offices.get(who) ?? null;
       // NOWHERE FOR IT: for want of a sewer, where the rules ask one and it would stand without — else for want of frontage.
       // Said to be waiting on a street, a vibe coders' office had street after street laid for it in vain.
-      if (!at && wants.rules.needsSewer && !unsewered.has(who)) unsewered.set(who, officeStep(g, plan, { ...wants, rules: { ...wants.rules, needsSewer: false } }, who));
+      if (!at && wants.rules.needsSewer && !unsewered.has(who)) unsewered.set(who, drained(g, () => officeStep(g, plan, { ...wants, rules: { ...wants.rules, needsSewer: false } }, who)));
       const dry = at ? null : unsewered.get(who) ?? null;
+      // WHERE, for the desk that lays it. @see sewerAsks
+      const foot = dry && structureDef(dry.def)?.footprint;
+      if (dry && foot) sewerAsks.set(who, { x: dry.at.x, y: dry.at.y, w: foot.w, h: foot.h });
       const def = at?.def ?? (WORKPLACES[who] ?? []).find((d) => d.startsWith("office")) ?? "";
       const desks = DESKS[def] ?? 0;
       const perched = Math.min(desks, Math.max(0, short.now)), coming = Math.min(desks, Math.max(0, short.ahead)) - perched;

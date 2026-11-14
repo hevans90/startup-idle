@@ -41,6 +41,7 @@ const print = (r: PilotRunReport) => {
   console.log("\n=== seed " + r.seed + ", " + r.size + "² — " + mins(r.seconds) + " played");
   console.log("sale " + mins(r.saleAt) + " · staff " + JSON.stringify(r.staff) + " · first hires: " + firsts);
   console.log("upgrades " + r.upgrades.bought + "/" + r.upgrades.of + " · lots " + r.lots + " (" + r.residents + " living in them) · road " + r.paved + " · money " + r.money + " · income " + r.income + "/s · steps " + r.steps);
+  console.log("slop spilling " + mins(r.spill.seconds) + " in all, " + mins(r.spill.longest) + " at a stretch");
   console.log("projects: " + (Object.entries(r.opened).map(([k, v]) => k + " " + mins(v)).join(", ") || "none"));
   console.log("longest wait " + mins(r.longestWait.seconds) + " from " + mins(r.longestWait.from) + "; waits of a minute or more: " + r.waits.length + ", " + mins(r.waits.reduce((n, w) => n + w.seconds, 0)) + " in all");
   for (const w of r.waits.slice(0, 8)) console.log("   at " + mins(w.from) + " for " + mins(w.seconds) + " with $" + w.money + ", after: " + w.after);
@@ -156,6 +157,8 @@ describe("a company played on a real map with no screen", () => {
     }
     expect(unnamed).toBe(0);
     expect(pilot.faults()).toBe(0);
+    // NO TANK SPILLING FOR TWO MINUTES: the Water desk's. @see plans/ai-mode-rebuild.md phase 4
+    expect(r.spill.longest).toBeLessThan(120);
     return { r, g, pilot };
   };
   /** Two hundred hired, living on the map, and none of them without a desk. */

@@ -177,7 +177,8 @@ export function landmarksDesk(): Desk {
       // A SITE: where its landmark stands, or the nearest spot to the town there is.
       const from = upgradeFrom(g, p), def = structureDef(p.structure);
       if (!def) continue;
-      if (!from && !sites.has(p.id)) sites.set(p.id, needs.length ? null : nearestSpot(g, def, playRules(g), yardSite(g)));
+      // (Looked for only once nothing else is in its way: and so never kept as "nowhere" from before it was looked for.)
+      if (!from && !needs.length && !sites.has(p.id)) sites.set(p.id, nearestSpot(g, def, playRules(g), yardSite(g)));
       const at = from ? { x: from.x, y: from.y } : sites.get(p.id) ?? null;
       if (!from && !at && !needs.length) needs.push(def.placement?.waterside || def.placement?.riverside || def.placement?.nearRiver ? QUAY : STREET);
 

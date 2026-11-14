@@ -7,14 +7,20 @@
  * empty map to its sale without a renderer, by the rules the game plays by.
  * @see WorldScene, simulation/pilot-run, plans/ai-mode-rebuild.md phase 0
  *
- * What is NOT here, and stays the scene's for now: the water and its pipes,
- * the boats, the events and what they do to the map, repairs and cooling.
+ * What is NOT here, and stays the scene's for now: the water's own flow
+ * (the scene has a device to solve it on), the boats, the events and what
+ * they do to the map, repairs and cooling.
  */
+import { pumpUpkeep } from "../game/cooling";
+import { slopRate } from "../game/slop";
 import { section } from "../hitches";
-import { getArrivals, getEvolution, getTown, getTownServices, getTraffic, getWorks, playRules, useWorldStore } from "../state/world.store";
+import { useGeneratorStore } from "../state/generators.store";
+import { useMoneyStore } from "../state/money.store";
+import { getArrivals, getEvolution, getNetwork, getTown, getTownServices, getTraffic, getWorks, playRules, useWorldStore } from "../state/world.store";
 import { useSessionStore } from "../state/session.store";
 import type { GeneratorId } from "../state/generators.store";
 import { stepArrivals } from "./agents/arrivals";
+import { liveSeating } from "./agents/commute";
 import { liveBeauty } from "./agents/beauty";
 import { PORT_LORRY_COLOUR } from "./agents/cars/fleet";
 import { createEmergency, stepEmergency } from "./agents/emergency";
@@ -27,12 +33,46 @@ import { stepYards } from "./boats/yard";
 import { damagedNow } from "./events/damage";
 import type { Grid } from "./grid";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
+import { stepPipes } from "./pipes/tick";
 import { stepWorks } from "./projects/works";
 import type { Network } from "./roads/network";
 import { structureDef } from "./structures/def";
 import { validatePlacement } from "./structures/place";
+import { runSources, type WaterField } from "./water/field";
+import { stepPollution } from "./water/pollution";
 
 type Owned = Partial<Record<GeneratorId, number>>;
+
+/** Pump houses paid from the company's money, a second's upkeep at a time. @see pumpUpkeep */
+const PAID_PUMPS = {
+  pay: (seconds: number) => {
+    const cost = pumpUpkeep(useGeneratorStore.getState().getMoneyPerSecond()) * seconds;
+    const money = useMoneyStore.getState();
+    if (money.money.lt(cost)) return false;
+    money.spendMoney(cost);
+    return true;
+  },
+};
+
+/**
+ * WHAT GOES INTO THE WATER AND THROUGH THE PIPES, before the water itself is
+ * stepped: the springs; EVERY PIPE, in one call — the water mains solved and
+ * delivered, and in the game the slop, made by who sits at the vibe
+ * workplaces' desks, drained by the sewers, spilled when a tank is full, with
+ * pumps and lift stations paid for while they run; and the slop in the water,
+ * carried and diluted by it. The caller steps the water after: the scene on
+ * its device, a simulation with `stepWater`. @see stepPipes, stepPollution
+ */
+export function stepPlumbing(g: Grid, field: WaterField, dt: number, playing: boolean, springs = true): void {
+  // (A simulation that steps the water's flow less often than its pipes runs the springs only when it does.)
+  if (springs) runSources(field, g, dt);
+  const roads = getNetwork();
+  stepPipes(g, field, dt, {
+    pumps: playing ? PAID_PUMPS : undefined,
+    slop: playing && roads ? { desks: liveSeating(g, roads).desks, perCoder: slopRate() } : null,
+  });
+  stepPollution(field, dt);
+}
 
 /**
  * THE TOWN MOVING: cars and people on their trips, the emergency services to

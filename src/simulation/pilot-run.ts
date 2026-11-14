@@ -31,12 +31,19 @@ import { bedsReading, foundPlayedProjects, projectReader, termReading, townMoodR
 import { townBonusOf } from "../world/projects/town-worth";
 import { builtProjects } from "../world/projects/works";
 import { isPaved } from "../world/roads/mask";
-import { stepGrowth, stepPeople, stepSites, type WorksSeen } from "../world/step-world";
+import { stepGrowth, stepPeople, stepPlumbing, stepSites, type WorksSeen } from "../world/step-world";
+import { stepCooling } from "../world/projects/cooling";
+import { stepWater } from "../world/water/field";
+import { slopSpilling } from "../game/slop";
+import { runningAgents } from "../state/agents.store";
+import { skillOf } from "../state/training.store";
 import { resetAllGameStores } from "./reset-game-stores";
 import { advanceGameplayOneSecond } from "./run-sim";
 
 /** The town's movers take a twentieth of a second a step and no more. @see stepTown */
 export const FRAMES_A_SECOND = 20;
+/** Game seconds between two steps of the water's flow. */
+const WATER_EVERY = 10;
 
 export type PilotRunOptions = {
   seed: number;
@@ -78,6 +85,8 @@ export type PilotRunReport = {
   money: number;
   income: number;
   steps: number;
+  /** Seconds some tank of slop was spilling: in all, and the longest stretch. */
+  spill: { seconds: number; longest: number };
   /** The longest the driver went without doing anything, game seconds, and when it began. */
   longestWait: { seconds: number; from: number };
   /** Every wait of a minute or more: when, how long, the money then, and what it had last done. */
@@ -118,9 +127,9 @@ export function playCompany(advanceTimersByTime: (ms: number) => void, o: PilotR
   const dt = 1 / FRAMES_A_SECOND;
   const report: PilotRunReport = {
     seed: o.seed, size, seconds: 0, firstHire: {}, staff: {}, opened: {}, upgrades: { bought: 0, of: 0 },
-    lots: 0, residents: 0, paved: 0, money: 0, income: 0, steps: 0, longestWait: { seconds: 0, from: 0 }, waits: [], timeline: [],
+    lots: 0, residents: 0, paved: 0, money: 0, income: 0, steps: 0, spill: { seconds: 0, longest: 0 }, longestWait: { seconds: 0, from: 0 }, waits: [], timeline: [],
   };
-  let lastSteps = o.steps(), waitFrom = 0, lastSaid: string | null = null;
+  let lastSteps = o.steps(), waitFrom = 0, lastSaid: string | null = null, spillFor = 0;
   const said = new Set<string>();
   const endWait = (t: number) => {
     const waited = t - waitFrom;
@@ -138,6 +147,15 @@ export function playCompany(advanceTimersByTime: (ms: number) => void, o: PilotR
         stepGrowth(g, net, unrest, dt);
         stepSites(g, net, seen, dt, true);
       }
+      // THE WATER AND THE PIPES, a second at a time: the springs, the mains, the slop made and drained and spilled, the
+      // water's own flow, and what drinks. (A second a step, as the takeover's sim runs it: the tanks hold two minutes.)
+      const field = useWorldStore.getState().getWaterField();
+      // THE WATER'S OWN FLOW, the dear part, only every few seconds, and the springs with it: the rivers run slow, and
+      // stand where they would. The pipes and the slop are stepped every second.
+      const flows = t % WATER_EVERY === 0;
+      if (field) { stepPlumbing(g, field, 1, true, flows); if (flows) stepWater(field, 1); }
+      stepCooling(g, runningAgents(), skillOf("river") >= 3, 1);
+      if (slopSpilling()) { spillFor++; report.spill.seconds++; report.spill.longest = Math.max(report.spill.longest, spillFor); } else spillFor = 0;
       report.seconds = t + 1;
       // WHAT HAPPENED this second.
       const steps = o.steps();
