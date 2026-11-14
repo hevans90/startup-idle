@@ -42,7 +42,7 @@ export function EventCard({ e }: { e: GameEvent }) {
   const setOff = useSessionStore((s) => s.setMapEventsOff);
   const chosen = e.choices.find((c) => c.id === e.chosen);
   // Under AI mode the answer is the pilot's. @see eventsDesk
-  const driving = useAiDriving();
+  const driving = useAiDriving("events");
   return (
     <Card tone={e.phase === "over" ? "console" : e.phase === "active" ? "bad" : "warn"} className={twMerge("w-[min(24rem,calc(100vw-1rem))]", e.phase === "over" && "opacity-70")}
       title={<span className="flex items-baseline justify-between gap-2"><span>{e.title}</span>

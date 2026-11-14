@@ -24,7 +24,7 @@ export function PortCard() {
   const tool = useWorldStore((s) => s.tool);
   useWorldStore((s) => s.revision);
   const setFit = useWorldStore((s) => s.setBerthFit);
-  const driving = useAiDriving();
+  const driving = useAiDriving("harbour");
   const [shut, setShut] = useState<number | null>(null);
   useEffect(() => { setShut(null); }, [looked?.n]);
   if (!playing || !looked || shut === looked.n || tool !== "inspect") return null;

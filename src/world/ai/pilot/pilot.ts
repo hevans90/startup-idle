@@ -41,6 +41,19 @@ export type Status = {
   job?: Job;
 };
 
+/**
+ * WHAT IT IS STEERED TOWARD: the weight a goal puts on a desk's jobs. Grow is
+ * the plain rule; Next landmark leans it, and a job a landmark waits on is
+ * worth the leaned chain. (A "fine town" lean was tried and dropped: houses
+ * and offices are already built as they are wanted, so leaning to them only
+ * put off the upgrades that pay for more, and the town came out smaller.)
+ * @see choose `tilt`, plans/ai-mode-rebuild.md phase 8
+ */
+export type Goal = "grow" | "landmark";
+export const GOAL_LEAN = 4;
+const LEANS: Record<Goal, readonly DeskId[]> = { grow: [], landmark: ["landmarks"] };
+export const tiltOf = (goal: Goal) => (j: Job): number => (LEANS[goal].includes(j.desk) ? GOAL_LEAN : 1);
+
 export type LogLine = { at: number; kind: "did" | "refused" | "fault"; text: string };
 
 export type PilotOptions = {
@@ -66,7 +79,11 @@ export type Pilot = {
   now: () => number;
   /** The player's hand: call a job off for a while, say which is next, stop and start, switch a desk off. */
   cancel: (id: string) => void;
+  restore: (id: string) => void;
   doNext: (id: string | null) => void;
+  pinned: () => string | null;
+  setGoal: (goal: Goal) => void;
+  goal: () => Goal;
   pause: (on: boolean) => void;
   setDesk: (id: DeskId, on: boolean) => void;
   desksOff: () => ReadonlySet<DeskId>;
@@ -93,6 +110,7 @@ export function createPilot(desks: readonly Desk[], options: PilotOptions = {}):
   let queue: Queued[] = [];
   let log: LogLine[] = [];
   let paused = false;
+  let goal: Goal = "grow";
   /** Since when a job has been ready with none done: for the watchdog. */
   let readySince: number | null = null;
   const off = new Set<DeskId>();
@@ -108,7 +126,7 @@ export function createPilot(desks: readonly Desk[], options: PilotOptions = {}):
     for (const [id, r] of memory.refused) if (r.rev === null ? r.until <= t : r.rev !== rev || r.until <= t) memory.refused.delete(id);
     for (const [id, until] of memory.cancelled) if (until <= t) memory.cancelled.delete(id);
     if (memory.pinned && !jobs.some((j) => j.id === memory.pinned)) memory.pinned = null;
-    const choice = choose(jobs, purse, memory, t, rev);
+    const choice = choose(jobs, purse, memory, t, rev, tiltOf(goal));
     queue = choice.queue;
     const d = choice.decision;
     if (d.kind !== "do") { readySince = null; return saysOf(d); }
@@ -162,7 +180,11 @@ export function createPilot(desks: readonly Desk[], options: PilotOptions = {}):
     faults: () => faults,
     now: () => t,
     cancel: (id) => { memory.cancelled.set(id, t + CANCEL_REST); if (memory.pinned === id) memory.pinned = null; },
+    restore: (id) => { memory.cancelled.delete(id); },
     doNext: (id) => { memory.pinned = id; if (id) memory.cancelled.delete(id); },
+    pinned: () => memory.pinned,
+    setGoal: (to) => { goal = to; },
+    goal: () => goal,
     pause: (on) => { paused = on; },
     setDesk: (id, on) => { if (on) off.delete(id); else off.add(id); },
     desksOff: () => off,

@@ -18,7 +18,7 @@ export const ValuationMandatesPanel = () => {
   const getMandateCost = useValuationStore((s) => s.getMandateCost);
   const open = featureGateOpen("mandates");
   // UNDER AI MODE each is a readout: the pilot passes them. @see useAiDriving
-  const driving = useAiDriving();
+  const driving = useAiDriving("culture");
 
   return (
     <div className="flex flex-col gap-2">

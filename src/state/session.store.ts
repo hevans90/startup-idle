@@ -93,6 +93,15 @@ type SessionState = {
   aiMode: boolean;
   aiBudget: number;
   /**
+   * HOW AI MODE IS STEERED: what it leans toward, the seconds of income it
+   * keeps back, and the desks switched off, whose controls are the player's
+   * again. @see world/ai/pilot, plans/ai-mode-rebuild.md "Steering"
+   */
+  aiGoal: "grow" | "landmark";
+  aiReserve: number;
+  aiDesksOff: string[];
+  steerAi: (patch: Partial<{ aiGoal: "grow" | "landmark"; aiReserve: number; aiDesksOff: string[] }>) => void;
+  /**
    * THE COMPANY'S AI'S ALLOWANCE: the share of income it may spend (`aiShare`),
    * and what it has to spend now (`aiWallet`), in money. @see world/ai/wallet
    */
@@ -159,6 +168,10 @@ export const useSessionStore = create<SessionState>()(
       setAiAt: (aiAt) => set({ aiAt }),
       aiMode: false,
       aiBudget: 0.8,
+      aiGoal: "grow",
+      aiReserve: 0,
+      aiDesksOff: [],
+      steerAi: (patch) => set(patch),
       aiShare: 0.2,
       aiWallet: 0,
       setAiWallet: (patch) => set(patch),
@@ -182,7 +195,7 @@ export const useSessionStore = create<SessionState>()(
       incorporate: () => set({ incorporatedAt: Date.now() }),
       reset: () => set({
         lastSeenAt: Date.now(), incorporatedAt: Date.now(), remoteBeds: null, mapChoice: null, seenProjects: [],
-        portIncomePerSecond: 0, hintsDone: [], eventDirector: null, conditions: [], routes: 0, termSheet: null, termClauses: null, overflowed: false, diligence: 1, aiAt: null, aiSaid: [], aiMode: false, aiWallet: 0, aiReservoirs: [], aiLattice: 0,
+        portIncomePerSecond: 0, hintsDone: [], eventDirector: null, conditions: [], routes: 0, termSheet: null, termClauses: null, overflowed: false, diligence: 1, aiAt: null, aiSaid: [], aiMode: false, aiGoal: "grow", aiReserve: 0, aiDesksOff: [], aiWallet: 0, aiReservoirs: [], aiLattice: 0,
       }),
     }),
     {
@@ -209,6 +222,9 @@ export const useSessionStore = create<SessionState>()(
         aiAt: s.aiAt,
         aiSaid: s.aiSaid,
         aiMode: s.aiMode,
+        aiGoal: s.aiGoal,
+        aiReserve: s.aiReserve,
+        aiDesksOff: s.aiDesksOff,
         aiBudget: s.aiBudget,
         aiShare: s.aiShare,
         aiWallet: s.aiWallet,

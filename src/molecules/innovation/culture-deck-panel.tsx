@@ -27,7 +27,7 @@ export function CultureDeckPanel() {
   const [open, setOpen] = useState<null | "deck" | "offer">(null);
   const offers = deck.offers.length;
   // Under AI mode the deck is the pilot's to play: in force is shown, the board stays shut. @see cultureDesk
-  const driving = useAiDriving();
+  const driving = useAiDriving("culture");
 
   return (
     <Panel title="Culture deck"

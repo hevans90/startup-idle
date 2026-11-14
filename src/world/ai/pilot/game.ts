@@ -8,7 +8,9 @@ import type { Grid } from "../../grid";
 import { DRONE_SPEED, MAX_DRONES, getAiRunner } from "../ai-runner";
 import { allDesks, livePurse } from "./live";
 import { usePilotView, type PilotView } from "../../../state/pilot-view.store";
-import { shownAs } from "./job";
+import { useFounderStore } from "../../../state/founder.store";
+import { useSessionStore } from "../../../state/session.store";
+import { shownAs, type DeskId } from "./job";
 import { LOOK_EVERY, createPilot, type Pilot } from "./pilot";
 
 const pilot: Pilot = createPilot(allDesks());
@@ -20,7 +22,7 @@ let sincePublish = Infinity;
 export function viewOf(p: Pilot): PilotView {
   const st = p.status();
   return {
-    kind: st.kind, says: st.says, job: st.job?.id ?? null, now: p.now(),
+    kind: st.kind, says: st.says, job: st.job?.id ?? null, now: p.now(), pinned: p.pinned(),
     queue: p.queue().map(({ job, shown }) => ({
       id: job.id, desk: job.desk, says: job.says, why: job.why, at: job.at, puts: job.at ? job.puts : undefined,
       cost: job.cost, costs: job.costs ?? "money", state: shown.state, shown: shownAs(shown, job.costs),
@@ -30,6 +32,26 @@ export function viewOf(p: Pilot): PilotView {
 }
 
 export const gamePilot = (): Pilot => pilot;
+
+const DESKS: readonly DeskId[] = ["people", "town", "landmarks", "water", "harbour", "culture", "machine", "events"];
+
+/** HOW THE PLAYER HAS STEERED IT, taken from the session as often as it looks. @see steerAi */
+function steer() {
+  const s = useSessionStore.getState(), off = s.aiDesksOff ?? [];
+  pilot.setGoal(s.aiGoal === "landmark" ? "landmark" : "grow");
+  for (const d of DESKS) if (pilot.desksOff().has(d) !== off.includes(d)) pilot.setDesk(d, !off.includes(d));
+}
+
+/** THE PLAYER'S HAND, from the interface; said back at once. @see PilotAct */
+usePilotView.setState({
+  act: (a) => {
+    if ("cancel" in a) pilot.cancel(a.cancel);
+    else if ("restore" in a) pilot.restore(a.restore);
+    else if ("doNext" in a) pilot.doNext(a.doNext);
+    else pilot.pause(a.pause);
+    sincePublish = Infinity;
+  },
+});
 
 /** Where its drones fly from: the company's own building. */
 function droneHome(g: Grid): { x: number; y: number } | null {
@@ -45,14 +67,17 @@ function droneHome(g: Grid): { x: number; y: number } | null {
 export function stepGamePilot(g: Grid, dt: number) {
   // Another map is another company: nothing remembered of the last.
   if (company !== g) { if (company) resetGamePilot(); company = g; }
-  const st = pilot.tick(dt, livePurse, g.rev);
+  if (sincePublish + dt >= LOOK_EVERY) steer();
+  const st = pilot.tick(dt, () => livePurse(useSessionStore.getState().aiReserve ?? 0), g.rev);
   // SAID TO THE INTERFACE, as often as it looks.
   sincePublish += dt;
   if (sincePublish >= LOOK_EVERY) { sincePublish = 0; usePilotView.getState().publish(viewOf(pilot)); }
   if (pilot.done() === flown) return;
   flown = pilot.done();
   const to = st.kind === "did" ? st.job?.at : undefined, from = droneHome(g), r = getAiRunner();
-  if (!to || !from || r.jobs.length >= MAX_DRONES) return;
+  // THE MODEL'S OWN flies one drone more. @see plans/ai-mode-rebuild.md open question 1
+  const most = MAX_DRONES + (useFounderStore.getState().selectedFounderId === "model" ? 1 : 0);
+  if (!to || !from || r.jobs.length >= most) return;
   r.jobs.push({ action: { kind: "deferred", at: to, why: "", run: () => true }, from, to, t: 0, fly: Math.hypot(to.x - from.x, to.y - from.y) / DRONE_SPEED });
 }
 

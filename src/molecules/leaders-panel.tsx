@@ -44,7 +44,7 @@ function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
   const letGo = useLinkedOutStore((s) => s.letGo);
   const flag = l.flag ? RED_FLAGS[l.flag] : null;
   const placing = useTeamLeadersEmployeesStore((s) => s.placing === l.role);
-  const driving = useAiDriving();
+  const driving = useAiDriving("culture");
   const p = PERSONALITIES[l.personality];
   const offer = perkOffer(l);
   const where = whereText(l, owned);
@@ -90,7 +90,7 @@ function LeaderCard({ l, owned }: { l: Leader; owned: number }) {
           {l.perks.map((k) => <span key={k} title={LEADER_PERKS[k].says} className="border border-line-quiet px-1 py-px">{LEADER_PERKS[k].name}</span>)}
         </p>
       )}
-      <Manual>
+      <Manual desk="culture">
       <div className="flex justify-end gap-1">
         {placing
           ? <Button size="sm" variant="quiet" onClick={() => setPlacing(null)}>Cancel</Button>

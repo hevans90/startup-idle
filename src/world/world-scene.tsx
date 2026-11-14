@@ -3495,7 +3495,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             }
             if (JSON.stringify(next) !== JSON.stringify(st.events)) useWorldStore.getState().setEvents(next);
             // IN AI MODE, the AI answers the moment it comes. @see answerFor
-            if (fresh && def && useSessionStore.getState().aiMode) {
+            if (fresh && def && aiDriving("events")) {
               useWorldStore.getState().respondToEvent(fresh.id, answerFor(def, fresh, view, useMoneyStore.getState().money.toNumber()));
             }
           }
@@ -3649,8 +3649,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // played works on a copy of the save. @see stepGamePilot, fixture-sandbox
         sRest();
         const sAi = section("tick: AI");
+        // AI MODE: the pilot playing the company, for whoever has it. @see stepGamePilot, aiDriving
+        if (st.playing && aiDriving()) stepGamePilot(st.grid, dt);
         if (st.playing && useFounderStore.getState().selectedFounderId === "model") {
-          if (useSessionStore.getState().aiMode) stepGamePilot(st.grid, dt);
           stepAi(getAiRunner(), st.grid, { stage: "tool", running: 0, agents: 0 }, dt, Date.now());
           // ITS LATTICE, charging as the company AI's does: done, the meter quickens. @see LATTICE_MODEL
           if (stepLattice(st.grid, runningAgents(), dt)) st.pushAiMemo("The Lattice is charged. I will be quicker now.");

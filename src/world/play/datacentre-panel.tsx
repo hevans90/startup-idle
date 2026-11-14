@@ -54,7 +54,7 @@ export function DataCentre({ className }: { className?: string }) {
   const agents = useAgentsStore((s) => s.agents);
   const setRunning = useAgentsStore((s) => s.setRunning);
   // Under AI mode the throttle is the pilot's. @see machineDesk
-  const driving = useAiDriving();
+  const driving = useAiDriving("machine");
   const value = useAiSingularityStore((s) => s.value);
   const waiting = useAscensionUiStore((s) => s.waiting);
   const built = agentsOpen();
@@ -406,7 +406,7 @@ function Training() {
   const skills = useTrainingStore((s) => s.skills);
   const blocked = useTrainingStore.getState().blocked();
   // Under AI mode the runs are the pilot's. @see machineDesk
-  const driving = useAiDriving();
+  const driving = useAiDriving("machine");
   const seconds = useTrainingStore.getState().seconds();
   const on = dataset(current?.dataset);
   const level = on ? (skills[on.id] ?? 0) : 0;

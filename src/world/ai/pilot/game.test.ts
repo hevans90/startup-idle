@@ -78,7 +78,7 @@ describe("the pilot as the interface reads it", () => {
     const job = (id: string, at?: { x: number; y: number }, state: "ready" | "cancelled" = "ready") =>
       ({ id, desk: "town" as const, says: id, why: "w", at, cost: 0, costs: "money" as const, state, shown: "Next" });
     const pins = pinned([job("a", { x: 1, y: 1 }), job("b"), job("c", { x: 1, y: 1 }), job("d", { x: 2, y: 1 }), job("e", { x: 3, y: 3 }, "cancelled")]);
-    expect(pins.map((p) => p.id)).toEqual(["a", "d"]);
+    expect(pins.map((p) => p.id)).toEqual(["a", "d", "e"]);
   });
 });
 

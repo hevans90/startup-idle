@@ -113,7 +113,7 @@ export const Upgrades = () => {
 
   const { money } = useMoneyStore();
   // UNDER AI MODE each is a readout: the pilot buys them. @see useAiDriving
-  const driving = useAiDriving();
+  const driving = useAiDriving("people");
   // WHAT OPENS NEXT, when there is nothing to buy: the cheapest still locked.
   const next = [...UPGRADES].sort((a, b) => a.cost - b.cost).find((u) => !unlockedUpgrades.some((b) => b.id === u.id) && !availableUpgrades.includes(u));
 

@@ -63,7 +63,7 @@ export function AgentsRow() {
         </p>
       </InfoPop>
       <span className="text-right responsive-text-sm tabular-nums">{roomText}</span>
-      <Manual instead={<JobState id="agent" className="ml-2 max-w-[45%] shrink-0 text-right" />}>
+      <Manual desk="machine" instead={<JobState id="agent" className="ml-2 max-w-[45%] shrink-0 text-right" />}>
       <Button disabled={!!blocked} onClick={() => spinUp()} title={blocked ? WHY[blocked] : "Spin up an agent"}
         className="ml-2 w-2/5 min-w-32 responsive-text-xs">
         <span className="flex flex-col leading-tight">

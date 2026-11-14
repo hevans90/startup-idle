@@ -64,7 +64,7 @@ export function LandmarksPanel({ className }: { className?: string }) {
   const only = useFounderStore((s) => s.onlyGenerator);
   const unlocked = useGateUnlocks();
   const isOpen = useSessionStore((s) => s.projectsOpen);
-  const driving = useAiDriving();
+  const driving = useAiDriving("landmarks");
   const setOpen = useSessionStore((s) => s.setProjectsOpen);
   const seen = useSessionStore((s) => s.seenProjects);
   const markSeen = useSessionStore((s) => s.markProjectsSeen);
@@ -213,7 +213,7 @@ function ReadyFoot({ p }: { p: ProjectDef }) {
           <span className="text-fg-muted"> · {who}</span>
         </span>
       )}
-      <Manual>
+      <Manual desk="landmarks">
       <Button size="sm" variant="primary" className="shrink-0 font-bold" onClick={() => placeProject(p.id)}
         title={here ? `Built over the ${structureDef(here.def)?.name ?? "building"}, where it stands` : "Then click a spot beside a road"}>
         {here ? "Build" : "Choose site"}
@@ -256,7 +256,7 @@ function GoingFoot({ p }: { p: ProjectDef }) {
         <span>{crew.working + crew.walking} building · {b.delivered}/{b.deliveries} loads</span>
         {problem && <span className={twMerge("truncate", stalledFor > 0 ? "text-bad" : "text-warn")}>{problem}</span>}
       </div>
-      <Manual>
+      <Manual desk="landmarks">
       <div className="flex items-center justify-between gap-2"
         title={p.founderBuilds ? "You build it yourself."
           : `How much of the company builds: ${buildersFor(p, b.priority, owned, site.w * site.h)} of your ${who} now. Builders don't work at their desks.`}>

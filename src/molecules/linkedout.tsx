@@ -77,7 +77,7 @@ function ApplicantCard({ a, now }: { a: Applicant; now: number }) {
         <p className={twMerge("text-[11px]", !a.flagKnown ? "text-fg-muted" : flag?.bad ? "text-bad" : "text-good")}>
           {!a.flagKnown ? "Background: unknown" : flag ? `${flag.name}: ${flag.says}` : "Background: clean"}
         </p>
-        <Manual>
+        <Manual desk="culture">
         <div className="flex flex-wrap justify-end gap-1 pt-1">
           <Button size="sm" variant="quiet" onClick={() => pass(a.id)}>Pass</Button>
           {!a.flagKnown && (
@@ -117,7 +117,7 @@ function Jobs() {
               <span className="font-display text-sm uppercase tracking-wider">Leader of <KindName id={k} plural /></span>
               {open
                 ? <span className="text-[11px] tabular-nums text-fg-muted">Posted · up to {open.left} more · closes in {clock(open.closesAt - now)}</span>
-                : <Manual><Button size="sm" disabled={innovation.lt(cost)} onClick={() => post(k)}>Post a job · <span className="text-innovation">{cost} innovation</span></Button></Manual>}
+                : <Manual desk="culture"><Button size="sm" disabled={innovation.lt(cost)} onClick={() => post(k)}>Post a job · <span className="text-innovation">{cost} innovation</span></Button></Manual>}
             </div>
             {theirs.length ? theirs.map((a) => <ApplicantCard key={a.id} a={a} now={now} />)
               : <p className="py-1 text-[11px] text-fg-muted">{open ? "No one yet." : "No post up: nobody is applying."}</p>}
@@ -178,7 +178,7 @@ function Connections() {
               <b>{c.name}</b> <span className="text-fg-muted">· {PERSONALITIES[c.personality].name} · {KIND_ONE[c.role]}, was rank {c.rankWas}</span>
               <p className={twMerge("text-[10px]", flag?.bad ? "text-bad" : flag ? "text-good" : "text-fg-faint")}>{flag ? flag.name : "Background: clean"}</p>
             </div>
-            <Manual>
+            <Manual desk="culture">
             <Button size="sm" disabled={!kinds.has(c.role) || innovation.lt(REHIRE_COST)} confirm={current ? `${current.name.split(" ")[0]} leaves: sure?` : undefined}
               title={kinds.has(c.role) ? "Back at rank 1" : `No ${KIND_PLURAL[c.role]} here to lead`} onClick={() => rehire(c.id)}>
               Rehire · <span className="text-innovation">{REHIRE_COST}</span>

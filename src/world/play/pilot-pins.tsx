@@ -12,6 +12,7 @@ import { useAiDriving } from "../../hooks/use-ai-driving";
 import { usePilotView, type JobView, type PilotState } from "../../state/pilot-view.store";
 import { useWorldStore } from "../../state/world.store";
 import { Card } from "../../ui/console";
+import { JobHand } from "../../molecules/pilot-tab";
 import { formatCurrency } from "../../utils/money-utils";
 import { idx, inBounds } from "../grid";
 import { cellToWorld } from "../iso";
@@ -26,7 +27,7 @@ const WORDS: Record<PilotState, string> = { ready: "text-console", saving: "text
 export function pinned(queue: readonly JobView[]): JobView[] {
   const taken = new Set<string>(), out: JobView[] = [];
   for (const j of queue) {
-    if (!j.at || j.state === "cancelled") continue;
+    if (!j.at) continue;
     const key = `${j.at.x},${j.at.y}`;
     if (taken.has(key)) continue;
     taken.add(key);
@@ -78,6 +79,7 @@ export function PilotPins() {
                   <span>{j.cost > 0 ? <>{formatCurrency(j.cost, { showDollarSign: j.costs === "money" })}{j.costs === "innovation" && " innovation"}</> : "Free"}</span>
                   <span className={WORDS[j.state]}>{j.shown}</span>
                 </p>
+                <JobHand job={j} className="mt-1 justify-end" />
               </Card>
             </div>
           )}

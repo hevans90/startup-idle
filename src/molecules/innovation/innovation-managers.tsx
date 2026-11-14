@@ -45,7 +45,7 @@ export const InnovationManagers = () => {
           title="Managers"
           help="Assign innovation to tier up managers"
           controls={
-            <Manual>
+            <Manual desk="culture">
               <CycleButton
                 currentValue={assignment}
                 values={[1, 10, 100, "max"]}

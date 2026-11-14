@@ -37,12 +37,22 @@ export type PilotView = {
   log: PilotLine[];
   /** Seconds on its own clock, for the log's times. */
   now: number;
+  /** The job the player said to do next, if any. */
+  pinned: string | null;
 };
 
-const EMPTY: PilotView = { kind: "idle", says: "Starting", job: null, queue: [], log: [], now: 0 };
+/** The player's hand on a job, or on the pilot. @see Pilot */
+export type PilotAct = { cancel: string } | { restore: string } | { doNext: string | null } | { pause: boolean };
 
-export const usePilotView = create<PilotView & { publish: (v: PilotView) => void; clear: () => void }>()((set) => ({
+const EMPTY: PilotView = { kind: "idle", says: "Starting", job: null, queue: [], log: [], now: 0, pinned: null };
+
+export const usePilotView = create<PilotView & {
+  publish: (v: PilotView) => void; clear: () => void;
+  /** Set by the game's pilot: how the interface reaches it without importing it. */
+  act: (a: PilotAct) => void;
+}>()((set) => ({
   ...EMPTY,
+  act: () => {},
   publish: (v) => set(v),
   clear: () => set(EMPTY),
 }));

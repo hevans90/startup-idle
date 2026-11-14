@@ -17,12 +17,14 @@ import { townDesk } from "./desks/town";
 import { waterDesk } from "./desks/water";
 import type { Desk } from "./pilot";
 
-/** What the company has to spend now, and how fast it comes in. */
-export function livePurse(reserve = 0): Purse {
-  const gens = useGeneratorStore.getState();
+/** What the company has to spend now, and how fast it comes in; `reserveSeconds` of its income kept back. */
+export function livePurse(reserveSeconds = 0): Purse {
+  const gens = useGeneratorStore.getState(), income = gens.getMoneyPerSecond();
+  // THE RESERVE, as so many seconds of income: a sum that grows with the company.
+  const reserve = Math.max(0, reserveSeconds) * income;
   return {
     money: useMoneyStore.getState().money.toNumber(),
-    income: gens.getMoneyPerSecond(),
+    income,
     // And what a site under way still owes for its loads: spent elsewhere, the site stalls. @see owedOnSites
     reserve: reserve + owedOnSites(useWorldStore.getState().grid),
     innovation: useInnovationStore.getState().innovation.toNumber(),

@@ -1,6 +1,6 @@
 # AI mode, rebuilt: a pilot that plays the whole run, and shows its work
 
-**Status:** phases 0 to 7 built, 2026-11-14 (see "Built so far" at the end): the brain is whole, it drives the game, the controls are off while it does, and every job it has in mind is shown. Phases 8 and 9 (steering, taking the old one out) not started. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
+**Status:** phases 0 to 8 built, 2026-11-14 (see "Built so far" at the end): the brain is whole, it drives the game, the controls are off while it does, every job it has in mind is shown, and it can be steered. Phase 9 (taking the old one out, the play-through) not started. Replaces `plans/singularity.md` §4b and what `plans/ai-planning.md` built on it. Decisions below are from the user's answers the same day.
 
 ## Why
 
@@ -459,3 +459,34 @@ Played on past the sale on seed 1 (75 minutes): the Harbour at 60, a seaport, th
   - **Streets, pipes and sewers have a pin but no hologram**: only buildings are drawn ahead.
   - **Seen in the fixture: four offices for the interns in eight seconds**, each "their houses will outgrow their desks". It may be right for a company with a million dollars and 24 houses without a desk; not looked into.
   - A pin can sit over a building's label.
+
+**Phase 8, steering, 2026-11-14.**
+
+- **Open to any founder after the first Ascension** (`aiModeOpen`: the Model, or generation 2 on). The scene steps the pilot for whoever has it; the switch in the build bar shows for them.
+- **The goal** (`Goal`, `tiltOf` in `pilot.ts`; on the pilot bar and the Pilot tab): **Grow**, the plain rule, and **Next landmark**, which weighs the Landmarks desk's jobs four times, and so what they wait on.
+- **The reserve**: none, or 1, 5 or 15 minutes of income kept back. So many seconds of income, not a sum, since a sum is out of date in a minute.
+- **Areas**: a switch a desk on the Pilot tab. A desk off proposes nothing, and its controls are the player's again (`<Manual desk>`, `useAiDriving(desk)`): People gives back hiring and upgrades; Culture the deck, leaders, managers and mandates; The machine agents, the throttle and training; Events the cards; Harbour a port's berths; Water a pipe's card; Landmarks the list. With any of Town, Landmarks, Water or Harbour off the build tools come back beside the bar.
+- **Cancel, Restore and Do next** on each job, in the tab and on a pin's card. Cancelled is ten minutes, or till restored; Do next saves for it if it must.
+- **The interface reaches the pilot through the view store** (`usePilotView().act`), so the sidebar still imports none of it.
+- **The Model's own**: only its pilot leans by its fused traits (the Town desk already did; the Culture desk now does too), and it flies one drone more.
+- **The open questions were taken as proposed** (1, 2, 3 and 4), none having been answered: say if any should go the other way.
+
+**In the sim** (seed 2, 64², from $5; `pilot/steer.test.ts`, `steer-goal.test.ts`):
+
+| Control | Plain | Steered |
+|---|---|---|
+| People off, 8 min | interns hired | none |
+| Town off, 8 min | lots zoned | none |
+| Reserve 5 min, 12 min | | more in hand for its income, fewer things done |
+| The garage cancelled, 3 min | opens at 1.1 min | not begun; restored at a minute, it opens after |
+| Next landmark, 28 min | Boardroom at 26.8 min | 22.5 min |
+
+**Seen in the browser** (`/?fixture=singularity&nosave`): People switched off, the hire button and ×1/Max are back and the People jobs leave the queue; Town off, the five tools are back beside the bar, and gone again with it on; a street cancelled reads "Cancelled" with Restore, and "Next" once restored. No console errors.
+
+- **Not done, or not as planned:**
+  - **No "Fine town" goal.** It was built as a lean to the Town and Water desks and measured: at 30 minutes the town was smaller (40 lots and 334 residents against 74 and 442) and fifty times poorer. Houses and offices are already built as they are wanted, so leaning to them only puts off the upgrades that pay for more. A goal that made a finer town would need jobs the desks do not propose yet (building ahead of need, the town's services).
+  - **A 15-minute reserve stalls a new company**: with $5 a second it holds back more than it has. It is what was asked of it; a floor that only bites later was not built.
+  - **AI mode beside the takeover** (question 3): both run, and the pilot does not yet tell the takeover's buildings from its own. Not played.
+  - **A non-Model founder's run was not played in the browser**: no fixture is one past its first Ascension.
+  - **The pace** (question 4) is as it was: two seconds a job, urgent ones at once.
+

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { choose, newMemory, type Purse } from "./chooser";
 import { clock, dollars, shownAs, type Job } from "./job";
-import { CANCEL_REST, FAULT_REST, PACE, WATCHDOG, createPilot, type Desk } from "./pilot";
+import { CANCEL_REST, FAULT_REST, GOAL_LEAN, PACE, WATCHDOG, createPilot, type Desk } from "./pilot";
 
 const purse = (money: number, income = 0, reserve = 0): Purse => ({ money, income, reserve, innovation: 0, innovationRate: 0 });
 const job = (id: string, cost: number, gain: number, more: Partial<Job> = {}): Job => ({
@@ -182,6 +182,23 @@ describe("the pilot", () => {
     expect(() => run(strict, WATCHDOG + 5, () => purse(1000))).toThrow(/pilot fault/);
   });
 
+  test("a goal leans it: under Next landmark a landmark is taken before what pays a little better", () => {
+    const done: string[] = [];
+    const jobs = () => [
+      job("upgrade", 10, 30, { run: () => { done.push("upgrade"); return { ok: true }; } }),
+      { ...job("landmark", 10, 20, { run: () => { done.push("landmark"); return { ok: true }; } }), desk: "landmarks" as const },
+    ];
+    const plain = createPilot([desk(jobs)]);
+    run(plain, 1, () => purse(1000));
+    expect(done).toEqual(["upgrade"]);
+    const leaned = createPilot([desk(jobs)]);
+    leaned.setGoal("landmark");
+    expect(leaned.goal()).toBe("landmark");
+    run(leaned, 1, () => purse(1000));
+    expect(done.at(-1)).toBe("landmark");
+    expect(GOAL_LEAN).toBeGreaterThan(1);
+  });
+
   test("the player's hand: cancel, do next, pause, a desk off", () => {
     const done: string[] = [];
     const jobs = () => [job("good", 10, 100, { run: () => { done.push("good"); return { ok: true }; } }), job("poor", 10, 1, { run: () => { done.push("poor"); return { ok: true }; } })];
@@ -191,7 +208,11 @@ describe("the pilot", () => {
     expect(done).toEqual(["poor"]);
     expect(p.queue().find((q) => q.job.id === "good")!.shown.state).toBe("cancelled");
     expect(CANCEL_REST).toBeGreaterThan(60);
+    p.restore("good");
+    expect(p.queue().length).toBeGreaterThan(0);
+    p.cancel("good");
     p.doNext("good");
+    expect(p.pinned()).toBe("good");
     run(p, PACE + 1, () => purse(1000));
     expect(done.at(-1)).toBe("good");
     p.pause(true);

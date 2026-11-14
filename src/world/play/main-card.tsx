@@ -48,7 +48,7 @@ export function MainCard() {
   const accept = useWorldStore((s) => s.acceptPump);
   const dismiss = useWorldStore((s) => s.dismissPumpOffer);
   // Under AI mode the pumps are the pilot's. @see useAiDriving
-  const driving = useAiDriving();
+  const driving = useAiDriving("water");
   if (!playing || driving) return null;
   if (offer && !stroke) {
     return (
@@ -168,7 +168,7 @@ export function MainInfo() {
         {r.intakes.length ? r.intakes.map((k) => `${k.pump ? "Pump" : "Intake"}${k.surface === null ? " (dry)" : k.fouled >= 0.05 ? ` (${Math.round(k.fouled * 100)}% fouled: cools ${Math.round(coolingKept(r.fouled ?? k.fouled) * 100)}%)` : ""}`).join(", ") : "No intake"}
         {" → "}{names.length ? names.join(", ") : "nothing"}
       </p>
-      <Manual>
+      <Manual desk="water">
       <div className="mt-0.5 flex flex-wrap gap-1">
         {r.state === "no-head" && intake !== undefined && (
           <Button size="sm" onClick={() => st.offerPump({ x: intake % g.w, y: (intake / g.w) | 0, price: buildCost("pump")?.toNumber() ?? 0, why: say.text })}>Add a pump…</Button>
@@ -200,7 +200,7 @@ function SewerInfo({ r, at, part, onClose }: { r: MainReport; at: { x: number; y
       <p className={TONE[say.tone]}>{say.text}</p>
       <p className="tabular-nums" title={`Carries up to ${r.capacity.toFixed(2)} slop a second`}>Drains {from.length} workplace{from.length === 1 ? "" : "s"}</p>
       <p className="text-fg-muted">{from.length ? from.join(", ") : "No workplace"}{" → "}{to.length ? to.join(", ") : "nothing"}</p>
-      <Manual>
+      <Manual desk="water">
       <div className="mt-0.5 flex flex-wrap gap-1">
         {narrow > 0 && (
           <Button size="sm" onClick={() => st.widenMainAt(at, !!part)} title="Twice the slop through the same run">Widen: {formatCurrency(boreCost(narrow).toNumber())}</Button>
@@ -258,7 +258,7 @@ export function TrunkInfo() {
         Drains {drains} workplace{drains === 1 ? "" : "s"}{lifts > 0 && <> · {lifts} lift station{lifts === 1 ? "" : "s"}</>}
       </p>
       {(manhole || storm) && (
-        <Manual>
+        <Manual desk="water">
         <div className="mt-0.5 flex flex-wrap gap-1">
           {manhole && <Button size="sm" onClick={() => st.addManholeAt(looked)} title="Where a workplace's connection comes down into it">Add a manhole here</Button>}
           {storm && <Button size="sm" onClick={() => st.addStormDrainAt(looked)} title="A grate: water standing in the street here goes down it, as much as the sewer can take">Add a storm drain here</Button>}

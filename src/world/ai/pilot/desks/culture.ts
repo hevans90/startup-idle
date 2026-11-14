@@ -12,13 +12,12 @@
  *    that buys nothing else.
  * @see peopleMove, plans/ai-mode-rebuild.md phase 5
  */
-import { fusedInto } from "../../../../game/fusion";
 import { featureGateOpen } from "../../../../game/projects";
 import { ManagerKeyValues, nextManagerCost, useInnovationStore, type ManagerKeys } from "../../../../state/innovation.store";
 import { MANDATES, useValuationStore, type MandateDef } from "../../../../state/valuation.store";
 import { useWorldStore } from "../../../../state/world.store";
 import { peopleMove } from "../../autopilot-people";
-import { styleOf } from "../../masterplan/style";
+import { townStyle } from "./town";
 import type { Purse } from "../chooser";
 import type { Job } from "../job";
 import type { Desk } from "../pilot";
@@ -40,7 +39,8 @@ export function cultureDesk(): Desk {
     const worth = Math.max(purse.income, 1) * STEP_WORTH;
 
     // THE DECK AND THE LEADERS: the next step, if there is one.
-    const move = peopleMove(g, styleOf(fusedInto("model")).tall);
+    // Only the Model leans by its fused traits; another founder's pilot is plain. @see townStyle
+    const move = peopleMove(g, townStyle().tall);
     if (move) {
       jobs.push({
         id: `culture:${move.id}`, desk: "culture", says: move.plan, why: "the culture, played to its style",

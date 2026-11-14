@@ -43,6 +43,7 @@ import { useFounderStore } from "../../state/founder.store";
 import { getAiRunner } from "../ai/ai-runner";
 import { useTicking } from "../../hooks/use-ticking";
 import { PilotBar } from "./pilot-bar";
+import { useAiDriving, useAiModeOpen } from "../../hooks/use-ai-driving";
 import { useTeamLeadersEmployeesStore } from "../../state/team-leaders.store";
 import { hasRiver } from "../boats/river";
 import { LAB_SHARE } from "../projects/labs";
@@ -205,20 +206,23 @@ export function BuildBar({ className }: { className?: string }) {
   const labels = useWorldStore((s) => s.labels);
   const setLabels = useWorldStore((s) => s.setLabels);
   // AI MODE, a view on The Model's runs: its switch here, and while it drives the tools give way to its bar. @see PilotBar
-  const model = useFounderStore((s) => s.selectedFounderId) === "model";
   const aiMode = useSessionStore((s) => s.aiMode);
   const setAiMode = useSessionStore((s) => s.setAiMode);
-  const driving = model && aiMode;
+  const open = useAiModeOpen();
+  const driving = useAiDriving();
+  // ITS HANDS ON THE MAP: with any of the desks that build switched off, the tools are the player's again. @see steerAi
+  const desksOff = useSessionStore((s) => s.aiDesksOff) ?? [];
+  const handsOff = driving && !["town", "landmarks", "water", "harbour"].some((d) => desksOff.includes(d));
   // HANDS OFF, the moment it drives: whatever was in hand is put down. @see useAiDriving
   useEffect(() => {
-    if (!driving) return;
+    if (!handsOff) return;
     const st = useWorldStore.getState();
     st.cancelStroke();
     st.placeProject(null);
     st.setTool("inspect");
     useTeamLeadersEmployeesStore.getState().setPlacing(null);
     setPicking(false);
-  }, [driving]);
+  }, [handsOff]);
   const money = useMoneyStore((s) => s.money);
   const generators = useGeneratorStore((s) => s.generators);
   const [picking, setPicking] = useState(false);
@@ -305,13 +309,13 @@ export function BuildBar({ className }: { className?: string }) {
       const el = e.target as HTMLElement | null;
       if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
       const n = Number(e.key);
-      if (driving || !Number.isInteger(n) || n < 1 || n > shown.length) return;
+      if (handsOff || !Number.isInteger(n) || n < 1 || n > shown.length) return;
       e.preventDefault();
       keyed.current(shown[n - 1].id);
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [shown, driving]);
+  }, [shown, handsOff]);
 
   const views = (
     <>
@@ -334,8 +338,8 @@ export function BuildBar({ className }: { className?: string }) {
           <span className="@max-6xl:hidden">Pipes</span>
         </button>
       )}
-      {model && (
-        <button type="button" title="AI mode: The Model builds the town itself" aria-pressed={aiMode}
+      {open && (
+        <button type="button" title="AI mode: the AI plays the company itself" aria-pressed={aiMode}
           onClick={() => setAiMode({ aiMode: !aiMode })} className={twMerge(TOOL, aiMode && TOOL_ON, aiMode && "text-ai")}>
           <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ai" />
           <span className="@max-6xl:hidden">AI mode</span>
@@ -354,7 +358,7 @@ export function BuildBar({ className }: { className?: string }) {
       <MainCard />
       <SewerCard />
       <SuggestCard />
-      {picking && !driving && (
+      {picking && !handsOff && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
         <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>
           {sale.map((sec) => (
@@ -434,7 +438,8 @@ export function BuildBar({ className }: { className?: string }) {
         {/* THE TOOLS: a rail that scrolls, on a phone. */}
         <div className="flex items-stretch overflow-x-auto">
           {/* UNDER AI MODE, no tools: what the pilot is doing, and a pause. @see PilotBar */}
-          {driving ? <PilotBar tool={TOOL} className="flex-1" /> : (<>
+          {driving && <PilotBar tool={TOOL} className="flex-1" />}
+          {!handsOff && (<>
           {shown.map((t, k) => (
             <button key={t.id} type="button" title={`${aiRoads && ROAD_TOOLS.has(t.id) ? `${t.hint} — outside the AI's district: its streets are its own now` : t.hint} (${k + 1})`}
               onClick={() => choose(t.id)} aria-pressed={tool === t.id} aria-keyshortcuts={String(k + 1)}

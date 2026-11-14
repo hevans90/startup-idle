@@ -64,7 +64,7 @@ export const Sidebar = ({ className }: { className: ClassNameValue }) => {
   const body: Record<SidebarTab, ReactNode> = {
     employees: (
       <div className="flex flex-col gap-6 p-2">
-        <Manual><PurchaseModeToggle /></Manual>
+        <Manual desk="people"><PurchaseModeToggle /></Manual>
         <Generators />
         {/* MORALE, here until the HQ opens the Innovation tab, where it is in full. */}
         {!managersOpen && <MoraleStrip className="mx-2" />}

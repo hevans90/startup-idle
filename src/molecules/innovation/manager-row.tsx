@@ -61,7 +61,7 @@ const ManagerRow: React.FC<ManagerRowProps> = memo(
             <span className="shrink-0 tabular-nums" title="Time to the next tier at this assignment">{estimateToNextTier === "-" || estimateToNextTier === "∞" ? "idle" : `next in ${estimateToNextTier}`}</span>
           </div>
         </div>
-        <Manual instead={<JobState id={`manager:${managerName}`} className="max-w-[40%] shrink-0 text-right" />}>
+        <Manual desk="culture" instead={<JobState id={`manager:${managerName}`} className="max-w-[40%] shrink-0 text-right" />}>
         <div className="flex gap-1">
           <Tooltip content={<>Take back: +{formatCurrency(totalRefund, { showDollarSign: false })} innovation</>}>
             <span className="inline-flex"><IconButton label={`Take innovation back from ${managerName}`} onClick={onUnassign} disabled={assignment.equals(0)} className="h-8 w-8 border border-line">−</IconButton></span>
