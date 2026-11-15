@@ -1,6 +1,10 @@
 /**
  * World v2 — the `tiles` render strategy: a stack of sprites per cell.
  *
+ * THE HOUSES ARE BAKED: where the houses sheet is in, a kit is drawn from its
+ * own parts (`houses/`), and the vendor stack below is what `?houses=sprite`
+ * and the tests draw. @see housePieces
+ *
  * The stack itself comes from `composeBuilding` in `src/iso/kits.ts`, which v1
  * also calls. That is the whole reason Phase 0 moved it there: the rules for
  * which frame sits on which floor, and how far each one lifts, are ART facts
@@ -20,6 +24,7 @@ import { pen } from "./project-renderer";
 import { composeBuilding } from "../../iso/kits";
 import { footprintCells, idx, inBounds, type Grid, type Structure } from "../grid";
 import { GROUND_FRAME_H, bandOf, cellToWorld, spriteY } from "../iso";
+import { bakedHouses, housePieces, housesLoaded, houseTint } from "../houses/houses-sheet";
 import { kitByName, type StructureDef } from "./def";
 import { registerRenderer, type RenderCtx, type StructureHandle, type StructureRenderer } from "./render";
 
@@ -120,9 +125,32 @@ function buildSprites(
   const kitId = kitIdOf(def);
   const kit = kitId ? kitByName(kitId) : null;
   if (!kit) return [];
-  const parts = composeBuilding(kit, floorsFor(def, s), seedOf(s));
   const h = groundHeight(ctx.grid, s);
   const out: Container[] = [];
+
+  // BAKED, where the sheet is in: its parts stood on the middle of each cell,
+  // the walls in this building's own colour. @see housePieces
+  const look = bakedHouses() ? housesLoaded()?.kits.get(kitId!) : undefined;
+  if (look) {
+    const H = housesLoaded()!, pieces = housePieces(look, kitId!, floorsFor(def, s), seedOf(s)), tint = houseTint(kitId!, seedOf(s));
+    for (const cell of footprintCells(s.x, s.y, s.w, s.h)) {
+      if (!inBounds(ctx.grid, cell.x, cell.y)) continue;
+      const { wx, wy } = cellToWorld(cell.x, cell.y, h, ctx.scale);
+      const parent = ctx.bands.structureOf[bandOf(cell.x, cell.y)];
+      for (const p of pieces) {
+        const sp = new Sprite(p.tex);
+        sp.anchor.set(p.anchor.x, p.anchor.y);
+        sp.position.set(wx, wy - p.lift * ctx.scale);
+        sp.scale.set(ctx.scale / H.res);
+        if (p.walls) sp.tint = tint;
+        sp.eventMode = "none";
+        parent.addChild(sp);
+        out.push(sp);
+      }
+    }
+    return out;
+  }
+  const parts = composeBuilding(kit, floorsFor(def, s), seedOf(s));
 
   // EVERY PART STANDS WHERE THE CELL'S TERRAIN TILE DOES, lifted by its own
   // `lift`: the building art is drawn to share one bottom with a terrain tile,

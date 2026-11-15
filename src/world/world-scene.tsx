@@ -101,6 +101,7 @@ import { setPortLife } from "./structures/port-life";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
 import { setCollapsed } from "./structures/tiles-renderer";
+import { bakedHouses, houseSprites } from "./houses/houses-sheet";
 import { buildRoadTable, roadSpriteFor } from "./roads/table";
 import { isPaved, maskAt, maskDirtyCells } from "./roads/mask";
 import { netIdAt } from "./roads/network";
@@ -619,7 +620,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (!root) return;
     let cancelled = false;
 
-    loadIsometricAtlasTextures().then((textures) => {
+    // THE HOUSES' SHEET with the atlases, so a house is drawn from it the first time. @see houseSprites
+    Promise.all([loadIsometricAtlasTextures(), bakedHouses() ? houseSprites() : null]).then(([textures]) => {
       if (cancelled || !rootRef.current) return;
       texRef.current = textures;
       const bl = createBandLayer(grid.w, grid.h);

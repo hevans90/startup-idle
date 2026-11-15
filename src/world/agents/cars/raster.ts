@@ -57,12 +57,15 @@ const COLOUR: Record<Mat, [number, number, number]> = {
   seam: [0.3, 0.3, 0.32], arch: [0.05, 0.05, 0.06], rim: [0.7, 0.72, 0.75], spoke: [0.08, 0.08, 0.09],
   leaf: [1, 1, 1], canvas: [1, 1, 1], bark: [0.36, 0.27, 0.19], birchBark: [0.86, 0.85, 0.8], wood: [0.62, 0.44, 0.27],
   iron: [0.15, 0.16, 0.18], stone: [0.74, 0.72, 0.67], water: [0.3, 0.56, 0.7], linen: [0.95, 0.94, 0.9], spray: [0.88, 0.94, 0.98],
+  // The houses': walls white to tint, roofs, window panes, hedges, paving. @see houses/models
+  wall: [1, 1, 1], rooftile: [0.7, 0.36, 0.27], slate: [0.38, 0.42, 0.48], roofing: [0.6, 0.6, 0.58],
+  pane: [0.42, 0.6, 0.74], hedge: [0.3, 0.48, 0.24], pave: [0.8, 0.78, 0.73],
 };
 /** How glossy: the highlight's strength and tightness. Paint and glass shine; tyres and plastic don't. */
 const GLOSS: Partial<Record<Mat, [number, number]>> = {
   paint: [0.38, 36], roofBlack: [0.3, 36], roofWhite: [0.3, 36], glass: [0.7, 70], chrome: [0.65, 24], rim: [0.45, 20],
   liveryWhite: [0.32, 36], liveryBlack: [0.38, 36], liveryRed: [0.32, 36], liveryGreen: [0.3, 36], livery: [0.25, 30], liveryAlt: [0.25, 30],
-  lamp: [0.4, 40], tail: [0.4, 40], water: [0.6, 50], iron: [0.25, 20],
+  lamp: [0.4, 40], tail: [0.4, 40], water: [0.6, 50], iron: [0.25, 20], pane: [0.5, 50],
   hair: [0.12, 14], skin: [0.06, 10], hardhat: [0.4, 30], shoe: [0.15, 20],
 };
 const PAINTED: ReadonlySet<Mat> = new Set(["paint"]);
@@ -339,7 +342,7 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
       const lam = Math.max(0, nu * LIGHT[0] + nv * LIGHT[1] + nz * LIGHT[2]);
       const lit = glows ? 0.88 + 0.12 * lam : 0.55 + 0.45 * lam;
       let c: V3 = [base[0] * lit, base[1] * lit, base[2] * lit];
-      if (mat === "glass") {
+      if (mat === "glass" || mat === "pane") {
         // Glass shows the sky as it turns up to it.
         const sky = Math.max(0, nz) * 0.55 + Math.max(0, nv) * 0.12;
         c = [c[0] + 0.42 * sky, c[1] + 0.5 * sky, c[2] + 0.6 * sky];

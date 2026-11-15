@@ -20,6 +20,7 @@
     "wording": "bun run src/game/wording-audit.ts",
     "bake:people": "bun run dev/bake-people.ts",
     "bake:props": "bun run dev/bake-props.ts",
+    "bake:houses": "bun run dev/bake-houses.ts",
     "bake:boats": "bun run dev/bake-boats.ts",
     "bake:cranes": "bun run dev/bake-cranes.ts"
   },
