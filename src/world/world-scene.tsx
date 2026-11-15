@@ -38,7 +38,7 @@ import { liveStreetEarnings, liveStreets, streetName } from "./play/street-earni
 import { liveDesireMaps } from "./agents/desirability";
 import { canAcquire, offerPremium, pendingEquity } from "../game/acquisition";
 import { heldHidden } from "./render/hold";
-import type { Renderer, Texture } from "pixi.js";
+import type { Renderer } from "pixi.js";
 import { nappeStepsAt } from "./render/nappe";
 import { extend, useApplication, useTick } from "@pixi/react";
 import {
@@ -231,7 +231,7 @@ const phaseNow = () => (import.meta.env.DEV ? (window as unknown as { __dayPhase
 
 /** Movers on the map at which the town sounds as busy as it gets. */
 const TOWN_FULL = 80;
-import { HOLO_SAVING, createHolograms, partsOf, createTileHolograms, type HoloSpec, type Holograms, type TileHolo, type TileHolograms } from "./render/holograms";
+import { HOLO_SAVING, createHolograms, partsOf, type HoloSpec, type Holograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
@@ -434,7 +434,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    */
   const rendererRef = useRef<unknown>(null);
   // held so an edit can re-texture just the cells that changed
-  const texRef = useRef<Record<string, Texture> | null>(null);
   const cursorRef = useRef<BuildCursor | null>(null);
   /** Holograms: what a placement would put down, and what AI mode's drones are about to. @see createHolograms */
   const holoRef = useRef<Holograms | null>(null);
@@ -461,16 +460,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const shipIn = useRef(0);
   const soundClock = useRef(0);
   const holoScanRef = useRef<Graphics | null>(null);
-  const tileHoloRef = useRef<TileHolograms | null>(null);
   const placeHolos = useRef<HoloSpec[]>([]);
   /** The masterplan's buildings shown as holograms, so its flat ghost leaves them out. */
   const planHoloKeys = useRef<ReadonlySet<string>>(new Set());
   const aiHolos = useRef<HoloSpec[]>([]);
   /** Show the holograms asked for now: the build tool's and AI mode's. */
   const showHolos = useCallback(() => {
-    const h = holoRef.current, bl = blRef.current, tex = texRef.current;
-    if (!h || !bl || !tex) return;
-    h.set([...placeHolos.current, ...aiHolos.current], { bands: bl, textures: tex, grid: useWorldStore.getState().grid, scale: useWorldStore.getState().scale });
+    const h = holoRef.current, bl = blRef.current;
+    if (!h || !bl) return;
+    h.set([...placeHolos.current, ...aiHolos.current], { bands: bl, grid: useWorldStore.getState().grid, scale: useWorldStore.getState().scale });
   }, []);
   /** The AI on the map: the Data Centre's glow, the links, the holograms. @see createAiLayer */
   const aiLayerRef = useRef<AiLayer | null>(null);
@@ -616,10 +614,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
 
     // THE HOUSES' SHEET with the atlases, so a house is drawn from it the first time. @see houseSprites
     houseSprites().then(() => {
-      // No sheet of tiles is loaded: everything on the map is drawn or baked by the game.
-      const textures: Record<string, Texture> = {};
       if (cancelled || !rootRef.current) return;
-      texRef.current = textures;
       const bl = createBandLayer(grid.w, grid.h);
       const tl = createTerrainLayer(grid, useWorldStore.getState().palette, scale);
       const pl = createPavedLayer(grid, scale, app.renderer);
@@ -658,7 +653,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       drRef.current = water ? createGpuDripLayer(bl, scale) : null;
       buildTerrain(tl, bl, grid);
       buildPaved(pl, bl, grid);
-      syncStructures(sl, { bands: bl, textures, grid, scale });
+      syncStructures(sl, { bands: bl, grid, scale });
 
       rootRef.current.addChild(bl.root);
       blRef.current = bl;
@@ -1276,8 +1271,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           return compareSheetPaths(app.renderer, dev, o);
         };
         window.__pavingCheck = async (o) => {
-          const tex = texRef.current;
-          if (!tex) return { ok: false, why: "atlas not loaded yet" };
           // POINTED AT THE LIVE MAP by default, because the `crossing`
           // fixture draws its deck water perfectly well and a generated map
           // does not — a check that only ever runs on the fixture would have
@@ -1287,7 +1280,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           const wf = live ? st.getWaterField() : null;
           const dev = (app.renderer as unknown as { gpu?: { device: GPUDevice } })
             .gpu?.device ?? null;
-          return checkWaterOverPaving(app.renderer, tex, st.palette, {
+          return checkWaterOverPaving(app.renderer, st.palette, {
             ...o,
             grid: live ? st.grid : null,
             // THE WATER THAT IS ACTUALLY THERE, unless asked for a film.
@@ -1678,7 +1671,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // Ghosts need the bands (true depth), the outline needs the overlay
       // (above everything) — see edit/cursor.
       if (overlayRoot.current) {
-        cursorRef.current = createBuildCursor(overlayRoot.current, bl);
+        cursorRef.current = createBuildCursor(overlayRoot.current);
         heatRef.current = createDesireHeat(overlayRoot.current);
         portGuideRef.current = createPortGuide(overlayRoot.current);
         connectRef.current = createConnectGuide(overlayRoot.current);
@@ -1700,7 +1693,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         aiLayerRef.current = createAiLayer(overlayRoot.current);
         // HOLOGRAMS mount in the bands, at true depth; their scan lines go over everything.
         holoRef.current = createHolograms();
-        tileHoloRef.current = createTileHolograms();
         juiceRef.current = createJuice();
         disasterFxRef.current = createDisasterFx();
         propsRef.current = createCultureProps(bl);
@@ -1764,8 +1756,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       signalsRef.current = null;
       busStopsRef.current?.destroy();
       busStopsRef.current = null;
-      tileHoloRef.current?.clear();
-      tileHoloRef.current = null;
       holoScanRef.current?.parent?.removeChild(holoScanRef.current);
       holoScanRef.current?.destroy();
       holoScanRef.current = null;
@@ -2255,8 +2245,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const sig = `${[...flying].join("|")}#${st.revision}#${queued.map((j) => `${j.puts}@${j.at!.x},${j.at!.y}:${j.state}`).join("|")}`;
     if (sig !== aiHoloSig.current) {
       aiHoloSig.current = sig;
-      const g = st.grid;
-      const tiles: TileHolo[] = [];
       for (const j of queued) {
         const at = j.at!, def = j.puts!;
         if (flying.has(`${def}@${at.x},${at.y}`) || !structureDef(def) || holos.some((h) => h.x === at.x && h.y === at.y)) continue;
@@ -2265,8 +2253,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       planHoloKeys.current = new Set(holos.filter((h) => h.planned).map((h) => `${h.def}@${h.x},${h.y}`));
       aiHolos.current = holos;
       showHolos();
-      const bl = blRef.current, tex = texRef.current;
-      if (tileHoloRef.current && bl && tex) tileHoloRef.current.set(tiles, { bands: bl, textures: tex, grid: g, scale: st.scale });
     }
     const h = holoRef.current, scan = holoScanRef.current;
     if (h && scan) h.tick(performance.now() / 1000, scan);
@@ -2312,8 +2298,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const revision = useWorldStore((s) => s.revision);
   useEffect(() => {
     const tl = tlRef.current, bl = blRef.current;
-    const pl = plRef.current, sl = slRef.current, tex = texRef.current;
-    if (!tl || !bl || !pl || !sl || !tex) return;
+    const pl = plRef.current, sl = slRef.current;
+    if (!tl || !bl || !pl || !sl) return;
     const sSync = section("effect: reconcile an edit");
     // DRAINED, not read from state: several commits in one React batch collapse
     // into a single re-render, and reading `lastTouched` would show only the
@@ -2351,7 +2337,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // terrain pass above must have settled first. `syncStructures` walks the
     // record map (tens of entries) while `refreshStructuresAt` only re-draws
     // the ones the edit actually stood on.
-    const ctx: RenderCtx = { bands: bl, textures: tex, grid, scale };
+    const ctx: RenderCtx = { bands: bl, grid, scale };
     // What changed while the map is up gets its motion; what it loaded with does not. @see createJuice
     syncStructures(sl, ctx, juiceRef.current ?? undefined);
     refreshStructuresAt(sl, ctx, touched);
@@ -2528,15 +2514,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   }, []);
   /** Down, or up again: a building in floors rebuilt with one or all; anything else faded. */
   const cutOne = useCallback((id: number, down: boolean) => {
-    const sl = slRef.current, bl = blRef.current, tex = texRef.current;
+    const sl = slRef.current, bl = blRef.current;
     const m = sl?.mounted.get(id);
-    if (!sl || !bl || !tex || !m) { cutFull.current.delete(id); return; }
+    if (!sl || !bl || !m) { cutFull.current.delete(id); return; }
     const def = structureDef(m.s.def);
     if (!def) return;
     if (down) { const b = cutBounds(id); if (b) cutFull.current.set(id, b); } else cutFull.current.delete(id);
     if (def.render.kind === "tiles") {
       setCollapsed(id, down);
-      m.renderer.update(m.handle, m.s, def, { bands: bl, textures: tex, grid: useWorldStore.getState().grid, scale });
+      m.renderer.update(m.handle, m.s, def, { bands: bl, grid: useWorldStore.getState().grid, scale });
     } else {
       for (const p of partsOf(m.handle)) p.alpha = down ? CUT_FADE : 1;
     }
@@ -2595,8 +2581,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   }, [grid, sceneEpoch]);
 
   useEffect(() => {
-    const cur = cursorRef.current, tex = texRef.current;
-    if (!cur || !tex) return;
+    const cur = cursorRef.current;
+    if (!cur) return;
 
     const draw = () => {
       const { stroke, hover: hoverForBrush, hoverOpen } = useWorldStore.getState();
@@ -2715,14 +2701,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       cur.update(grid, {
         valid,
         cells,
-        // Only a material tool places a tile, so only it gets a ghost. Erase and
-        // the height tools show the outline alone — ghosting a material they
-        // never write would claim the wrong thing about what the click does.
-        frame: s0.tool === "paintTerrain" ? (palette[material] ?? null) : null,
         tool: s0.tool,
         scale,
         wet: s0.tool === "dredge",
-      }, tex);
+      });
     };
     draw();
     return useWorldStore.subscribe((s, was) => {
@@ -3631,11 +3613,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (st.playing) {
           const changed = stepGrowth(st.grid, net, unrestRef.current, dt);
           // A SHOP OPENED: its pop, and its name floating up. @see Juice.opened
-          const juice = juiceRef.current, bands = blRef.current, tex = texRef.current;
+          const juice = juiceRef.current, bands = blRef.current;
           for (const e of changed) {
             const s = e.kind === "open" && st.grid.structures.get(e.structure);
-            if (!s || !juice || !bands || !tex) continue;
-            juice.opened(s, slRef.current?.mounted.get(s.id)?.handle, { bands, textures: tex, grid: st.grid, scale }, shopName(e.service, s.id), SHOP_LOOK[e.service].neon ? SHOP_LOOK[e.service].letters : SHOP_LOOK[e.service].awning);
+            if (!s || !juice || !bands) continue;
+            juice.opened(s, slRef.current?.mounted.get(s.id)?.handle, { bands, grid: st.grid, scale }, shopName(e.service, s.id), SHOP_LOOK[e.service].neon ? SHOP_LOOK[e.service].letters : SHOP_LOOK[e.service].awning);
           }
         }
         sMood();
@@ -3665,30 +3647,30 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // frame when nothing on the map animates, because a renderer that declares no
   // `tick` is skipped outright.
   useTick((ticker) => {
-    const sl = slRef.current, bl = blRef.current, tex = texRef.current;
+    const sl = slRef.current, bl = blRef.current;
     const raw = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
     const tFx = performance.now();
     const sFx = section("tick: fx (juice, night, lights, AI layer, rain)");
     // THE DRONES' LANDINGS, flashed where each job was done. @see AiRunner.landed
     {
-      const landed = getAiRunner().landed, bl = blRef.current, tex = texRef.current;
-      if (landed.length && juiceRef.current && bl && tex) for (const at of landed) juiceRef.current.landed(at, { bands: bl, textures: tex, grid: useWorldStore.getState().grid, scale });
+      const landed = getAiRunner().landed, bl = blRef.current;
+      if (landed.length && juiceRef.current && bl) for (const at of landed) juiceRef.current.landed(at, { bands: bl, grid: useWorldStore.getState().grid, scale });
       landed.length = 0;
     }
     // SHIP IT FRIDAYS: a release party now and then, off the roof of a
     // workplace in view. @see Juice.confetti
     shipIn.current -= raw;
-    if (shipIn.current <= 0 && juiceRef.current && bl && tex) {
+    if (shipIn.current <= 0 && juiceRef.current && bl) {
       shipIn.current = SHIP_EVERY * (0.6 + Math.random() * 0.8);
       if (inForce(useGeneratorStore.getState().employeeManagement.deck).includes("shipit")) {
         const grid = useWorldStore.getState().grid;
         const seen = [...grid.structures.values()].filter((s) => !s.build && workplaceKind(s.def) && bandShown(bl, bandOf(s.x + s.w - 1, s.y + s.h - 1)));
-        if (seen.length) juiceRef.current.confetti(seen[Math.floor(Math.random() * seen.length)], { bands: bl, textures: tex, grid, scale });
+        if (seen.length) juiceRef.current.confetti(seen[Math.floor(Math.random() * seen.length)], { bands: bl, grid, scale });
       }
     }
     // DISASTERS ON THE MAP, looked at once a second. @see createDisasterFx
     disasterClock.current += raw;
-    if (disasterClock.current >= 1 && disasterFxRef.current && juiceRef.current && bl && tex) {
+    if (disasterClock.current >= 1 && disasterFxRef.current && juiceRef.current && bl) {
       disasterClock.current = 0;
       const st = useWorldStore.getState();
       const active = (kind: string) => st.playing ? st.events.find((e) => e.kind === kind && e.phase === "active") : undefined;
@@ -3696,7 +3678,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const drinkers: number[] = [];
       for (const [id, t] of allTanks()) if (t.demand > 0) drinkers.push(id);
       disasterFxRef.current.sync({
-        ctx: { bands: bl, textures: tex, grid: st.grid, scale }, juice: juiceRef.current, lights: lightsRef.current,
+        ctx: { bands: bl, grid: st.grid, scale }, juice: juiceRef.current, lights: lightsRef.current,
         damaged: st.playing ? damagedNow() : [], heatwave: !!active("heatwave"), drinkers,
         closed: works?.where ? [works.where] : [],
         // A FIRE: smoking while it is coming, burning once caught — and what it spread to, once it has. @see FIRE
@@ -3727,8 +3709,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const st = useWorldStore.getState(), vpNow = st.viewport;
       // AN EARTHQUAKE: dust off what it damaged, once; and the camera shaken
       // while it lasts, the offset taken off again every frame. @see EARTHQUAKE
-      if (quakeDust.current.length && juiceRef.current && bl && tex) {
-        for (const id of quakeDust.current) { const s = st.grid.structures.get(id); if (s) juiceRef.current.dust(s, { bands: bl, textures: tex, grid: st.grid, scale }); }
+      if (quakeDust.current.length && juiceRef.current && bl) {
+        for (const id of quakeDust.current) { const s = st.grid.structures.get(id); if (s) juiceRef.current.dust(s, { bands: bl, grid: st.grid, scale }); }
         quakeDust.current = [];
       }
       if (vpNow) {
@@ -3826,7 +3808,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const dress = streetPropsRef.current.dress();
         // (The town's walkers have the right of way on its zebras.)
         if (dress) getTown().dress = dress;
-        if (dress && plRef.current && blRef.current && texRef.current && plRef.current.dress !== dress) {
+        if (dress && plRef.current && blRef.current && plRef.current.dress !== dress) {
           dressPaved(plRef.current, blRef.current, st.grid, dress);
         }
       }
@@ -3943,8 +3925,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         acc.solve += spent.solve; acc.draw += spent.build; acc.n++;
       }
     }
-    if (!sl || !bl || !tex || !hasAnimated(sl)) return;
-    tickStructures(sl, { bands: bl, textures: tex, grid, scale }, dt);
+    if (!sl || !bl || !hasAnimated(sl)) return;
+    tickStructures(sl, { bands: bl, grid, scale }, dt);
   });
 
   // SUBMIT, measured around the RENDER CALL ITSELF.

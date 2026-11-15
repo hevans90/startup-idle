@@ -46,15 +46,6 @@ export type BandLayer = {
    * to a chunk's worth of off-screen bands at either edge. @see BAND_CHUNK
    */
   chunks: Container[];
-  /**
-   * Terrain COLUMNS per band, drawn beneath the static content.
-   *
-   * A separate tier because a cell's stacked slabs overlap each other and its
-   * own top slab — the one place where order within a band is NOT moot. Two
-   * cells in a band are a full tile apart and cannot interfere, so putting
-   * every column under every top face resolves it without sorting anything.
-   */
-  cliffOf: Container[];
   /** Unsorted static content per band. */
   staticOf: Container[];
   /**
@@ -136,7 +127,6 @@ export function createBandLayer(w: number, h: number): BandLayer {
   }
 
   const bands: Container[] = [];
-  const cliffOf: Container[] = [];
   const staticOf: Container[] = [];
   const underOf: Container[] = [];
   const pavedOf: Container[] = [];
@@ -148,12 +138,8 @@ export function createBandLayer(w: number, h: number): BandLayer {
     const band = new Container();
     band.zIndex = b;
 
-    const sewer = new Container();       // underground, under even the columns
+    const sewer = new Container();       // underground, under the ground itself
     sewer.visible = false;
-    const cliff = new Container();       // columns, under everything in the band
-    // The ONE sorted static tier. A cell's stacked slabs must draw shallowest
-    // LAST so each hides the next one's diamond.
-    cliff.sortableChildren = true;
     const st = new Container();          // no sorting: order within a band is moot
     const under = new Container();       // water beneath a deck. @see underOf
     const paved = new Container();   // one sprite per cell, so order is moot
@@ -166,8 +152,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
     const dyn = new Container({ isRenderGroup: true });
     dyn.sortableChildren = true;         // movers sort by frac(x + y)
 
-    band.addChild(sewer);                // sewers, columns, terrain, roads, builds, movers
-    band.addChild(cliff);
+    band.addChild(sewer);                // sewers, terrain, roads, builds, movers
     band.addChild(st);
     band.addChild(under);
     band.addChild(paved);
@@ -175,7 +160,6 @@ export function createBandLayer(w: number, h: number): BandLayer {
     band.addChild(dyn);
 
     bands.push(band);
-    cliffOf.push(cliff);
     staticOf.push(st);
     underOf.push(under);
     pavedOf.push(paved);
@@ -189,7 +173,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
   for (const c of chunks) c.sortChildren();
 
   return {
-    root, bands, chunks, cliffOf, staticOf, underOf, pavedOf, structureOf, dynamicOf, sewerOf,
+    root, bands, chunks, staticOf, underOf, pavedOf, structureOf, dynamicOf, sewerOf,
     w, h, visibleLo: 0, visibleHi: n - 1, groundAlpha: 1,
   };
 }
@@ -220,24 +204,21 @@ export function setVisibleBands(layer: BandLayer, lo: number, hi: number) {
 }
 
 /**
- * Fade the GROUND — the terrain, the cliff columns under it and the paving on
- * top — so that what is buried in it can be seen.
+ * Fade the GROUND — the terrain, its walls and the paving on top — so that
+ * what is buried in it can be seen.
  *
- * The three tiers below the structure tier, and no others, because "see
+ * The two tiers below the structure tier, and no others, because "see
  * through the ground" is exactly what it says: water and pipework live above
  * them and keep their own strength, so a buried run shows through the hill it
  * is under while a surface one looks as it always did.
  *
  * Per band and only on a change. Alpha on a CONTAINER rather than on each
- * sprite, so a map of four thousand tiles costs three assignments a band and
- * not four thousand — and the cliff columns under a tile go translucent with
- * it, which is what makes a hillside something you can see into rather than a
- * flat pane of glass.
+ * sprite, so a map of four thousand tiles costs two assignments a band and
+ * not four thousand.
  */
 export function setGroundAlpha(layer: BandLayer, alpha: number) {
   if (layer.groundAlpha === alpha) return;
   for (let b = 0; b < layer.bands.length; b++) {
-    layer.cliffOf[b].alpha = alpha;
     layer.staticOf[b].alpha = alpha;
     layer.pavedOf[b].alpha = alpha;
   }
@@ -252,7 +233,6 @@ export function destroyBandLayer(layer: BandLayer) {
   layer.root.destroy({ children: true });
   layer.bands.length = 0;
   layer.chunks.length = 0;
-  layer.cliffOf.length = 0;
   layer.staticOf.length = 0;
   layer.underOf.length = 0;
   layer.pavedOf.length = 0;

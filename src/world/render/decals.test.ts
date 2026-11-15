@@ -65,7 +65,7 @@ describe("marks on the ground", () => {
 
   test("put down once, faded without a child added or taken, taken up when gone", () => {
     const g = town(), layer = new Container();
-    const ctx = { bands: { pavedOf: Array.from({ length: 64 }, () => layer) }, textures: {}, grid: g, scale: 1 } as unknown as RenderCtx;
+    const ctx = { bands: { pavedOf: Array.from({ length: 64 }, () => layer) }, grid: g, scale: 1 } as unknown as RenderCtx;
     let changes = 0;
     layer.on("childAdded", () => changes++);
     layer.on("childRemoved", () => changes++);

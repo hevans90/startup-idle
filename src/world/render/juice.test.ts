@@ -20,7 +20,7 @@ describe("juice", () => {
     const j = createJuice();
     const part = new Container();
     part.y = 100; part.alpha = 1;
-    const ctx = { bands: { dynamicOf: [] }, textures: {}, grid: createGrid(4, 4), scale: 1 } as unknown as RenderCtx;
+    const ctx = { bands: { dynamicOf: [] }, grid: createGrid(4, 4), scale: 1 } as unknown as RenderCtx;
     const s = { id: 1, def: "kit:intern.t0", x: 1, y: 1, w: 1, h: 1 };
     j.mounted(s, { sprites: [part] }, ctx);
     j.tick(16);
@@ -39,7 +39,7 @@ describe("juice", () => {
     const j = createJuice();
     const part = new Container();
     part.x = 10; part.y = 100;
-    const ctx = { bands: { dynamicOf: [] }, textures: {}, grid: createGrid(4, 4), scale: 1 } as unknown as RenderCtx;
+    const ctx = { bands: { dynamicOf: [] }, grid: createGrid(4, 4), scale: 1 } as unknown as RenderCtx;
     j.opened({ id: 1, def: "kit:intern.t1", x: 1, y: 1, w: 1, h: 1 }, { sprites: [part] } as never, ctx, "Root Access", 0x23573f);
     j.tick(190);
     expect(part.scale.x).toBeGreaterThan(1);
@@ -55,7 +55,7 @@ describe("emitters", () => {
     texture: "dab", rate: 10, life: 1000, rise: 20, drift: 0, wobble: 0, spread: 0,
     from: 0xffffff, to: 0x000000, alpha: 1, size: [1, 1], blend: "normal",
   };
-  const ctxWith = (layer: Container) => ({ bands: { dynamicOf: Array.from({ length: 64 }, () => layer) }, textures: {}, grid: createGrid(8, 8), scale: 1 }) as unknown as RenderCtx;
+  const ctxWith = (layer: Container) => ({ bands: { dynamicOf: Array.from({ length: 64 }, () => layer) }, grid: createGrid(8, 8), scale: 1 }) as unknown as RenderCtx;
   const juice = () => createJuice({ texture: () => Texture.WHITE });
 
   test("motes are due at the rate, the fraction carried to the next frame", () => {

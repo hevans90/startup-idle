@@ -103,7 +103,7 @@ describe("validators", () => {
 
 describe("cursorSignature", () => {
   const input = (over = {}) => ({
-    cells: rect(2, 2, 2, 2), frame: "a.png", tool: "paintTerrain" as const, scale: 1, ...over,
+    cells: rect(2, 2, 2, 2), tool: "paintTerrain" as const, scale: 1, ...over,
   });
 
   test("identical state gives an identical signature — the redraw is skipped", () => {
@@ -119,10 +119,10 @@ describe("cursorSignature", () => {
     expect(cursorSignature(grid, input(), validatePaint)).not.toBe(before);
   });
 
-  test("frame, scale, tool and cells each change it", () => {
+  test("scale, tool and cells each change it", () => {
     const grid = g();
     const base = cursorSignature(grid, input(), validatePaint);
-    for (const over of [{ frame: "b.png" }, { scale: 2 }, { tool: "erase" as const }, { cells: rect(2, 2, 3, 3) }]) {
+    for (const over of [{ scale: 2 }, { tool: "erase" as const }, { cells: rect(2, 2, 3, 3) }]) {
       expect(cursorSignature(grid, input(over), validatePaint)).not.toBe(base);
     }
   });

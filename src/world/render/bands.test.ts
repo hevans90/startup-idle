@@ -16,14 +16,13 @@ describe("createBandLayer", () => {
     expect(L.bands.length).toBe(bandCount(8, 5)); // 12
     for (let b = 0; b < L.bands.length; b++) {
       expect(L.bands[b].zIndex).toBe(b);
-      expect(L.bands[b].children.length).toBe(7);
+      expect(L.bands[b].children.length).toBe(6);
       expect(L.bands[b].children[0]).toBe(L.sewerOf[b]);
-      expect(L.bands[b].children[1]).toBe(L.cliffOf[b]);
-      expect(L.bands[b].children[2]).toBe(L.staticOf[b]);
-      expect(L.bands[b].children[3]).toBe(L.underOf[b]);
-      expect(L.bands[b].children[4]).toBe(L.pavedOf[b]);
-      expect(L.bands[b].children[5]).toBe(L.structureOf[b]);
-      expect(L.bands[b].children[6]).toBe(L.dynamicOf[b]);
+      expect(L.bands[b].children[1]).toBe(L.staticOf[b]);
+      expect(L.bands[b].children[2]).toBe(L.underOf[b]);
+      expect(L.bands[b].children[3]).toBe(L.pavedOf[b]);
+      expect(L.bands[b].children[4]).toBe(L.structureOf[b]);
+      expect(L.bands[b].children[5]).toBe(L.dynamicOf[b]);
     }
   });
 
@@ -34,10 +33,9 @@ describe("createBandLayer", () => {
     expect(L.dynamicOf[0].sortableChildren).toBe(true);
   });
 
-  test("columns draw under static, and dynamic above it, within a band", () => {
+  test("the ground draws under the paving, and dynamic above it, within a band", () => {
     const L = createBandLayer(4, 4);
     const kids = L.bands[2].children;
-    expect(kids.indexOf(L.cliffOf[2])).toBeLessThan(kids.indexOf(L.staticOf[2]));
     expect(kids.indexOf(L.staticOf[2])).toBeLessThan(kids.indexOf(L.pavedOf[2]));
     expect(kids.indexOf(L.pavedOf[2])).toBeLessThan(kids.indexOf(L.dynamicOf[2]));
   });

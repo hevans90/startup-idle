@@ -43,14 +43,13 @@ registerStructureDef(PIT);
 const part = (): HousePart => ({ tex: [Texture.WHITE, Texture.WHITE], anchor: [{ x: 0.5, y: 0.9 }, { x: 0.5, y: 0.9 }] });
 const SHEET: HouseSprites = { res: 2.5, kits: new Map(HOUSE_KITS.map((k) => [k, { ground: part(), mids: [part()], roof: part() }])) };
 setHouseSprites(SHEET);
-const TEX: Record<string, Texture> = {};
 
 const setup = (w = 12, h = 12) => {
   const grid = createGrid(w, h);
   fillTerrain(grid, 1);
   const bands = createBandLayer(w, h);
   const sl = createStructureLayer();
-  const ctx: RenderCtx = { bands, textures: TEX, grid, scale: 1 };
+  const ctx: RenderCtx = { bands, grid, scale: 1 };
   return { grid, bands, sl, ctx, hist: createHistory() };
 };
 

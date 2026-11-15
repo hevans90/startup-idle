@@ -5,23 +5,14 @@
  * terrain brush, a drag stroke and a future 5×5 structure all get the same
  * affordance from one code path. The tool only ever supplies cells.
  *
- * Three parts, deliberately at different depths:
- *
- *   outline  Graphics in the OVERLAY, above the world — always readable, even
- *            where a tall sprite would hide the footprint
- *   ghost    Sprites INSIDE the bands at true depth — so you see how the
- *            placement will actually sit against what is already there,
- *            occluded by what is in front and occluding what is behind
- *
- * Keeping them separate is what lets both be true at once, and costs nothing.
+ * An outline and a tint per cell, in the OVERLAY above the world: always
+ * readable, even where something tall would hide the footprint.
  */
-import { Container, Graphics, MeshSimple, Sprite, Texture } from "pixi.js";
+import { Container, Graphics, MeshSimple, Texture } from "pixi.js";
 
-import { HH, HW, bandOf, cellToWorld, spriteY, type Cell } from "../iso";
+import { HH, HW, cellToWorld, type Cell } from "../iso";
 import { VOID, idx, inBounds, surfaceHeightAt, type Grid } from "../grid";
 import { cellDiamond, drawDeckPiers } from "../render/overlays";
-import { TILE_BLEED } from "../render/terrain";
-import type { BandLayer } from "../render/bands";
 import type { ToolId } from "./tools";
 
 /** Green when placeable, red when not. Per CELL, never per footprint. */
@@ -121,8 +112,6 @@ export function footprintPerimeter(
 
 export type CursorInput = {
   cells: readonly Cell[];
-  /** Atlas frame to ghost, or null for tools that place nothing (erase). */
-  frame: string | null;
   tool: ToolId;
   scale: number;
   /**
@@ -142,7 +131,7 @@ export type CursorInput = {
  * Cheap identity for a cursor state.
  *
  * The cursor redraws on CHANGE, not per frame — the same discipline as the
- * tile layers. Cells, heights, validity, frame and scale are everything the
+ * tile layers. Cells, heights, validity and scale are everything the
  * drawing depends on, so if the signature matches, the picture would too.
  */
 export function cursorSignature(grid: Grid, input: CursorInput, valid: Validator): string {
@@ -167,7 +156,7 @@ export function cursorSignature(grid: Grid, input: CursorInput, valid: Validator
     mix(valid(grid, c.x, c.y).ok ? 1 : 0);
   }
   return [
-    input.frame ?? "-", input.tool, input.scale.toFixed(4),
+    input.tool, input.scale.toFixed(4),
     input.cells.length, h1 >>> 0, h2 >>> 0,
   ].join("|");
 }
@@ -177,16 +166,13 @@ export type BuildCursor = {
   /** Cells the last update drew, and how many were blocked. */
   cells: readonly Cell[];
   blocked: number;
-  update: (grid: Grid, input: CursorInput, textures: Record<string, Texture>) => boolean;
+  update: (grid: Grid, input: CursorInput) => boolean;
   clear: () => void;
   destroy: () => void;
 };
 
-/**
- * @param overlay container ABOVE the world, inside the viewport
- * @param bands   band layer, so ghosts can be parented at true depth
- */
-export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCursor {
+/** @param overlay container ABOVE the world, inside the viewport */
+export function createBuildCursor(overlay: Container): BuildCursor {
   const outline = new Graphics();
   outline.eventMode = "none";
   outline.zIndex = 1000;      // above the debug overlays, whatever order they mount in
@@ -226,28 +212,6 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
     m.visible = true;
   };
 
-  // Pooled: a drag over a 5×5 brush churns sprites otherwise.
-  const pool: Sprite[] = [];
-  let used = 0;
-
-  const ghost = (): Sprite => {
-    if (used < pool.length) return pool[used++];
-    const s = new Sprite();
-    s.anchor.set(0.5, 1);
-    s.alpha = 0.55;
-    s.eventMode = "none";
-    pool.push(s);
-    used++;
-    return s;
-  };
-
-  const releaseGhosts = () => {
-    for (let i = used; i < pool.length; i++) {
-      pool[i].visible = false;
-      pool[i].parent?.removeChild(pool[i]);
-    }
-  };
-
   const cursor: BuildCursor = {
     outline,
     cells: [],
@@ -262,30 +226,25 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
   cursor.clear = () => {
     outline.clear();
     for (const m of tints) if (m) m.visible = false;
-    used = 0;
-    releaseGhosts();
     cursor.cells = [];
     cursor.blocked = 0;
     signature = "";
   };
 
-  cursor.update = (grid, input, textures) => {
+  cursor.update = (grid, input) => {
     const valid = input.valid ?? validatorFor(input.tool);
     const sig = cursorSignature(grid, input, valid);
     if (sig === signature) return false;
     signature = sig;
 
     outline.clear();
-    used = 0;
 
     if (!input.cells.length) {
-      releaseGhosts();
-      cursor.cells = [];
+        cursor.cells = [];
       cursor.blocked = 0;
       return true;
     }
 
-    const tex = input.frame ? textures[input.frame] : undefined;
     let blocked = 0;
 
     // THREE SWEEPS, not one shape at a time. A diamond and a fill per cell was
@@ -331,25 +290,6 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
       }
       setTint(want === 1 ? 0 : 1, corners, q, want === 1 ? CURSOR_OK : CURSOR_BLOCKED);
     }
-    if (tex) {
-      for (let n = 0; n < input.cells.length; n++) {
-        if (oks[n] !== 1) continue;
-        const c = input.cells[n];
-        const h = heights[n];
-        const s = ghost();
-        s.texture = tex;
-        const { wx, wy } = cellToWorld(c.x, c.y, h, input.scale);
-        s.x = wx;
-        s.y = spriteY(wy, tex.height, input.scale);
-        s.scale.set(input.scale * TILE_BLEED);
-        s.tint = CURSOR_OK;
-        s.visible = true;
-        // in-band, so the ghost is occluded by whatever stands in front of it
-        const dyn = bands.dynamicOf[bandOf(c.x, c.y)];
-        if (s.parent !== dyn) dyn.addChild(s);
-      }
-    }
-
     // perimeter last and bolder, so the footprint reads as one shape
     for (const [x0, y0, x1, y1] of footprintPerimeter(grid, input.cells, input.scale, input.wet)) {
       outline.moveTo(x0, y0).lineTo(x1, y1);
@@ -361,7 +301,6 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
       pixelLine: true,
     });
 
-    releaseGhosts();
     cursor.cells = input.cells;
     cursor.blocked = blocked;
     return true;
@@ -369,8 +308,6 @@ export function createBuildCursor(overlay: Container, bands: BandLayer): BuildCu
 
   cursor.destroy = () => {
     cursor.clear();
-    for (const s of pool) s.destroy();
-    pool.length = 0;
     for (const m of tints) m?.destroy();
     outline.destroy();
   };

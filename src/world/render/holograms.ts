@@ -11,11 +11,10 @@
  * IMAGINARY STRUCTURES: records the grid never holds, mounted through the
  * renderer registry like any other, under ids no real structure has.
  */
-import { Sprite, type Container, type Graphics } from "pixi.js";
+import type { Container, Graphics } from "pixi.js";
 
 import { idx, inBounds, type Structure } from "../grid";
-import { GROUND_FRAME_H, HEIGHT_UNIT, HH, HW, bandOf, cellToWorld, spriteY } from "../iso";
-import { TILE_BLEED } from "./terrain";
+import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { structureDef } from "../structures/def";
 import { rendererFor, type RenderCtx, type StructureHandle, type StructureRenderer } from "../structures/render";
 
@@ -179,59 +178,6 @@ export function createHolograms(): Holograms {
 
     clear() {
       for (const key of [...shown.keys()]) unmount(key);
-    },
-  };
-}
-
-/**
- * A TILE HOLOGRAM: one tile of ground the masterplan means to change — a
- * street to lay, drawn with the road tile it will be; ground to level, its own
- * terrain tile at the height it will be; road to lift — as glass. `frame` is
- * the art's name; `z` the height it stands at.
- */
-export type TileHolo = { key: string; x: number; y: number; z: number; frame: string; colour: number; alpha: number };
-
-export type TileHolograms = {
-  set: (tiles: readonly TileHolo[], ctx: RenderCtx) => void;
-  clear: () => void;
-};
-
-/** Tile holograms, in the paved tier of their band: over the ground, under what stands on it. */
-export function createTileHolograms(): TileHolograms {
-  const shown = new Map<string, { spec: TileHolo; sprite: Sprite }>();
-  const drop = (key: string) => {
-    const m = shown.get(key);
-    if (!m) return;
-    m.sprite.parent?.removeChild(m.sprite);
-    m.sprite.destroy();
-    shown.delete(key);
-  };
-  return {
-    set(tiles, ctx) {
-      const want = new Map(tiles.map((t) => [t.key, t]));
-      for (const [key, m] of shown) {
-        const w = want.get(key);
-        if (!w || w.frame !== m.spec.frame || w.x !== m.spec.x || w.y !== m.spec.y || w.z !== m.spec.z || w.colour !== m.spec.colour) drop(key);
-      }
-      for (const [key, t] of want) {
-        if (shown.has(key)) continue;
-        const tex = ctx.textures[t.frame];
-        if (!tex) continue;
-        const s = new Sprite(tex);
-        s.anchor.set(0.5, 1);
-        s.eventMode = "none";
-        const { wx, wy } = cellToWorld(t.x, t.y, t.z, ctx.scale);
-        s.x = wx;
-        s.y = spriteY(wy, GROUND_FRAME_H, ctx.scale);
-        s.scale.set(ctx.scale * TILE_BLEED);
-        s.tint = t.colour;
-        s.alpha = t.alpha;
-        ctx.bands.pavedOf[bandOf(t.x, t.y)]?.addChild(s);
-        shown.set(key, { spec: t, sprite: s });
-      }
-    },
-    clear() {
-      for (const key of [...shown.keys()]) drop(key);
     },
   };
 }

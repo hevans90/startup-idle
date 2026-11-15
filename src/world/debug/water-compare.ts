@@ -116,7 +116,7 @@
  * flooded channel across the front of its own bridge. 6,681 pixels differing,
  * 3,512 of them drawn by the shader alone.
  */
-import { Container, RenderTexture, type Renderer, type Texture } from "pixi.js";
+import { Container, RenderTexture, type Renderer } from "pixi.js";
 
 import { createGrid, fillTerrain, setDeck, setHeight, type Grid } from "../grid";
 import { createTerrainLayer, buildTerrain } from "../render/terrain";
@@ -520,7 +520,6 @@ export type PavingCheck = {
 
 export async function checkWaterOverPaving(
   renderer: Renderer,
-  _textures: Record<string, Texture>,
   palette: Palette,
   {
     mesh = "gpu" as "cpu" | "gpu", px = 640, depth = 1.5, size = 24,

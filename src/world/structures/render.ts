@@ -11,16 +11,13 @@
  * band containers are retained: a structure's sprites persist between frames
  * and are reconciled in place, the same as terrain and roads.
  */
-import type { Texture } from "pixi.js";
-
 import type { Grid, Structure } from "../grid";
 import type { BandLayer } from "../render/bands";
 import type { RenderSpec, StructureDef } from "./def";
 
-/** What every renderer is given. Deliberately small: containers, art, scale. */
+/** What every renderer is given. Deliberately small: containers, the map, scale. */
 export type RenderCtx = {
   bands: BandLayer;
-  textures: Record<string, Texture>;
   grid: Grid;
   scale: number;
 };
