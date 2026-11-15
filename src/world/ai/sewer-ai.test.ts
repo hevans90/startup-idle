@@ -9,7 +9,12 @@ import { createWaterField } from "../water/field";
 import { upstreamOfTown } from "../water/pollution";
 import { planSewer, routeSewer } from "../sewers/lay";
 import { lateralReach } from "../sewers/reach";
-import { neededSewer, trunkInto, trunkRoute } from "./sewer-ai";
+import { useWorldStore } from "../../state/world.store";
+import { resetAllGameStores } from "../../simulation/reset-game-stores";
+import { tanksOf } from "../slop/tanks";
+import { waterDesk } from "./pilot/desks/water";
+import { livePurse } from "./pilot/live";
+import { NO_WAY, neededSewer, spillNeed, trunkInto, trunkRoute } from "./sewer-ai";
 
 afterEach(() => setSlopMaking(0));
 
@@ -141,5 +146,30 @@ describe("the AI's sewers", () => {
     expect(job.cells[0]).toEqual({ x: 18, y: 11 });
     lay(g, job.cells);
     expect(trunkInto(g, box)).toBeNull();
+  });
+});
+
+describe("a tank spilling is never passed over in silence", () => {
+  const office = (g: Grid) => [...g.structures.values()].find((s) => s.def === "office-vibe")!;
+
+  test("what it waits on: a way to a sewer; and its port cleared, once that is built over", () => {
+    const g = street();
+    expect(spillNeed(g, office(g), 1)).toBe(NO_WAY);
+    commit(g, createHistory(), placeCommand(g, { ...structureDef("rack")!, placement: undefined }, 12, 4)!);
+    expect(spillNeed(g, office(g), 1)).toBe("its slop port cleared");
+  });
+
+  test("the Water desk lists it, with what it waits on, when it has no sewer to lay for it", () => {
+    useWorldStore.getState().loadGrid(street(), [null]);
+    const g = useWorldStore.getState().grid, s = office(g);
+    const desk = waterDesk();
+    expect(desk.propose(livePurse()).some((j) => j.id.startsWith("spill:"))).toBe(false);
+    tanksOf(g).set(s.id, { level: 9, capacity: 2, rate: 1, spilling: true });
+    // (No slop is being made, by the economy's count, so no sewer is planned: the case of one it cannot mend.)
+    const jobs = waterDesk().propose(livePurse());
+    const job = jobs.find((j) => j.id === `spill:${s.id}`)!;
+    expect(job.needs![0].says).toBe(NO_WAY);
+    expect(job.says).toBe("Stop a tank spilling");
+    resetAllGameStores();
   });
 });

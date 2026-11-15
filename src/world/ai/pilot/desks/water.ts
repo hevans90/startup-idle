@@ -27,7 +27,8 @@ import { laySewerPath, placeStructure, whyNot } from "../../../play/build-action
 import { nearestSpot } from "../../../projects/works";
 import { structureDef } from "../../../structures/def";
 import { layRoute, neededPipe } from "../../cooling-ai";
-import { neededSewer, trunkInto, wantsRefinery, type SewerJob } from "../../sewer-ai";
+import { NO_WAY, neededSewer, spillNeed, trunkInto, wantsRefinery, type SewerJob } from "../../sewer-ai";
+import { tanksOf } from "../../../slop/tanks";
 import type { Purse } from "../chooser";
 import type { Job, Outcome } from "../job";
 import type { Desk } from "../pilot";
@@ -58,6 +59,8 @@ export function waterDesk(): Desk {
   let seen: { grid: Grid; rev: number } | null = null, since = LOOK_AGAIN, stale = false;
   let fix: SewerJob | null = null, refinery: { price: number; at: { x: number; y: number } | null } | null = null;
   let pipe: ReturnType<typeof neededPipe> = null;
+  /** The tanks spilling that no sewer of this desk's is for, and what each waits on. */
+  let spills: { id: number; at: { x: number; y: number }; desks: number; on: string }[] = [];
   const asked = new Map<GeneratorId, SewerJob | null>();
   /**
    * What a tile of pipe cost when the routes were priced. A route's price is of then, and a tile's follows income: it is
@@ -94,6 +97,15 @@ export function waterDesk(): Desk {
       unitThen = Math.max(1, pipeCost(1).toNumber());
       asked.clear();
       fix = neededSewer(g, new Set([...failed.keys()].filter(resting)));
+      spills = [];
+      for (const [id, t] of tanksOf(g)) {
+        const s = g.structures.get(id);
+        if (!t.spilling || !s || (fix && Number(fix.key.split(":")[1]) === id)) continue;
+        const on = spillNeed(g, s, t.rate);
+        // One with no sewer yet, and another's being laid: its own comes next.
+        if (on === NO_WAY && fix) continue;
+        spills.push({ id, at: { x: s.x, y: s.y }, desks: DESKS[s.def] ?? 0, on });
+      }
       const more = wantsRefinery(g);
       const vibe = more && [...g.structures.values()].find((s) => !s.build && WORKPLACES.vibe_coder.includes(s.def));
       const def = structureDef("refinery");
@@ -119,6 +131,17 @@ export function waterDesk(): Desk {
         // spilled for half an hour. It does not wait behind a purchase.
         urgent: true,
         run: () => lay(job),
+      });
+    }
+
+    // A TANK SPILLING THAT NO SEWER HERE WOULD MEND: said, with what it waits on, and not passed over in silence.
+    for (const sp of spills) {
+      jobs.push({
+        id: `spill:${sp.id}`, desk: "water",
+        says: "Stop a tank spilling", why: "its slop is going in the street",
+        at: sp.at, cost: 0, gain: earns * sp.desks * SPILL_WORTH,
+        needs: [{ id: `spill:${sp.id}:on`, says: sp.on }],
+        run: () => ({ ok: false, because: sp.on, retry: "on-change" }),
       });
     }
 

@@ -26,6 +26,7 @@ import { hasMain, routeMain } from "../water/mains";
 import { portTileSet, portsOf } from "../water/ports";
 import { planLateral, planSewer } from "../sewers/lay";
 import { LATERAL_REACH, hasSewer, solveSewers } from "../sewers/solve";
+import { lateralsOf, sewerReportsFor } from "../sewers/flow";
 import { lateralGround, lateralReach } from "../sewers/reach";
 
 type Cell = { x: number; y: number };
@@ -214,4 +215,31 @@ export function wantsRefinery(g: Grid): { price: number } | null {
   if (slopMaking() <= n * PROCESS_RATE) return null;
   const price = buildCost("refinery")?.toNumber();
   return price === undefined ? null : { price };
+}
+
+/** What a spilling tank waits on when no sewer of the AI's would mend it, said as the thing awaited. */
+export const NO_WAY = "a way to a sewer, and none was found";
+
+/**
+ * WHAT A SPILLING TANK WAITS ON, in words: its port built over, no way to a
+ * sewer, or — connected, and spilling all the same — what is wrong with the
+ * sewer it is on. `rate` is what it makes a second. A tank that spilled with
+ * a connection had no job and no word in the queue, for half an hour of one
+ * play-through.
+ */
+export function spillNeed(g: Grid, s: Structure, rate: number): string {
+  const p = portsOf(g, s).find((q) => q.port.fluid === "slop" && q.port.dir === "out");
+  if (!p || structureAt(g, p.x, p.y) >= 0) return "its slop port cleared";
+  if (!hasMain(g, p.i)) return NO_WAY;
+  const l = lateralsOf(g).find((x) => x.sources.includes(s.id));
+  if (!l || l.node === null) return "a manhole for its connection";
+  const sol = solveSewers(g), node = l.node;
+  const net = sol.nets.find((n) => n.cells.includes(node));
+  const state = net && sewerReportsFor(g).get(net.id)?.state;
+  if (!net || !sol.drains[node] || state === "no-exit") return "an exit for its sewer";
+  if (state === "unpaid") return "its lift station paid for";
+  if (state === "backed-up") return "its sewer cleared";
+  if (state === "surcharged") return "a wider sewer";
+  if (l.capacity < rate) return "a wider connection";
+  return "its sewer to catch up";
 }
