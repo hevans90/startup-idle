@@ -255,6 +255,7 @@ import { SHOP_LOOK, createShopfronts, type Shopfronts } from "./render/shopfront
 import { createStreetProps, type StreetProps } from "./render/street-props";
 import { createWoods, type Woods } from "./render/woods";
 import { createSignals, type Signals } from "./render/signals";
+import { boundBatchBinds } from "./render/batch-binds";
 import { createBusStops, type BusStops } from "./render/bus-stops";
 import { createCarGlow, type CarGlow } from "./render/car-glow";
 import { shopName } from "./agents/shop-names";
@@ -650,7 +651,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // Reproduced by setting `renderer.gc.maxUnusedTime` low and calling
       // `renderer.gc.run()`. Everything here is destroyed explicitly when it
       // goes, so there is nothing for a collector to do. @see stopGarbageCollection
-      if (app?.renderer) stopGarbageCollection(app.renderer);
+      if (app?.renderer) { stopGarbageCollection(app.renderer); boundBatchBinds(app.renderer); }
       // And room for a big map's uniforms on WebGPU. @see roomForUniforms
       if (app?.renderer) roomForUniforms(app.renderer);
       const fl = water && !onGpu ? createWaterLayer(water.columns, bl, scale) : null;

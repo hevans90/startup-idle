@@ -114,7 +114,7 @@ src/
     structures/      #   Definitions, placement, renderers
     water/           #   Live water field, mains, ports, pollution
     slop/            #   Slop tanks
-    render/          #   Bands, terrain, water mesh, mains, holograms
+    render/          #   Bands, terrain, water mesh, mains, holograms; `batch-binds.ts` bounds Pixi's texture bind groups (they grew without end)
     agents/          #   Traffic, arrivals, commute, services, mood
     events/          #   Map events
     boats/           #   Boats, wakes, port traffic
