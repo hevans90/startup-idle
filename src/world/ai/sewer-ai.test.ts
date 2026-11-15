@@ -19,7 +19,7 @@ import { useMoneyStore } from "../../state/money.store";
 import { SEWER_BORE } from "../grid";
 import { laySewerPath, widenSewer } from "../play/build-actions";
 import { solveSewers } from "../sewers/solve";
-import { NO_WAY, neededSewer, spillMend, spillNeed, trunkInto, trunkRoute } from "./sewer-ai";
+import { NO_WAY, drowned, neededSewer, reliefTrunk, spillMend, spillNeed, trunkInto, trunkRoute } from "./sewer-ai";
 
 afterEach(() => setSlopMaking(0));
 
@@ -191,7 +191,7 @@ describe("a spilling tank's sewer is widened", () => {
     expect(neededSewer(g)).toBeNull();
     expect(spillNeed(g, s, 0.1)).toBe("its sewer to catch up");
     expect(spillNeed(g, s, 99)).toBe("a wider connection");
-    expect(spillMend(g, s, 99)!.what).toBe("connection");
+    expect(spillMend(g, s, 99)).not.toBeNull();
 
     tanksOf(g).set(s.id, { level: 9, capacity: 2, rate: 99, spilling: true });
     const job = waterDesk().propose({ ...livePurse(), income: 100 }).find((j) => j.id.startsWith("widen:connection"))!;
@@ -203,6 +203,31 @@ describe("a spilling tank's sewer is widened", () => {
     expect(widenSewer(at)).toBe(true);
     expect(solveSewers(g).nets[0].cells.every((i) => (g.sewer[i] & SEWER_BORE) !== 0)).toBe(true);
     expect(widenSewer(at)).toBe(false);
+    useWorldStore.setState({ playing: false });
+    resetAllGameStores();
+  });
+});
+
+describe("a sewer whose outfalls the water has risen over", () => {
+  test("is known for drowned, and given a new outfall at the shore as it stands, from one of its manholes", () => {
+    useWorldStore.getState().loadGrid(street(), [null]);
+    useWorldStore.setState({ playing: true });
+    useMoneyStore.setState({ money: new Decimal(1e12) });
+    setSlopMaking(1);
+    const g = useWorldStore.getState().grid;
+    const trunk = neededSewer(g)!;
+    expect(laySewerPath(trunk.cells)).toBe(true);
+    const net = solveSewers(g).nets[0], out = net.exits[0];
+    expect(drowned(g, net, () => 0)).toBe(false);
+    // Four half steps of water over its outfall, and none on the bank beside.
+    const depth = (i: number) => (i === out ? 4 : 0);
+    expect(drowned(g, net, depth)).toBe(true);
+    const relief = reliefTrunk(g, net, depth)!;
+    expect(net.nodes).toContain(idx(g, relief.cells[0].x, relief.cells[0].y));
+    expect(laySewerPath(relief.cells)).toBe(true);
+    const after = solveSewers(g).nets;
+    expect(after.length).toBe(1);
+    expect(after[0].exits.length).toBe(2);
     useWorldStore.setState({ playing: false });
     resetAllGameStores();
   });

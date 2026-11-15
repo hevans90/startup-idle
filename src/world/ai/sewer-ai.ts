@@ -26,7 +26,10 @@ import { hasMain, routeMain } from "../water/mains";
 import { portTileSet, portsOf } from "../water/ports";
 import { planLateral, planSewer } from "../sewers/lay";
 import { LATERAL_REACH, hasSewer, solveSewers } from "../sewers/solve";
-import { lateralsOf, sewerReportsFor } from "../sewers/flow";
+import { DROWNED, OUTFALL_CLEAR, lateralsOf, sewerReportsFor } from "../sewers/flow";
+import { depthAt } from "../water/field";
+import { SEWER_FIT } from "../grid";
+import type { SewerNet } from "../sewers/solve";
 import { lateralGround, lateralReach } from "../sewers/reach";
 
 type Cell = { x: number; y: number };
@@ -230,6 +233,8 @@ export const NO_WAY = "a way to a sewer, and none was found";
 export function spillNeed(g: Grid, s: Structure, rate: number): string {
   const p = portsOf(g, s).find((q) => q.port.fluid === "slop" && q.port.dir === "out");
   if (!p || structureAt(g, p.x, p.y) >= 0) return "its slop port cleared";
+  // Under the water, nothing can be laid to it: an office at the edge of a hollow the flood filled.
+  if (!hasMain(g, p.i) && mainWet(g)(p.x, p.y)) return "its slop port clear of the water";
   if (!hasMain(g, p.i)) return NO_WAY;
   const l = lateralsOf(g).find((x) => x.sources.includes(s.id));
   if (!l || l.node === null) return "a manhole for its connection";
@@ -239,25 +244,86 @@ export function spillNeed(g: Grid, s: Structure, rate: number): string {
   if (!net || !sol.drains[node] || state === "no-exit") return "an exit for its sewer";
   if (state === "unpaid") return "its lift station paid for";
   if (state === "backed-up") return "its sewer cleared";
+  if (state === "surcharged" && drowned(g, net)) return "an outfall clear of the water";
   if (state === "surcharged") return net.cells.some((i) => !(g.sewer[i] & SEWER_BORE)) ? "a wider sewer" : "a second sewer";
   if (l.capacity < rate && l.net.cells.some((i) => !(g.main[i] & MAIN_BORE))) return "a wider connection";
   return "its sewer to catch up";
 }
 
-/** A widening that would mend a spilling tank: of its sewer, or of its connection; where, and the price. */
-export type Widening = { what: "sewer" | "connection"; at: Cell; price: number };
+/** Water standing on a tile, half steps; nought with no water field. */
+const standing = (g: Grid, i: number) => { const f = getWater(); return f ? depthAt(f, i % g.w, (i / g.w) | 0) : 0; };
 
 /**
- * THE WIDENING A SPILLING TANK WANTS, if that is what it wants: the sewer it
- * is on over full with tiles of it still narrow, or its own connection
- * carrying less than it makes. Null for anything else. @see spillNeed
+ * Whether a sewer's every exit is an outfall the water has risen over, far enough to pass under half of what it
+ * did: nothing leaves it, and its slop comes up at a manhole. Half an hour of one play-through. @see DROWNED
  */
+export function drowned(g: Grid, net: SewerNet, depth = (i: number) => standing(g, i)): boolean {
+  return net.exits.length > 0 && net.exits.every((e) => g.sewerFit[e] === SEWER_FIT.outfall && depth(e) - OUTFALL_CLEAR >= DROWNED / 2);
+}
+
+/**
+ * A NEW OUTFALL for a sewer whose own are drowned: from one of its manholes over open ground to the nearest tile
+ * beside the water as it stands NOW with next to none on it — the shore having moved up the bank. The cheapest of
+ * its manholes' ways; null with none.
+ */
+export function reliefTrunk(g: Grid, net: SewerNet, depth = (i: number) => standing(g, i)): SewerJob | null {
+  const wet = mainWet(g);
+  let best: SewerJob | null = null;
+  for (const start of net.nodes) {
+    const prev = new Map<number, number>([[start, -1]]), queue = [start];
+    let end = -1;
+    for (let q = 0; q < queue.length && end < 0; q++) {
+      const i = queue[q];
+      for (const [dx, dy] of STEPS) {
+        const x = (i % g.w) + dx, y = ((i / g.w) | 0) + dy, j = idx(g, x, y);
+        if (!inBounds(g, x, y) || prev.has(j) || structureAt(g, x, y) >= 0 || wet(x, y) || hasSewer(g, j)) continue;
+        prev.set(j, i);
+        if (prev.size > SEWER_REACH * SEWER_REACH) break;
+        queue.push(j);
+        const shore = STEPS.some(([ex, ey]) => inBounds(g, x + ex, y + ey) && wet(x + ex, y + ey));
+        if (shore && depth(j) < OUTFALL_CLEAR / 2) { end = j; break; }
+      }
+    }
+    if (end < 0) continue;
+    const cells: Cell[] = [];
+    for (let k = end; k !== -1; k = prev.get(k)!) cells.push({ x: k % g.w, y: (k / g.w) | 0 });
+    cells.reverse();
+    const plan = planSewer(g, cells, wet, { unit: pipeCost(1).toNumber(), liftPrice: buildCost("pump")?.toNumber() ?? 0, ai: true });
+    if ("refused" in plan || plan.problem || !plan.exit) continue;
+    if (!best || plan.price < best.price) best = { kind: "trunk", cells, price: plan.price, key: `relief:${net.id}` };
+  }
+  return best;
+}
+
+/** What would mend a sewer over full: a new outfall, its own drowned; else widening, while tiles of it are narrow. */
+export type SewerMend = { net: SewerNet; sources: number[] } & ({ lay: SewerJob } | { widen: Cell; price: number } | { stuck: string });
+
+/** Each sewer with more put down it than it lets out, and its mending, if it has one. */
+export function sewerMends(g: Grid): SewerMend[] {
+  const sol = solveSewers(g), reports = sewerReportsFor(g), out: SewerMend[] = [];
+  for (const net of sol.nets) {
+    if (reports.get(net.id)?.state !== "surcharged") continue;
+    const sources = lateralsOf(g).filter((l) => l.node !== null && net.cells.includes(l.node)).flatMap((l) => l.sources);
+    if (drowned(g, net)) {
+      const lay = reliefTrunk(g, net);
+      // (All of it under the flood, no manhole of it has dry ground to lay from.)
+      out.push(lay ? { net, sources, lay } : { net, sources, stuck: "dry ground for a new outfall" });
+      continue;
+    }
+    const narrow = net.cells.filter((i) => !(g.sewer[i] & SEWER_BORE));
+    if (narrow.length) out.push({ net, sources, widen: { x: narrow[0] % g.w, y: (narrow[0] / g.w) | 0 }, price: boreCost(narrow.length).toNumber() });
+    else out.push({ net, sources, stuck: "a second sewer" });
+  }
+  return out;
+}
+
+/** A connection to widen: where, and the price. */
+export type Widening = { at: Cell; price: number };
+
+/** THE WIDENING OF ITS CONNECTION a spilling tank wants, that carrying less than it makes. Null for anything else. @see spillNeed */
 export function spillMend(g: Grid, s: Structure, rate: number): Widening | null {
-  const on = spillNeed(g, s, rate);
-  if (on !== "a wider sewer" && on !== "a wider connection") return null;
-  const l = lateralsOf(g).find((x) => x.sources.includes(s.id))!;
-  const cells = on === "a wider sewer" ? solveSewers(g).nets.find((n) => n.cells.includes(l.node!))!.cells : l.net.cells;
-  const narrow = cells.filter((i) => !((on === "a wider sewer" ? g.sewer[i] & SEWER_BORE : g.main[i] & MAIN_BORE))).length;
-  const i = on === "a wider sewer" ? l.node! : l.net.cells[0];
-  return { what: on === "a wider sewer" ? "sewer" : "connection", at: { x: i % g.w, y: (i / g.w) | 0 }, price: boreCost(narrow).toNumber() };
+  if (spillNeed(g, s, rate) !== "a wider connection") return null;
+  const cells = lateralsOf(g).find((x) => x.sources.includes(s.id))!.net.cells;
+  const narrow = cells.filter((i) => !(g.main[i] & MAIN_BORE)).length;
+  return { at: { x: cells[0] % g.w, y: (cells[0] / g.w) | 0 }, price: boreCost(narrow).toNumber() };
 }

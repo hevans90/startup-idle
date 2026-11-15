@@ -27,7 +27,7 @@ import { laySewerPath, placeStructure, whyNot, widenMain, widenSewer } from "../
 import { nearestSpot } from "../../../projects/works";
 import { structureDef } from "../../../structures/def";
 import { layRoute, neededPipe } from "../../cooling-ai";
-import { NO_WAY, neededSewer, spillMend, spillNeed, trunkInto, wantsRefinery, type SewerJob, type Widening } from "../../sewer-ai";
+import { NO_WAY, neededSewer, sewerMends, spillMend, spillNeed, trunkInto, wantsRefinery, type SewerJob, type SewerMend, type Widening } from "../../sewer-ai";
 import { tanksOf } from "../../../slop/tanks";
 import type { Purse } from "../chooser";
 import type { Job, Outcome } from "../job";
@@ -61,6 +61,8 @@ export function waterDesk(): Desk {
   let pipe: ReturnType<typeof neededPipe> = null;
   /** The tanks spilling that no sewer of this desk's is for, and what each waits on. */
   let spills: { id: number; at: { x: number; y: number }; desks: number; on: string; mend: Widening | null }[] = [];
+  /** The sewers over full, and the mending of each. */
+  let mends: SewerMend[] = [];
   const asked = new Map<GeneratorId, SewerJob | null>();
   /**
    * What a tile of pipe cost when the routes were priced. A route's price is of then, and a tile's follows income: it is
@@ -97,6 +99,7 @@ export function waterDesk(): Desk {
       unitThen = Math.max(1, pipeCost(1).toNumber());
       asked.clear();
       fix = neededSewer(g, new Set([...failed.keys()].filter(resting)));
+      mends = sewerMends(g).filter((m) => !("lay" in m) || !resting(m.lay.key));
       spills = [];
       for (const [id, t] of tanksOf(g)) {
         const s = g.structures.get(id);
@@ -135,22 +138,55 @@ export function waterDesk(): Desk {
     }
 
     // A TANK SPILLING THAT NO SEWER HERE WOULD MEND: said, with what it waits on, and not passed over in silence.
-    const widened = new Set<string>();
+    // A SEWER WITH MORE PUT DOWN IT THAN IT LETS OUT, its slop coming up at a manhole though no tank spills: a new
+    // outfall where its own are under water, else a wider bore. One job a sewer.
+    for (const m of mends) {
+      const desks = m.sources.reduce((n, id) => n + (DESKS[g.structures.get(id)?.def ?? ""] ?? 0), 0);
+      const gain = earns * desks * SPILL_WORTH;
+      if ("stuck" in m) {
+        // NOT ITS TO MEND, and said: what it waits on.
+        const at = m.net.nodes[0] ?? m.net.cells[0];
+        jobs.push({
+          id: `sewer-full:${at}`, desk: "water",
+          says: "Mend a sewer over full", why: "its slop is coming up in the street",
+          at: { x: at % g.w, y: (at / g.w) | 0 }, cost: 0, gain,
+          needs: [{ id: `sewer-full:${at}:on`, says: m.stuck }],
+          run: () => ({ ok: false, because: m.stuck, retry: "on-change" }),
+        });
+      } else if ("lay" in m) {
+        const job = m.lay;
+        jobs.push({
+          id: `outfall:${job.key}`, desk: "water",
+          says: "Lay a new outfall", why: "the water has risen over the sewer's own",
+          at: job.cells[job.cells.length - 1], cost: now(job.price), gain, urgent: true,
+          run: () => lay(job),
+        });
+      } else {
+        const at = m.widen;
+        jobs.push({
+          id: `widen:sewer@${at.x},${at.y}`, desk: "water",
+          says: "Widen a sewer", why: "more goes down it than it carries",
+          at, cost: now(m.price), gain, urgent: true,
+          run: () => {
+            stale = true;
+            return widenSewer(at) ? { ok: true } : { ok: false, because: whyNot()?.toLowerCase() ?? "it would not be widened", retry: 3 };
+          },
+        });
+      }
+    }
+    const mended = new Set(mends.flatMap((m) => m.sources));
     for (const sp of spills) {
-      // WIDENED, where that is what it wants: twice the slop through what is laid. One job a sewer, though three tanks spill on it.
+      // Its sewer is being seen to, above.
+      if (mended.has(sp.id)) continue;
       const m = sp.mend;
       if (m) {
-        const id = `widen:${m.what}@${m.at.x},${m.at.y}`;
-        if (widened.has(id)) continue;
-        widened.add(id);
         jobs.push({
-          id, desk: "water",
-          says: m.what === "sewer" ? "Widen a sewer" : "Widen an office's connection", why: "a tank is spilling: more goes down it than it carries",
+          id: `widen:connection@${m.at.x},${m.at.y}`, desk: "water",
+          says: "Widen an office's connection", why: "a tank is spilling: it makes more than its connection carries",
           at: m.at, cost: now(m.price), gain: earns * sp.desks * SPILL_WORTH, urgent: true,
           run: () => {
             stale = true;
-            if (m.what === "sewer" ? widenSewer(m.at) : widenMain(m.at)) return { ok: true };
-            return { ok: false, because: whyNot()?.toLowerCase() ?? "it would not be widened", retry: 3 };
+            return widenMain(m.at) ? { ok: true } : { ok: false, because: whyNot()?.toLowerCase() ?? "it would not be widened", retry: 3 };
           },
         });
         continue;
