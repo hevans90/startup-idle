@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  FLOOD_HOLD, FLOOD_OVER, FLOOD_SECONDS, FLOOD_UP, floodPeak, portShut, riseAt, riverHead,
+  FLOOD_HOLD, FLOOD_OVER, FLOOD_SECONDS, FLOOD_UP, floodBaseline, floodedNow, floodPeak, portShut, riseAt, riverHead, soakAway,
 } from "./flood";
+import { createWaterField, pourAt } from "../water/field";
+import { fluidIndexOf } from "../water/materials";
 import { REPAIR_SECONDS, damage, damagedAway, isDamaged, repairedIn, stepRepairs } from "./damage";
 import { createGrid, setInflow } from "../grid";
 
@@ -32,6 +34,29 @@ describe("the river's head", () => {
     setInflow(g, 0, 3, 2);
     setInflow(g, 0, 5, 2);
     expect(riverHead(g)).toEqual({ x: 0, y: 4 });
+  });
+});
+
+describe("what a flood has reached", () => {
+  test("is a house with the water up, and never one raised since the flood was called", () => {
+    const g = createGrid(8, 8), water = fluidIndexOf("water");
+    g.structures.set(1, { id: 1, def: "kit:intern.t0", x: 2, y: 2, w: 1, h: 1 });
+    const field = createWaterField(g), base = floodBaseline(field, g);
+    g.structures.set(2, { id: 2, def: "kit:intern.t0", x: 5, y: 5, w: 1, h: 1 });
+    pourAt(field, 1, 2, 4, water);
+    pourAt(field, 4, 5, 4, water);
+    expect([...floodedNow(field, g, base.water)]).toEqual([1]);
+  });
+
+  test("is over once it has soaked away: a film the river leaves at its edge is not counted", () => {
+    const g = createGrid(8, 8), water = fluidIndexOf("water");
+    const field = createWaterField(g), base = floodBaseline(field, g);
+    pourAt(field, 3, 3, 4, water);
+    expect(soakAway(field, g, base.dry, 2)).toBe(1);
+    pourAt(field, 6, 6, 0.01, water);
+    let left = 1;
+    for (let i = 0; i < 40 && left; i++) { pourAt(field, 6, 6, 0.01, water); left = soakAway(field, g, base.dry, 2); }
+    expect(left).toBe(0);
   });
 });
 

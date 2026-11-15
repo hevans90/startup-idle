@@ -118,27 +118,35 @@ const SOAK_RATE = 0.08;
 /**
  * Floodwater left where the ground was dry, soaking away, for `dt` seconds.
  * Without it a flat field keeps a film of the flood for ever: nothing runs
- * off ground that is level. Returns the tiles still wet.
+ * off ground that is level. Returns the tiles still wet after it.
  */
 export function soakAway(field: WaterField, g: Grid, dry: Uint8Array, dt: number): number {
   const water = fluidIndexOf("water");
   let wet = 0;
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
-      if (!dry[idx(g, x, y)] || fluidAt(field, x, y, water) <= 0) continue;
+      const deep = dry[idx(g, x, y)] ? fluidAt(field, x, y, water) : 0;
+      if (deep <= 0) continue;
       drainAt(field, x, y, SOAK_RATE * dt);
-      wet++;
+      // A FILM this look takes whole is not counted: a river laps at its edge for ever.
+      if (deep > SOAK_RATE * dt) wet++;
     }
   }
   return wet;
 }
 
-/** The houses and ports with the water up against them higher than it was. */
+/**
+ * The houses and ports with the water up against them higher than it was.
+ * One raised since the flood was called has no level to be higher than, and
+ * is not counted: built by the river, it would be flooded for ever, the
+ * repair crew held off and its people never back. @see stepRepairs
+ */
 export function floodedNow(field: WaterField, g: Grid, base: ReadonlyMap<number, number>): Set<number> {
   const water = fluidIndexOf("water"), out = new Set<number>();
   for (const s of g.structures.values()) {
-    if (!floodable(s)) continue;
-    if (waterBy(field, g, s, water) > (base.get(s.id) ?? 0) + FLOODED) out.add(s.id);
+    const was = base.get(s.id);
+    if (was === undefined || !floodable(s)) continue;
+    if (waterBy(field, g, s, water) > was + FLOODED) out.add(s.id);
   }
   return out;
 }
