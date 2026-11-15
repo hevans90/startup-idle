@@ -16,7 +16,7 @@ import { slopRate } from "../game/slop";
 import { section } from "../hitches";
 import { useGeneratorStore } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
-import { getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTownServices, getTraffic, getWorks, playRules, useWorldStore } from "../state/world.store";
+import { getArrivals, getEvolution, getExports, getFleet, getNetwork, getTown, getTownServices, getTraffic, getWorks, aiRules, useWorldStore } from "../state/world.store";
 import { useSessionStore } from "../state/session.store";
 import type { GeneratorId } from "../state/generators.store";
 import { stepArrivals } from "./agents/arrivals";
@@ -132,7 +132,7 @@ export function stepGrowth(g: Grid, net: Network, unrest: Unrest, dt: number): T
   const ws = useWorldStore.getState();
   const changed = stepTownServices(getTownServices(), g, net, cover, dt, {
     // And never over a building's port: a shop on the tile an office's slop comes out at, and it spills for good. @see keepsPorts
-    canPlace: (def, x, y) => { const d = structureDef(def); return !!d && validatePlacement(g, d, x, y, playRules(g)).ok && keepsPorts(g, portsNow(g), def, x, y, d.footprint.w, d.footprint.h); },
+    canPlace: (def, x, y) => { const d = structureDef(def); return !!d && validatePlacement(g, d, x, y, aiRules(g)).ok && keepsPorts(g, portsNow(g), def, x, y, d.footprint.w, d.footprint.h); },
     place: ws.townPlace, clear: ws.townClear, rand: Math.random,
   });
   if (changed.length) ws.housingMoved(changed.map((e) => e.structure));

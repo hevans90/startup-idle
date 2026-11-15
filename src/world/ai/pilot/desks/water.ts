@@ -20,7 +20,7 @@ import { pipeCost } from "../../../../game/build-cost";
 import { REFINERY_INNOVATION } from "../../../../game/processors";
 import { slopMaking } from "../../../../game/slop";
 import { useGeneratorStore, type GeneratorId } from "../../../../state/generators.store";
-import { playRules, useWorldStore } from "../../../../state/world.store";
+import { aiRules, useWorldStore } from "../../../../state/world.store";
 import { DESKS, WORKPLACES } from "../../../agents/commute";
 import type { Grid } from "../../../grid";
 import { laySewerPath, placeStructure, whyNot, widenMain, widenSewer } from "../../../play/build-actions";
@@ -112,7 +112,7 @@ export function waterDesk(): Desk {
       const more = wantsRefinery(g);
       const vibe = more && [...g.structures.values()].find((s) => !s.build && WORKPLACES.vibe_coder.includes(s.def));
       const def = structureDef("refinery");
-      refinery = more && def ? { price: more.price, at: nearestSpot(g, def, playRules(g), vibe ? { x: vibe.x, y: vibe.y } : undefined) } : null;
+      refinery = more && def ? { price: more.price, at: nearestSpot(g, def, aiRules(g), vibe ? { x: vibe.x, y: vibe.y } : undefined) } : null;
       pipe = neededPipe(g);
       if (pipe && resting(`pipe:${pipe.s.id}`)) pipe = null;
     }

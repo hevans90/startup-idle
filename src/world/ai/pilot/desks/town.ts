@@ -21,7 +21,7 @@ import { fusedInto } from "../../../../game/fusion";
 import { hasLots, housedBy, roomFor } from "../../../../game/housing";
 import { useFounderStore } from "../../../../state/founder.store";
 import { useGeneratorStore, type GeneratorId } from "../../../../state/generators.store";
-import { playRules, useWorldStore } from "../../../../state/world.store";
+import { aiRules, playRules, useWorldStore } from "../../../../state/world.store";
 import { DESKLESS, DESKS, WORKPLACES } from "../../../agents/commute";
 import { idx, type Grid } from "../../../grid";
 import { demolishAt, liftRoad, paveRoad, placeStructure, reshape } from "../../../play/build-actions";
@@ -202,7 +202,7 @@ export function townDesk(): Desk {
     const kinds = gens.generators.map((x) => x.id as GeneratorId).filter(hasLots);
     if (!kinds.length) return [];
     const style = townStyle();
-    const rules = playRules(g);
+    const rules = aiRules(g);
     // EVERY PORT KEPT CLEAR: a house on the tile an office's slop comes out at, and it spills for good. @see portTileSet
     const ports = portTileSet(g);
     const wants: Wants = { rules: { ...rules, owned: (x, y) => (rules.owned?.(x, y) ?? true) && !bad.has(idx(g, x, y)) && !inYard(g, x, y) && !ports.has(idx(g, x, y)) }, kinds, offices: true, style };

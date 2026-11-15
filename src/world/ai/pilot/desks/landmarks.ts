@@ -21,7 +21,7 @@ import { GENERATOR_TYPES, useGeneratorStore, type GeneratorId } from "../../../.
 import { LANDMARKS, PROJECTS, gateParts, projectCost, tierBelow, type ProjectDef, type ProjectId } from "../../../../game/projects";
 import { nextPerSet, upgradeSet } from "../../../../game/upgrade-sets";
 import { UPGRADES, useUpgradeStore } from "../../../../state/upgrades.store";
-import { getNetwork, playRules, useWorldStore } from "../../../../state/world.store";
+import { aiRules, getNetwork, playRules, useWorldStore } from "../../../../state/world.store";
 import { placesOf } from "../../../agents/roads";
 import { hasRiver, mapRiver, tileDepthOf } from "../../../boats/river";
 import { loadPriceMult } from "../../../events/convoy";
@@ -225,7 +225,7 @@ export function landmarksDesk(): Desk {
       if (!def) continue;
       // (Looked for only once nothing else is in its way: and so never kept as "nowhere" from before it was looked for.)
       const byWater = !!(def.placement?.waterside || def.placement?.riverside || def.placement?.nearRiver);
-      if (!from && !needs.length && !sites.has(p.id)) sites.set(p.id, siteFor(g, def, byWater ? riverRules(g) : playRules(g)));
+      if (!from && !needs.length && !sites.has(p.id)) sites.set(p.id, siteFor(g, def, def.placement?.riverside ? riverRules(g) : byWater ? { ...riverRules(g), owned: aiRules(g).owned } : aiRules(g)));
       const at = from ? { x: from.x, y: from.y } : sites.get(p.id) ?? null;
       if (!from && !at && !needs.length) needs.push(byWater ? QUAY : STREET);
 

@@ -39,6 +39,10 @@ const print = (r: PilotRunReport) => {
   console.log("did: " + r.timeline.map((e) => mins(e.at) + " " + e.did).join(" | "));
 };
 
+/** The buildings with a tile of their footprint on the map's own water: each a wall across it. Ports stand on a bank by their own rule. */
+const inWater = (g: Grid) => [...g.structures.values()].filter((s) => !structureDef(s.def)?.placement?.riverside
+  && Array.from({ length: s.w * s.h }, (_, k) => (s.y + ((k / s.w) | 0)) * g.w + s.x + (k % s.w)).some((i) => g.pool[i] > 0));
+
 describe("a company played on a real map with no screen", () => {
   test("the town's rules run: a garage built by hand, lots laid, interns hired, arrived and housed", () => {
     // A PLAYER BY HAND, the least of one: the garage, four lots by the road, and an intern whenever there is a bed and the money.
@@ -146,6 +150,7 @@ describe("a company played on a real map with no screen", () => {
     if (process.env.BALANCE) {
       print(r);
       console.log("at the end: " + pilot.status().says + " · perched " + JSON.stringify(perched(g)) + " · refusals " + pilot.log().filter((l) => l.kind === "refused").length);
+      console.log("standing in the water: " + inWater(g).map((x) => x.def + " at " + x.x + "," + x.y).join(", "));
       // EVERY TANK SPILLING at the end, and what the sewer planner makes of it.
       for (const [id, tank] of tanksOf(g)) {
         const x = g.structures.get(id);
@@ -187,6 +192,8 @@ describe("a company played on a real map with no screen", () => {
     for (const [seed, size] of ([[1, 64], [2, 64], [7, 96], [11, 96], [23, 128], [42, 128]] as const).filter(([n]) => !process.env.HOUR && (only === null || n === only))) {
       const { r, g } = townRun(seed, size, 45, settled);
       expect(settled(g)).toBe(true);
+      // None of it in the river: twelve lots and offices dammed one, and its banks stood under water to the sale.
+      expect(inWater(g)).toEqual([]);
       expect(r.seconds).toBeLessThan(40 * 60);
       expect(r.opened.studio).toBeDefined();
     }

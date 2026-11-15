@@ -262,6 +262,17 @@ export function playRules(_g: Grid): PlaceRules {
   return { needsRoad: true, needsSewer: sewersOpen() };
 }
 
+/**
+ * THE RULES THE AI CHOOSES A SPOT BY: the player's, and never in the water. A building is a wall to the water, and
+ * the player may build one there; the pilot did it without meaning to — twelve lots and offices in a river's bed, the
+ * river eight deep behind them and nearly dry below, its banks, the outfalls on them and an office's slop port under
+ * water to the end of the game.
+ */
+export function aiRules(g: Grid): PlaceRules {
+  const rules = playRules(g);
+  return { ...rules, owned: (x, y) => (rules.owned?.(x, y) ?? true) && !(g.pool[idx(g, x, y)] > 0) };
+}
+
 /** Whether slop is made yet: the Sewer tool is offered, and what makes slop needs a sewer. @see SLOP_FROM */
 export const sewersOpen = () => (useGeneratorStore.getState().generators.find((g) => g.id === "vibe_coder")?.amount ?? 0) >= SLOP_FROM;
 

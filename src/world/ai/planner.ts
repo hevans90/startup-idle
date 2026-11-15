@@ -32,7 +32,7 @@ import { projectTier } from "./masterplan/town-model";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useUpgradeStore } from "../../state/upgrades.store";
-import { getNetwork, playRules, useWorldStore } from "../../state/world.store";
+import { aiRules, getNetwork, playRules, useWorldStore } from "../../state/world.store";
 import { desireAt, liveDesireMaps } from "../agents/desirability";
 import { liveMoods } from "../agents/mood";
 import { idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
@@ -122,7 +122,7 @@ const QUIRK: Partial<Record<TraitId, Partial<Record<Kind, number>>>> = {
 function spots(g: Grid, defId: string, d: District, near?: { at: Cell; within: number }): Cell[] {
   const def = structureDef(defId);
   if (!def) return [];
-  const rules = playRules(g);
+  const rules = aiRules(g);
   const out: Cell[] = [];
   let [x0, y0, x1, y1] = near
     ? [near.at.x - near.within, near.at.y - near.within, near.at.x + near.within, near.at.y + near.within]
