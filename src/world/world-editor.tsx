@@ -22,7 +22,6 @@ import { GpuCheckHud } from "./debug/gpu-check-hud";
 import { GpuWaterToggle } from "./debug/gpu-water-toggle";
 import { Minimap } from "./debug/minimap";
 import { PerfHud } from "./debug/perf-hud";
-import { TileBrowser } from "./debug/tile-browser";
 import { useEditKeys } from "./edit/use-edit-keys";
 import { bandCount } from "./iso";
 
@@ -136,10 +135,6 @@ export function WorldEditor() {
         </div>
 
         <EditPanel />
-
-        <div className="mt-4">
-          <TileBrowser />
-        </div>
 
         <p className="mt-4 mb-1 text-fg-muted">minimap</p>
         <Minimap />

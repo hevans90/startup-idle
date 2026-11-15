@@ -38,7 +38,7 @@ import { liveStreetEarnings, liveStreets, streetName } from "./play/street-earni
 import { liveDesireMaps } from "./agents/desirability";
 import { canAcquire, offerPremium, pendingEquity } from "../game/acquisition";
 import { heldHidden } from "./render/hold";
-import type { Renderer } from "pixi.js";
+import type { Renderer, Texture } from "pixi.js";
 import { nappeStepsAt } from "./render/nappe";
 import { extend, useApplication, useTick } from "@pixi/react";
 import {
@@ -47,7 +47,6 @@ import {
 } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { loadIsometricAtlasTextures } from "../iso/atlas/load-isometric-atlases";
 import { demolishLifts, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
@@ -101,11 +100,10 @@ import { setPortLife } from "./structures/port-life";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
 import { setCollapsed } from "./structures/tiles-renderer";
-import { bakedHouses, houseSprites } from "./houses/houses-sheet";
+import { houseSprites } from "./houses/houses-sheet";
 import { buildRoadTable, roadSpriteFor } from "./roads/table";
 import { isPaved, maskAt, maskDirtyCells } from "./roads/mask";
 import { netIdAt } from "./roads/network";
-import { loadIsometricAtlasTextures as _loader } from "../iso/atlas/load-isometric-atlases";
 import {
   drawBandStripes, drawGrid, drawHeightTint, drawHover, drawNetComponents,
   drawOrigin, drawPickCrosshair, drawRoadGaps, drawRoadMask,
@@ -440,7 +438,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    */
   const rendererRef = useRef<unknown>(null);
   // held so an edit can re-texture just the cells that changed
-  const texRef = useRef<Awaited<ReturnType<typeof _loader>> | null>(null);
+  const texRef = useRef<Record<string, Texture> | null>(null);
   const cursorRef = useRef<BuildCursor | null>(null);
   /** Holograms: what a placement would put down, and what AI mode's drones are about to. @see createHolograms */
   const holoRef = useRef<Holograms | null>(null);
@@ -621,7 +619,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     let cancelled = false;
 
     // THE HOUSES' SHEET with the atlases, so a house is drawn from it the first time. @see houseSprites
-    Promise.all([loadIsometricAtlasTextures(), bakedHouses() ? houseSprites() : null]).then(([textures]) => {
+    houseSprites().then(() => {
+      // No sheet of tiles is loaded: everything on the map is drawn or baked by the game.
+      const textures: Record<string, Texture> = {};
       if (cancelled || !rootRef.current) return;
       texRef.current = textures;
       const bl = createBandLayer(grid.w, grid.h);

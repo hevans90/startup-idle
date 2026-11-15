@@ -2,19 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { Texture } from "pixi.js";
 
-import kits from "../../../building-kits.json";
 import { HALF_STEPS_PER_M } from "../agents/cars/models";
 import { HEIGHT_UNIT } from "../iso";
 import type { HousesSheet } from "./houses-format";
 import { housePieces, houseTint, type HouseLook, type HousePart } from "./houses-sheet";
+import { HOUSE_FLOORS, HOUSE_KITS } from "./kits";
 import { HOUSES, houseOf } from "./models";
 
-const KITS = (kits as { kits: Record<string, { maxFloors: number }> }).kits;
-
 describe("the houses, as models", () => {
-  test("there is one for every kit, growing to as many floors as the kit does", () => {
-    expect(HOUSES.map((h) => h.id).sort()).toEqual(Object.keys(KITS).sort());
-    for (const h of HOUSES) expect(h.floors).toBe(KITS[h.id].maxFloors);
+  test("there is one for every kit, in the kits' order", () => {
+    expect(HOUSES.map((h) => h.id)).toEqual([...HOUSE_KITS]);
+    for (const h of HOUSES) expect(h.floors).toBe(HOUSE_FLOORS[h.id]);
   });
 
   test("each has a ground floor and a roof, and a floor to stack if it grows past one", () => {

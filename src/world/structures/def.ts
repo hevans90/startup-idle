@@ -11,14 +11,13 @@
  * ask "what occupies this cell" or to place a second one. The registry below is
  * the thing that was missing.
  */
-import type { BuildingKit } from "../../iso/kits";
-import kits from "../../../building-kits.json";
+import { HOUSE_FLOORS, HOUSE_KITS } from "../houses/kits";
 
-/** A building kit from `building-kits.json`: stacked ground/mid/roof frames. */
+/** A housing kit: a ground floor, the floors that stack on it and a roof. @see houses/models */
 export type KitRef = {
-  /** Key into that file's `kits` map. */
+  /** Which kit. @see HOUSE_FLOORS */
   kit: string;
-  /** Floors to stack, clamped to the kit's own `maxFloors`. */
+  /** Floors to stack, never more than the kit grows to. */
   floors?: number;
 };
 
@@ -116,30 +115,10 @@ export type StructureDef = {
   ports?: readonly Port[];
 };
 
-const RAW_KITS = (kits as { kits: Record<string, Partial<BuildingKit>> }).kits;
-const KIT_IDS = Object.keys(RAW_KITS);
+const KIT_IDS = HOUSE_KITS;
 
-/**
- * One kit from `building-kits.json`, with its defaults filled in.
- *
- * The same normalisation v1 does privately in `office/city/building-kits.ts`,
- * repeated here rather than imported: v2 does not depend on `src/office/`, and
- * the shared half — kit COMPOSITION — already lives in `src/iso/kits.ts`, which
- * is what both sides call.
- */
-export function kitByName(id: string): BuildingKit | null {
-  const raw = RAW_KITS[id];
-  if (!raw) return null;
-  return {
-    ground: raw.ground ?? null,
-    mids: raw.mids ?? [],
-    roof: raw.roof ?? null,
-    rooftopProps: raw.rooftopProps ?? [],
-    lift: raw.lift ?? 33,
-    maxFloors: raw.maxFloors ?? 6,
-    baseNudge: raw.baseNudge ?? 0,
-  };
-}
+/** As many floors as a kit grows to, or null for none of that name. */
+export const kitFloors = (id: string): number | null => HOUSE_FLOORS[id] ?? null;
 
 /**
  * One 1×1 definition per building kit.

@@ -45,9 +45,8 @@ export const houseSprites = () => (loading ??= loadHouseSprites().then((p) => (l
 /** The sheet if it is in yet, else null. */
 export const housesLoaded = () => loaded;
 
-/** Whether houses come from the baked sheet: in a browser, unless `?houses=sprite`. */
-export const bakedHouses = () =>
-  typeof document !== "undefined" && !(typeof location !== "undefined" && /[?&]houses=sprite\b/.test(location.search));
+/** A sheet put in by hand: for tests, which have no page to load one from. */
+export const setHouseSprites = (h: HouseSprites | null) => { loaded = h; };
 
 /** One sprite to draw: its texture, its anchor, how far up the stack it is lifted (px at scale 1), and whether it is the tinted walls. */
 export type HousePiece = { tex: Texture; anchor: { x: number; y: number }; lift: number; walls: boolean };

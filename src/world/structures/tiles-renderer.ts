@@ -1,31 +1,21 @@
 /**
- * World v2 — the `tiles` render strategy: a stack of sprites per cell.
+ * World v2 — the `tiles` render strategy: a house, as a stack of baked parts
+ * on each cell of its footprint — a ground floor, a floor for each storey it
+ * has risen, a roof — its walls in the building's own colour. A lot until
+ * someone moves in. @see houses/houses-sheet
  *
- * THE HOUSES ARE BAKED: where the houses sheet is in, a kit is drawn from its
- * own parts (`houses/`), and the vendor stack below is what `?houses=sprite`
- * and the tests draw. @see housePieces
- *
- * The stack itself comes from `composeBuilding` in `src/iso/kits.ts`, which v1
- * also calls. That is the whole reason Phase 0 moved it there: the rules for
- * which frame sits on which floor, and how far each one lifts, are ART facts
- * and must not fork between the two renderers.
- *
- * What is new here is the DEPTH treatment. A tall element decomposes into
- * per-cell columns, each in its own band, which is the rule §4 states and the
- * only one that stays correct when a building stands beside a taller one. v1
- * instead sorts every sprite in one container by `cityDepthKey`, which is the
- * same ordering arrived at globally — and re-sorted whenever anything changes.
+ * A tall element decomposes into per-cell columns, each in its own band, the
+ * only rule that stays correct when a building stands beside a taller one.
  */
-import { Graphics, Sprite, type Container, type Texture } from "pixi.js";
+import { Graphics, Sprite, type Container } from "pixi.js";
 
 import { housedBy, residentsIn } from "../../game/housing";
 import { pen } from "./project-renderer";
 
-import { composeBuilding } from "../../iso/kits";
 import { footprintCells, idx, inBounds, type Grid, type Structure } from "../grid";
-import { GROUND_FRAME_H, bandOf, cellToWorld, spriteY } from "../iso";
-import { bakedHouses, housePieces, housesLoaded, houseTint } from "../houses/houses-sheet";
-import { kitByName, type StructureDef } from "./def";
+import { bandOf, cellToWorld } from "../iso";
+import { housePieces, housesLoaded, houseTint } from "../houses/houses-sheet";
+import { kitFloors, type StructureDef } from "./def";
 import { registerRenderer, type RenderCtx, type StructureHandle, type StructureRenderer } from "./render";
 
 type TilesHandle = StructureHandle & { sprites: Container[] };
@@ -45,12 +35,12 @@ const seedOf = (s: Structure) => s.id;
  * in is a few floors, and it rises as the rest arrive. @see world/agents/arrivals
  */
 function floorsFor(def: StructureDef, s?: Structure): number {
-  const kit = kitByName(kitIdOf(def) ?? "");
-  if (!kit) return 0;
+  const most = kitFloors(kitIdOf(def) ?? "");
+  if (!most) return 0;
   // OUT OF THE WAY of what the player is aiming at: its ground floor and roof. @see cutaway
   if (s && collapsed.has(s.id)) return 1;
-  const want = def.render.kind === "tiles" ? def.render.kit.floors ?? kit.maxFloors : 0;
-  const full = Math.max(1, Math.min(want, kit.maxFloors));
+  const want = def.render.kind === "tiles" ? def.render.kit.floors ?? most : 0;
+  const full = Math.max(1, Math.min(want, most));
   const h = housedBy(def.id);
   if (!s || !h || s.residents === undefined || h.slots <= 0) return full;
   return Math.max(1, Math.ceil((full * residentsIn(s)) / h.slots));
@@ -123,59 +113,24 @@ function buildSprites(
     return [g];
   }
   const kitId = kitIdOf(def);
-  const kit = kitId ? kitByName(kitId) : null;
-  if (!kit) return [];
+  // THE SHEET, if it is in: the scene loads it before it builds, so a house is never mounted bare.
+  const H = housesLoaded(), look = kitId ? H?.kits.get(kitId) : undefined;
+  if (!H || !look || !kitId) return [];
   const h = groundHeight(ctx.grid, s);
   const out: Container[] = [];
-
-  // BAKED, where the sheet is in: its parts stood on the middle of each cell,
-  // the walls in this building's own colour. @see housePieces
-  const look = bakedHouses() ? housesLoaded()?.kits.get(kitId!) : undefined;
-  if (look) {
-    const H = housesLoaded()!, pieces = housePieces(look, kitId!, floorsFor(def, s), seedOf(s)), tint = houseTint(kitId!, seedOf(s));
-    for (const cell of footprintCells(s.x, s.y, s.w, s.h)) {
-      if (!inBounds(ctx.grid, cell.x, cell.y)) continue;
-      const { wx, wy } = cellToWorld(cell.x, cell.y, h, ctx.scale);
-      const parent = ctx.bands.structureOf[bandOf(cell.x, cell.y)];
-      for (const p of pieces) {
-        const sp = new Sprite(p.tex);
-        sp.anchor.set(p.anchor.x, p.anchor.y);
-        sp.position.set(wx, wy - p.lift * ctx.scale);
-        sp.scale.set(ctx.scale / H.res);
-        if (p.walls) sp.tint = tint;
-        sp.eventMode = "none";
-        parent.addChild(sp);
-        out.push(sp);
-      }
-    }
-    return out;
-  }
-  const parts = composeBuilding(kit, floorsFor(def, s), seedOf(s));
-
-  // EVERY PART STANDS WHERE THE CELL'S TERRAIN TILE DOES, lifted by its own
-  // `lift`: the building art is drawn to share one bottom with a terrain tile,
-  // which is how v1 places terrain and buildings alike — all at one point.
-  //  - Each part anchored by its OWN frame's height put a frame shorter than
-  //    the ground tile — a roof, a cap — higher by the difference, on top of
-  //    its lift, and every stack's upper floors floated off over the road.
-  //  - Anchored by the building's ground frame, which is taller than a
-  //    terrain frame, sank the whole stack into its tile by the difference.
+  const pieces = housePieces(look, kitId, floorsFor(def, s), seedOf(s)), tint = houseTint(kitId, seedOf(s));
+  // Lowest first, so insertion order alone stacks the column.
   for (const cell of footprintCells(s.x, s.y, s.w, s.h)) {
     if (!inBounds(ctx.grid, cell.x, cell.y)) continue;
     const { wx, wy } = cellToWorld(cell.x, cell.y, h, ctx.scale);
     const parent = ctx.bands.structureOf[bandOf(cell.x, cell.y)];
-    const base = spriteY(wy, GROUND_FRAME_H, ctx.scale);
-    // Ground floor first, so insertion order alone stacks the column: each
-    // higher part is added later and therefore draws over the one below.
-    for (const part of parts) {
-      const tex: Texture | undefined = ctx.textures[part.spriteId];
-      if (!tex) continue;                       // a kit naming a missing frame
-      const sp = new Sprite(tex);
-      sp.anchor.set(0.5, 1);
-      sp.roundPixels = true;
-      sp.x = wx;
-      sp.y = base - part.lift * ctx.scale;
-      sp.scale.set(ctx.scale);
+    for (const p of pieces) {
+      const sp = new Sprite(p.tex);
+      sp.anchor.set(p.anchor.x, p.anchor.y);
+      sp.position.set(wx, wy - p.lift * ctx.scale);
+      sp.scale.set(ctx.scale / H.res);
+      if (p.walls) sp.tint = tint;
+      sp.eventMode = "none";
       parent.addChild(sp);
       out.push(sp);
     }
@@ -198,14 +153,7 @@ export const tilesRenderer: StructureRenderer = {
     return handle;
   },
 
-  /**
-   * Rebuilt rather than repositioned.
-   *
-   * A stack is a handful of sprites and an update happens on an edit, not per
-   * frame; moving each one in place would mean re-deriving which sprite is
-   * which part, and the bug that hides in that is a building whose floors drift
-   * apart. Cheap and total beats clever here.
-   */
+  /** Rebuilt rather than repositioned: a stack is a handful of sprites, and an update is an edit, not a frame. */
   update(h, s, def, ctx) {
     const handle = h as TilesHandle;
     destroyAll(handle.sprites);

@@ -1,7 +1,7 @@
 /**
  * The renderer registry and the mounted-structure layer.
  *
- * Textures are stand-ins with real frame sizes — what matters here is the
+ * The houses' sheet is a stand-in — what matters here is the
  * LIFECYCLE (mount once, unmount on demolish, re-draw when the ground moves)
  * and which band tier a sprite lands in, neither of which needs real art.
  */
@@ -13,7 +13,9 @@ import { createGrid, fillTerrain, idx, setHeight, structureOf } from "../grid";
 import { bandOf } from "../iso";
 import { createBandLayer } from "../render/bands";
 import { hidesTerrain } from "../render/terrain";
-import { kitByName, registerStructureDef, structureDef, type StructureDef } from "./def";
+import { HOUSE_KITS } from "../houses/kits";
+import { setHouseSprites, type HousePart, type HouseSprites } from "../houses/houses-sheet";
+import { registerStructureDef, structureDef, type StructureDef } from "./def";
 import {
   clearStructureLayer, createStructureLayer, mountedCount, refreshStructuresAt,
   syncStructures,
@@ -37,18 +39,11 @@ const PIT: StructureDef = {
 };
 registerStructureDef(PIT);
 
-/** Every frame any kit names, as a stand-in with a plausible ground size. */
+/** A stand-in for the houses' sheet: every kit, each part a wall and a trim layer. */
+const part = (): HousePart => ({ tex: [Texture.WHITE, Texture.WHITE], anchor: [{ x: 0.5, y: 0.9 }, { x: 0.5, y: 0.9 }] });
+const SHEET: HouseSprites = { res: 2.5, kits: new Map(HOUSE_KITS.map((k) => [k, { ground: part(), mids: [part()], roof: part() }])) };
+setHouseSprites(SHEET);
 const TEX: Record<string, Texture> = {};
-for (const id of ["intern.t0", "intern.t1", "intern.t2", "10x_dev.t2", "intern.landmark"]) {
-  const kit = kitByName(id);
-  if (!kit) continue;
-  for (const f of [kit.ground, kit.roof, ...kit.mids, ...kit.rooftopProps]) {
-    if (f) TEX[f] = TEX[f] ?? new Texture({
-      source: Texture.EMPTY.source,
-      frame: { x: 0, y: 0, width: 132, height: 99 } as never,
-    });
-  }
-}
 
 const setup = (w = 12, h = 12) => {
   const grid = createGrid(w, h);
@@ -111,11 +106,12 @@ describe("the tiles strategy", () => {
     expect(firstSpriteY(b.sl)).toBeLessThan(low);     // higher ground, higher sprite
   });
 
-  test("a kit naming a missing frame drops that part, not the building", () => {
-    const { grid, sl, hist, bands } = setup();
-    const ctx: RenderCtx = { bands, textures: {}, grid, scale: 1 };
+  test("with no sheet in, the building stands and draws nothing", () => {
+    const { grid, sl, hist, ctx } = setup();
+    setHouseSprites(null);
     commit(grid, hist, placeCommand(grid, KIT, 4, 4)!);
     syncStructures(sl, ctx);
+    setHouseSprites(SHEET);
     expect(mountedCount(sl)).toBe(1);
     expect(tileSpriteCount([...sl.mounted.values()][0].handle)).toBe(0);
   });
