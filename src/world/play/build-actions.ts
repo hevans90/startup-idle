@@ -71,6 +71,9 @@ export const laySewerPath = (cells: readonly Cell[], lateral = false): boolean =
 /** Widen the main at a tile, as the main's card widens it, paid for alike. @see widenMainAt */
 export const widenMain = (at: Cell): boolean => withTool({}, () => useWorldStore.getState().widenMainAt(at));
 
+/** Widen the sewer under a tile, as the sewer's card widens it, paid for alike. @see widenSewerAt */
+export const widenSewer = (at: Cell): boolean => withTool({}, () => useWorldStore.getState().widenSewerAt(at));
+
 /** Lay road along a straight line, each new tile paid for. */
 export const paveRoad = (from: Cell, to: Cell) => stroke("paintRoad", from, to);
 /** Lift road along a straight line. */

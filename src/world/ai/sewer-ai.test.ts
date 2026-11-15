@@ -14,7 +14,12 @@ import { resetAllGameStores } from "../../simulation/reset-game-stores";
 import { tanksOf } from "../slop/tanks";
 import { waterDesk } from "./pilot/desks/water";
 import { livePurse } from "./pilot/live";
-import { NO_WAY, neededSewer, spillNeed, trunkInto, trunkRoute } from "./sewer-ai";
+import Decimal from "break_infinity.js";
+import { useMoneyStore } from "../../state/money.store";
+import { SEWER_BORE } from "../grid";
+import { laySewerPath, widenSewer } from "../play/build-actions";
+import { solveSewers } from "../sewers/solve";
+import { NO_WAY, neededSewer, spillMend, spillNeed, trunkInto, trunkRoute } from "./sewer-ai";
 
 afterEach(() => setSlopMaking(0));
 
@@ -170,6 +175,35 @@ describe("a tank spilling is never passed over in silence", () => {
     const job = jobs.find((j) => j.id === `spill:${s.id}`)!;
     expect(job.needs![0].says).toBe(NO_WAY);
     expect(job.says).toBe("Stop a tank spilling");
+    resetAllGameStores();
+  });
+});
+
+describe("a spilling tank's sewer is widened", () => {
+  test("a connection carrying less than its tank makes is widened by the desk; and a sewer, as its card widens it", () => {
+    useWorldStore.getState().loadGrid(street(), [null]);
+    useWorldStore.setState({ playing: true });
+    useMoneyStore.setState({ money: new Decimal(1e12) });
+    setSlopMaking(1);
+    const g = useWorldStore.getState().grid, s = [...g.structures.values()].find((x) => x.def === "office-vibe")!;
+    // Its trunk, then its connection, as the desk lays them.
+    for (let k = 0; k < 2; k++) { const job = neededSewer(g)!; expect(laySewerPath(job.cells, job.kind === "lateral")).toBe(true); }
+    expect(neededSewer(g)).toBeNull();
+    expect(spillNeed(g, s, 0.1)).toBe("its sewer to catch up");
+    expect(spillNeed(g, s, 99)).toBe("a wider connection");
+    expect(spillMend(g, s, 99)!.what).toBe("connection");
+
+    tanksOf(g).set(s.id, { level: 9, capacity: 2, rate: 99, spilling: true });
+    const job = waterDesk().propose({ ...livePurse(), income: 100 }).find((j) => j.id.startsWith("widen:connection"))!;
+    expect(job.says).toBe("Widen an office's connection");
+    expect(job.run()).toEqual({ ok: true });
+    expect(spillMend(g, s, 99)).toBeNull();
+
+    const net = solveSewers(g).nets[0], at = { x: net.cells[0] % g.w, y: (net.cells[0] / g.w) | 0 };
+    expect(widenSewer(at)).toBe(true);
+    expect(solveSewers(g).nets[0].cells.every((i) => (g.sewer[i] & SEWER_BORE) !== 0)).toBe(true);
+    expect(widenSewer(at)).toBe(false);
+    useWorldStore.setState({ playing: false });
     resetAllGameStores();
   });
 });

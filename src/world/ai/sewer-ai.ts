@@ -14,14 +14,14 @@
  * Laid and bought through the player's own actions. AI mode.
  * @see game/slop, game/processors, plans/underground-sewers.md §9
  */
-import { buildCost, pipeCost } from "../../game/build-cost";
+import { boreCost, buildCost, pipeCost } from "../../game/build-cost";
 import { PROCESS_RATE, processorKind } from "../../game/processors";
 import { slopMaking } from "../../game/slop";
 import { featureGateOpen } from "../../game/projects";
 import { getWater, mainWet } from "../../state/world.store";
 import { upstreamOfTown } from "../water/pollution";
 import { WORKPLACES } from "../agents/commute";
-import { VOID, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
+import { MAIN_BORE, SEWER_BORE, VOID, idx, inBounds, structureAt, type Grid, type Structure } from "../grid";
 import { hasMain, routeMain } from "../water/mains";
 import { portTileSet, portsOf } from "../water/ports";
 import { planLateral, planSewer } from "../sewers/lay";
@@ -239,7 +239,25 @@ export function spillNeed(g: Grid, s: Structure, rate: number): string {
   if (!net || !sol.drains[node] || state === "no-exit") return "an exit for its sewer";
   if (state === "unpaid") return "its lift station paid for";
   if (state === "backed-up") return "its sewer cleared";
-  if (state === "surcharged") return "a wider sewer";
-  if (l.capacity < rate) return "a wider connection";
+  if (state === "surcharged") return net.cells.some((i) => !(g.sewer[i] & SEWER_BORE)) ? "a wider sewer" : "a second sewer";
+  if (l.capacity < rate && l.net.cells.some((i) => !(g.main[i] & MAIN_BORE))) return "a wider connection";
   return "its sewer to catch up";
+}
+
+/** A widening that would mend a spilling tank: of its sewer, or of its connection; where, and the price. */
+export type Widening = { what: "sewer" | "connection"; at: Cell; price: number };
+
+/**
+ * THE WIDENING A SPILLING TANK WANTS, if that is what it wants: the sewer it
+ * is on over full with tiles of it still narrow, or its own connection
+ * carrying less than it makes. Null for anything else. @see spillNeed
+ */
+export function spillMend(g: Grid, s: Structure, rate: number): Widening | null {
+  const on = spillNeed(g, s, rate);
+  if (on !== "a wider sewer" && on !== "a wider connection") return null;
+  const l = lateralsOf(g).find((x) => x.sources.includes(s.id))!;
+  const cells = on === "a wider sewer" ? solveSewers(g).nets.find((n) => n.cells.includes(l.node!))!.cells : l.net.cells;
+  const narrow = cells.filter((i) => !((on === "a wider sewer" ? g.sewer[i] & SEWER_BORE : g.main[i] & MAIN_BORE))).length;
+  const i = on === "a wider sewer" ? l.node! : l.net.cells[0];
+  return { what: on === "a wider sewer" ? "sewer" : "connection", at: { x: i % g.w, y: (i / g.w) | 0 }, price: boreCost(narrow).toNumber() };
 }

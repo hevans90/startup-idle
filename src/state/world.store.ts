@@ -37,7 +37,7 @@ import { create } from "zustand";
 
 import { waterMetaSaw } from "../world/debug/water-meta";
 import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
-import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_FIT, SEWER_GRATE, createGrid, edited, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
+import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_BORE, SEWER_FIT, SEWER_GRATE, createGrid, edited, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
 import { LEVEE, structureDef } from "../world/structures/def";
@@ -84,6 +84,7 @@ import { agentsOpen } from "../game/agents";
 import { planNode, planStormDrain } from "../world/sewers/lay";
 import { deleteStretch, sameStretch, stretchAt } from "../world/pipes/stretch";
 import { sewersUnderground } from "../world/sewers/convert";
+import { solveSewers } from "../world/sewers/solve";
 import { lateralStrokePlan, laysConnection, sewerStrokePlan } from "../world/sewers/tool";
 import { formatCurrency } from "../utils/money-utils";
 import { generatePlayableMap } from "../world/gen/generate-map";
@@ -460,6 +461,8 @@ type WorldState = {
   moveStretchAt: (c: Cell) => void;
   /** Widen the bore of the whole main a tile is on, paid for its tiles not yet widened. @see boreCost */
   widenMainAt: (c: Cell, stretch?: boolean) => void;
+  /** Widen the bore of the whole sewer under a tile, paid for its tiles not yet widened: twice the slop through it. @see boreCost */
+  widenSewerAt: (c: Cell) => void;
   /** The drag in progress, or null. */
   stroke: Stroke | null;
   /**
@@ -1186,6 +1189,21 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     for (const i of narrow) b.set("main", i % st.grid.w, (i / st.grid.w) | 0, st.grid.main[i] | MAIN_BORE);
     const cmd = b.build("widen main");
     if (cmd) commit(st.grid, history, cmd);
+    set({ revision: st.revision + 1, ...historyMeta() });
+  },
+  widenSewerAt: (c) => {
+    const st = get(), g = st.grid;
+    if (!inBounds(g, c.x, c.y)) return;
+    const solve = solveSewers(g), net = solve.nets[solve.of[idx(g, c.x, c.y)]];
+    if (!net) return;
+    const narrow = net.cells.filter((i) => !(g.sewer[i] & SEWER_BORE));
+    if (!narrow.length) return;
+    const price = boreCost(narrow.length);
+    if (!spendForBuild(price)) { set({ notice: { text: `Not enough money to widen the sewer: ${formatCurrency(price.toNumber())}`, at: Date.now() } }); return; }
+    const b = new PatchBuilder(g);
+    for (const i of narrow) b.set("sewer", i % g.w, (i / g.w) | 0, g.sewer[i] | SEWER_BORE);
+    const cmd = b.build("widen sewer");
+    if (cmd) commit(g, history, cmd);
     set({ revision: st.revision + 1, ...historyMeta() });
   },
   acceptPump: () => {

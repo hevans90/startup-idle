@@ -23,11 +23,11 @@ import { useGeneratorStore, type GeneratorId } from "../../../../state/generator
 import { playRules, useWorldStore } from "../../../../state/world.store";
 import { DESKS, WORKPLACES } from "../../../agents/commute";
 import type { Grid } from "../../../grid";
-import { laySewerPath, placeStructure, whyNot } from "../../../play/build-actions";
+import { laySewerPath, placeStructure, whyNot, widenMain, widenSewer } from "../../../play/build-actions";
 import { nearestSpot } from "../../../projects/works";
 import { structureDef } from "../../../structures/def";
 import { layRoute, neededPipe } from "../../cooling-ai";
-import { NO_WAY, neededSewer, spillNeed, trunkInto, wantsRefinery, type SewerJob } from "../../sewer-ai";
+import { NO_WAY, neededSewer, spillMend, spillNeed, trunkInto, wantsRefinery, type SewerJob, type Widening } from "../../sewer-ai";
 import { tanksOf } from "../../../slop/tanks";
 import type { Purse } from "../chooser";
 import type { Job, Outcome } from "../job";
@@ -60,7 +60,7 @@ export function waterDesk(): Desk {
   let fix: SewerJob | null = null, refinery: { price: number; at: { x: number; y: number } | null } | null = null;
   let pipe: ReturnType<typeof neededPipe> = null;
   /** The tanks spilling that no sewer of this desk's is for, and what each waits on. */
-  let spills: { id: number; at: { x: number; y: number }; desks: number; on: string }[] = [];
+  let spills: { id: number; at: { x: number; y: number }; desks: number; on: string; mend: Widening | null }[] = [];
   const asked = new Map<GeneratorId, SewerJob | null>();
   /**
    * What a tile of pipe cost when the routes were priced. A route's price is of then, and a tile's follows income: it is
@@ -104,7 +104,7 @@ export function waterDesk(): Desk {
         const on = spillNeed(g, s, t.rate);
         // One with no sewer yet, and another's being laid: its own comes next.
         if (on === NO_WAY && fix) continue;
-        spills.push({ id, at: { x: s.x, y: s.y }, desks: DESKS[s.def] ?? 0, on });
+        spills.push({ id, at: { x: s.x, y: s.y }, desks: DESKS[s.def] ?? 0, on, mend: spillMend(g, s, t.rate) });
       }
       const more = wantsRefinery(g);
       const vibe = more && [...g.structures.values()].find((s) => !s.build && WORKPLACES.vibe_coder.includes(s.def));
@@ -135,7 +135,26 @@ export function waterDesk(): Desk {
     }
 
     // A TANK SPILLING THAT NO SEWER HERE WOULD MEND: said, with what it waits on, and not passed over in silence.
+    const widened = new Set<string>();
     for (const sp of spills) {
+      // WIDENED, where that is what it wants: twice the slop through what is laid. One job a sewer, though three tanks spill on it.
+      const m = sp.mend;
+      if (m) {
+        const id = `widen:${m.what}@${m.at.x},${m.at.y}`;
+        if (widened.has(id)) continue;
+        widened.add(id);
+        jobs.push({
+          id, desk: "water",
+          says: m.what === "sewer" ? "Widen a sewer" : "Widen an office's connection", why: "a tank is spilling: more goes down it than it carries",
+          at: m.at, cost: now(m.price), gain: earns * sp.desks * SPILL_WORTH, urgent: true,
+          run: () => {
+            stale = true;
+            if (m.what === "sewer" ? widenSewer(m.at) : widenMain(m.at)) return { ok: true };
+            return { ok: false, because: whyNot()?.toLowerCase() ?? "it would not be widened", retry: 3 };
+          },
+        });
+        continue;
+      }
       jobs.push({
         id: `spill:${sp.id}`, desk: "water",
         says: "Stop a tank spilling", why: "its slop is going in the street",

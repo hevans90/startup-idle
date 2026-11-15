@@ -251,16 +251,18 @@ export function TrunkInfo() {
   const lifts = r?.trunk.lifts.length ?? 0;
   const manhole = !("refused" in planNode(g, looked));
   const storm = !("refused" in planStormDrain(g, looked));
+  const narrow = net.cells.filter((c) => !(g.sewer[c] & SEWER_BORE)).length;
   return (
     <Card tone={say.tone} onClose={() => setShut(looked.n)} className="w-80" title={<>{wide ? "Wide sewer" : "Sewer"} · {net.cells.length} tiles</>}>
       <p className={TONE[say.tone]}>{say.text}</p>
       <p className="tabular-nums" title={r ? `${r.flow.toFixed(2)} slop a second of the ${r.capacity.toFixed(2)} it carries` : undefined}>
         Drains {drains} workplace{drains === 1 ? "" : "s"}{lifts > 0 && <> · {lifts} lift station{lifts === 1 ? "" : "s"}</>}
       </p>
-      {(manhole || storm) && (
+      {(manhole || storm || narrow > 0) && (
         <Manual desk="water">
         <div className="mt-0.5 flex flex-wrap gap-1">
           {manhole && <Button size="sm" onClick={() => st.addManholeAt(looked)} title="Where a workplace's connection comes down into it">Add a manhole here</Button>}
+          {narrow > 0 && <Button size="sm" onClick={() => st.widenSewerAt(looked)} title="Twice the slop through the same sewer">Widen: {formatCurrency(boreCost(narrow).toNumber())}</Button>}
           {storm && <Button size="sm" onClick={() => st.addStormDrainAt(looked)} title="A grate: water standing in the street here goes down it, as much as the sewer can take">Add a storm drain here</Button>}
         </div>
         </Manual>
