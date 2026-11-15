@@ -46,36 +46,16 @@ describe("world store", () => {
     useWorldStore.setState({ palette: [...INITIAL_TERRAIN_PALETTE], material: GRASS });
   });
 
-  test("a browser-picked frame survives save and load", () => {
-    // Appended past the built-in materials, wherever those happen to end.
-    const next = INITIAL_TERRAIN_PALETTE.length;
-    const m = s().selectFrame("buildingTiles_003.png");
-    expect(m).toBe(next);
-
-    s().beginStroke({ x: 2, y: 2 });
-    s().endStroke();
-    expect(s().grid.terrain[2 * 8 + 2]).toBe(next);
-
+  test("a map saved with the old sheet's frame names loads named as the ground is now", () => {
+    s().loadGrid(s().grid, [null, "landscapeTiles_067.png", "landscapeTiles_083.png", "landscapeTiles_059.png", "landscapeTiles_067_trees2.png", "buildingTiles_003.png"]);
+    expect(s().palette).toEqual([null, "grass", "dirt", "sand", "wood2", "grass"]);
     roundTrip();
-
-    // the index is meaningless without the palette that gave it meaning
-    expect(s().palette[next]).toBe("buildingTiles_003.png");
-    expect(s().grid.terrain[2 * 8 + 2]).toBe(next);
-  });
-
-  test("selectFrame reuses an index rather than appending twice", () => {
-    const a = s().selectFrame("vehicleTiles_001.png");
-    const b = s().selectFrame("vehicleTiles_001.png");
-    expect(b).toBe(a);
-    expect(s().palette.length).toBe(INITIAL_TERRAIN_PALETTE.length + 1);
+    expect(s().palette).toEqual([null, "grass", "dirt", "sand", "wood2", "grass"]);
   });
 
   test("loading a shorter palette clamps the selected material", () => {
-    s().selectFrame("buildingTiles_003.png");
-    s().selectFrame("buildingTiles_004.png");
-    expect(s().material).toBe(INITIAL_TERRAIN_PALETTE.length + 1);
-
-    // a map saved before those frames existed
+    s().loadGrid(s().grid, [...INITIAL_TERRAIN_PALETTE, "grass", "grass"]);
+    s().setMaterial(INITIAL_TERRAIN_PALETTE.length + 1);
     s().loadGrid(s().grid, [...INITIAL_TERRAIN_PALETTE]);
     expect(s().material).toBe(INITIAL_TERRAIN_PALETTE.length - 1);
     expect(s().palette.length).toBe(INITIAL_TERRAIN_PALETTE.length);

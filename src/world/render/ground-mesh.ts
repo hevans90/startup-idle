@@ -18,8 +18,8 @@
  * bleed, no seams, no inner twins for the mip levels. Detail fades in with the
  * zoom, by how much ground a pixel covers.
  *
- * Cells it does not draw — ramps, woods, frames from the tile browser, the pit
- * under a building that clears it — keep their sprites. @see groundDraws
+ * It draws every cell with ground on it but the pit under a building that
+ * clears it. @see groundDraws
  */
 import { BufferImageSource, Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup } from "pixi.js";
 
@@ -27,33 +27,23 @@ import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureOf, type Grid } from "../grid";
 import { structureDef } from "../structures/def";
 import type { BandLayer } from "./bands";
-import { bakedProps } from "../props/props-sheet";
+import { terrainName } from "../terrain-names";
 
 /** What the shader draws a material as. 0 is nothing it knows. */
 export const GROUND = { none: 0, grass: 1, dirt: 2, sand: 3 } as const;
 
-/** The sheet frames the shader stands in for, and what it draws them as. Woods are grass under trees. */
+/** What the shader draws each material as. Woods are grass under trees. @see terrainName */
 const CLASS_OF: Record<string, number> = {
-  "landscapeTiles_067.png": GROUND.grass,
-  "landscapeTiles_083.png": GROUND.dirt,
-  "landscapeTiles_059.png": GROUND.sand,
-  "landscapeTiles_067_trees1.png": GROUND.grass,
-  "landscapeTiles_067_trees2.png": GROUND.grass,
-  "landscapeTiles_067_trees3.png": GROUND.grass,
+  grass: GROUND.grass, dirt: GROUND.dirt, sand: GROUND.sand,
+  wood1: GROUND.grass, wood2: GROUND.grass, wood3: GROUND.grass,
 };
-/**
- * Of those, the ones drawn by their sprite, the trees in the art: the woods,
- * where the props aren't baked (`?props=drawn`, or out of a browser). Where
- * they are, a wood is shaded grass and its trees stand on it. @see woods.ts
- */
-const SPRITE_STILL = new Set(["landscapeTiles_067_trees1.png", "landscapeTiles_067_trees2.png", "landscapeTiles_067_trees3.png"]);
-const spriteStill = (frame: string) => SPRITE_STILL.has(frame) && !bakedProps();
+const classOf = (name: string | null | undefined) => (name ? CLASS_OF[terrainName(name) ?? ""] ?? GROUND.none : GROUND.none);
 
 export type Palette = readonly (string | null)[];
 
 /** What a cell's material is to the shader, drawn by it or not: its neighbours blend toward it either way. */
 export const groundClassOf = (palette: Palette, mat: number): number =>
-  mat === VOID ? GROUND.none : CLASS_OF[palette[mat] ?? ""] ?? GROUND.none;
+  mat === VOID ? GROUND.none : classOf(palette[mat]);
 
 /** Whether a `clearsTerrain` structure stands on this cell. */
 const hidden = (grid: Grid, x: number, y: number) => {
@@ -61,11 +51,11 @@ const hidden = (grid: Grid, x: number, y: number) => {
   return s ? structureDef(s.def)?.clearsTerrain === true : false;
 };
 
-/** Whether the mesh draws this cell, top and walls; if not, its sprite does. */
+/** Whether the mesh draws this cell, top and walls. */
 export function groundDraws(grid: Grid, palette: Palette, x: number, y: number): boolean {
   if (!inBounds(grid, x, y)) return false;
-  const i = idx(grid, x, y), frame = palette[grid.terrain[i]] ?? "";
-  return grid.terrain[i] !== VOID && !!CLASS_OF[frame] && !spriteStill(frame) && !hidden(grid, x, y);
+  const i = idx(grid, x, y);
+  return grid.terrain[i] !== VOID && !!classOf(palette[grid.terrain[i]]) && !hidden(grid, x, y);
 }
 
 /**

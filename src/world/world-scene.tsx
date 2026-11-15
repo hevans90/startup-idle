@@ -56,9 +56,8 @@ import {
   type BandLayer,
 } from "./render/bands";
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
-import { buildTerrain, createTerrainLayer, flushTerrain, meshDraws, type TerrainLayer } from "./render/terrain";
+import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
 import { destroyGroundMesh } from "./render/ground-mesh";
-import { buildCliffs, createCliffLayer, syncCliff, type CliffLayer } from "./render/cliffs";
 import { buildPaved, createPavedLayer, dressPaved, evictUnused, lodPaved, recountInexact, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
 import { lodFor } from "./render/road-paint";
 import { lookDirtyCells } from "./roads/looks";
@@ -398,7 +397,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const rootRef = useRef<Container>(null);
   const blRef = useRef<BandLayer | null>(null);
   const tlRef = useRef<TerrainLayer | null>(null);
-  const clRef = useRef<CliffLayer | null>(null);
   const plRef = useRef<PavedLayer | null>(null);
   const slRef = useRef<StructureLayer | null>(null);
   const flRef = useRef<WaterLayer | null>(null);
@@ -626,9 +624,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       texRef.current = textures;
       const bl = createBandLayer(grid.w, grid.h);
       const tl = createTerrainLayer(grid, useWorldStore.getState().palette, scale);
-      const cl = createCliffLayer(grid, useWorldStore.getState().palette, scale);
-      // The shaded ground draws its own walls.
-      cl.skip = (g, x, y) => meshDraws(tl, g, x, y);
       const pl = createPavedLayer(grid, ROAD_TABLE, scale, app.renderer);
       pl.bays = (g) => bayMarksOf(trafficOf(getTown(), g).G, g);
       const sl = createStructureLayer();
@@ -663,15 +658,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // it is leaving and under the drops coming off it.
       faRef.current = water ? createFallLayer(bl, scale) : null;
       drRef.current = water ? createGpuDripLayer(bl, scale) : null;
-      buildTerrain(tl, bl, grid, textures);
-      buildCliffs(cl, bl, grid, textures);
+      buildTerrain(tl, bl, grid);
       buildPaved(pl, bl, grid, textures);
       syncStructures(sl, { bands: bl, textures, grid, scale });
 
       rootRef.current.addChild(bl.root);
       blRef.current = bl;
       tlRef.current = tl;
-      clRef.current = cl;
       plRef.current = pl;
       slRef.current = sl;
       setShownStructures(sl);
@@ -1810,7 +1803,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       drRef.current = null;
       blRef.current = null;
       tlRef.current = null;
-      clRef.current = null;
       plRef.current = null;
     };
     // The renderer and stage are read only by the dev bench above, and both
@@ -2319,22 +2311,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     }
   });
 
-  // The palette grows when the browser paints an unused frame, so the terrain
-  // layer's copy must be refreshed or a brand-new material renders as nothing.
+  // The terrain layer's copy of the palette, kept the store's.
   const palette = useWorldStore((s) => s.palette);
   useEffect(() => {
     if (tlRef.current) tlRef.current.palette = palette;
-    if (clRef.current) clRef.current.palette = palette;
   }, [palette]);
 
-  // Reconcile ONLY the cells an edit touched. This is the whole point of the
-  // per-cell sprite handles: an edit costs one sprite update per changed cell,
-  // where v1 would rebuild every ground sprite on the map.
+  // Reconcile ONLY the cells an edit touched.
   const revision = useWorldStore((s) => s.revision);
   useEffect(() => {
-    const tl = tlRef.current, bl = blRef.current, cl = clRef.current;
+    const tl = tlRef.current, bl = blRef.current;
     const pl = plRef.current, sl = slRef.current, tex = texRef.current;
-    if (!tl || !bl || !cl || !pl || !sl || !tex) return;
+    if (!tl || !bl || !pl || !sl || !tex) return;
     const sSync = section("effect: reconcile an edit");
     // DRAINED, not read from state: several commits in one React batch collapse
     // into a single re-render, and reading `lastTouched` would show only the
@@ -2342,14 +2330,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const touched = drainDirty(grid);
     if (!touched.length) return;
     for (const c of touched) {
-      syncCell(tl, bl, grid, tex, c.x, c.y);
-      // The tiles behind it may now show their sides, or stop. @see covered
-      syncCell(tl, bl, grid, tex, c.x - 1, c.y);
-      syncCell(tl, bl, grid, tex, c.x, c.y - 1);
-      // A column belongs to the taller cell but EXISTS because of the shorter
-      // one, so a height edit re-syncs the neighbours that now look onto it —
-      // the store already widened `lastTouched` to include them.
-      syncCliff(cl, bl, grid, tex, c.x, c.y);
+      syncCell(tl, grid, c.x, c.y);
+      // The cells behind it may now show their walls, or stop.
+      syncCell(tl, grid, c.x - 1, c.y);
+      syncCell(tl, grid, c.x, c.y - 1);
     }
     flushTerrain(tl, grid);
     // A road's tile depends on its EIGHT neighbours, so the paved dirty set is

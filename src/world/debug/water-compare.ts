@@ -121,7 +121,6 @@ import { Container, RenderTexture, type Renderer, type Texture } from "pixi.js";
 import { createGrid, fillTerrain, setDeck, setHeight, type Grid } from "../grid";
 import { buildRoadTable } from "../roads/table";
 import { createTerrainLayer, buildTerrain } from "../render/terrain";
-import { createCliffLayer, buildCliffs } from "../render/cliffs";
 import { buildPaved, createPavedLayer } from "../render/paved";
 import { copyWater, crossingScene, wetTheDecks } from "./world-scenes";
 import { createGpuWater } from "../../fluid/gpu/solver";
@@ -587,10 +586,8 @@ export async function checkWaterOverPaving(
 
   // THE WHOLE PICTURE, not just the water. The roads are the point.
   const tl = createTerrainLayer(grid, palette, 1);
-  const cl = createCliffLayer(grid, palette, 1);
   const pl = createPavedLayer(grid, ROAD_TABLE, 1, renderer);
-  buildTerrain(tl, bands, grid, textures);
-  buildCliffs(cl, bands, grid, textures);
+  buildTerrain(tl, bands, grid);
   buildPaved(pl, bands, grid, textures);
 
   const cpu = mesh === "cpu" ? createWaterLayer(columns, bands, 1) : null;

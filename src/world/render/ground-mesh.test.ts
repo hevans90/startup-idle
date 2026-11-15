@@ -1,14 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { RAMP, VOID, createGrid, fillTerrain, packRamp, setHeight, setRamp, setTerrain, type RampDir } from "../grid";
-import { bakedProps } from "../props/props-sheet";
 import { GROUND, bandQuads, cornerZ, groundClassOf, groundDraws, slopeLight, wallFoot } from "./ground-mesh";
 
 const GRASS = 1, DIRT = 2, SAND = 3, WOODS = 4, OTHER = 5;
-const PALETTE = [
-  null, "landscapeTiles_067.png", "landscapeTiles_083.png", "landscapeTiles_059.png",
-  "landscapeTiles_067_trees1.png", "landscapeTiles_001.png",
-] as const;
+// The fifth is a frame from the old tile browser, as an old save's palette has it: grass now.
+const PALETTE = [null, "grass", "dirt", "landscapeTiles_059.png", "wood1", "landscapeTiles_001.png"] as const;
 
 function flat(w = 4, h = 4, mat = GRASS) {
   const grid = createGrid(w, h);
@@ -21,24 +18,24 @@ const kinds = (q: ReturnType<typeof bandQuads>) =>
   Array.from({ length: q.quads }, (_, k) => q.verts[k * 4 * 6 + 4]);
 
 describe("groundClassOf", () => {
-  test("grass, dirt and sand by their frames; woods blend as grass; anything else is nothing", () => {
+  test("grass, dirt and sand by name, old names too; woods blend as grass; a frame the game no longer has is grass", () => {
     expect(groundClassOf(PALETTE, GRASS)).toBe(GROUND.grass);
     expect(groundClassOf(PALETTE, DIRT)).toBe(GROUND.dirt);
     expect(groundClassOf(PALETTE, SAND)).toBe(GROUND.sand);
     expect(groundClassOf(PALETTE, WOODS)).toBe(GROUND.grass);
-    expect(groundClassOf(PALETTE, OTHER)).toBe(GROUND.none);
+    expect(groundClassOf(PALETTE, OTHER)).toBe(GROUND.grass);
     expect(groundClassOf(PALETTE, VOID)).toBe(GROUND.none);
   });
 });
 
 describe("groundDraws", () => {
-  test("the shaded materials only: woods are grass under their baked trees, other frames keep their sprites", () => {
+  test("every cell with ground on it, and none off the map", () => {
     const grid = flat(3, 1);
     setTerrain(grid, 1, 0, WOODS);
     setTerrain(grid, 2, 0, OTHER);
     expect(groundDraws(grid, PALETTE, 0, 0)).toBe(true);
-    expect(groundDraws(grid, PALETTE, 1, 0)).toBe(bakedProps());
-    expect(groundDraws(grid, PALETTE, 2, 0)).toBe(false);
+    expect(groundDraws(grid, PALETTE, 1, 0)).toBe(true);
+    expect(groundDraws(grid, PALETTE, 2, 0)).toBe(true);
     expect(groundDraws(grid, PALETTE, 5, 0)).toBe(false);
   });
 });
@@ -89,7 +86,7 @@ describe("bandQuads", () => {
   });
 
   test("cells it does not draw leave no quads; an empty band is one quad at a point", () => {
-    const grid = flat(2, 2, OTHER);
+    const grid = flat(2, 2, VOID);
     const q = bandQuads(grid, PALETTE, 1);
     expect(q.quads).toBe(1);
     expect(Array.from(q.verts).every((n) => n === 0)).toBe(true);

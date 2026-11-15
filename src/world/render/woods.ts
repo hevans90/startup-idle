@@ -14,15 +14,12 @@ import type { Container } from "pixi.js";
 import { VOID, idx, structureOf, type Grid } from "../grid";
 import { bandOf } from "../iso";
 import { PROP_TINT } from "../props/props-format";
+import { treesIn } from "../terrain-names";
 import { bakedProps, propSprite, propSprites, propsLoaded, type PropSprites } from "../props/props-sheet";
 import { mix } from "../structures/projects/pen";
 import type { BandLayer } from "./bands";
 
-/** How many trees a wood frame carries: `…_trees<n>.png`. */
-export const treesIn = (frame: string | null | undefined): number => {
-  const m = frame ? /_trees(\d)\.png$/.exec(frame) : null;
-  return m ? Number(m[1]) : 0;
-};
+export { treesIn } from "../terrain-names";
 
 /** What grows in a wood, and how often. */
 const KINDS: readonly [string, number][] = [["oak", 3], ["pine", 3], ["lime", 2], ["birch", 2], ["hornbeam", 1]];

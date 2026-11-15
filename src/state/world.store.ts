@@ -37,6 +37,7 @@ import { create } from "zustand";
 
 import { waterMetaSaw } from "../world/debug/water-meta";
 import { pointerSaw, type PointerAt } from "../world/debug/pointer-at";
+import { terrainName } from "../world/terrain-names";
 import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_BORE, SEWER_FIT, SEWER_GRATE, createGrid, edited, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
@@ -136,23 +137,19 @@ export type Overlays = {
 };
 
 /**
- * Terrain materials, index 0 reserved for VOID.
- *
- * MUTABLE and saved with the map: the tile browser can paint any of ~940 atlas
- * frames, so the palette grows as frames are used rather than being a fixed
- * list. Because the file carries it, indices keep their meaning across saves —
- * see io/serialize.
+ * Terrain materials by name, index 0 reserved for VOID. Saved with the map,
+ * so indices keep their meaning across saves — see io/serialize; a palette
+ * from an older save is read by `terrainName`.
  */
 export const INITIAL_TERRAIN_PALETTE: (string | null)[] = [
   null,
-  "landscapeTiles_067.png", // 1 grass
-  "landscapeTiles_083.png", // 2 dirt
-  "landscapeTiles_059.png", // 3 sand
-  // 4-6 grass under one, two and three trees. Derived frames, baked by
-  // `bun run bake:trees` — a wood is a material, not a structure. @see WOODS
-  "landscapeTiles_067_trees1.png",
-  "landscapeTiles_067_trees2.png",
-  "landscapeTiles_067_trees3.png",
+  "grass", // 1
+  "dirt",  // 2
+  "sand",  // 3
+  // 4-6 grass under one, two and three trees: a wood is a material, not a structure. @see WOODS
+  "wood1",
+  "wood2",
+  "wood3",
 ];
 
 /**
@@ -621,18 +618,6 @@ type WorldState = {
   setBrushRadius: (r: number) => void;
   setMaterial: (m: number) => void;
   setHeightStep: (n: number) => void;
-  /**
-   * Palette index for a frame, appending it if new. Does NOT change the
-   * selected material — the ramp tool needs an index without stealing the
-   * paint tool's selection.
-   */
-  frameIndex: (frame: string) => number;
-  /**
-   * Index for a frame, appending it to the palette if new, and select it.
-   * Returns the index. Deliberately NOT named `use…`: it is a store action,
-   * and the hook prefix makes lint treat every call site as a hook call.
-   */
-  selectFrame: (frame: string) => number;
   beginStroke: (c: Cell) => void;
   updateStroke: (c: Cell) => void;
   /** Commits the drag as ONE undoable command. */
@@ -1230,21 +1215,6 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     set({ pumpOffer: null, revision: st.revision + 1, ...historyMeta() });
   },
 
-  frameIndex: (frame) => {
-    const { palette } = get();
-    const existing = palette.indexOf(frame);
-    if (existing > 0) return existing;
-    const next = palette.length;
-    set({ palette: [...palette, frame] });
-    return next;
-  },
-
-  selectFrame: (frame) => {
-    const i = get().frameIndex(frame);
-    set({ material: i });
-    return i;
-  },
-
   beginStroke: (c) =>
     set((st) => ({ stroke: { tool: st.tool, brush: st.brush, anchor: c, head: c, ...(st.tool === "sewer" && laysConnection(st.grid, c, c) ? { lateral: true } : {}) } })),
 
@@ -1817,7 +1787,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // A saved map's terrain indices only mean anything against the palette it
     // was saved with, so the file's palette replaces the live one wholesale.
     // Clamp `material` too: the loaded palette can be shorter than the old.
-    const next = palette ?? get().palette;
+    // Named as the game names its ground now, whatever the save called it. @see terrainName
+    const next = (palette ?? get().palette).map(terrainName);
     set({
       grid, palette: [...next], material: Math.min(get().material, next.length - 1),
       hover: null, hoverBuilding: null, stroke: null, seed: null,
