@@ -16,7 +16,7 @@ import { HEIGHT_UNIT } from "../src/world/iso.ts";
 const RES = Number(process.argv[3] ?? 2.5);
 const only = process.argv[4]?.split(",");
 const SHOWN = only ? HOUSES.filter((h) => only.includes(h.id)) : HOUSES;
-const COLS = 4, CW = Math.round(150 * RES), CH = Math.round(330 * RES);
+const COLS = 4, CW = Math.round(150 * RES), CH = Math.round(470 * RES);
 const ROWS = Math.ceil(SHOWN.length / COLS) * 2;
 const W = CW * COLS, H = CH * ROWS;
 const px = new Uint8Array(W * H * 4);
