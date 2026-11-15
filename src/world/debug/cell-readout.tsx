@@ -14,11 +14,10 @@ import { useWorldStore } from "../../state/world.store";
 import { useCellAnchorFollow } from "../anchors/use-cell-anchor";
 import { bandOf, HEIGHT_UNIT, RAMP_NAME, rampDir, rampRise } from "../iso";
 import { heightAt, idx, inBounds, rampPackedAt } from "../grid";
-import { DIR, DIAG, isPaved, maskAt } from "../roads/mask";
-import { buildRoadTable, roadSpriteFor } from "../roads/table";
+import { DIR, DIAG, diagOf, isPaved, maskAt, orthOf } from "../roads/mask";
+import { resolveRole } from "../roads/role";
 import { netComponentAt } from "../../state/world.store";
 
-const ROAD_TABLE = buildRoadTable("landscape");
 const bitNames = (m: number, names: Record<string, number>) =>
   Object.keys(names).filter((k) => m & names[k]).join("") || "-";
 
@@ -46,7 +45,7 @@ export function CellReadout() {
   // at fault. Now it says all three.
   const paved = hover ? isPaved(grid, hover.x, hover.y) : false;
   const mask = paved && hover ? maskAt(grid, hover.x, hover.y) : 0;
-  const pick = paved ? roadSpriteFor(ROAD_TABLE, mask) : null;
+  const role = paved ? resolveRole(orthOf(mask), diagOf(mask)) : null;
   const net = paved && hover ? netComponentAt(hover.x, hover.y) : -1;
 
   return (
@@ -90,18 +89,14 @@ export function CellReadout() {
               <span className="ml-1">→ <span className="text-white">{h + rise}</span></span>
             </div>
           )}
-          {paved && pick && (
+          {paved && role && (
             <>
               <div className="text-fg-muted">
                 open <span className="text-white">{bitNames(mask, DIR)}</span>
                 <span className="ml-1">diag <span className="text-white">{bitNames(mask, DIAG)}</span></span>
               </div>
               <div className="text-fg-muted">
-                rule <span className="text-white">{pick.role}</span>
-                {!pick.exact && <span className="ml-1 text-warn">(substituted)</span>}
-              </div>
-              <div className="text-fg-muted">
-                tile <span className="text-white">{pick.frame ?? "none"}</span>
+                rule <span className="text-white">{role}</span>
               </div>
               <div className="text-fg-muted">
                 net <span className="text-white">{net}</span>

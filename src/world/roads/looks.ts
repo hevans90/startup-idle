@@ -20,7 +20,7 @@ import { idx, inBounds, type Grid } from "../grid";
 import { hash } from "../structures/projects/model";
 import { DIAG, DIR, isPaved, maskAt } from "./mask";
 import { streetsOf } from "./streets";
-import { resolveRole, type RoadRole } from "./table";
+import { resolveRole, type RoadRole } from "./role";
 import { RING_OF } from "../agents/lanes/graph";
 
 /** Half a ring lane's width and a little: the island's edge inside the lane's middle. */
@@ -126,7 +126,7 @@ export function diagOf(mask: number): number {
   for (let c = 0; c < 4; c++) if (mask & DIAG_OF[c]) d |= 1 << c;
   return d;
 }
-/** A cell's road role, by the same rule the sprite table used. */
+/** A cell's road role. @see resolveRole */
 export function roleAt(g: Grid, x: number, y: number): RoadRole | null {
   if (!inBounds(g, x, y) || !isPaved(g, x, y)) return null;
   const m = maskAt(g, x, y);

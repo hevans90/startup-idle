@@ -1,42 +1,27 @@
 /**
  * World v2 — the paved overlay.
  *
- * One sprite per paved cell, drawn over the terrain in the same band. A road
- * tile is a full 132×99 ground tile, so it covers rather than blends — which is
- * what lets the material underneath survive unchanged and reappear when the
- * road is erased.
- *
- * The frame comes from {@link roadSpriteFor}, so it is chosen by the same mask
- * the connectivity graph reads. `exact: false` picks are kept and counted, not
- * dropped: a substituted tile still faces the right way, and a hole in the
- * middle of a network is worse than a slightly wrong family. The count is what
- * the debug overlay reports.
+ * One sprite per paved cell, drawn over the ground in the same band, its
+ * texture painted in code for the cell's look and its neighbours' edges
+ * (`road-paint.ts`). The ground underneath survives unchanged and reappears
+ * when the road is erased. Where there is no canvas to paint on (a test),
+ * roads are not drawn.
  */
-import { Sprite, type RenderGroup, type Renderer, type Texture } from "pixi.js";
+import { Sprite, type RenderGroup, type Renderer } from "pixi.js";
 
 import { GROUND_FRAME_H, bandOf, cellToWorld, spriteY } from "../iso";
 import { keyOf, looksOf, type Look } from "../roads/looks";
 import { createRoadPainter, LOD_RES, planeOf, type CellPaint, type RoadPainter } from "./road-paint";
-import { RAMP, idx, inBounds, rampDir, rampRise, surfaceHeightAt, VOID, type Grid } from "../grid";
-import { maskAt } from "../roads/mask";
-import { pavedRampFrame } from "../ramp-art";
-import { roadSpriteFor, type RoadTable } from "../roads/table";
+import { idx, inBounds, surfaceHeightAt, VOID, type Grid } from "../grid";
 import type { BandLayer } from "./bands";
-import { TILE_BLEED } from "./terrain";
 
 export type PavedLayer = {
   /** Sprite per cell, parallel to the grid; null where unpaved. */
   sprites: (Sprite | null)[];
-  /** Frames last applied, so a re-sync can skip an unchanged cell. */
+  /** The look last painted for each cell, as its key. */
   frames: (string | null)[];
-  table: RoadTable;
   scale: number;
-  /** Cells drawing a substituted tile — reported, never hidden. */
-  inexact: number;
-  /**
-   * ROADS PAINTED IN CODE, or null for the sheet's sprites (`?roads=sprite`,
-   * and wherever there is no canvas to paint on). @see createRoadPainter
-   */
+  /** ROADS PAINTED IN CODE, or null wherever there is no canvas to paint on. @see createRoadPainter */
   painter: RoadPainter | null;
   /** Every cell's look, as last worked out. @see refreshLooks */
   looks: (Look | null)[];
@@ -56,19 +41,16 @@ export type PavedLayer = {
 
 type View = { left: number; top: number; right: number; bottom: number };
 
-/** Whether roads are painted in code here: in a browser, unless the URL asks for the sheet's. */
+/** Whether roads are painted here: wherever there is a canvas. */
 export const paintsRoads = () =>
-  typeof document !== "undefined" && !!document.createElement("canvas").getContext?.("2d")
-  && !(typeof location !== "undefined" && /[?&]roads=sprite\b/.test(location.search));
+  typeof document !== "undefined" && !!document.createElement("canvas").getContext?.("2d");
 
-export function createPavedLayer(grid: Grid, table: RoadTable, scale = 1, renderer?: Renderer, painter: RoadPainter | null = renderer && paintsRoads() ? createRoadPainter(renderer) : null): PavedLayer {
+export function createPavedLayer(grid: Grid, scale = 1, renderer?: Renderer, painter: RoadPainter | null = renderer && paintsRoads() ? createRoadPainter(renderer) : null): PavedLayer {
   const n = grid.w * grid.h;
   return {
     sprites: new Array(n).fill(null),
     frames: new Array(n).fill(null),
-    table,
     scale,
-    inexact: 0,
     painter,
     looks: [],
     dress: undefined,
@@ -97,12 +79,12 @@ export function refreshLooks(pl: PavedLayer, grid: Grid): number[] {
  * A street's level or a zebra changed: the cells whose look did are painted
  * again. `dress` is per cell. @see dressOf
  */
-export function dressPaved(pl: PavedLayer, bl: BandLayer, grid: Grid, textures: Record<string, Texture>, dress: Uint8Array): void {
+export function dressPaved(pl: PavedLayer, bl: BandLayer, grid: Grid, dress: Uint8Array): void {
   if (!pl.painter) return;
   if (pl.dress && pl.dress.length === dress.length && pl.dress.every((v, i) => v === dress[i])) { pl.dress = dress; return; }
   pl.dress = dress;
   refreshLooks(pl, grid);
-  for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) syncPaved(pl, bl, grid, textures, x, y);
+  for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) syncPaved(pl, bl, grid, x, y);
 }
 
 /** The cells a cell's texture paints, itself and the neighbours it joins, and their key. */
@@ -137,7 +119,6 @@ export function syncPaved(
   pl: PavedLayer,
   bl: BandLayer,
   grid: Grid,
-  textures: Record<string, Texture>,
   x: number,
   y: number,
 ): void {
@@ -156,73 +137,29 @@ export function syncPaved(
     return;
   }
 
-  if (pl.painter) {
-    if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
-    const paint = paintOf(pl, grid, x, y);
-    if (!paint) return;
-    const { wx, wy } = cellToWorld(x, y, surfaceHeightAt(grid, x, y), pl.scale);
-    const sy = spriteY(wy, GROUND_FRAME_H, pl.scale);
-    // At the level the screen shows it at, from its first frame: a road laid
-    // close up is never drawn blurred and then sharpened.
-    pl.lod[i] = pl.lodView && inView(pl, wx, sy, pl.lodView) ? pl.lodWant : 0;
-    const tex = pl.painter.textureFor(paint.key, paint.cells, paint.ramp, pl.lod[i]);
-    let s = existing;
-    if (!s) {
-      s = new Sprite(tex);
-      s.roundPixels = true;
-      bl.pavedOf[bandOf(x, y)].addChild(s);
-      pl.sprites[i] = s;
-    } else if (s.texture !== tex) s.texture = tex;
-    s.anchor.set(tex.defaultAnchor?.x ?? 0.5, tex.defaultAnchor?.y ?? 1);
-    pl.frames[i] = paint.key;
-    s.x = wx;
-    // Its frame's bottom where a ground frame's is; no bleed, its margins meet its neighbours'.
-    s.y = sy;
-    s.scale.set(pl.scale);
-    return;
-  }
-
-  // A RAMP cell's road is the tilted paved-ramp tile, not an autotiled flat
-  // one. Drawn here in the paved tier, so the terrain underneath is untouched
-  // and reappears when the road goes.
-  const ramp = rampDir(grid.ramp[i]);
-  const pick = ramp !== RAMP.NONE
-    ? { frame: pavedRampFrame(ramp, rampRise(grid.ramp[i])), notches: [] as const }
-    : roadSpriteFor(pl.table, maskAt(grid, x, y));
-  const tex = pick.frame ? textures[pick.frame] : undefined;
-  if (!tex) {
-    // no art for this mask at all — leave the cell bare so the gap is VISIBLE
-    if (existing) {
-      existing.parent?.removeChild(existing);
-      existing.destroy();
-      pl.sprites[i] = null;
-    }
-    pl.frames[i] = null;
-    return;
-  }
-
+  if (!pl.painter) return;
+  if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
+  const paint = paintOf(pl, grid, x, y);
+  if (!paint) return;
+  const { wx, wy } = cellToWorld(x, y, surfaceHeightAt(grid, x, y), pl.scale);
+  const sy = spriteY(wy, GROUND_FRAME_H, pl.scale);
+  // At the level the screen shows it at, from its first frame: a road laid
+  // close up is never drawn blurred and then sharpened.
+  pl.lod[i] = pl.lodView && inView(pl, wx, sy, pl.lodView) ? pl.lodWant : 0;
+  const tex = pl.painter.textureFor(paint.key, paint.cells, paint.ramp, pl.lod[i]);
   let s = existing;
   if (!s) {
     s = new Sprite(tex);
-    s.anchor.set(0.5, 1);
     s.roundPixels = true;
     bl.pavedOf[bandOf(x, y)].addChild(s);
     pl.sprites[i] = s;
-  } else if (s.texture !== tex) {
-    s.texture = tex;
-  }
-  pl.frames[i] = pick.frame;
-  // AT THE SURFACE, which for a deck is up in the air with a gap under it.
-  // The terrain tier still draws the ground below, so the riverbed and the
-  // water on it stay visible either side of a span. @see Grid.deck
-  const { wx, wy } = cellToWorld(x, y, surfaceHeightAt(grid, x, y), pl.scale);
+  } else if (s.texture !== tex) s.texture = tex;
+  s.anchor.set(tex.defaultAnchor?.x ?? 0.5, tex.defaultAnchor?.y ?? 1);
+  pl.frames[i] = paint.key;
   s.x = wx;
-  // A slope frame is anchored by the STANDARD ground height, not its own: the
-  // extra height on a ramp frame is a deeper skirt below the low side, so using
-  // the real frame height would push the whole tile down by that much. See
-  // GROUND_FRAME_H.
-  s.y = spriteY(wy, ramp !== RAMP.NONE ? GROUND_FRAME_H : tex.height, pl.scale);
-  s.scale.set(pl.scale * TILE_BLEED);
+  // Its frame's bottom where a ground frame's is; no bleed, its margins meet its neighbours'.
+  s.y = sy;
+  s.scale.set(pl.scale);
 }
 
 /** Whether a sprite at `(x, y)` shows in `view`: its frame reaches a tile and a bit either side of its anchor, and up a ramp's pad. */
@@ -317,41 +254,12 @@ function rebind(pl: PavedLayer) {
 }
 
 /** Build every paved cell. Only for first paint or a full reload. */
-export function buildPaved(
-  pl: PavedLayer,
-  bl: BandLayer,
-  grid: Grid,
-  textures: Record<string, Texture>,
-): void {
+export function buildPaved(pl: PavedLayer, bl: BandLayer, grid: Grid): void {
   refreshLooks(pl, grid);
   for (let y = 0; y < grid.h; y++) {
-    for (let x = 0; x < grid.w; x++) syncPaved(pl, bl, grid, textures, x, y);
+    for (let x = 0; x < grid.w; x++) syncPaved(pl, bl, grid, x, y);
   }
-  recountInexact(pl, grid);
 }
-
-/** How many paved cells are drawing a substituted tile, and how many none at all. */
-export function recountInexact(pl: PavedLayer, grid: Grid): { inexact: number; missing: number } {
-  // Painted roads have a look for every shape: nothing stands in, nothing is missing.
-  if (pl.painter) { pl.inexact = 0; return { inexact: 0, missing: 0 }; }
-  let inexact = 0, missing = 0;
-  for (let y = 0; y < grid.h; y++) {
-    for (let x = 0; x < grid.w; x++) {
-      const i = idx(grid, x, y);
-      if (grid.paved[i] === VOID) continue;
-      if (rampDir(grid.ramp[i]) !== RAMP.NONE) continue;   // drawn by its ramp art
-      const pick = roadSpriteFor(pl.table, maskAt(grid, x, y));
-      if (!pick.frame) missing++;
-      else if (!pick.exact) inexact++;
-    }
-  }
-  pl.inexact = inexact;
-  return { inexact, missing };
-}
-
-/** How many cells are drawing a baked inner-corner variant. */
-export const notchedCount = (pl: PavedLayer) =>
-  pl.frames.reduce((n, f) => n + (f?.startsWith("roadCorner_") ? 1 : 0), 0);
 
 export const pavedCount = (pl: PavedLayer) =>
   pl.sprites.reduce((n, s) => n + (s ? 1 : 0), 0);

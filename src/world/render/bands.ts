@@ -152,7 +152,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
     sewer.visible = false;
     const cliff = new Container();       // columns, under everything in the band
     // The ONE sorted static tier. A cell's stacked slabs must draw shallowest
-    // LAST so each hides the next one's diamond; see render/cliffs.
+    // LAST so each hides the next one's diamond.
     cliff.sortableChildren = true;
     const st = new Container();          // no sorting: order within a band is moot
     const under = new Container();       // water beneath a deck. @see underOf

@@ -645,7 +645,7 @@ export function cellPaths(x: number, y: number, h: number, limbs: readonly Limb[
 /**
  * THE SUN, a unit (u, v, h) toward it: high, and from the camera's left —
  * a box's top lit, its left face (+v) next, its right (+u) in shade, as the
- * Kenney buildings are. The shader lights by it.
+ * the buildings are. The shader lights by it.
  */
 export const SUN: readonly [number, number, number] = (() => {
   const l = [-0.4, 0.35, 1], n = Math.hypot(...l);

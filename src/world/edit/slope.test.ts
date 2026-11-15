@@ -11,34 +11,12 @@ import { describe, expect, test } from "bun:test";
 
 import { createGrid, fillTerrain, idx, setHeight } from "../grid";
 import { MAX_RISE, RAMP, rampDir, rampRise } from "../iso";
-import { terrainRampFrame } from "../ramp-art";
-import { SLOPE_LABELS } from "../ramp-art";
 import { derivedSlope, slopeNeed } from "./slope";
 const fresh = (w = 16, h = 16) => {
   const g = createGrid(w, h);
   fillTerrain(g, 1);
   return { g };
 };
-
-describe("the art a bare slope uses", () => {
-  test("every direction and rise has a plain open-sided slope", () => {
-    for (const dir of [RAMP.N, RAMP.E, RAMP.S, RAMP.W] as const) {
-      for (const rise of [1, 2]) {
-        const frame = terrainRampFrame(dir, rise);
-        expect(frame).not.toBeNull();
-        const edges = SLOPE_LABELS[frame!]?.edges;
-        // Open on all four, so it is a hillside and not a cutting.
-        for (const side of ["N", "E", "S", "W"]) expect(edges?.[side]).toBe("open");
-      }
-    }
-  });
-
-  test("it does NOT pick the banked cutting that sorts first for S", () => {
-    // landscapeTiles_009 is a S slope with grass banks either side. It is the
-    // right tile for a sunken path and the wrong one for open ground.
-    expect(terrainRampFrame(RAMP.S, 2)).not.toBe("landscapeTiles_009.png");
-  });
-});
 
 describe("slopeNeed", () => {
   test("rises toward its single higher neighbour, and sits on the LOWER cell", () => {

@@ -101,8 +101,6 @@ export type Overlays = {
   net: boolean;
   /** Connection mask as colour, for reading the autotiler's decision. */
   mask: boolean;
-  /** Paved cells whose art is substituted or missing — the labelling to-do list. */
-  gaps: boolean;
   /** The lane graph: lanes, the curves through junctions, conflict zones, pavements and crossings. @see agents/lanes/graph */
   lanes: boolean;
   /**
@@ -795,7 +793,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   overlays: {
     // The tile grid off: a faint line round every tile, over everything, zoomed in.
     grid: false, bands: false, height: false, origin: true, faces: true,
-    net: false, mask: false, gaps: false, lanes: false, xray: false,
+    net: false, mask: false, lanes: false, xray: false,
     readout: START_READOUT,
   },
   seed: null,

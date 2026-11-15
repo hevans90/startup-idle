@@ -11,7 +11,7 @@
  * well above what is beside it, the gap between them is drawn as a vertical
  * quad — that is a waterfall, and it appears and disappears with the flow
  * rather than being derived from the map and drawn as decoration over it. Only
- * the two down-screen faces carry one, the same two `render/cliffs` draws
+ * the two down-screen faces carry one, the same two the ground draws its walls on
  * columns on, because the others point away from the camera.
  *
  * Per-band strips, as everything else in this engine: a column belongs to the

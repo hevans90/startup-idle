@@ -58,7 +58,7 @@ import {
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
 import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
 import { destroyGroundMesh } from "./render/ground-mesh";
-import { buildPaved, createPavedLayer, dressPaved, evictUnused, lodPaved, recountInexact, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
+import { buildPaved, createPavedLayer, dressPaved, evictUnused, lodPaved, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
 import { lodFor } from "./render/road-paint";
 import { lookDirtyCells } from "./roads/looks";
 import {
@@ -100,12 +100,11 @@ import { setPortLife } from "./structures/port-life";
 // what the layer looks a definition up in, and nothing else references it.
 import { setCollapsed } from "./structures/tiles-renderer";
 import { houseSprites } from "./houses/houses-sheet";
-import { buildRoadTable, roadSpriteFor } from "./roads/table";
 import { isPaved, maskAt, maskDirtyCells } from "./roads/mask";
 import { netIdAt } from "./roads/network";
 import {
   drawBandStripes, drawGrid, drawHeightTint, drawHover, drawNetComponents,
-  drawOrigin, drawPickCrosshair, drawRoadGaps, drawRoadMask,
+  drawOrigin, drawPickCrosshair, drawRoadMask,
 } from "./render/overlays";
 import { drawLaneGraph } from "./render/lane-overlay";
 import { bayMarksOf, buildLaneGraph, type LaneGraph } from "./agents/lanes/graph";
@@ -331,7 +330,6 @@ extend({ Container });
  * Built once: the label files never change at runtime. Thick roads only — the
  * thin family is largely unlabelled, so asking for it would produce holes.
  */
-const ROAD_TABLE = buildRoadTable("landscape");
 
 /** Tiles round the pointer's cell a building may stand and still be drawn under it. */
 const NEAR_HOVER = 8;
@@ -624,7 +622,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       texRef.current = textures;
       const bl = createBandLayer(grid.w, grid.h);
       const tl = createTerrainLayer(grid, useWorldStore.getState().palette, scale);
-      const pl = createPavedLayer(grid, ROAD_TABLE, scale, app.renderer);
+      const pl = createPavedLayer(grid, scale, app.renderer);
       pl.bays = (g) => bayMarksOf(trafficOf(getTown(), g).G, g);
       const sl = createStructureLayer();
       const water = useWorldStore.getState().getWaterField();
@@ -659,7 +657,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       faRef.current = water ? createFallLayer(bl, scale) : null;
       drRef.current = water ? createGpuDripLayer(bl, scale) : null;
       buildTerrain(tl, bl, grid);
-      buildPaved(pl, bl, grid, textures);
+      buildPaved(pl, bl, grid);
       syncStructures(sl, { bands: bl, textures, grid, scale });
 
       rootRef.current.addChild(bl.root);
@@ -1839,7 +1837,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const tintGfx = useRef<Graphics | null>(null);
   const netGfx = useRef<Graphics | null>(null);
   const maskGfx = useRef<Graphics | null>(null);
-  const gapGfx = useRef<Graphics | null>(null);
   const laneGfx = useRef<Graphics | null>(null);
   const laneCache = useRef<{ grid: Grid; rev: number; G: LaneGraph } | null>(null);
   const originGfx = useRef<Graphics | null>(null);
@@ -1877,12 +1874,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         drawRoadMask(maskGfx.current, grid, scale, lo, hi,
           (x, y) => maskAt(grid, x, y), (x, y) => isPaved(grid, x, y));
       } else maskGfx.current.clear();
-    }
-    if (gapGfx.current) {
-      if (overlays.gaps) {
-        drawRoadGaps(gapGfx.current, grid, scale, lo, hi, (x, y) =>
-          isPaved(grid, x, y) ? roadSpriteFor(ROAD_TABLE, maskAt(grid, x, y)) : null);
-      } else gapGfx.current.clear();
     }
     if (laneGfx.current) {
       if (overlays.lanes) {
@@ -1925,7 +1916,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // created later (it needs the band layer) and must stay on top of these
     // however the two effects happen to interleave.
     root.sortableChildren = true;
-    const refs = [bandGfx, tintGfx, netGfx, maskGfx, gapGfx, laneGfx, gridGfx, originGfx, hoverGfx, crossGfx, openGfx];
+    const refs = [bandGfx, tintGfx, netGfx, maskGfx, laneGfx, gridGfx, originGfx, hoverGfx, crossGfx, openGfx];
     const made = refs.map((r, i) => {
       const g = new Graphics();
       g.zIndex = i;              // stripes, tint, net, mask, grid, origin, hover, crosshair, what opens
@@ -2354,9 +2345,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       for (const n of dirtyOf(grid, c.x, c.y)) pavedDirty.add(n.y * grid.w + n.x);
     }
     for (const k of pavedDirty) {
-      syncPaved(pl, bl, grid, tex, k % grid.w, Math.floor(k / grid.w));
+      syncPaved(pl, bl, grid, k % grid.w, Math.floor(k / grid.w));
     }
-    if (pavedDirty.size) recountInexact(pl, grid);
     // Structures last: mounting reads the height the ground now has, so the
     // terrain pass above must have settled first. `syncStructures` walks the
     // record map (tens of entries) while `refreshStructuresAt` only re-draws
@@ -3837,7 +3827,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // (The town's walkers have the right of way on its zebras.)
         if (dress) getTown().dress = dress;
         if (dress && plRef.current && blRef.current && texRef.current && plRef.current.dress !== dress) {
-          dressPaved(plRef.current, blRef.current, st.grid, texRef.current, dress);
+          dressPaved(plRef.current, blRef.current, st.grid, dress);
         }
       }
       if (lightsRef.current && blNow) {

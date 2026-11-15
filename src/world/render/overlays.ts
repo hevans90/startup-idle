@@ -324,38 +324,3 @@ function hslToHex(hDeg: number, s: number, l: number): number {
   return (r << 16) | (gg << 8) | bb;
 }
 
-/**
- * Paved cells drawing a SUBSTITUTED tile, or none at all.
- *
- * The actionable version of `roadCoverage`: instead of a list of masks, it
- * shows you the cells on the map whose art is missing. Amber for a substitution
- * (a tile that faces the right way but is the wrong family), red for a mask
- * with no tile at all.
- */
-export function drawRoadGaps(
-  g: Graphics,
-  grid: Grid,
-  scale: number,
-  bandLo: number,
-  bandHi: number,
-  pickAt: (x: number, y: number) => { frame: string | null; exact: boolean } | null,
-): number {
-  g.clear();
-  let drawn = 0;
-  const lo = Math.max(0, bandLo), hi = Math.min(grid.w + grid.h - 2, bandHi);
-  for (let b = lo; b <= hi; b++) {
-    const xLo = Math.max(0, b - (grid.h - 1));
-    const xHi = Math.min(grid.w - 1, b);
-    for (let x = xLo; x <= xHi; x++) {
-      const y = b - x;
-      const pick = pickAt(x, y);
-      if (!pick || pick.exact) continue;
-      const h = surfaceHeightAt(grid, x, y);
-      g.poly(cellDiamond(x, y, h, scale));
-      g.fill({ color: pick.frame ? 0xffb347 : 0xff4d4d, alpha: 0.6 });
-      drawn++;
-    }
-  }
-  return drawn;
-}
-

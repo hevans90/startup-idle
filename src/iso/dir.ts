@@ -5,9 +5,8 @@
  */
 
 /**
- * Road auto-tiling from the hand-labelled tileset (see dev labeller →
- * road-labels.json). Edge naming matches the labeller: N=top-left,
- * E=top-right, S=bottom-right, W=bottom-left.
+ * The four edges of a cell, as bits. N=top-left, E=top-right,
+ * S=bottom-right, W=bottom-left.
  */
 export const DIR = { N: 1, E: 2, S: 4, W: 8 } as const;
 

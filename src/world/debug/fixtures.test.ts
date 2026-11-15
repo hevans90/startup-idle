@@ -8,8 +8,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 import { createGrid, setPaved, surfaceSampler } from "../grid";
-import { DIR, isPaved, maskAt, orthOf } from "../roads/mask";
-import { buildRoadTable, roadSpriteFor } from "../roads/table";
+import { DIR, diagOf, isPaved, maskAt, orthOf } from "../roads/mask";
+import { resolveRole } from "../roads/role";
 import { componentCount, createNetwork, netIdAt } from "../roads/network";
 import { HEIGHT_UNIT, HH, HW, RAMP, cellToWorld, faceCoords, pickCell, rampDir, rampRise, surfaceHeight } from "../iso";
 import {
@@ -174,7 +174,7 @@ describe("cellToWorld agrees with the centre helper on level ground", () => {
 
 describe("road fixtures", () => {
   const netOf = (g: ReturnType<typeof world>) => createNetwork(g);
-  const TABLE = buildRoadTable("landscape");
+  const roleOf = (g: Parameters<typeof maskAt>[0], x: number, y: number) => { const m = maskAt(g, x, y); return resolveRole(orthOf(m), diagOf(m)); };
 
   test("roadShapes exercises every mask the autotiler can produce", () => {
     const g = world(48, 48);
@@ -192,31 +192,13 @@ describe("road fixtures", () => {
     expect(seen.has(DIR.N | DIR.E | DIR.S | DIR.W)).toBe(true);      // the crossroads
   });
 
-  test("EVERY paved cell in every road fixture resolves to a real tile", () => {
-    for (const id of ["roadShapes", "avenue", "plaza", "splitTrap"] as const) {
-      const g = world(48, 48);
-      applyFixture(g, id, 1);
-      let cells = 0;
-      for (let y = 0; y < g.h; y++) {
-        for (let x = 0; x < g.w; x++) {
-          if (!isPaved(g, x, y)) continue;
-          cells++;
-          expect(roadSpriteFor(TABLE, maskAt(g, x, y)).frame).not.toBeNull();
-        }
-      }
-      expect(cells).toBeGreaterThan(10);
-    }
-  });
-
-  test("the avenue's two columns resolve to LANE tiles, not T-junctions", () => {
+  test("the avenue's two columns resolve to LANES, not T-junctions", () => {
     const g = world(48, 48);
     applyFixture(g, "avenue", 1);
     const cx = 24, cy = 24;
     // mid-run, away from the junction where the two avenues meet
     for (const [x, y] of [[cx - 6, cy], [cx - 6, cy + 1]] as const) {
-      const pick = roadSpriteFor(TABLE, maskAt(g, x, y));
-      expect(pick.role).toBe("thick-lane");
-      expect(pick.exact).toBe(true);
+      expect(roleOf(g, x, y)).toBe("thick-lane");
     }
   });
 
@@ -224,8 +206,8 @@ describe("road fixtures", () => {
     const g = world(48, 48);
     applyFixture(g, "plaza", 1);
     const cx = 24, cy = 24;
-    expect(roadSpriteFor(TABLE, maskAt(g, cx, cy)).role).toBe("thick-fill");
-    expect(roadSpriteFor(TABLE, maskAt(g, cx - 4, cy)).role).not.toBe("thick-fill");
+    expect(roleOf(g, cx, cy)).toBe("thick-fill");
+    expect(roleOf(g, cx - 4, cy)).not.toBe("thick-fill");
   });
 
   test("the split trap really is split on one arm and joined on the other", () => {

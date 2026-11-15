@@ -13,7 +13,7 @@
  *
  *  3. Height is measured in **half steps**, so it stays an integer.
  *
- * Measured against the art (see `dev/roadlabel.html` and slope-labels.json):
+ * As the first art was measured:
  * ground frames are 132×99 whose diamond top face spans rows 0–66 (centred at
  * row 33) with a 33px skirt below, and the tileset contains exactly two rise
  * heights — ~16px and ~33px.
@@ -31,7 +31,7 @@
 export const RAMP = { NONE: 0, N: 1, E: 2, S: 3, W: 4 } as const;
 export type RampDir = (typeof RAMP)[keyof typeof RAMP];
 
-/** Ramp direction as the labeller names it, for reading slope-labels.json. */
+/** Ramp direction by name. */
 export const RAMP_NAME = ["", "N", "E", "S", "W"] as const;
 
 /**

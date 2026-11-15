@@ -17,8 +17,13 @@
  * each cell ramps to the next one up.
  */
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { PAVED_RAMP_RISES } from "../ramp-art";
 import { RAMP, packRamp, type RampDir } from "../iso";
+
+/**
+ * Rises a road can ramp, in half steps: a whole step only. A half-step
+ * difference is not bridged by a road.
+ */
+export const PAVED_RAMP_RISES: readonly number[] = [2];
 
 /** What the derivation needs to read. Satisfied by a grid, or by staged edits. */
 export type SurfaceReader = {

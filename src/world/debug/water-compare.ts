@@ -119,7 +119,6 @@
 import { Container, RenderTexture, type Renderer, type Texture } from "pixi.js";
 
 import { createGrid, fillTerrain, setDeck, setHeight, type Grid } from "../grid";
-import { buildRoadTable } from "../roads/table";
 import { createTerrainLayer, buildTerrain } from "../render/terrain";
 import { buildPaved, createPavedLayer } from "../render/paved";
 import { copyWater, crossingScene, wetTheDecks } from "./world-scenes";
@@ -302,7 +301,6 @@ function frame(root: Container, size: number, px: number) {
 export const SPECKLE = 0.0002;
 
 /** The road art the editor itself uses. @see checkWaterOverPaving */
-const ROAD_TABLE = buildRoadTable("landscape");
 
 export function compareWaterPaths(
   renderer: Renderer,
@@ -522,7 +520,7 @@ export type PavingCheck = {
 
 export async function checkWaterOverPaving(
   renderer: Renderer,
-  textures: Record<string, Texture>,
+  _textures: Record<string, Texture>,
   palette: Palette,
   {
     mesh = "gpu" as "cpu" | "gpu", px = 640, depth = 1.5, size = 24,
@@ -586,9 +584,9 @@ export async function checkWaterOverPaving(
 
   // THE WHOLE PICTURE, not just the water. The roads are the point.
   const tl = createTerrainLayer(grid, palette, 1);
-  const pl = createPavedLayer(grid, ROAD_TABLE, 1, renderer);
+  const pl = createPavedLayer(grid, 1, renderer);
   buildTerrain(tl, bands, grid);
-  buildPaved(pl, bands, grid, textures);
+  buildPaved(pl, bands, grid);
 
   const cpu = mesh === "cpu" ? createWaterLayer(columns, bands, 1) : null;
   const gpu = mesh === "gpu" ? createGpuWaterLayer(columns, bands, 1) : null;

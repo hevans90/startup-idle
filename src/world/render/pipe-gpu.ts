@@ -1,7 +1,7 @@
 /**
  * World v2 — THE MAINS' SHADER: a pipe mesh lit by the town's sun. @see pipe-mesh
  *
- * The light is the Kenney pack's: from above and a little to the left of
+ * The light is the map's own: from above and a little to the left of
  * the camera, so a box's top is brightest, its left face (+v) next, its right
  * (+u) darkest — and a tube lying either way is lit the same way round.
  *
