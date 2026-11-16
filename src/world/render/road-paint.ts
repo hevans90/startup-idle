@@ -843,7 +843,9 @@ function slow(ctx: Ctx, s: Side) {
   const w = ctx.measureText("SLOW").width;
   // Across the lane, and long down it as road lettering is, if not as long as the real thing: it has to read from above.
   const sx = 0.2 / w, sy = 0.2 / 7.2;
-  ctx.transform(F.rx * sx, F.ry * sx, -F.hx * sy, -F.hy * sy, ox, oy);
+  // (Its letters run to the reader's right, whichever side of the road they drive on: a turn of the way they
+  // go, never a side — a side flips with the hand of the road, and lettering laid by it reads back to front.)
+  ctx.transform(-F.hy * sx, F.hx * sx, -F.hx * sy, -F.hy * sy, ox, oy);
   ctx.fillStyle = css(WHITE, 0.9);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -1057,7 +1059,7 @@ function busCages(ctx: Ctx, L: Look) {
     for (const [word, t] of [["BUS", -0.13], ["STOP", 0.1]] as const) {
       const sx = 0.15 / ctx.measureText(word).width, sy = 0.15 / 7.2;
       ctx.save();
-      ctx.transform(kx * sx, ky * sx, -hx * sy, -hy * sy, cu + hx * t, cv + hy * t);
+      ctx.transform(-hy * sx, hx * sx, -hx * sy, -hy * sy, cu + hx * t, cv + hy * t);
       ctx.fillText(word, 0, 0);
       ctx.restore();
     }
@@ -1089,7 +1091,7 @@ function roundels(ctx: Ctx, L: Look) {
     }
     ctx.save();
     // Its right the driver's right, its top toward where they are going.
-    ctx.transform(rx, ry, -hx, -hy, cu - hx * ROUNDEL_BACK, cv - hy * ROUNDEL_BACK);
+    ctx.transform(-hy, hx, -hx, -hy, cu - hx * ROUNDEL_BACK, cv - hy * ROUNDEL_BACK);
     ctx.strokeStyle = css(WHITE, 0.9);
     ctx.lineWidth = 0.014;
     // LONGER DOWN THE LANE than across it, as it is painted — but half again, not the real thing's near three
