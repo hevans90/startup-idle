@@ -32,6 +32,12 @@ export const KEEP = 1;
 export type Side = 0 | 1 | 2 | 3;
 /** How many variants a road tile has; four of them carry a fitting, the rest are plain road. */
 export const VARIANTS = 10;
+/** A road this many cells wide or more is a HIGHWAY — two lanes or more each way: its directions kept apart, edge lines, arrows in its lanes. */
+export const HIGHWAY = 2;
+/** From this many cells wide what keeps a highway's directions apart is a raised median with a barrier; narrower, a double line. */
+export const MEDIAN_FROM = 3;
+/** How often a highway's lanes are arrowed along a run, cells. */
+const ARROW_EVERY = 6;
 /** A junction of more cells than this is a square: the widest crossroads, of two 2-wide roads, is four. */
 const PLAZA = 4;
 export const SIDES: readonly Side[] = [0, 1, 2, 3];
@@ -70,11 +76,22 @@ export type Look = {
   ctr: string;
   /**
    * THE LANE LINES of a road two cells wide or more: `u`/`v`, the way it
-   * runs; `!` before a junction (the centre line its warning line); then its
-   * width in cells and which this is across it, from the low side: `u!3.1`.
+   * runs; on a highway (two cells or more), `a`/`b`/`c` where the run ends
+   * at this cell's low end, its high end, or both — a junction, a crossing,
+   * the end of the road — so its median ends there; `!` before a junction
+   * (the centre line its warning line); `x` in a junction a highway runs
+   * through, its lines carried on past a side road's mouth; then its width in
+   * cells and which this is across it, from the low side: `ub!3.1`.
    * Empty elsewhere. @see agents/lanes/graph laneLines
    */
   ln: string;
+  /**
+   * A HIGHWAY'S ARROWS, in every lane going toward each side listed: the side,
+   * then `L` and `R` where a road leaves that way at the junction ahead — the
+   * inside lane's arrow branches left, the outside lane's right — or `P`, plain,
+   * along a long run. @see render/road-paint highwayArrows
+   */
+  hw: string;
   /** Give way, across the lane coming in on each side listed: `0`–`3` on a one-cell road, `4`–`7` (side + 4) across a whole lane; set back behind a crossing, `a`–`h`. */
   gw: string;
   /** A stop line across the lane coming in, before a box or at lights: encoded as `gw` is. */
@@ -109,7 +126,7 @@ export type Look = {
 
 /** A look as a key: every field, compact. */
 export const keyOf = (l: Look): string =>
-  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.ln}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.xing}.${l.slow}.${l.rb}.${l.bay}`;
+  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.ln}.${l.hw}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.xing}.${l.slow}.${l.rb}.${l.bay}`;
 
 /** What the town's beauty puts on a road cell: its level, and a zebra if it has one. @see roadDressOf */
 export const dressOf = (lvl: number, zebra: boolean) => (lvl & 3) | (zebra ? 4 : 0);
@@ -174,10 +191,10 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array): (Look |
   const streets = streetsOf(g);
   const n = g.w * g.h;
   const region = new Int32Array(n).fill(-1);
-  const regions: { arms: Map<number, Side[]>; major: "u" | "v" | ""; cells: number; sx: number; sy: number }[] = [];
+  const regions: { arms: Map<number, Side[]>; major: "u" | "v" | ""; cells: number; sx: number; sy: number; x0: number; x1: number; y0: number; y1: number }[] = [];
   for (let i0 = 0; i0 < n; i0++) {
     if (mask[i0] < 0 || streets.of[i0] >= 0 || region[i0] >= 0) continue;
-    const id = regions.length, R = { arms: new Map<number, Side[]>(), major: "" as "u" | "v" | "", cells: 0, sx: 0, sy: 0 };
+    const id = regions.length, R = { arms: new Map<number, Side[]>(), major: "" as "u" | "v" | "", cells: 0, sx: 0, sy: 0, x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
     regions.push(R);
     const stack = [i0];
     region[i0] = id;
@@ -185,6 +202,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array): (Look |
       const i = stack.pop()!, x = i % g.w, y = (i / g.w) | 0;
       R.cells++;
       R.sx += x; R.sy += y;
+      R.x0 = Math.min(R.x0, x); R.x1 = Math.max(R.x1, x); R.y0 = Math.min(R.y0, y); R.y1 = Math.max(R.y1, y);
       const o = openOf(mask[i]);
       for (const sd of SIDES) {
         if (!has(o, sd)) continue;
@@ -221,6 +239,15 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array): (Look |
   const roundabout = (R: (typeof regions)[number] | null) => !!R && R.arms.size === 4 && [...R.arms.values()].every((sd) => sd.length >= 2);
   // LIGHTS where four roads or more meet and one is two cells wide or more, short of a roundabout.
   const lights = (R: (typeof regions)[number] | null) => !!R && R.arms.size >= 4 && !roundabout(R) && [...R.arms.values()].some((sd) => sd.length >= 2);
+  // A HIGHWAY THROUGH a junction: the major way, three cells or more across, the junction a plain block of it, and no lights.
+  const throughOf = (R: (typeof regions)[number] | null): { ax: "u" | "v"; k: number; lo: number } | null => {
+    if (!R || !R.major || R.arms.size < 3 || roundabout(R) || lights(R)) return null;
+    const k = R.major === "u" ? R.y1 - R.y0 + 1 : R.x1 - R.x0 + 1, m = R.major === "u" ? R.x1 - R.x0 + 1 : R.y1 - R.y0 + 1;
+    if (k < HIGHWAY || R.cells !== k * m) return null;
+    // Both ways on along it are that wide: a side road, not another highway, is what meets it.
+    const wideArms = [...R.arms.values()].filter((sd) => sd.length === k && sd.every((q) => (q < 2) === (R.major === "u"))).length;
+    return wideArms === 2 ? { ax: R.major, k, lo: R.major === "u" ? R.y0 : R.x0 } : null;
+  };
   // A YELLOW BOX: where wider roads cross, the 2×2 of cells open every way at a junction of four.
   const boxAt = (x: number, y: number) => {
     const R = regionAt(x, y);
@@ -239,7 +266,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array): (Look |
     const L: Look = {
       open: o, diag: diagOf(mask[i]), ramp: g.ramp[i], lvl,
       vr: Math.floor(hash(x * 31.7 + y * 57.3 + 0.5) * VARIANTS),
-      ctr: "", ln: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", xing: "", slow: "", rb: "", bay: "",
+      ctr: "", ln: "", hw: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", xing: "", slow: "", rb: "", bay: "",
     };
     out[i] = L;
     // PARKING BAYS at its kerbs, and a lay-by's taper in beside them.
@@ -286,6 +313,9 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array): (Look |
         L.box = 1 | (border << 1);
       } else if (r === "thick-curve") L.ctr = "b";
       else if ((r === "thin-T" || r === "thin-cross") && R.major) L.ctr = R.major.toUpperCase();
+      // A HIGHWAY THROUGH A JUNCTION with side roads, no lights: its lanes are marked on through it.
+      const T = throughOf(R);
+      if (T && !L.box) L.ln = `${T.ax}x${T.k}.${(T.ax === "u" ? y : x) - T.lo}`;
       // No double yellows round a square: it is somewhere to stop.
       if (kerbed && R.cells <= PLAZA) L.yl = true;
       continue;
@@ -342,7 +372,24 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array): (Look |
       if (left || ahead || right) L.arrow = `${sd}${left ? "L" : ""}${ahead ? "A" : ""}${right ? "R" : ""}`;
     }
     if (straight) L.ctr = warn ? ax.toUpperCase() : ax;
-    else if (wide) L.ln = `${wide.ax}${warn ? "!" : ""}${wide.k}.${wide.c}`;
+    else if (wide) {
+      // A HIGHWAY: where its run ends, for its median; and its arrows.
+      let ends = 0;
+      if (wide.k >= HIGHWAY) for (const sd of along) {
+        const [dx, dy] = STEP[sd];
+        if (!has(o, sd) || regionAt(x + dx, y + dy) || zebraAt(x + 2 * dx, y + 2 * dy)) ends |= sd & 1 ? 2 : 1;
+        // ARROWS a cell back from the junction, in the lanes going to it; and plain ones every few cells of a long run.
+        const J = regionAt(x + 2 * dx, y + 2 * dy);
+        if (J && !regionAt(x + dx, y + dy) && J.arms.size >= 3 && !roundabout(J)) {
+          const [rx, ry] = rightOf(dx, dy), sides = new Set([...J.arms.values()].flat());
+          L.hw += `${sd}${sides.has(sideOf(-rx, -ry)) ? "L" : ""}${sides.has(sideOf(rx, ry)) ? "R" : ""}`;
+        }
+      }
+      if (wide.k >= HIGHWAY && !L.hw && !warn && (wide.ax === "u" ? x : y) % ARROW_EVERY === 2) L.hw = along.map((sd) => `${sd}P`).join("");
+      // Its own lanes' arrows, not the one a two-cell road's whole cell had.
+      if (L.hw) L.arrow = "";
+      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${warn ? "!" : ""}${wide.k}.${wide.c}`;
+    }
     else if (lane >= 0) L.ctr = (warn ? "H" : "h") + opposite(lane as Side);
     else if (r === "thick-curve") { L.ctr = "b"; L.yl = true; }
     if (kerbed && nub) L.yl = true;

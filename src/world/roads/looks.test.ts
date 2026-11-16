@@ -129,12 +129,14 @@ describe("two-lane roads crossing: a roundabout", () => {
 describe("a two-lane road crossed by a one-lane one: lights", () => {
   const g = grid(32, 22, [...row(5, 0, 31), ...row(6, 0, 31), ...col(15, 0, 21).filter(([, y]) => y !== 5 && y !== 6)]);
 
-  test("a stop line across the wide road's lane coming in, set back behind the crossing, and an arrow a cell back", () => {
+  test("a stop line across the wide road's lane coming in, set back behind the crossing, and arrows in its lanes a cell back", () => {
     const inbound = look(g, 14, 6), outbound = look(g, 14, 5);
     expect(inbound.stop).toBe("f");
     expect(inbound.arrow).toBe("");
-    expect(look(g, 13, 6).arrow.startsWith("1")).toBe(true);
-    expect(look(g, 13, 5).arrow).toBe("");
+    // Its lanes' own arrows, toward the junction, with the turns there are: both ways off at a crossroads.
+    expect(look(g, 13, 6).hw).toBe("1LR");
+    expect(look(g, 13, 6).arrow).toBe("");
+    expect(look(g, 17, 5).hw).toBe("0LR");
     expect(inbound.gw).toBe("");
     expect(outbound.stop).toBe("");
   });
@@ -172,5 +174,36 @@ describe("keys", () => {
     expect(keyOf(a)).toBe(keyOf(b));
     expect(keyOf({ ...a, gw: "1" })).not.toBe(keyOf(a));
     expect(keyOf({ ...a, vr: (a.vr + 1) % 10 })).not.toBe(keyOf(a));
+  });
+});
+
+describe("a highway", () => {
+  // Four cells wide, a side road off its far kerb at x = 20, another crossing it whole at x = 40 (lights).
+  const g = grid(60, 24, [
+    ...[8, 9, 10, 11].flatMap((y) => row(y, 0, 59)),
+    ...col(20, 12, 23),
+    ...col(40, 0, 23).filter(([, y]) => y < 8 || y > 11),
+  ]);
+
+  test("its cells say how wide it is and where each is across it, and its run's ends where a junction stops it", () => {
+    expect(look(g, 10, 8).ln).toBe("u4.0");
+    expect(look(g, 10, 11).ln).toBe("u4.3");
+    // The cell before the side road's junction: the run ends at its high end; the one after, at its low end.
+    expect(look(g, 19, 9).ln).toBe("ub!4.1");
+    expect(look(g, 21, 9).ln).toBe("ua!4.1");
+  });
+
+  test("it is marked on through a side road's junction, and not through one at lights", () => {
+    expect(look(g, 20, 8).ln).toBe("ux4.0");
+    expect(look(g, 20, 11).ln).toBe("ux4.3");
+    expect(look(g, 40, 9).ln).toBe("");
+  });
+
+  test("its lanes are arrowed a cell back from a junction with the turns there are, and plainly along a run", () => {
+    // Going toward +x (side 1) the side road is off to the right; going back toward it, off to the left.
+    expect(look(g, 18, 9).hw).toBe("1R");
+    expect(look(g, 22, 9).hw).toBe("0L");
+    expect(look(g, 8, 9).hw).toBe("0P1P");
+    expect(look(g, 9, 9).hw).toBe("");
   });
 });

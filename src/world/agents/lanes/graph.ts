@@ -195,6 +195,8 @@ export type LaneGraph = {
  * @see roads/looks Look.ln, render/road-paint laneLines
  */
 export const PARK_STRIP = 0.2;
+/** From this many cells wide a road has a hard shoulder where a narrower one has parking bays. */
+export const SHOULDERED = 4;
 export const lanesFor = (k: number) => (k <= 1 ? 1 : Math.min(4, k));
 export const laneSpan = (k: number) => k / 2 - WALK - (k > 1 ? PARK_STRIP : 0);
 export const laneOffset = (k: number, i: number) => ((i + 0.5) * laneSpan(k)) / lanesFor(k);
@@ -458,6 +460,8 @@ function baysOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], cro
     for (let k = -1; k <= 1; k++) crossed.add(`${st.id},${a + k}`);
   }
   for (const st of streets) {
+    // A road four cells wide or more keeps no bays: its strip is a hard shoulder.
+    if (st.width >= SHOULDERED) continue;
     const outer = st.lanes.map((id) => lanes[id]).filter((l) => l.slot === (l.lanes ?? 1) - 1);
     const narrow = st.width === 1;
     // Each outer lane: its kerb's side across, and its cells along that kerb fronted by a building.
