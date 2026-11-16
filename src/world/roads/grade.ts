@@ -122,7 +122,8 @@ function levelRamp(g: Grid, x: number, y: number, was: (i: number) => number, on
   // RAISED to the top of its climb, the rows below it brought up behind — each no more than a step under the
   // next — for as far as that takes: a flight of ramps moved a tile down the hill. Every row that then climbs
   // differently must be road alone, nothing joining it from the side.
-  const ends = (k: number) => !row.some(([rx, ry]) => paved(g, rx + k * ux, ry + k * uy));
+  // (A bridge's deck in the row is road too, and is where it is: the levelling stops at it and is given up.)
+  const ends = (k: number) => !row.some(([rx, ry]) => { const cx = rx + k * ux, cy = ry + k * uy; return inBounds(g, cx, cy) && g.paved[idx(g, cx, cy)] !== 0; });
   const raise = (): Map<number, number> | null => {
     const writes = new Map<number, number>();
     for (const [rx, ry] of row) writes.set(idx(g, rx, ry), h + r);
@@ -462,16 +463,41 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
     for (let k = 0; k < n; k++) { const i = idx(g, path[k].x, path[k].y); if (g.deck[i] !== 0) staged.set(i, g.deckZ[i]); }
     const now = { inBounds: (x: number, y: number) => inBounds(g, x, y), paved: (x: number, y: number) => inBounds(g, x, y) && g.paved[idx(g, x, y)] !== 0, height: (x: number, y: number) => surface(g, idx(g, x, y)) };
     const then = { inBounds: now.inBounds, paved: (x: number, y: number) => inBounds(g, x, y) && (g.paved[idx(g, x, y)] !== 0 || on.has(idx(g, x, y))), height: (x: number, y: number) => staged.get(idx(g, x, y)) ?? surface(g, idx(g, x, y)) };
-    const seen = new Set<number>(), bad = new Set<number>(), decking = new Set<number>();
+    const bad = new Set<number>(), decking = new Set<number>();
     for (let k = 0; k < n; k++) if (span[k] !== undefined) decking.add(idx(g, path[k].x, path[k].y));
-    for (let k = 0; k < n; k++) for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const x = path[k].x + dx, y = path[k].y + dy;
-      if (!then.paved(x, y) || seen.has(idx(g, x, y))) continue;
-      seen.add(idx(g, x, y));
-      const need = rampNeed(then, x, y).kind, was = now.paved(x, y) ? rampNeed(now, x, y).kind : "none";
-      // (A deck is level: it climbs to nothing. One asked to is a bank standing over it.)
-      const decked = g.deck[idx(g, x, y)] !== 0 || decking.has(idx(g, x, y));
-      if ((need === "unbridgeable" && was !== "unbridgeable") || (decked && need !== "none" && was === "none")) bad.add(k);
+    const deckedThen = (x: number, y: number) => g.deck[idx(g, x, y)] !== 0 || decking.has(idx(g, x, y));
+    /** How high a cell's road reaches toward its neighbour `d`, as read: a ramp's high edge is the one it climbs to. */
+    const edge = (read: typeof now, decked: boolean, x: number, y: number, d: number) => {
+      const need = decked ? null : rampNeed(read, x, y);
+      return read.height(x, y) + (need && need.kind === "ramp" && need.dir === d + 1 ? need.rise : 0);
+    };
+    const joined = (read: typeof now, decked: (x: number, y: number) => boolean, x: number, y: number, d: number) => {
+      const [dx, dy] = NEIGHBOUR[DIRS[d]];
+      return edge(read, decked(x, y), x, y, d) === edge(read, decked(x + dx, y + dy), x + dx, y + dy, (d + 2) % 4);
+    };
+    const deckedNow = (x: number, y: number) => g.deck[idx(g, x, y)] !== 0;
+    // Every cell the stroke lays or moves, and the road round each: the path's, and a ramp's levelled for a junction.
+    const moving = new Map<number, number>();
+    for (let k = 0; k < n; k++) moving.set(idx(g, path[k].x, path[k].y), k);
+    for (const i of levelled.keys()) if (!moving.has(i)) moving.set(i, -1);
+    const blame = (k: number, x: number, y: number) => { if (k >= 0) { bad.add(k); return; } let best = 0; for (let q = 1; q < n; q++) if (Math.abs(path[q].x - x) + Math.abs(path[q].y - y) < Math.abs(path[best].x - x) + Math.abs(path[best].y - y)) best = q; bad.add(best); };
+    for (const [i, k] of moving) {
+      const cx = i % g.w, cy = (i / g.w) | 0;
+      for (const [ox, oy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const x = cx + ox, y = cy + oy;
+        if (!then.paved(x, y)) continue;
+        const need = rampNeed(then, x, y).kind, was = now.paved(x, y) ? rampNeed(now, x, y).kind : "none";
+        // (A deck is level: it climbs to nothing. One asked to is a bank standing over it.)
+        if ((need === "unbridgeable" && was !== "unbridgeable") || (deckedThen(x, y) && need !== "none" && was === "none")) blame(k, x, y);
+      }
+      // AND IT JOINS WHAT IS BESIDE IT: every road next to a cell laid or moved meets it edge to edge — unless the
+      // two were there before and did not.
+      for (let d = 0; d < 4; d++) {
+        const [dx, dy] = NEIGHBOUR[DIRS[d]], x = cx + dx, y = cy + dy;
+        if (!then.paved(x, y) || joined(then, deckedThen, cx, cy, d)) continue;
+        if (now.paved(cx, cy) && now.paved(x, y) && !joined(now, deckedNow, cx, cy, d)) continue;
+        blame(k, cx, cy);
+      }
     }
     if (bad.size) {
       const at = [...bad].sort((p, q) => p - q).map((k) => ({ x: path[k].x, y: path[k].y }));
