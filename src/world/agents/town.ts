@@ -838,7 +838,9 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
       // (One who has waited, only if it can stop for them gently: too near, it goes on, and they after it.)
       const patient = now.foot.patient.has(x.c) && front - CROSS_STOP > (v * v) / (2 * IDM_B) + 0.05;
       // (Stood at it a while for them, with the way on clear: its turn — no more step out, and it goes once they are over.)
-      const turn = m.stuck > CARS_TURN && front - CROSS_STOP < 0.3 && clearPast(now, d, j, m, x.s) && !T.signals.has(G.crossings[x.c].junction);
+      // (Just out of a junction, its tail still in it and the junction stopped behind it: its turn comes sooner.)
+      const leaving = G.lanes[d.lanes[j]].kind === "street" && x.s < G.lanes[d.lanes[j]].len / 2;
+      const turn = m.stuck > (leaving ? CARS_TURN_OUT : CARS_TURN) && front - CROSS_STOP < 0.3 && clearPast(now, d, j, m, x.s) && !T.signals.has(G.crossings[x.c].junction);
       if (turn) heldOf(T).set(x.c, t.t);
       if (now.foot.on.has(x.c) || (!turn && (patient || (now.foot.waiting.has(x.c) && zebraAt(t, T, x.c))))) follow(A, v, front - CROSS_STOP, 0, 0.02);
     }
@@ -1008,7 +1010,9 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
   if (r < d.lanes.length) {
     // (On a short street between two junctions, anybody there at all: about to stop at the next one's line.)
     const need = 2 * halfLength(m) + GAP, short = G.lanes[d.lanes[r]].len < SHORT_BLOCK;
-    for (const o of now.on.get(d.lanes[r]) ?? []) if (o.m !== m && o.s - halfLength(o.m) < need && (short || o.m.speed < 0.5)) return false;
+    // (But not one already let on through the next junction and moving: it will be gone.)
+    const going = (o: Onto) => { const e = o.m.drive; return !!e && e.let > e.k && o.m.speed > 0.4; };
+    for (const o of now.on.get(d.lanes[r]) ?? []) if (o.m !== m && o.s - halfLength(o.m) < need && (short ? !going(o) : o.m.speed < 0.5)) return false;
     // (Nor onto a short one while another, let in from elsewhere, is still on its way through the junction into it.)
     if (short) for (const P of T.into.get(d.lanes[r]) ?? []) for (const o of now.on.get(P) ?? []) if (o.m !== m && o.m.drive?.lanes[o.m.drive.k + 1] === d.lanes[r]) return false;
     // (Nor ahead of one long waiting at another way into it, first at its line: its turn.)
@@ -1110,6 +1114,8 @@ const WALK_PATIENT = 4;
 const CROSS_HALF = 0.3;
 /** How long a vehicle stands at a crossing for those on foot before its turn, seconds. */
 const CARS_TURN = 10;
+/** And at the crossing on its way out of a junction, where it stands across the junction's mouth. */
+const CARS_TURN_OUT = 3;
 
 /** THE CROSSINGS A VEHICLE HAS WAITED ITS TURN AT, each with when it last asked: nobody more steps out on them till it is over. */
 const helds = new WeakMap<Traffic, Map<number, number>>();

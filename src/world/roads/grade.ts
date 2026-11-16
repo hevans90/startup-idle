@@ -123,7 +123,16 @@ function levelRamp(g: Grid, x: number, y: number, was: (i: number) => number, on
       // The row just below climbs to it anew, and any row brought up is climbed to anew: road alone, each.
       if ((k === -1 || to !== was) && !rowAt(k)) return null;
       // Left where it is, it climbs to the row brought up: not if it is the foot of a climb the other way too.
-      if (to === was) { const under = ends(k - 1) ? null : levelOf(rowAt(k - 1, false)); return was < next && under !== null && under > was ? null : writes; }
+      if (to === was) {
+        const under = ends(k - 1) ? null : levelOf(rowAt(k - 1, false));
+        if (!(was < next && under !== null && under > was)) return writes;
+        // THE FOOT OF A CLIMB THE OTHER WAY TOO — two ramps back to back, a dip with no floor: filled, to the lower of
+        // the two it lay between, and level with that one or climbing to the other the one way.
+        const cells = rowAt(k);
+        if (!cells) return null;
+        for (const j of cells) writes.set(j, Math.min(next, under));
+        return writes;
+      }
       for (const j of rowAt(k)!) writes.set(j, to);
       next = to;
     }

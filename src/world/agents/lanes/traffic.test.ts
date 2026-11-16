@@ -226,11 +226,7 @@ describe("traffic on the lanes", () => {
     done();
     // (Streets 11: a frame of a bus's tail swung over a car stood at the end of a street a cell wide, turning into it. @see town swingOf)
     expect(r.overlaps).toBeLessThanOrEqual(id === "streets" ? 1 : 0);
-    // (Bigtown 88, keeping left: a bus turning into a block two cells long holds the car in it back from its end, and the
-    // queue behind reaches the junction before; one car stands past its patience. Not a knot: it clears. @see town swingOf)
-    const slow = id === "bigtown" && seed === 88;
-    expect(r.gone).toBeLessThanOrEqual(slow ? 1 : 0);
-    // (Traffic 22, keeping left: one wait of 37 s at the roundabout — as keeping right had on other runs of it.)
-    expect(r.longest).toBeLessThan(slow ? 50 : id === "traffic" ? 40 : 35);
+    expect(r.gone).toBe(0);
+    expect(r.longest).toBeLessThan(35);
   });
 });
