@@ -194,6 +194,8 @@ export type LaneGraph = {
  * where the paint divides them, right of the middle: the centre line first.
  * @see roads/looks Look.ln, render/road-paint laneLines
  */
+/** A U-turn at a dead end: how far past its lanes' ends it bulges, as a share of the way across it; and how far past the last cell's middle there is road to turn on. @see turnCurve */
+const UTURN_BULGE = 0.675, UTURN_ROOM = 0.16;
 export const PARK_STRIP = 0.2;
 /** From this many cells wide a road has a hard shoulder where a narrower one has parking bays. */
 export const SHOULDERED = 4;
@@ -274,7 +276,10 @@ export function buildLaneGraph(g: Grid): LaneGraph {
     const st: Street = { id, axis: d.axis, a0: d.a0, a1: d.a1, span: d.span, width: k, mid, ends, lanes: [] };
     streets.push(st);
     // A lane runs from gate to gate; at a dead end it stops short, for the U-turn.
-    const endAt = (e: 0 | 1) => (e ? d.a1 + (ends[1].kind === "dead" ? -0.05 : 0.5) : d.a0 - (ends[0].kind === "dead" ? -0.05 : 0.5));
+    // SHORT ENOUGH that the widest turn — its outside lane round to the inside lane back, bulging two thirds of
+    // the way across between them — stays on the road: on a road four cells wide that is most of a cell back.
+    const short = Math.min(-0.05, UTURN_ROOM - UTURN_BULGE * (laneOffset(k, lanesFor(k) - 1) + laneOffset(k, 0)));
+    const endAt = (e: 0 | 1) => (e ? d.a1 + (ends[1].kind === "dead" ? short : 0.5) : d.a0 - (ends[0].kind === "dead" ? short : 0.5));
     const P = (a: number, b: number): Pt => (d.axis === "x" ? { x: a, y: b } : { x: b, y: a });
     const hPlus: Pt = d.axis === "x" ? { x: 1, y: 0 } : { x: 0, y: 1 };
     const rPlus = right(hPlus), bSign = d.axis === "x" ? rPlus.y : rPlus.x;

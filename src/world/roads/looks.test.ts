@@ -218,16 +218,37 @@ describe("a road tile's variant", () => {
 });
 
 describe("speed roundels", () => {
-  test("two cells out of a junction there is one for each way along the road, and none elsewhere", () => {
+  test("three cells out of a junction there is one for each way along the road, and none elsewhere", () => {
     // A long street off a T at x = 10.
     const g = grid(40, 20, [...row(8, 0, 39), ...col(10, 9, 19)]);
-    expect(look(g, 12, 8).spd).toBe("020120");
-    expect(look(g, 8, 8).spd).toBe("020120");
-    expect(look(g, 13, 8).spd).toBe("");
+    expect(look(g, 13, 8).spd).toBe("020120");
+    expect(look(g, 7, 8).spd).toBe("020120");
+    expect(look(g, 12, 8).spd).toBe("");
     expect(look(g, 20, 8).spd).toBe("");
     // On a road two cells wide, every cell across it says so: each way's nearside lane is in one of them.
     const w = grid(40, 20, [...row(8, 0, 39), ...row(9, 0, 39), ...col(10, 10, 19)]);
-    expect(look(w, 12, 8).spd).toBe("030130");
-    expect(look(w, 12, 9).spd).toBe("030130");
+    expect(look(w, 13, 8).spd).toBe("030130");
+    expect(look(w, 13, 9).spd).toBe("030130");
+    // And never in the cell the lanes' arrows are in.
+    expect(look(w, 12, 8).spd).toBe("");
+    expect(look(w, 12, 8).hw).not.toBe("");
+  });
+});
+
+describe("a wide road at a junction", () => {
+  test("three cells wide at lights: a stop line across each way in, on every cell of its width, set back behind the crossing", () => {
+    const g = grid(40, 24, [...[8, 9, 10].flatMap((y) => row(y, 0, 39)), ...col(20, 0, 23).filter(([, y]) => y < 8 || y > 10)]);
+    for (const y of [8, 9, 10]) { expect(look(g, 19, y).hs).toBe("1Sb"); expect(look(g, 21, y).hs).toBe("0Sb"); }
+    expect(look(g, 19, 9).xing).toBe("u");
+  });
+
+  test("its bend is carried round: every cell of the corner knows the road's width and the inside corner, and the run does not end there", () => {
+    // Three wide along y 8-10 from x 0 to 22, then down x 20-22.
+    const g = grid(40, 30, [...[8, 9, 10].flatMap((y) => row(y, 0, 22)), ...[20, 21, 22].flatMap((x) => col(x, 11, 29))]);
+    // The corner is x 20-22, y 8-10; the ways out are toward x − 1 and y + 1: the inside corner is at (20, 11).
+    expect(look(g, 20, 8).bd).toBe("3,0,3");
+    expect(look(g, 22, 10).bd).toBe("3,-2,1");
+    expect(look(g, 19, 9).ln).toBe("u!3.1");
+    expect(look(g, 19, 9).hs).toBe("");
   });
 });
