@@ -136,7 +136,24 @@ function profileOf(L: Look, s: Side): [number, number][] {
 }
 /** A rounded corner where two kerbs meet: the carriageway's corner, radius `rc`. */
 type Round = { c: number; rc: number };
-type Shape = { bands: Band[]; rounds: Round[]; nubs: number[]; full: boolean };
+/**
+ * A corner CUT STRAIGHT ACROSS, where a wide road jogs a cell sideways: `big`,
+ * the corner cell of the jog, its kerb a diagonal from one way on to the
+ * other and all behind it pavement; else the small corner opposite, in place
+ * of a round nub. Together the kerb runs straight through the jog.
+ */
+type Cut = { c: number; big: boolean };
+type Shape = { bands: Band[]; rounds: Round[]; nubs: number[]; cuts: Cut[]; full: boolean };
+/** A cut's kerb line at depth `o` as a band measures it — the road's edge at WALK — its two ends. As thick across as a band's. */
+function cutEdge(K: Cut, o: number): [[number, number], [number, number]] {
+  const { cu, cv, du, dv } = cornerOf(K.c), d = WALK + (o - WALK) * Math.SQRT2;
+  return K.big ? [[cu + du, cv + dv * d], [cu + du * d, cv + dv]] : [[cu + du * d, cv], [cu, cv + dv * d]];
+}
+/** A cut's pavement: everything behind its kerb line. */
+function cutShape(K: Cut): [number, number][] {
+  const { cu, cv, du, dv } = cornerOf(K.c), [p, q] = cutEdge(K, WALK);
+  return K.big ? [[cu, cv], [cu + du, cv], p, q, [cu, cv + dv]] : [[cu, cv], p, q];
+}
 
 /** A corner's two sides: the u one, the v one. */
 const sidesOf = (c: number): [Side, Side] => [(c & 1 ? 1 : 0) as Side, (c & 2 ? 3 : 2) as Side];
@@ -150,11 +167,16 @@ const sidesOf = (c: number): [Side, Side] => [(c & 1 ? 1 : 0) as Side, (c & 2 ? 
  */
 function shapeOf(L: Look): Shape {
   const kerb = (s: Side) => !has(L.open, s);
-  if (L.open === 0) return { bands: [], rounds: [], nubs: [], full: true };
-  const rounds: Round[] = [], nubs: number[] = [];
+  if (L.open === 0) return { bands: [], rounds: [], nubs: [], cuts: [], full: true };
+  const rounds: Round[] = [], nubs: number[] = [], cuts: Cut[] = [];
+  // WHERE A WIDE ROAD JOGS, its corners are cut straight: the kerb runs on through, not out and round.
+  const jog = wideOf(L.ln)?.jog ?? false;
+  const cutSide = new Set<Side>();
   const rcOf: (number | null)[] = [null, null, null, null];
   for (let c = 0; c < 4; c++) {
     const [su, sv] = sidesOf(c);
+    if (jog && kerb(su) && kerb(sv) && !kerb(opposite(su)) && !kerb(opposite(sv))) { cuts.push({ c, big: true }); cutSide.add(su); cutSide.add(sv); continue; }
+    if (jog && !kerb(su) && !kerb(sv) && !(L.diag & (1 << c))) { cuts.push({ c, big: false }); continue; }
     if (kerb(su) && kerb(sv)) {
       // As far as the road runs from the corner either way: to the far kerb's half, or the far edge.
       const along = (s: Side) => (kerb(opposite(s)) ? (1 - 2 * WALK) / 2 : 1 - WALK);
@@ -167,7 +189,7 @@ function shapeOf(L: Look): Shape {
   // Each band's ends are two corners: where one is rounded, the round takes over.
   const ends: Record<Side, [number, number]> = { 0: [0, 2], 1: [1, 3], 2: [0, 1], 3: [2, 3] };
   for (const s of [0, 1, 2, 3] as Side[]) {
-    if (!kerb(s)) continue;
+    if (!kerb(s) || cutSide.has(s)) continue;
     const [c0, c1] = ends[s];
     const a0 = rcOf[c0] !== null ? WALK + rcOf[c0]! : 0;
     const a1 = rcOf[c1] !== null ? 1 - WALK - rcOf[c1]! : 1;
@@ -181,7 +203,7 @@ function shapeOf(L: Look): Shape {
       bands.push({ s, a0: b0, a1: b1, w0: w(b0), w1: w(b1) });
     }
   }
-  return { bands, rounds, nubs, full: false };
+  return { bands, rounds, nubs, cuts, full: false };
 }
 
 /** A point `a` along a band and `d` in from its side. */
@@ -245,6 +267,7 @@ function alongKerb(ctx: Ctx, S: Shape, o0: number, o1: number, colour: string | 
     ctx.fill();
   }
   for (const c of S.nubs) { sector(ctx, (t, r) => nubPt(c, t, r), 0, Math.PI / 2, o0, o1); ctx.fill(); }
+  for (const K of S.cuts) { const [a0, a1] = cutEdge(K, o0), [b0, b1] = cutEdge(K, o1); poly(ctx, [a0, a1, b1, b0]); ctx.fill(); }
 }
 
 /** The pavement's outline, kerb and all: what stands up off the road. */
@@ -269,6 +292,7 @@ function footprint(ctx: Ctx, S: Shape) {
     for (let j = 0; j <= n; j++) pts.push(nubPt(c, (Math.PI / 2) * (j / n), WALK));
     add(pts);
   }
+  for (const K of S.cuts) add(cutShape(K));
 }
 
 // ─── PAVING, BY THE STREET'S LEVEL ──────────────────────────────────────────
@@ -430,10 +454,10 @@ function centreLine(ctx: Ctx, L: Look) {
 const LANE_DASH: [number, number][] = [[0.4, 0.6]];
 
 /** A WIDE ROAD's own Look.ln, read: the way it runs, where its run ends (1 its low end, 2 its high, 3 both), warned of a junction, through one, how wide, and which cell across. */
-type Wide = { ax: "u" | "v"; ends: number; plain: boolean; warn: boolean; thru: boolean; k: number; c: number; dq: number };
+type Wide = { ax: "u" | "v"; ends: number; plain: boolean; jog: boolean; warn: boolean; thru: boolean; k: number; c: number; dq: number };
 function wideOf(ln: string): Wide | null {
-  const m = /^([uv])([abc]?)(n?)(!?)(x?)(\d+)\.(-?\d+(?:\.\d+)?)(?:~(-?[\d.]+))?$/.exec(ln);
-  return m ? { ax: m[1] as "u" | "v", ends: m[2] ? "abc".indexOf(m[2]) + 1 : 0, plain: !!m[3], warn: !!m[4], thru: !!m[5], k: Number(m[6]), c: Number(m[7]), dq: Number(m[8] ?? 0) } : null;
+  const m = /^([uv])([abc]?)(n?)(j?)(!?)(x?)(\d+)\.(-?\d+(?:\.\d+)?)(?:~(-?[\d.]+))?$/.exec(ln);
+  return m ? { ax: m[1] as "u" | "v", ends: m[2] ? "abc".indexOf(m[2]) + 1 : 0, plain: !!m[3], jog: !!m[4], warn: !!m[5], thru: !!m[6], k: Number(m[7]), c: Number(m[8]), dq: Number(m[9] ?? 0) } : null;
 }
 /** How far across a road's middle has slanted, `a` along this cell from its low edge: nothing on a straight road; through a jog, a little a cell. */
 const slantAt = (W: Wide, a: number) => W.dq * (a - 0.5);
@@ -1170,6 +1194,15 @@ function paintRaised(ctx: Ctx, L: Look) {
   }
   for (const c of S.nubs) for (const q of piecesOf(lvl, L.vr, 20 + c, 0, PAVE)) {
     piece(q, (a0, a1, d0, d1) => sector(ctx, (t, r) => nubPt(c, t, r), (a0 * Math.PI) / 2, (a1 * Math.PI) / 2, d0, d1));
+  }
+  // A CUT CORNER'S PAVING: laid square to the tile, as much of it as lies behind the cut.
+  for (const K of S.cuts) {
+    ctx.save();
+    poly(ctx, cutShape(K));
+    ctx.clip();
+    const side: Side = K.c & 2 ? 3 : 2;
+    for (const q of piecesOf(lvl, L.vr, 30 + K.c, PAVE - 1, PAVE)) piece(q, (a0, a1, d0, d1) => bandRect(ctx, side, a0, a1, d0 + 1 - PAVE, d1 + 1 - PAVE));
+    ctx.restore();
   }
   // TACTILE PAVING at a zebra's ends: buff, studded, the kerb dropped flush.
   if (L.zeb) {

@@ -92,7 +92,9 @@ export type Look = {
    * runs; on a highway (two cells or more), `a`/`b`/`c` where the run ends
    * at this cell's low end, its high end, or both — a junction, a crossing,
    * the end of the road — so its median ends there, and `n` where it ends
-   * plainly, no taper, between two junctions close together; `!` before a junction
+   * plainly, no taper, between two junctions close together; `j` in the slice
+   * where it jogs a cell sideways, a cell wider than the road, whose kerbs cut
+   * the corner; `!` before a junction
    * (the centre line its warning line); `x` in a junction a highway runs
    * through, its lines carried on past a side road's mouth; then its width in
    * cells and which this is across it, from the low side: `ub!3.1` — not a
@@ -256,7 +258,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
     R.major = through.length === 1 ? through[0] : through.length === 2 ? (len("v") > len("u") ? "v" : "u") : "";
   }
   // ACROSS A WIDE STREET: the way it runs, how wide it is, and where each of its cells is across it.
-  const across = new Map<number, { ax: "u" | "v"; k: number; c: number; dq: number; last: number }>();
+  const across = new Map<number, { ax: "u" | "v"; k: number; c: number; dq: number; last: number; jog: boolean }>();
   const round3 = (v: number) => Math.round(v * 1000) / 1000;
   for (const cells of streets.tiles) {
     if (cells.length < 2) continue;
@@ -278,7 +280,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
       const e0 = n > 0 && as[n - 1] === a - 1 ? (mid[n - 1] + mid[n]) / 2 : mid[n], e1 = n + 1 < as.length && as[n + 1] === a + 1 ? (mid[n] + mid[n + 1]) / 2 : mid[n];
       // The street's own last slice each way, a bit each: where its run can end. A cell of a jog with no road on from it is not that.
       const last = (n === 0 ? 1 : 0) | (n === as.length - 1 ? 2 : 0);
-      for (const b of slices.get(a)!) across.set(ax === "u" ? idx(g, a, b) : idx(g, b, a), { ax, k, c: round3(b - (mid[n] - k / 2)), dq: round3(e1 - e0), last });
+      for (const b of slices.get(a)!) across.set(ax === "u" ? idx(g, a, b) : idx(g, b, a), { ax, k, c: round3(b - (mid[n] - k / 2)), dq: round3(e1 - e0), last, jog: slices.get(a)!.length > k });
     });
   }
   const regionAt = (x: number, y: number) => { const i = at(x, y); return i < 0 ? null : region[i] < 0 ? null : regions[region[i]]; };
@@ -474,7 +476,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
       if (wide.k >= HIGHWAY && !L.hw && !L.spd && !warn && !near && (wide.ax === "u" ? x : y) % ARROW_EVERY === 2) L.hw = along.map((sd) => `${sd}P`).join("");
       // Its own lanes' arrows, not the one a two-cell road's whole cell had.
       if (L.hw) L.arrow = "";
-      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${short && ends ? "n" : ""}${warn ? "!" : ""}${wide.k}.${wide.c}${wide.dq ? "~" + wide.dq : ""}`;
+      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${short && ends ? "n" : ""}${wide.jog ? "j" : ""}${warn ? "!" : ""}${wide.k}.${wide.c}${wide.dq ? "~" + wide.dq : ""}`;
     }
     else if (lane >= 0) L.ctr = (warn ? "H" : "h") + opposite(lane as Side);
     else if (r === "thick-curve") { L.ctr = "b"; L.yl = true; }
