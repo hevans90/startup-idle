@@ -163,15 +163,15 @@ function levelRamp(g: Grid, x: number, y: number, was: (i: number) => number, on
  * order, each beside the one before. A path that doubles back on itself is
  * graded as it first passes.
  */
-export function gradeRoad(g: Grid, path: readonly GradeCell[], o: { dry?: boolean } = {}): Grade {
+export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
   const n = path.length;
-  // NOT THROUGH A BUILDING, and in the game not into open water: nothing is laid, and nothing graded.
+  // NOT THROUGH A BUILDING, and not into open water: nothing is laid, and nothing graded.
   const stopped = (why: string, at: GradeCell[]): Grade =>
     ({ heights: path.map((c) => surface(g, idx(g, c.x, c.y))), moved: [], blocked: at, short: 0, why, brief: briefly(0, why) });
   const fresh = path.filter((c) => g.paved[idx(g, c.x, c.y)] === 0);
   const built = fresh.filter((c) => structureAt(g, c.x, c.y) >= 0);
   if (built.length) return stopped(IN_THE_WAY, built);
-  const wet = o.dry ? fresh.filter((c) => { const i = idx(g, c.x, c.y); return g.deck[i] === 0 && (g.pool[i] > 0 || g.inflow[i] > 0); }) : [];
+  const wet = fresh.filter((c) => { const i = idx(g, c.x, c.y); return g.deck[i] === 0 && (g.pool[i] > 0 || g.inflow[i] > 0); });
   if (wet.length) return stopped(OPEN_WATER, wet);
   const h = new Array<number>(n), pin = new Array<boolean>(n).fill(false);
   const on = new Set(path.map((c) => idx(g, c.x, c.y)));
@@ -349,7 +349,7 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[], o: { dry?: boolea
  * grades nothing: a line dragged with a brush one cell wide. The cursor and
  * the commit both ask this, so what is shown is what is laid.
  */
-export function gradeStroke(g: Grid, s: Stroke, radius = 0, o: { dry?: boolean } = {}): Grade | null {
+export function gradeStroke(g: Grid, s: Stroke, radius = 0): Grade | null {
   if (s.tool !== "paintRoad" || s.brush !== "line" || s.path || radius > 0) return null;
-  return gradeRoad(g, strokeCells(g, s), o);
+  return gradeRoad(g, strokeCells(g, s));
 }

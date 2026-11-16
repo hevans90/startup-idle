@@ -67,7 +67,7 @@ export function PlaceReadout({ className }: { className?: string }) {
       : { text: what, price: price && formatCurrency(price), tone: "ok" };
   } else if (tool === "paintRoad" && stroke && playing) {
     // A ROAD THE HILL REFUSES, said while it is dragged and not only once it is let go. @see gradeRoad
-    const grade = gradeStroke(grid, stroke, brushRadius, { dry: playing });
+    const grade = gradeStroke(grid, stroke, brushRadius);
     if (grade?.blocked.length) line = { text: grade.brief, price: null, tone: "bad" };
   }
   return (

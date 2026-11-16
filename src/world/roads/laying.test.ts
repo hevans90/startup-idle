@@ -140,19 +140,29 @@ describe("laying roads", () => {
     return problems;
   };
 
-  test("a building in the way stops the road, and one beside it keeps its ground", () => {
-    const g = fresh();
-    expect(placeStructure("kit:intern.t0", { x: 18, y: 20 })).toBe(true);
-    expect(placeStructure("kit:intern.t0", { x: 15, y: 19 })).toBe(true);
-    const ground = [g.height[idx(g, 18, 20)], g.height[idx(g, 15, 19)]];
-    // Through the first: nothing laid, and it says why.
-    expect(drag("paintRoad", 8, 20, 26, 20)).toBe(IN_THE_WAY);
-    expect(g.paved[idx(g, 12, 20)]).toBe(0);
-    // Past both, a row along: laid, and neither building's ground has moved.
-    expect(drag("paintRoad", 8, 21, 26, 21)).toBe("");
-    expect(drag("paintRoad", 8, 18, 26, 18)).toBe("");
-    expect([g.height[idx(g, 18, 20)], g.height[idx(g, 15, 19)]]).toEqual(ground);
-    expect(sound(g, 2)).toEqual([]);
+  test("a building in the way stops the road, and one beside it keeps its ground, on every kind of hill", () => {
+    for (const [name, terrain] of [["terraces", hills], ["even slope", slope], ["slope across both ways", diag]] as const) {
+      // Along the hill and up it: a building on the road's line, and others just off it either side.
+      for (const along of [false, true]) {
+        const g = fresh(terrain);
+        const at = (a: number, b: number) => (along ? { x: 21 + b, y: a } : { x: a, y: 21 + b });
+        const road = (b: number) => { const p = at(8, b), q = at(40, b); return drag("paintRoad", p.x, p.y, q.x, q.y); };
+        const homes = [at(18, 0), at(15, -1), at(24, 1), at(30, -1), at(34, 1)];
+        for (const h of homes) expect({ name, along, placed: placeStructure("kit:intern.t0", h) }).toEqual({ name, along, placed: true });
+        const ground = homes.map((h) => g.height[idx(g, h.x, h.y)]);
+        // Through the first: nothing laid, and it says why.
+        expect(road(0)).toBe(IN_THE_WAY);
+        expect(g.paved.some((v) => v !== 0)).toBe(false);
+        // Past them all, two rows either side: laid — or refused and said so, never in pieces — and no building's ground has moved.
+        const said = [road(-2), road(2)];
+        expect(homes.map((h) => g.height[idx(g, h.x, h.y)])).toEqual(ground);
+        const laid = said.filter((t) => t === "").length;
+        expect({ name, along, problems: laid ? sound(g, laid) : [], said: said.every((t) => t === "" || /^Too steep/.test(t)) }).toEqual({ name, along, problems: [], said: true });
+        // And a road ending at a building's door: it stops beside it.
+        expect(drag("paintRoad", at(18, 0).x + (along ? 6 : 0), at(18, 0).y + (along ? 0 : 6), at(18, 0).x + (along ? 1 : 0), at(18, 0).y + (along ? 0 : 1))).not.toBe(IN_THE_WAY);
+        expect(homes.map((h) => g.height[idx(g, h.x, h.y)])).toEqual(ground);
+      }
+    }
   });
 
   test("over a main or a sewer the road goes, and the ground they lie in is left alone", () => {
@@ -208,7 +218,7 @@ describe("laying roads", () => {
     expect(sound(g)).toEqual([]);
   });
 
-  test("open water: in the game the road stops at it and says so; a bridge already there is joined", () => {
+  test("open water: the road stops at it and says so; a bridge already there is joined", () => {
     s().resize(64, 64);
     const g = s().grid;
     generateMap(g, { seed: 7, material: 1, dirt: 2, sand: 3, woods: [4, 5, 6] });
@@ -222,11 +232,11 @@ describe("laying roads", () => {
     }
     expect(at).not.toBeNull();
     const [x, y] = at!;
+    // In the editor as in the game: nothing laid, and it says why.
+    expect(drag("paintRoad", x, y, x + 3, y)).toBe(OPEN_WATER);
+    expect(G.paved[idx(G, x, y)]).toBe(0);
     useWorldStore.setState({ playing: true });
-    try {
-      expect(drag("paintRoad", x, y, x + 3, y)).toBe(OPEN_WATER);
-      expect(G.paved[idx(G, x, y)]).toBe(0);
-    } finally { useWorldStore.setState({ playing: false }); }
+    try { expect(drag("paintRoad", x, y, x + 3, y)).toBe(OPEN_WATER); } finally { useWorldStore.setState({ playing: false }); }
     // Every bridge the map came with still carries its road at its own level.
     const read = { inBounds: (cx: number, cy: number) => cx >= 0 && cy >= 0 && cx < G.w && cy < G.h, paved: (cx: number, cy: number) => isPaved(G, cx, cy), height: (cx: number, cy: number) => (G.deck[idx(G, cx, cy)] ? G.deckZ[idx(G, cx, cy)] : G.height[idx(G, cx, cy)]) };
     let decks = 0;
