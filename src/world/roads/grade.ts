@@ -36,6 +36,8 @@ export type Grade = {
   short: number;
   /** Why the stroke is refused, to say to the player; empty when it is not. */
   why: string;
+  /** The same in a few words, for beside the pointer while it is dragged. */
+  brief: string;
 };
 
 const DIRS = ["N", "E", "S", "W"] as const;
@@ -56,6 +58,7 @@ function held(g: Grid, x: number, y: number): boolean {
 /** What to say of a refused climb, and of a junction that cannot be levelled. */
 export const tooSteep = (short: number) => `Too steep here: the road needs ${short} more tile${short === 1 ? "" : "s"} to climb`;
 export const ON_A_SLOPE = "A road can't join here: this slope can't be levelled for a junction";
+const briefly = (short: number) => (short ? `Too steep · ${short} more tile${short === 1 ? "" : "s"}` : "Can't join on this slope");
 
 /**
  * LEVEL A RAMP for a junction on it: the heights to write, and the height the
@@ -189,7 +192,7 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
 
   // REFUSED: nothing moves, and the cursor shows the ground as it is.
   if (refused.size) {
-    return { heights: path.map((c) => g.height[idx(g, c.x, c.y)]), moved: [], blocked: [...refused].sort((a, b) => a - b).map((k) => ({ x: path[k].x, y: path[k].y })), short, why };
+    return { heights: path.map((c) => g.height[idx(g, c.x, c.y)]), moved: [], blocked: [...refused].sort((a, b) => a - b).map((k) => ({ x: path[k].x, y: path[k].y })), short, why, brief: briefly(short) };
   }
 
   const moved: Grade["moved"] = [];
@@ -202,7 +205,7 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
     if (out[k] !== g.height[i]) moved.push({ x, y, from: g.height[i], to: out[k] });
   }
   for (const [i, z] of levelled) if (!first.has(i) && z !== g.height[i]) moved.push({ x: i % g.w, y: (i / g.w) | 0, from: g.height[i], to: z });
-  return { heights: out, moved, blocked: [], short: 0, why: "" };
+  return { heights: out, moved, blocked: [], short: 0, why: "", brief: "" };
 }
 
 /**

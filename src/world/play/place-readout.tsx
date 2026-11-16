@@ -1,7 +1,8 @@
 /**
  * World v2 — WHAT THE CLICK WOULD DO, under the pointer with a building in
  * hand: its price, and if it cannot go there, why — one line, in the
- * glossary's words. Over a building with a next tier, the upgrade's.
+ * glossary's words. Over a building with a next tier, the upgrade's. With
+ * the road tool, only why a hill refuses the road being dragged.
  * @see validatePlacement, planUpgrade, plans/polish.md (UI 9)
  */
 import { useRef } from "react";
@@ -14,6 +15,7 @@ import { formatCurrency } from "../../utils/money-utils";
 import { useCellAnchorFollow } from "../anchors/use-cell-anchor";
 import { structureAt } from "../grid";
 import { structureDef } from "../structures/def";
+import { gradeStroke } from "../roads/grade";
 import { planUpgrade, validatePlacement } from "../structures/place";
 
 /** Why a building cannot go here, as the player reads it. @see validatePlacement */
@@ -40,7 +42,7 @@ export function PlaceReadout({ className }: { className?: string }) {
   useTicking(250);
   const ref = useRef<HTMLDivElement>(null);
   useCellAnchorFollow(ref);
-  const { tool, structureDefId, hover, grid, playing, placingProject } = useWorldStore.getState();
+  const { tool, structureDefId, hover, grid, playing, placingProject, stroke, brushRadius } = useWorldStore.getState();
   const def = structureDef(structureDefId);
   let line: { text: string; price: string | null; tone: "ok" | "bad" } | null = null;
   if (tool === "placeStructure" && def && hover && playing && placingProject) {
@@ -63,6 +65,10 @@ export function PlaceReadout({ className }: { className?: string }) {
     line = !check.ok ? { text: [...new Set(why)].join(" · "), price: price && formatCurrency(price), tone: "bad" }
       : !canAfford(price) ? { text: `${what} · not enough money`, price: price && formatCurrency(price), tone: "bad" }
       : { text: what, price: price && formatCurrency(price), tone: "ok" };
+  } else if (tool === "paintRoad" && stroke && playing) {
+    // A ROAD THE HILL REFUSES, said while it is dragged and not only once it is let go. @see gradeRoad
+    const grade = gradeStroke(grid, stroke, brushRadius);
+    if (grade?.blocked.length) line = { text: grade.brief, price: null, tone: "bad" };
   }
   return (
     <div ref={ref} className={twMerge(

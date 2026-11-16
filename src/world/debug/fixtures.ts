@@ -31,7 +31,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -108,6 +108,37 @@ const paveRun = (g: Grid, x0: number, y0: number, x1: number, y1: number) => {
     x += dx; y += dy;
   }
 };
+
+/**
+ * EVERY JUNCTION A WIDE ROAD CAN HAVE, side by side: four main roads across
+ * the map — one, two, three and four cells wide — and along each, in the same
+ * order, a one-cell road off one side, off the other, across; a two-cell road
+ * off it and across it; two side roads close together; and at its end a bend,
+ * then a dead end. For looking at what is painted where roads meet.
+ */
+export function buildJunctions(g: Grid, material: number) {
+  clear(g, material);
+  const pave = (x0: number, y0: number, x1: number, y1: number) => {
+    for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) if (inBounds(g, x, y)) g.paved[idx(g, x, y)] = PAVED;
+  };
+  let top = 10;
+  for (const k of [1, 2, 3, 4]) {
+    const y0 = top, y1 = top + k - 1;
+    pave(4, y0, 84, y1);                      // the main road
+    pave(12, y0 - 6, 12, y0 - 1);             // a one-cell road off its far side
+    pave(20, y1 + 1, 20, y1 + 6);             // and its near side
+    pave(29, y0 - 6, 29, y1 + 6);             // one across it
+    pave(38, y1 + 1, 39, y1 + 6);             // a two-cell road off it
+    pave(48, y0 - 6, 49, y1 + 6);             // and across it
+    pave(58, y1 + 1, 58, y1 + 6);             // two side roads close together
+    pave(60, y1 + 1, 60, y1 + 6);
+    pave(66, y0 - 6, 66, y0 - 1);             // and two a little further apart, either side
+    pave(69, y1 + 1, 69, y1 + 6);
+    pave(84 - k + 1, y1 + 1, 84, y1 + 7);     // a bend at its end, as wide as it is
+    top += k + 16;
+  }
+  edited(g);
+}
 
 /**
  * HILLS TO LAY ROADS OVER: terraces across the map, each a different climb —
@@ -1121,7 +1152,7 @@ export function buildIslands(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1133,7 +1164,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1178,6 +1209,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "glass": buildGlassGallery(g, material); recomputeHeightRange(g); return;
     case "traffic": buildTraffic(g, material); recomputeHeightRange(g); return;
     case "hills": buildHills(g, material); recomputeHeightRange(g); return;
+    case "junctions": buildJunctions(g, material); recomputeHeightRange(g); return;
   }
 }
 

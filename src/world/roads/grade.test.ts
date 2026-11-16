@@ -49,6 +49,7 @@ describe("a road grades its own ground", () => {
     const G = gradeRoad(g, row(3, 7, 9));
     expect(G.blocked.length).toBe(3);
     expect(G.short).toBe(2);
+    expect(G.brief).toBe("Too steep · 2 more tiles");
     expect(G.moved).toEqual([]);
     // Dragged far enough, it goes.
     expect(gradeRoad(g, row(3, 5, 10)).blocked).toEqual([]);
