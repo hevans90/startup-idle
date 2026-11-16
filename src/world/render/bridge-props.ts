@@ -18,11 +18,11 @@ import type { Grid } from "../grid";
 import { idx, inBounds } from "../grid";
 import { bandOf } from "../iso";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { ARCH_SPRING, BENT_MAX, BENT_UNDER, HS, FRAME_DEEP, FRAME_LOW, RIB_CROWN, RIB_FOOT } from "../props/bridges";
+import { ABUT_HEAD, ARCH_SPRING, BENT_MAX, BENT_UNDER, HS, FRAME_DEEP, FRAME_LOW, RIB_CROWN, RIB_FOOT } from "../props/bridges";
 import type { BandLayer } from "./bands";
 
 export type BridgeKind = "arch" | "trestle" | "girder" | "truss" | "stay";
-export type BridgePiece = { id: string; turn: number; x: number; y: number; z: number; tier: "under" | "back" | "front"; /** Drawn this much taller than baked, from its foot: a pier made to the nearest half step, fitted to the room there is. */ stretch?: number };
+export type BridgePiece = { id: string; turn: number; x: number; y: number; z: number; tier: "under" | "back" | "front"; /** The cell it is drawn with, where that is not the one it stands on: a piece on the line between two tiles. */ cell?: { x: number; y: number }; /** Drawn this much taller than baked, from its foot: a pier made to the nearest half step, fitted to the room there is. */ stretch?: number };
 /** A bridge: the deck's cells joined up, the way it runs, how long and wide it is, the room under it, and what kind it is. */
 export type Bridge = { kind: BridgeKind; cells: number[]; alongX: boolean; a0: number; len: number; width: number; room: number };
 
@@ -89,6 +89,9 @@ export function towersOf(len: number): number[] {
 }
 
 const NEAR = { arch: "archSide", trestle: "trestleEdge", girder: "girderEdge", truss: "trussNear", stay: "stayEdge" } as const;
+/** What a bridge is faced with where it meets the bank, by its kind; and the rail that runs on along the road there. */
+const FACED = { arch: "Stone", trestle: "Timber", girder: "Concrete", truss: "Concrete", stay: "Concrete" } as const;
+const LAND_RAIL = { arch: "archParapet", trestle: "trestleRail", girder: "girderRail", truss: "girderRail", stay: "stayRail" } as const;
 const FAR = { arch: "archParapet", trestle: "trestleRail", girder: "girderRail", truss: "trussFar", stay: "stayRail" } as const;
 
 /**
@@ -188,6 +191,39 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
       if (K === "stay" && off === 0) put("pylonBeam", "front");
       if (K === "arch" && B.width === 1 && towers.includes(k)) out.push({ id: "archGate", turn, x: x - (B.alongX ? 0.5 : 0), y: y - (B.alongX ? 0 : 0.5), z, tier: "front" });
       if (K === "girder" && B.width <= 3 && springs.length && !springs.includes(k)) { const i = springs.findIndex((q) => q > k); put(`bowBrace${springs[i] - springs[i - 1]}`, "front"); }
+
+      // WHERE IT MEETS THE BANK, at each end: not the bridge's own tiles but the land's.
+      for (const e of [0, 1]) {
+        if (k !== (e ? B.len - 1 : 0)) continue;
+        const out1 = e ? 1 : -1, ox = B.alongX ? out1 : 0, oy = B.alongX ? 0 : out1, F = FACED[K];
+        const ax = x + ox, ay = y + oy;
+        if (!inBounds(g, ax, ay) || g.deck[idx(g, ax, ay)] !== 0) continue;
+        // AN ABUTMENT on the bank's face under the deck's end: its head, and the wall on down to the water. The river is its +x.
+        if (g.height[idx(g, ax, ay)] > base + 0.5 && room * HS >= ABUT_HEAD + 0.4) {
+          const at = { x: x + ox * 0.5, y: y + oy * 0.5, turn: (turn + (e ? 2 : 0)) % 4, tier: "under" as const, cell: { x, y } };
+          for (let top = z - ABUT_HEAD / HS; top > base; top--) out.push({ id: `abut${F}Shaft`, z: top, ...at });
+          out.push({ id: `abut${F}`, z, ...at });
+          // A WING WALL along the bank's face each side of it, where the bank runs on there and the ground falls away
+          // in front of it: a piece's left is the side its turn names, so the other wing is the same piece turned about.
+          for (const t of [at.turn, (at.turn + 2) % 4]) {
+            const L = SIDES[t], bi = inBounds(g, ax + L.dx, ay + L.dy) ? idx(g, ax + L.dx, ay + L.dy) : -1, fi = inBounds(g, x + L.dx, y + L.dy) ? idx(g, x + L.dx, y + L.dy) : -1;
+            if (bi < 0 || fi < 0 || g.deck[fi] !== 0 || g.height[bi] < z - 1) continue;
+            const foot = g.height[fi] + Math.max(0, depth(x + L.dx, y + L.dy));
+            if (foot > z - ABUT_HEAD / HS) continue;
+            for (let top = z - ABUT_HEAD / HS; top > foot; top--) out.push({ id: `wing${F}Shaft`, z: top, ...at, turn: t });
+            out.push({ id: `wing${F}`, z, ...at, turn: t });
+          }
+        }
+        // THE RAIL RUNS ON along the road for a tile onto the land, and stops at a pier — where the road there is level with the deck.
+        const ai = idx(g, ax, ay);
+        if (g.paved[ai] === 0 || g.ramp[ai] !== 0 || g.height[ai] !== z) continue;
+        for (const s of SIDES) {
+          if ((s.dx !== 0) === B.alongX || road(ax + s.dx, ay + s.dy)) continue;
+          const tier = s.near ? "front" : "back";
+          out.push({ id: LAND_RAIL[K], turn: s.turn, x: ax, y: ay, z, tier });
+          out.push({ id: `end${F}`, turn: s.turn, x: ax + ox * 0.45, y: ay + oy * 0.45, z, tier, cell: { x: ax, y: ay } });
+        }
+      }
     }
   }
   return out;
@@ -213,7 +249,7 @@ export function createBridgeProps(bands: BandLayer): BridgeProps {
       const under = new Map<number, Container>();
       for (const p of bridgePiecesOf(g, still, force)) {
         // (A piece between two tiles is the higher one's: drawn with it.)
-        const band = bandOf(Math.ceil(p.x), Math.ceil(p.y)), sp = propSprite(P, p.id, p.turn, p.x, p.y, p.z, scale);
+        const band = p.cell ? bandOf(p.cell.x, p.cell.y) : bandOf(Math.ceil(p.x), Math.ceil(p.y)), sp = propSprite(P, p.id, p.turn, p.x, p.y, p.z, scale);
         if (!sp) continue;
         if (p.stretch) sp.scale.y = p.stretch;
         if (p.tier === "under") {

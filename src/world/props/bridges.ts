@@ -603,6 +603,59 @@ function pylonBeamTris(): Tri[] {
   return out;
 }
 
+// ── where a bridge meets the bank ────────────────────────────────────────
+/** How far under the road an abutment's head reaches; how far its wing walls run along the bank past the deck's edge. */
+export const ABUT_HEAD = 3.4, ABUT_WING = 3.4;
+type Facing = { wall: Mat; paint: (p: V3) => Mat; trim: Mat };
+const FACING: Record<"Stone" | "Timber" | "Concrete", Facing> = {
+  Stone: { wall: "stoneA", paint: masonry, trim: "ashlar" },
+  Timber: { wall: "timber", paint: boards, trim: "timberDark" },
+  Concrete: { wall: "concrete", paint: concrete, trim: "pave" },
+};
+/**
+ * AN ABUTMENT'S HEAD, on the bank's face at the end of the deck (x = 0, the river toward +x), a tile of it across:
+ * a block out from the bank for the deck to bear on, and a shelf under it — the bridge built into the bank.
+ */
+function abutHeadTris(F: Facing): Tri[] {
+  const out: Tri[] = [], Y = HT + 0.3, top = -0.35;
+  pbox(-0.5, 1.1, -Y, Y, -ABUT_HEAD, top, F.wall, out, F.paint);
+  box(-0.56, 1.2, -Y - 0.06, Y + 0.06, top - 0.28, top, F.trim, out);
+  return out;
+}
+/** A half step of an abutment under its head, its top at the origin: stood one on another from the water up. */
+function abutShaftTris(F: Facing): Tri[] { const out: Tri[] = []; pbox(-0.5, 1.1, -HT - 0.3, HT + 0.3, -HS, 0, F.wall, out, F.paint); return out; }
+/**
+ * A WING WALL'S HEAD: along the bank's face from the deck's left edge, its top falling away from the road under a
+ * coping, a pier at its end — the bank held up beside the bridge.
+ */
+function wingHeadTris(F: Facing): Tri[] {
+  const out: Tri[] = [], Y = HT + 0.3, W = HT + ABUT_WING, top = -0.35, low = -2.5;
+  const n = out.length, c: V3 = [0, Y + 1.5, -2.6];
+  for (const x of [-0.5, 0.5]) face([[x, Y, -ABUT_HEAD], [x, W, -ABUT_HEAD], [x, W, low], [x, Y, top]], F.wall, c, out);
+  laid(out, n, F.paint);
+  face([[-0.58, Y, top + 0.08], [0.58, Y, top + 0.08], [0.58, W, low + 0.08], [-0.58, W, low + 0.08]], F.trim, c, out);
+  for (const x of [-0.58, 0.58]) face([[x, Y, top - 0.12], [x, W, low - 0.12], [x, W, low + 0.08], [x, Y, top + 0.08]], F.trim, [0, Y + 1.5, -2], out);
+  pbox(-0.62, 0.62, W, W + 0.7, -ABUT_HEAD, low + 0.3, F.wall, out, F.paint);
+  box(-0.7, 0.7, W - 0.08, W + 0.78, low + 0.3, low + 0.46, F.trim, out);
+  return out;
+}
+/** A half step of a wing wall under its head, and of the pier at its end. */
+function wingShaftTris(F: Facing): Tri[] {
+  const out: Tri[] = [], Y = HT + 0.3, W = HT + ABUT_WING;
+  pbox(-0.5, 0.5, Y, W, -HS, 0, F.wall, out, F.paint);
+  pbox(-0.62, 0.62, W, W + 0.7, -HS, 0, F.wall, out, F.paint);
+  return out;
+}
+/** A pier at the end of a bridge's rail, on the bank at the left edge (x = 0): where the parapet stops. */
+function endPostTris(F: Facing): Tri[] {
+  const out: Tri[] = [], y0 = HT - 0.72, y1 = HT + 0.2;
+  pbox(-0.5, 0.5, y0, y1, -0.1, 1.55, F.wall, out, F.paint);
+  box(-0.58, 0.58, y0 - 0.08, y1 + 0.08, 1.55, 1.7, F.trim, out);
+  box(-0.4, 0.4, y0 + 0.1, y1 - 0.1, 1.7, 1.86, F.trim, out);
+  box(-0.56, 0.56, y0 - 0.06, y1 + 0.06, -0.1, 0.12, F.trim, out);
+  return out;
+}
+
 const P = (id: string, tris: () => Tri[]): Prop => ({ id, tris, shadow: NONE, flat: true });
 export const BRIDGE: readonly Prop[] = [
   P("archSide", archSideTris), P("archParapet", archParapetTris), P("archHead", archHeadTris), P("archShaft", archShaftTris), P("archFoot", archFootTris),
@@ -623,6 +676,7 @@ export const BRIDGE: readonly Prop[] = [
     P(`${id}2M`, () => ribTris(2, HT, 3 * HT, TL, 1, m, dk, c)), P(`${id}3MA`, () => ribTris(3, HT, 3 * HT, TL, 1, m, dk, c)), P(`${id}3MB`, () => ribTris(3, HT, 3 * HT, TL, -1, m, dk, c)),
   ]),
   P("ribWall", ribWallTris),
+  ...(Object.keys(FACING) as (keyof typeof FACING)[]).flatMap((k) => [P(`abut${k}`, () => abutHeadTris(FACING[k])), P(`abut${k}Shaft`, () => abutShaftTris(FACING[k])), P(`wing${k}`, () => wingHeadTris(FACING[k])), P(`wing${k}Shaft`, () => wingShaftTris(FACING[k])), P(`end${k}`, () => endPostTris(FACING[k]))]),
   P("bowSeat", () => bowSeatTris(-2.0)), P("bowSeatFar", () => bowSeatTris(0)),
   // An arch's half tile from where it springs, for each span, rising along the piece (A) or back along it (B); the
   // tiles between: the crown of a two-tile arch (M), the rise (MA) and fall (MB) of a three-tile one.

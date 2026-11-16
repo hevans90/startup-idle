@@ -167,6 +167,37 @@ describe("a bridge's pieces", () => {
     expect(bridgePiecesOf(bridged(3, 1), () => 2, "trestle").some((p) => /^frame/.test(p.id))).toBe(false);
   });
 
+  test("where a bridge meets the bank, on the land's tiles and not its own: an abutment under each end of the deck, a wing wall along the bank each side where the ground falls away, the rail run on a tile along the road to a pier", () => {
+    const FACE = { arch: "Stone", trestle: "Timber", girder: "Concrete", truss: "Concrete", stay: "Concrete" } as const;
+    for (const kind of KINDS) {
+      // A bank: the ground at the deck's level everywhere but under the bridge and beside it.
+      const g = bridged(10);
+      for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (y < 6 || y > 19) g.height[idx(g, x, y)] = 10;
+      const ps = bridgePiecesOf(g, () => 2, kind), F = FACE[kind];
+      // An abutment's head per lane at each end, on the line between the last tile of deck and the land; under it, the wall down to the water.
+      const heads = ps.filter((p) => p.id === `abut${F}`);
+      expect(heads.map((p) => p.y).sort((a, b) => a - b)).toEqual([5.5, 5.5, 19.5, 19.5]);
+      for (const p of heads) expect(p).toMatchObject({ tier: "under", z: 10 });
+      expect(ps.filter((p) => p.id === `abut${F}Shaft`).every((p) => p.z > 2 && p.z < 10)).toBe(true);
+      expect(ps.filter((p) => p.id === `abut${F}Shaft`).length).toBeGreaterThanOrEqual(4 * 6);
+      // A wing each side of each end — the outer side of each lane, none between the two lanes.
+      const wings = ps.filter((p) => p.id === `wing${F}`);
+      expect(wings.length).toBe(4);
+      expect(new Set(wings.map((p) => `${p.x},${p.y},${p.turn}`)).size).toBe(4);
+      // On the land: a tile of rail each side of the road at each end, and a pier where it stops.
+      const land = ps.filter((p) => p.y === 5 || p.y === 20);
+      expect(land.length).toBe(4);
+      for (const p of land) expect(p.id).not.toMatch(/Edge|Near|Side/);
+      expect(ps.filter((p) => p.id === `end${F}`).length).toBe(4);
+      for (const p of ps.filter((q) => q.id === `end${F}`)) expect(p.y < 6 || p.y > 19).toBe(true);
+    }
+    // Low ground at the deck's end: no bank there to build into, and nothing is.
+    const flat = bridgePiecesOf(bridged(10), () => 2, "girder");
+    expect(flat.some((p) => /^(abut|wing)/.test(p.id))).toBe(false);
+    // A road that climbs to the bridge has no rail run on along it.
+    expect(flat.some((p) => /^end/.test(p.id))).toBe(false);
+  });
+
   test("what kind a bridge is: one its shape allows, and the same one every time", () => {
     for (const [wide, len, up] of [[1, 6, 4], [1, 12, 12], [2, 14, 10], [3, 12, 10], [4, 5, 8]]) {
       const g = bridged(up, wide, len), [b] = bridgesOf(g);
