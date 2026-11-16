@@ -10,8 +10,19 @@ export const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
 export const dot = (a: Pt, b: Pt) => a.x * b.x + a.y * b.y;
 export const cross = (a: Pt, b: Pt) => a.x * b.y - a.y * b.x;
 export const norm = (a: Pt): Pt => { const l = Math.hypot(a.x, a.y) || 1; return { x: a.x / l, y: a.y / l }; };
-/** Right of a heading, as traffic keeps to it. @see rightOf in agents/roads */
-export const right = (h: Pt): Pt => ({ x: -h.y, y: h.x });
+/**
+ * WHICH SIDE TRAFFIC KEEPS TO: -1 the left, as in Britain; 1 the right. The one place it is said: the lanes, the
+ * markings, the signals, the bays and the roundabouts all take their side from it.
+ */
+export const KEEP: 1 | -1 = -1;
+/**
+ * The NEARSIDE of a heading: the kerb's side, the side traffic keeps to. (Named for the right, which it was.)
+ * @see rightOf in roads/looks
+ */
+export const right = (h: Pt): Pt => ({ x: -h.y * KEEP, y: h.x * KEEP });
+/** The turn toward the kerb, which crosses nobody; and the one across the oncoming traffic. */
+export const NEAR_TURN: "left" | "right" = KEEP > 0 ? "right" : "left";
+export const FAR_TURN: "left" | "right" = KEEP > 0 ? "left" : "right";
 
 /** Distance along a polyline at each of its points. */
 export function lengths(pts: readonly Pt[]): Float32Array {

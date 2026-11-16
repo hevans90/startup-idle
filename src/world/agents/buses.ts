@@ -6,6 +6,7 @@
  *
  * Live, not saved, like the rest of the town.
  */
+import { KEEP as HAND } from "./lanes/geometry";
 import { NEIGHBOUR } from "../../iso/dir";
 import type { Grid } from "../grid";
 import { routesOf, stopTo, type Route } from "./bus-routes";
@@ -135,7 +136,7 @@ export function stepBuses(t: Town, g: Grid, G: LaneGraph, h: number, extra: { n:
         m.wait = DWELL[1];
         const p = along(m, m.s);
         m.side = m.sideTo = first.side;
-        m.x = p.x - p.dy * first.side; m.y = p.y + p.dx * first.side;
+        m.x = p.x - p.dy * first.side * HAND; m.y = p.y + p.dx * first.side * HAND;
       }
       // (Not into anybody — stood at a stop, nor near one.)
       if (t.movers.some((o) => o.kind !== "person" && Math.hypot(o.x - m!.x, o.y - m!.y) < (m!.wait ? CLEAR_STOOD : 1))) continue;

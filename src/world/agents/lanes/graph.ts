@@ -34,8 +34,7 @@ import { idx, inBounds, structureAt, type Grid } from "../../grid";
 import { connects, isPaved } from "../../roads/mask";
 import { streetsOf } from "../../roads/streets";
 import {
-  add, arc, chaikin, cross, distToLine, dot, lengths, minRadius, pointAt, right, turnCurve, type Pt,
-} from "./geometry";
+  add, arc, chaikin, cross, distToLine, dot, lengths, minRadius, pointAt, right, turnCurve, type Pt, FAR_TURN, KEEP, NEAR_TURN } from "./geometry";
 
 /** How far back of a crossing's middle a car's nose waits at a junction, tiles: clear of its stripes. @see render/road-paint stopLine */
 export const CROSS_HOLD = 0.3;
@@ -796,18 +795,18 @@ function throughJunction(g: Grid, J: Junction, lanes: Lane[], mk: (l: Omit<Lane,
     if (turn === "uturn" && !lone) continue;
     const ni = A.inLanes.length, no = B.outLanes.length;
     const pairs: [number, number][] = [];
-    if (turn === "right") pairs.push([ni - 1, no - 1]);
-    else if (turn === "left" || turn === "uturn") pairs.push([0, 0]);
+    if (turn === NEAR_TURN) pairs.push([ni - 1, no - 1]);
+    else if (turn === FAR_TURN || turn === "uturn") pairs.push([0, 0]);
     else for (let s = 0; s < ni; s++) pairs.push([s, Math.min(s, no - 1)]);
     // EVERY LANE IN GOES SOMEWHERE: one with no way on — round a bend, or
     // the middle of three at a T — the way the lanes beside it go, in its
     // place across the road. (Straight on if it can; else the turn.)
     const ways = J.arms.filter((X) => X !== A).map((X) => turnOf(h0, X.out));
-    const fallback = ways.includes("straight") ? "straight" : ways.includes("left") ? "left" : "right";
+    const fallback = ways.includes("straight") ? "straight" : ways.includes(FAR_TURN) ? FAR_TURN : NEAR_TURN;
     if (turn === fallback && turn !== "straight") {
       for (let s = 0; s < ni; s++) {
         if (pairs.some(([si]) => si === s)) continue;
-        pairs.push([s, turn === "right" ? Math.max(0, no - ni + s) : Math.min(s, no - 1)]);
+        pairs.push([s, turn === NEAR_TURN ? Math.max(0, no - ni + s) : Math.min(s, no - 1)]);
       }
     }
     for (const [si, so] of pairs) {
@@ -853,7 +852,7 @@ function cellByCell(g: Grid, J: Junction, region: Int32Array, p0: Pt, p1: Pt): P
 
 /**
  * A ROUNDABOUT: a ring round the junction's middle, travelled with the island
- * on the left — clockwise as the angles go — and each arm a PORT on it, where
+ * on the offside — clockwise where traffic keeps left — and each arm a PORT on it, where
  * its lane in comes on just before the lane out goes off. The ring's lanes
  * run port to port; curves join each arm's lane in to the ring and the ring
  * to each arm's lane out.
@@ -870,17 +869,17 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
     const lin = lanes[A.inLanes[A.inLanes.length - 1]];
     const side = lin ? Math.min(0.95, distToLine(lin.pts[lin.pts.length - 1], [C, add(C, A.out, 10)]) / R) : 0.5;
     const delta = Math.asin(side);
-    ports.push({ a: th - delta, arm: A, kind: "on" }, { a: th + delta, arm: A, kind: "off" });
+    ports.push({ a: th - KEEP * delta, arm: A, kind: "on" }, { a: th + KEEP * delta, arm: A, kind: "off" });
   }
-  // Round the ring the way traffic goes: angles falling.
-  ports.sort((p, q) => q.a - p.a);
+  // Round the ring the way traffic goes: angles falling where it keeps right, rising where it keeps left.
+  ports.sort((p, q) => (q.a - p.a) * KEEP);
   const at = (a: number): Pt => ({ x: C.x + Math.cos(a) * R, y: C.y + Math.sin(a) * R });
-  const tangent = (a: number): Pt => ({ x: Math.sin(a), y: -Math.cos(a) });
+  const tangent = (a: number): Pt => ({ x: Math.sin(a) * KEEP, y: -Math.cos(a) * KEEP });
   const out: Lane[] = [];
   const pieces: Lane[] = ports.map((p, k) => {
     const q = ports[(k + 1) % ports.length];
     let a1 = q.a;
-    while (a1 >= p.a) a1 -= Math.PI * 2;
+    while ((a1 - p.a) * KEEP >= 0) a1 -= Math.PI * 2 * KEEP;
     const l = mk({ kind: "ring", pts: arc(C, R, p.a, a1, 0.15) });
     l.radius = R;
     out.push(l);
@@ -893,7 +892,7 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
       // (Every lane on, at the port the outer lane turns right onto it at: their curves meet, and the zones take them one at a time.)
       for (const id of p.arm.inLanes) {
         const li = lanes[id];
-        const e = mk({ kind: "entry", pts: turnCurve(li.pts[li.pts.length - 1], heading(li), at(p.a), tangent(p.a), 8), turn: "right", arm: J.arms.indexOf(p.arm) });
+        const e = mk({ kind: "entry", pts: turnCurve(li.pts[li.pts.length - 1], heading(li), at(p.a), tangent(p.a), 8), turn: NEAR_TURN, arm: J.arms.indexOf(p.arm) });
         e.radius = minRadius(e.pts);
         li.next.push(e.id);
         e.next.push(into.id);
@@ -902,7 +901,7 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
     } else {
       for (const id of p.arm.outLanes.slice(-1)) {
         const lo = lanes[id];
-        const x = mk({ kind: "exit", pts: turnCurve(at(p.a), tangent(p.a), lo.pts[0], p.arm.out, 8), turn: "right" });
+        const x = mk({ kind: "exit", pts: turnCurve(at(p.a), tangent(p.a), lo.pts[0], p.arm.out, 8), turn: NEAR_TURN });
         x.radius = minRadius(x.pts);
         from.next.push(x.id);
         x.next.push(lo.id);

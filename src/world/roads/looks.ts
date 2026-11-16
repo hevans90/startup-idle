@@ -11,10 +11,10 @@
  * (DIR.N); 1 is u = 1 (S); 2 is v = 0 (E); 3 is v = 1 (W). A CORNER is
  * `su + 2 * sv`, each 0 or 1: the corner at (su, sv).
  *
- * WHICH SIDE TRAFFIC KEEPS TO is the town's: right (`agents/roads.ts`). Every
- * marking that belongs to one lane — give-way lines, the triangle, arrows,
- * SLOW — is laid on the lane a driver arriving there is in, the one on their
- * right; a town driving on the left would flip {@link KEEP}.
+ * WHICH SIDE TRAFFIC KEEPS TO is the town's: the left ({@link KEEP}, said in
+ * `agents/lanes/geometry`). Every marking that belongs to one lane — give-way
+ * lines, the triangle, arrows, SLOW — is laid on the lane a driver arriving
+ * there is in, the one on their nearside; "right" in a name here is that side.
  */
 import { idx, inBounds, type Grid } from "../grid";
 import { hash } from "../structures/projects/model";
@@ -22,12 +22,13 @@ import { DIAG, DIR, isPaved, maskAt } from "./mask";
 import { streetsOf } from "./streets";
 import { resolveRole, type RoadRole } from "./role";
 import { RING_OF } from "../agents/lanes/graph";
+import { KEEP } from "../agents/lanes/geometry";
 
 /** Half a ring lane's width and a little: the island's edge inside the lane's middle. */
 const RING_LANE = 0.22;
 
 /** The side of the road traffic keeps to: +1 right, −1 left. @see rightOf in agents/roads */
-export const KEEP = 1;
+export { KEEP };
 
 export type Side = 0 | 1 | 2 | 3;
 /** How many variants a road tile has; seven of them carry a fitting or some wear, the rest — most of a road — are plain. */

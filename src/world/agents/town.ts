@@ -32,6 +32,7 @@ import { AI_TRUCK_COLOUR, BUS_COLOUR, halfLength, SHUTTLE_COLOUR, VAN_COLOUR } f
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { BREEDS, CHILD_STEP_M, DOGS, JOGGERS, KIDS, PARENTS, PEDAL_TURN_M, RUN_STEP_M, STEP_TILES } from "./people/people-format";
 import { dogFor, HAND_GAP, KEEP, stepDogs, stepWalkers, type Dog } from "./walker-life";
+import { KEEP as HAND } from "./lanes/geometry";
 import { BUS_TAKE, busArrives, busesOf, busTrip, kerbAt, queueAt, stepBuses, type BusLeg, type Buses, type Ride } from "./buses";
 import { TILES_PER_M } from "./cars/models";
 import { isPaved } from "../roads/mask";
@@ -378,6 +379,8 @@ const BACK_IN_RATE = 1.2;
 /** Pulled in this far, a car is out of an emergency vehicle's way. */
 const PULLED = 0.12;
 const pulled = (m: Mover) => (m.side ?? 0) > PULLED;
+/** Which way a mover's `side` is measured: toward the kerb for what drives — the side traffic keeps to — and to a walker's own right. */
+export const handOf = (m: { kind: string }) => (m.kind === "person" ? 1 : HAND);
 /** Standing where it stopped a while: an emergency vehicle at the scene, a bus at a stop. */
 const standing = (m: Mover) => (m.wait ?? 0) > 0;
 /**
@@ -1329,7 +1332,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
       if (side !== to) {
         m.side = side < to ? Math.min(to, side + SIDE_RATE * h) : Math.max(to, side - SIDE_RATE * h);
         const p = along(m, m.s);
-        m.x = p.x - p.dy * m.side; m.y = p.y + p.dx * m.side;
+        m.x = p.x - p.dy * m.side * handOf(m); m.y = p.y + p.dx * m.side * handOf(m);
       }
       continue;
     }
@@ -1385,7 +1388,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     // (Out toward the middle and done getting by: back in briskly, out of the way of what comes.)
     const rate = m.kind === "person" ? WALK_SIDE_RATE : side < 0 && to > side ? BACK_IN_RATE : SIDE_RATE;
     if (side !== to) m.side = side < to ? Math.min(to, side + rate * h) : Math.max(to, side - rate * h);
-    const off = m.side ?? 0;
+    const off = (m.side ?? 0) * handOf(m);
     m.x = p.x - p.dy * off;
     m.y = p.y + p.dx * off;
     m.z = roadHeightAt(g, p.x, p.y);

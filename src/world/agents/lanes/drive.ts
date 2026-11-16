@@ -26,7 +26,7 @@ import type { Grid } from "../../grid";
 import { idx } from "../../grid";
 import { isPaved } from "../../roads/mask";
 import { buildLaneGraph, LANE_CLEAR, type Lane, type LaneGraph } from "./graph";
-import { dot, pointAt, sub, type Pt } from "./geometry";
+import { FAR_TURN, KEEP, dot, pointAt, sub, type Pt } from "./geometry";
 
 export type Spot = { lane: number; s: number };
 export type Route = { lanes: number[]; s0: number; s1: number };
@@ -434,7 +434,7 @@ export function yieldsTo(T: Traffic, y: Lane, b: Lane): boolean {
   const ay = J.arms[y.arm], ab = J.arms[b.arm];
   const opposite = dot(ay.out, ab.out) < -0.9;
   // Across oncoming traffic, a turn waits for it.
-  const across = y.turn === "left" && opposite && b.turn !== "left";
+  const across = y.turn === FAR_TURN && opposite && b.turn !== FAR_TURN;
   if (J.kind === "signals") return across;
   if (J.kind === "priority") return (ab.major && !ay.major) || (ab.major === ay.major && across);
   return false;
@@ -442,12 +442,12 @@ export function yieldsTo(T: Traffic, y: Lane, b: Lane): boolean {
 
 /**
  * How far round a roundabout's ring a point is from the port at angle `port`,
- * the way the ring goes (angles falling), tiles.
+ * the way the ring goes (angles falling where traffic keeps right, rising where it keeps left), tiles.
  */
 export function roundTo(T: Traffic, junction: number, p: Pt, port: number): number {
   const J = T.G.junctions[junction];
   const R = Math.hypot(p.x - J.centre.x, p.y - J.centre.y);
-  let a = Math.atan2(p.y - J.centre.y, p.x - J.centre.x) - port;
+  let a = (Math.atan2(p.y - J.centre.y, p.x - J.centre.x) - port) * KEEP;
   a = ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
   return a * R;
 }

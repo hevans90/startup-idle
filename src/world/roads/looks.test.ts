@@ -112,9 +112,9 @@ describe("two-lane roads crossing: a roundabout", () => {
     }
   });
 
-  test("give way onto it, across the lane coming in, the one with its kerb on the right", () => {
-    // Coming from x−1, heading +x: the kerb on the right is at y+1, so row 6.
-    const inbound = look(g, 14, 6), outbound = look(g, 14, 5);
+  test("give way onto it, across the lane coming in, the one with its kerb on the left", () => {
+    // Coming from x−1, heading +x: traffic keeps left, its kerb at y−1, so row 5.
+    const inbound = look(g, 14, 5), outbound = look(g, 14, 6);
     expect(inbound.gw).toBe("f");
     expect(inbound.stop + inbound.arrow).toBe("");
     expect(outbound.gw + outbound.stop + outbound.arrow).toBe("");
@@ -131,7 +131,7 @@ describe("a two-lane road crossed by a one-lane one: lights", () => {
   const g = grid(32, 22, [...row(5, 0, 31), ...row(6, 0, 31), ...col(15, 0, 21).filter(([, y]) => y !== 5 && y !== 6)]);
 
   test("a stop line across the wide road's lane coming in, set back behind the crossing, and arrows in its lanes a cell back", () => {
-    const inbound = look(g, 14, 6), outbound = look(g, 14, 5);
+    const inbound = look(g, 14, 5), outbound = look(g, 14, 6);
     expect(inbound.stop).toBe("f");
     expect(inbound.arrow).toBe("");
     // Its lanes' own arrows, toward the junction, with the turns there are: both ways off at a crossroads.
@@ -201,9 +201,10 @@ describe("a highway", () => {
   });
 
   test("its lanes are arrowed a cell back from a junction with the turns there are, and plainly along a run", () => {
-    // Going toward +x (side 1) the side road is off to the right; going back toward it, off to the left.
-    expect(look(g, 18, 9).hw).toBe("1R");
-    expect(look(g, 22, 9).hw).toBe("0L");
+    // Going toward +x (side 1) the side road is across the oncoming lanes; going back toward it, at the kerb.
+    // (L is the turn across the road and R the one at the kerb, as the lanes have them: the paint mirrors both.)
+    expect(look(g, 18, 9).hw).toBe("1L");
+    expect(look(g, 22, 9).hw).toBe("0R");
     expect(look(g, 8, 9).hw).toBe("0P1P");
     expect(look(g, 9, 9).hw).toBe("");
   });

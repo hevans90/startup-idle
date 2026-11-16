@@ -58,7 +58,7 @@ describe("the lane graph", () => {
     expect(WALK).toBe(PAINT_WALK);
   });
 
-  test("a road one cell wide: a lane each way, 0.12 right of the middle", () => {
+  test("a road one cell wide: a lane each way, 0.12 left of the middle", () => {
     const g = blank(20, 8);
     for (let x = 0; x < 20; x++) pave(g, x, 4);
     const G = buildLaneGraph(g);
@@ -66,10 +66,10 @@ describe("the lane graph", () => {
     expect(G.junctions.length).toBe(0);
     const [a, b] = G.streets[0].lanes.map((i) => G.lanes[i]);
     expect(laneOffset(1, 0)).toBeCloseTo(0.12, 5);
-    // Heading +x, the right is +y.
+    // Heading +x, the left — the side traffic keeps to — is −y.
     const east = a.pts[1].x > a.pts[0].x ? a : b, west = east === a ? b : a;
-    expect(east.pts[0].y).toBeCloseTo(4.12, 5);
-    expect(west.pts[0].y).toBeCloseTo(3.88, 5);
+    expect(east.pts[0].y).toBeCloseTo(3.88, 5);
+    expect(west.pts[0].y).toBeCloseTo(4.12, 5);
     // Off the map both ends: where trips from beyond come and go.
     expect(east.source && east.sink && west.source && west.sink).toBe(true);
   });
@@ -97,9 +97,9 @@ describe("the lane graph", () => {
     expect(cons.filter((c) => c.turn === "right").length).toBe(4);
     // Straight across meets straight across, and a left turn the way ahead.
     expect(G.zones.length).toBeGreaterThan(8);
-    // A right turn is tighter than a left.
+    // A left turn, round the kerb, is tighter than a right across the road.
     const r = cons.find((c) => c.turn === "right")!, l = cons.find((c) => c.turn === "left")!;
-    expect(r.radius!).toBeLessThan(l.radius!);
+    expect(l.radius!).toBeLessThan(r.radius!);
   });
 
   test("a T: the road through is the main road", () => {
@@ -114,7 +114,7 @@ describe("the lane graph", () => {
     for (const a of major) expect(Math.abs(a.out.y)).toBe(0);
   });
 
-  test("two wide roads crossing: a roundabout, round the island on the left", () => {
+  test("two wide roads crossing: a roundabout, round the island on the right", () => {
     const g = cross(2, 2);
     const G = buildLaneGraph(g);
     expect(G.junctions.length).toBe(1);
@@ -126,12 +126,12 @@ describe("the lane graph", () => {
     expect(G.lanes.filter((l) => l.kind === "exit").length).toBe(4);
     // Each car coming on gives way to the ring where it joins.
     expect(G.zones.filter((z) => z.merge).length).toBeGreaterThanOrEqual(4);
-    // Left of the way round is the middle.
+    // Right of the way round is the middle: clockwise, as traffic keeping left goes.
     const C = G.junctions[0].centre;
     for (const l of ring) {
       const { p, h } = pointAt(l.pts, l.at, l.len / 2);
       const toC = { x: C.x - p.x, y: C.y - p.y };
-      expect(h.x * toC.y - h.y * toC.x).toBeLessThan(0);
+      expect(h.x * toC.y - h.y * toC.x).toBeGreaterThan(0);
     }
     expect(onRoad(g, G)).toBe(true);
   });
