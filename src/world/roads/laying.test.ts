@@ -8,6 +8,10 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { generateMap } from "../gen/generate-map";
+import { placeStructure } from "../play/build-actions";
+import { IN_THE_WAY, ON_A_SLOPE, OPEN_WATER } from "./grade";
+
 import { useWorldStore } from "../../state/world.store";
 import { idx, setHeight, type Grid } from "../grid";
 import { buildLaneGraph } from "../agents/lanes/graph";
@@ -115,5 +119,127 @@ describe("laying roads", () => {
       for (let x = 6; x <= 44; x += 3) run(`${tn}: side road onto a 3 wide climb at x=${x}`, t, [...lanes(3, (c): Stroke => [2, 20 + c, 46, 20 + c]), [x, 36, x, 22]]);
     }
     expect(failed()).toEqual([]);
+  });
+
+  /** One stroke of any line tool, and what it said. */
+  const drag = (tool: "paintRoad" | "eraseRoad" | "pipe" | "sewer", x0: number, y0: number, x1: number, y1: number) => {
+    s().setTool(tool); s().setBrush("line");
+    useWorldStore.setState({ notice: null });
+    s().beginStroke({ x: x0, y: y0 }); s().updateStroke({ x: x1, y: y1 }); s().endStroke();
+    return s().notice?.text ?? "";
+  };
+  const fresh = (terrain: ((g: Grid) => void) | null = slope) => { s().resize(48, 48); terrain?.(s().grid); return s().grid; };
+  /** What must hold of the roads on the map, however they came to be: the same as after laying. */
+  const sound = (g: Grid, components = 1): string[] => {
+    const problems: string[] = [];
+    if (s().netComponents !== components) problems.push(`components ${s().netComponents}`);
+    const read = { inBounds: (x: number, y: number) => x >= 0 && y >= 0 && x < g.w && y < g.h, paved: (x: number, y: number) => isPaved(g, x, y), height: (x: number, y: number) => (g.deck[idx(g, x, y)] ? g.deckZ[idx(g, x, y)] : g.height[idx(g, x, y)]) };
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (isPaved(g, x, y) && rampNeed(read, x, y).kind === "unbridgeable") problems.push(`unbridgeable ${x},${y}`);
+    const G = buildLaneGraph(g), c = (v: number, n: number) => Math.min(n - 1, Math.max(0, Math.round(v)));
+    if (G.lanes.some((l) => l.pts.some((p) => !isPaved(g, c(p.x, g.w), c(p.y, g.h))))) problems.push("lanes off road");
+    return problems;
+  };
+
+  test("a building in the way stops the road, and one beside it keeps its ground", () => {
+    const g = fresh();
+    expect(placeStructure("kit:intern.t0", { x: 18, y: 20 })).toBe(true);
+    expect(placeStructure("kit:intern.t0", { x: 15, y: 19 })).toBe(true);
+    const ground = [g.height[idx(g, 18, 20)], g.height[idx(g, 15, 19)]];
+    // Through the first: nothing laid, and it says why.
+    expect(drag("paintRoad", 8, 20, 26, 20)).toBe(IN_THE_WAY);
+    expect(g.paved[idx(g, 12, 20)]).toBe(0);
+    // Past both, a row along: laid, and neither building's ground has moved.
+    expect(drag("paintRoad", 8, 21, 26, 21)).toBe("");
+    expect(drag("paintRoad", 8, 18, 26, 18)).toBe("");
+    expect([g.height[idx(g, 18, 20)], g.height[idx(g, 15, 19)]]).toEqual(ground);
+    expect(sound(g, 2)).toEqual([]);
+  });
+
+  test("over a main or a sewer the road goes, and the ground they lie in is left alone", () => {
+    for (const pipe of ["pipe", "sewer"] as const) {
+      // Laid along it, then joined from the side at every tile of the climb: the ground over the pipe never moves.
+      for (let at = 12; at <= 24; at += 2) {
+        const g = fresh();
+        expect(drag(pipe, 8, 20, 26, 20)).toBe("");
+        const over = Array.from({ length: 19 }, (_, k) => g.height[idx(g, 8 + k, 20)]);
+        expect(drag("paintRoad", 8, 20, 26, 20)).toBe("");
+        const said = drag("paintRoad", at, 30, at, 20);
+        expect(Array.from({ length: 19 }, (_, k) => g.height[idx(g, 8 + k, 20)])).toEqual(over);
+        // Joined, or refused and said so: never laid in pieces.
+        expect({ pipe, at, problems: sound(g, 1), said: said === "" || said === ON_A_SLOPE }).toEqual({ pipe, at, problems: [], said: true });
+      }
+      // And across one.
+      const g = fresh();
+      expect(drag(pipe, 16, 8, 16, 30)).toBe("");
+      expect(drag("paintRoad", 8, 20, 26, 20)).toBe("");
+      expect(sound(g)).toEqual([]);
+    }
+  });
+
+  test("taken up and put back: what is left is sound, the gap relaid is one road again, and undo puts everything back", () => {
+    for (const [name, terrain] of [["terraces", hills], ["even slope", slope], ["slope across both ways", diag]] as const) {
+      for (const [a, b] of [[10, 14], [16, 22], [20, 21], [2, 8], [30, 46]]) {
+        const g = fresh(terrain);
+        const before = Array.from(g.height);
+        expect(drag("paintRoad", 2, 20, 46, 20)).toBe("");
+        const laid = Array.from(g.height);
+        // A stretch taken up: two roads, each sound; the ground stays as the road left it.
+        drag("eraseRoad", a, 20, b, 20);
+        const pieces = (a > 2 ? 1 : 0) + (b < 46 ? 1 : 0);
+        expect({ name, a, b, problems: sound(g, pieces) }).toEqual({ name, a, b, problems: [] });
+        expect(Array.from(g.height)).toEqual(laid);
+        // Put back: one road.
+        expect(drag("paintRoad", a, 20, b, 20)).toBe("");
+        expect({ name, a, b, problems: sound(g) }).toEqual({ name, a, b, problems: [] });
+        // And every step undone: the hill as it was.
+        s().doUndo(); s().doUndo(); s().doUndo();
+        expect(Array.from(g.height)).toEqual(before);
+        expect(g.paved.some((v) => v !== 0)).toBe(false);
+        s().doRedo();
+        expect(Array.from(g.height)).toEqual(laid);
+      }
+    }
+    // One lane of a wide road taken up, on a hill: the rest is a road still.
+    const g = fresh(hills);
+    for (const c of [0, 1, 2]) expect(drag("paintRoad", 2, 20 + c, 46, 20 + c)).toBe("");
+    drag("eraseRoad", 2, 22, 46, 22);
+    expect(sound(g)).toEqual([]);
+    drag("eraseRoad", 2, 20, 46, 20);
+    expect(sound(g)).toEqual([]);
+  });
+
+  test("open water: in the game the road stops at it and says so; a bridge already there is joined", () => {
+    s().resize(64, 64);
+    const g = s().grid;
+    generateMap(g, { seed: 7, material: 1, dirt: 2, sand: 3, woods: [4, 5, 6] });
+    s().loadGrid(g);
+    const G = s().grid;
+    // A dry tile with standing water two tiles on, nothing paved between.
+    let at: [number, number] | null = null;
+    for (let y = 2; y < G.h - 2 && !at; y++) for (let x = 2; x < G.w - 6; x++) {
+      const dry = (k: number) => G.pool[idx(G, x + k, y)] === 0 && G.inflow[idx(G, x + k, y)] === 0;
+      if (dry(0) && dry(1) && !dry(2) && [0, 1, 2, 3].every((k) => G.paved[idx(G, x + k, y)] === 0 && G.deck[idx(G, x + k, y)] === 0)) { at = [x, y]; break; }
+    }
+    expect(at).not.toBeNull();
+    const [x, y] = at!;
+    useWorldStore.setState({ playing: true });
+    try {
+      expect(drag("paintRoad", x, y, x + 3, y)).toBe(OPEN_WATER);
+      expect(G.paved[idx(G, x, y)]).toBe(0);
+    } finally { useWorldStore.setState({ playing: false }); }
+    // Every bridge the map came with still carries its road at its own level.
+    const read = { inBounds: (cx: number, cy: number) => cx >= 0 && cy >= 0 && cx < G.w && cy < G.h, paved: (cx: number, cy: number) => isPaved(G, cx, cy), height: (cx: number, cy: number) => (G.deck[idx(G, cx, cy)] ? G.deckZ[idx(G, cx, cy)] : G.height[idx(G, cx, cy)]) };
+    let decks = 0;
+    for (let cy = 0; cy < G.h; cy++) for (let cx = 0; cx < G.w; cx++) if (G.deck[idx(G, cx, cy)]) { decks++; expect(rampNeed(read, cx, cy).kind).not.toBe("unbridgeable"); }
+    // A road laid along a bridge and off its end onto the bank: the deck's ground is not touched.
+    if (decks) {
+      const under = Array.from(G.height);
+      let d: [number, number] | null = null;
+      for (let cy = 0; cy < G.h && !d; cy++) for (let cx = 0; cx < G.w; cx++) if (G.deck[idx(G, cx, cy)]) { d = [cx, cy]; break; }
+      const [dx, dy] = d!;
+      drag("paintRoad", dx, dy, Math.min(G.w - 1, dx + 6), dy);
+      drag("paintRoad", dx, dy, dx, Math.min(G.h - 1, dy + 6));
+      for (let i = 0; i < G.deck.length; i++) if (G.deck[i]) expect(G.height[i]).toBe(under[i]);
+    }
   });
 });

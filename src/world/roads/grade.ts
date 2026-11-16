@@ -48,6 +48,11 @@ const upOf = (g: Grid, i: number): readonly [number, number] | null => {
 };
 const paved = (g: Grid, x: number, y: number) => inBounds(g, x, y) && g.paved[idx(g, x, y)] !== 0 && g.deck[idx(g, x, y)] === 0;
 
+/** Where a cell's road stands: its deck, where it is bridged; else its ground. */
+const surface = (g: Grid, i: number) => (g.deck[i] !== 0 ? g.deckZ[i] : g.height[i]);
+/** Whether the ground under a cell of road may be moved to level a junction: nothing piped under it, no water on it, no bridge. */
+const movable = (g: Grid, i: number) => g.main[i] === 0 && g.sewer[i] === 0 && g.pool[i] === 0 && g.inflow[i] === 0 && g.deck[i] === 0;
+
 /** Whether a cell's ground is not the road's to move. */
 function held(g: Grid, x: number, y: number): boolean {
   const i = idx(g, x, y);
@@ -58,7 +63,10 @@ function held(g: Grid, x: number, y: number): boolean {
 /** What to say of a refused climb, and of a junction that cannot be levelled. */
 export const tooSteep = (short: number) => `Too steep here: the road needs ${short} more tile${short === 1 ? "" : "s"} to climb`;
 export const ON_A_SLOPE = "A road can't join here: this slope can't be levelled for a junction";
-const briefly = (short: number) => (short ? `Too steep · ${short} more tile${short === 1 ? "" : "s"}` : "Can't join on this slope");
+export const IN_THE_WAY = "Something stands in the road's way";
+export const OPEN_WATER = "A road can't cross open water";
+const BRIEF: Record<string, string> = { [ON_A_SLOPE]: "Can't join on this slope", [IN_THE_WAY]: "Something in the way", [OPEN_WATER]: "Can't cross water" };
+const briefly = (short: number, why: string) => BRIEF[why] ?? (short ? `Too steep · ${short} more tile${short === 1 ? "" : "s"}` : "Can't join on this slope");
 
 /**
  * LEVEL A RAMP for a junction on it: the heights to write, and the height the
@@ -141,9 +149,11 @@ function levelRamp(g: Grid, x: number, y: number, was: (i: number) => number, on
     }
     return null;
   };
-  const raised = only === "lower" ? null : raise();
+  // Only ground that may be moved: nothing piped under it, no water, no bridge.
+  const free = (w: Map<number, number> | null) => (w && [...w.keys()].every((j) => movable(g, j)) ? w : null);
+  const raised = only === "lower" ? null : free(raise());
   if (raised) return { writes: raised, z: h + r };
-  const lowered = only === "raise" ? null : lower();
+  const lowered = only === "raise" ? null : free(lower());
   if (lowered) return { writes: lowered, z: h };
   return null;
 }
@@ -153,8 +163,16 @@ function levelRamp(g: Grid, x: number, y: number, was: (i: number) => number, on
  * order, each beside the one before. A path that doubles back on itself is
  * graded as it first passes.
  */
-export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
+export function gradeRoad(g: Grid, path: readonly GradeCell[], o: { dry?: boolean } = {}): Grade {
   const n = path.length;
+  // NOT THROUGH A BUILDING, and in the game not into open water: nothing is laid, and nothing graded.
+  const stopped = (why: string, at: GradeCell[]): Grade =>
+    ({ heights: path.map((c) => surface(g, idx(g, c.x, c.y))), moved: [], blocked: at, short: 0, why, brief: briefly(0, why) });
+  const fresh = path.filter((c) => g.paved[idx(g, c.x, c.y)] === 0);
+  const built = fresh.filter((c) => structureAt(g, c.x, c.y) >= 0);
+  if (built.length) return stopped(IN_THE_WAY, built);
+  const wet = o.dry ? fresh.filter((c) => { const i = idx(g, c.x, c.y); return g.deck[i] === 0 && (g.pool[i] > 0 || g.inflow[i] > 0); }) : [];
+  if (wet.length) return stopped(OPEN_WATER, wet);
   const h = new Array<number>(n), pin = new Array<boolean>(n).fill(false);
   const on = new Set(path.map((c) => idx(g, c.x, c.y)));
   /** Road cells off the path whose ground a junction moves. */
@@ -162,6 +180,8 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
   const was = (i: number) => levelled.get(i) ?? g.height[i];
   const refused = new Set<number>();
   let why = "";
+  /** Cells held to a range of heights and not to one: an end meeting the road ahead of it. */
+  const range: ([number, number] | undefined)[] = new Array(n);
   const beside = (k: number, dx: number, dy: number) => [k - 1, k + 1].some((j) => j >= 0 && j < n && path[j].x - path[k].x === dx && path[j].y - path[k].y === dy);
   /** Whether the path turns at cell `k`. */
   const turns = (k: number) => k > 0 && k < n - 1 && (path[k + 1].x - path[k].x !== path[k].x - path[k - 1].x || path[k + 1].y - path[k].y !== path[k].y - path[k - 1].y);
@@ -177,7 +197,7 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
     return L.z;
   };
 
-  for (let k = 0; k < n; k++) h[k] = g.height[idx(g, path[k].x, path[k].y)];
+  for (let k = 0; k < n; k++) h[k] = surface(g, idx(g, path[k].x, path[k].y));
   /** The road cells beside path cell `k` that are off the path: where they are and their index. */
   const outside = (k: number) => {
     const { x, y } = path[k], out: { nx: number; ny: number; j: number; dx: number; dy: number }[] = [];
@@ -250,13 +270,15 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
       const ahead = end && dx === fx && dy === fy;
       // Only an end joins the road ahead of it; along the way, only a road running beside the stroke.
       if (!ahead && beside(k, -dx, -dy)) continue;
+      // AN END MEETING THE ROAD AHEAD OF IT stands no higher than it, and may be a step below, climbing to it:
+      // where the ground already is within that, it stays — a stretch taken up is relaid as it lay.
+      if (!up && ahead) { range[k] = [was(j) - MAX_RISE, was(j)]; break; }
       if (!up) { h[k] = was(j); pin[k] = true; break; }
       const inLine = up[0] === -dx && up[1] === -dy ? 1 : up[0] === dx && up[1] === dy ? -1 : 0;
       if (inLine) {
-        // At the head or the foot of its climb: an end meets it there.
+        // At the head or the foot of its climb: an end meets it there — at its head, level with it; at its foot, as any road ahead.
         if (!end) continue;
-        h[k] = was(j) + (inLine > 0 ? rampRise(g.ramp[j]) : 0);
-        pin[k] = true;
+        if (inLine > 0) { h[k] = was(j) + rampRise(g.ramp[j]); pin[k] = true; } else range[k] = [was(j) - MAX_RISE, was(j)];
         break;
       }
       // BESIDE A RAMP: a lane alongside climbs with it; an end joining it by its side levels it.
@@ -264,12 +286,12 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
       pin[k] = true;
       break;
     }
-    if (end) pin[k] = true;
+    if (end && !range[k]) pin[k] = true;
   }
 
   // WHAT THE HELD CELLS ALLOW: each cell no higher and no lower than a step a tile from every held one.
   const lo = new Array<number>(n).fill(-Infinity), hi = new Array<number>(n).fill(Infinity);
-  for (let k = 0; k < n; k++) if (pin[k]) { lo[k] = h[k]; hi[k] = h[k]; }
+  for (let k = 0; k < n; k++) if (pin[k]) { lo[k] = h[k]; hi[k] = h[k]; } else if (range[k]) { [lo[k], hi[k]] = range[k]!; }
   // A ROAD ALREADY THERE NEVER CLIMBS TO THE NEW ONE: the cells of the stroke next to it stand no higher than it
   // does, and do the climbing themselves. A junction cannot be the foot of a ramp.
   for (let k = 0; k < n; k++) {
@@ -306,7 +328,7 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
 
   // REFUSED: nothing moves, and the cursor shows the ground as it is.
   if (refused.size) {
-    return { heights: path.map((c) => g.height[idx(g, c.x, c.y)]), moved: [], blocked: [...refused].sort((a, b) => a - b).map((k) => ({ x: path[k].x, y: path[k].y })), short, why, brief: briefly(short) };
+    return { heights: path.map((c) => surface(g, idx(g, c.x, c.y))), moved: [], blocked: [...refused].sort((a, b) => a - b).map((k) => ({ x: path[k].x, y: path[k].y })), short, why, brief: briefly(short, why) };
   }
 
   const moved: Grade["moved"] = [];
@@ -316,7 +338,7 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
     const seen = first.get(i);
     if (seen !== undefined) { out[k] = out[seen]; continue; }
     first.set(i, k);
-    if (out[k] !== g.height[i]) moved.push({ x, y, from: g.height[i], to: out[k] });
+    if (g.deck[i] === 0 && out[k] !== g.height[i]) moved.push({ x, y, from: g.height[i], to: out[k] });
   }
   for (const [i, z] of levelled) if (!first.has(i) && z !== g.height[i]) moved.push({ x: i % g.w, y: (i / g.w) | 0, from: g.height[i], to: z });
   return { heights: out, moved, blocked: [], short: 0, why: "", brief: "" };
@@ -327,7 +349,7 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
  * grades nothing: a line dragged with a brush one cell wide. The cursor and
  * the commit both ask this, so what is shown is what is laid.
  */
-export function gradeStroke(g: Grid, s: Stroke, radius = 0): Grade | null {
+export function gradeStroke(g: Grid, s: Stroke, radius = 0, o: { dry?: boolean } = {}): Grade | null {
   if (s.tool !== "paintRoad" || s.brush !== "line" || s.path || radius > 0) return null;
-  return gradeRoad(g, strokeCells(g, s));
+  return gradeRoad(g, strokeCells(g, s), o);
 }

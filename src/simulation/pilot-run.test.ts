@@ -14,6 +14,9 @@ import type { Grid } from "../world/grid";
 import { placeStructure, startProject } from "../world/play/build-actions";
 import { builtProjects, nearestSpot } from "../world/projects/works";
 import { structureDef } from "../world/structures/def";
+import { buildLaneGraph } from "../world/agents/lanes/graph";
+import { isPaved } from "../world/roads/mask";
+import { rampNeed } from "../world/roads/ramp-derive";
 import { getAiRunner, stepAi } from "../world/ai/ai-runner";
 import { neededSewer } from "../world/ai/sewer-ai";
 import { tanksOf } from "../world/slop/tanks";
@@ -42,6 +45,18 @@ const print = (r: PilotRunReport) => {
 /** The buildings with a tile of their footprint on the map's own water: each a wall across it. Ports stand on a bank by their own rule. */
 const inWater = (g: Grid) => [...g.structures.values()].filter((s) => !structureDef(s.def)?.placement?.riverside
   && Array.from({ length: s.w * s.h }, (_, k) => (s.y + ((k / s.w) | 0)) * g.w + s.x + (k % s.w)).some((i) => g.pool[i] > 0));
+
+/**
+ * WHAT IS WRONG WITH THE ROADS ON A MAP: road cells no ramp can serve — a road in two pieces with a cliff
+ * between — and traffic lanes that leave the road. @see roads/laying.test.ts
+ */
+const roadFaults = (g: Grid) => {
+  const read = { inBounds: (x: number, y: number) => x >= 0 && y >= 0 && x < g.w && y < g.h, paved: (x: number, y: number) => isPaved(g, x, y), height: (x: number, y: number) => (g.deck[y * g.w + x] ? g.deckZ[y * g.w + x] : g.height[y * g.w + x]) };
+  let unbridged = 0;
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (isPaved(g, x, y) && rampNeed(read, x, y).kind === "unbridgeable") unbridged++;
+  const G = buildLaneGraph(g), c = (v: number, n: number) => Math.min(n - 1, Math.max(0, Math.round(v)));
+  return { unbridged, offRoad: G.lanes.filter((l) => l.pts.some((p) => !isPaved(g, c(p.x, g.w), c(p.y, g.h)))).length };
+};
 
 describe("a company played on a real map with no screen", () => {
   test("the town's rules run: a garage built by hand, lots laid, interns hired, arrived and housed", () => {
@@ -138,9 +153,10 @@ describe("a company played on a real map with no screen", () => {
     const pilot = createPilot(allDesks(), { strict: true });
     let unnamed = 0;
     let map: Grid | null = null;
+    let roadsAtFirst = { unbridged: 0, offRoad: 0 };
     const r = playCompany(jest.advanceTimersByTime.bind(jest), {
       seed, size, minutes, until, untilSale,
-      begin: (g) => { map = g; },
+      begin: (g) => { map = g; roadsAtFirst = roadFaults(g); },
       drive: (g, dt) => {
         if (!pilot.tick(dt, livePurse, g.rev).says) unnamed++;
       },
@@ -165,6 +181,12 @@ describe("a company played on a real map with no screen", () => {
     }
     expect(unnamed).toBe(0);
     expect(pilot.faults()).toBe(0);
+    // THE ROADS IT LAID ARE ROADS: none in two pieces at a cliff, no lane off the road — no more of either than
+    // the map came with.
+    const roads = roadFaults(g);
+    if (process.env.BALANCE) console.log("roads: at first " + JSON.stringify(roadsAtFirst) + ", at the end " + JSON.stringify(roads) + " · paved " + g.paved.reduce((n, v) => n + (v ? 1 : 0), 0));
+    expect(roads.unbridged).toBeLessThanOrEqual(roadsAtFirst.unbridged);
+    expect(roads.offRoad).toBeLessThanOrEqual(roadsAtFirst.offRoad);
     // NO TANK SPILLING FOR TWO MINUTES: the Water desk's. @see plans/ai-mode-rebuild.md phase 4
     expect(r.spill.longest).toBeLessThan(120);
     return { r, g, pilot };

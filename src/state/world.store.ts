@@ -1482,7 +1482,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         return;
       }
       // A ROAD GRADES ITS OWN GROUND: the hill cut and filled under it, in this command. @see gradeRoad
-      const grade = gradeStroke(st.grid, s0, st.brushRadius);
+      const grade = gradeStroke(st.grid, s0, st.brushRadius, { dry: st.playing });
       if (grade?.blocked.length) {
         set({ stroke: null, ...(aiActing() ? {} : { notice: { text: grade.why, at: Date.now() } }) });
         return;

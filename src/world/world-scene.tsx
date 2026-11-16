@@ -2685,7 +2685,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // them to, and red where the climb is too steep for the run. @see gradeRoad
       let level: ((x: number, y: number) => number | undefined) | undefined;
       let tilt: ((x: number, y: number) => Tilt | undefined) | undefined;
-      const grade = gradeStroke(grid, s0, brushRadius);
+      const grade = gradeStroke(grid, s0, brushRadius, { dry: useWorldStore.getState().playing });
       if (grade) {
         const to = new Map(cells.map((c, k) => [`${c.x},${c.y}`, grade.heights[k]]));
         const no = new Set(grade.blocked.map((c) => `${c.x},${c.y}`));
