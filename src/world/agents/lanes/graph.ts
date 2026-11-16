@@ -272,7 +272,11 @@ export function buildLaneGraph(g: Grid): LaneGraph {
       if (d.ends[e] !== "junction") return { kind: d.ends[e] } as StreetEnd;
       return { kind: "junction", junction: region[d.into[e]] } as StreetEnd;
     }) as [StreetEnd, StreetEnd];
-    const mid = smooth(d.span.map(([b0, b1]) => (b0 + b1) / 2));
+    // A road one cell wide is smoothed through its steps: there is a kerb's width to spare either side. A wider
+    // one keeps to its cells' middle, slice by slice — its lanes fill it, and smoothed they ran over the kerb
+    // where it jogs a cell sideways. @see roads/looks, which paints its lines the same way
+    const rawMid = d.span.map(([b0, b1]) => (b0 + b1) / 2);
+    const mid = d.width > 1 ? rawMid : smooth(rawMid);
     const st: Street = { id, axis: d.axis, a0: d.a0, a1: d.a1, span: d.span, width: k, mid, ends, lanes: [] };
     streets.push(st);
     // A lane runs from gate to gate; at a dead end it stops short, for the U-turn.

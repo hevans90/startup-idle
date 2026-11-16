@@ -98,8 +98,12 @@ export type Look = {
    * (the centre line its warning line); `x` in a junction a highway runs
    * through, its lines carried on past a side road's mouth; then its width in
    * cells and which this is across it, from the low side: `ub!3.1` — not a
-   * whole number where the road jogs sideways, and then `~` and how far its
-   * middle slants across this cell: `u2.0.75~0.25`.
+   * whole number in the slice where the road jogs sideways; `~` and how far
+   * its middle stands, at the cell's low edge and its high one, from where it
+   * is at the cell's middle: `u2.1~0,0.25`; and, where that is not
+   * where its cells put it, `^` and its low edge as the cells have it, coming
+   * into this cell and leaving it — what its shoulder lines keep to, as its
+   * kerbs do.
    * Empty elsewhere. @see agents/lanes/graph laneLines
    */
   ln: string;
@@ -258,7 +262,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
     R.major = through.length === 1 ? through[0] : through.length === 2 ? (len("v") > len("u") ? "v" : "u") : "";
   }
   // ACROSS A WIDE STREET: the way it runs, how wide it is, and where each of its cells is across it.
-  const across = new Map<number, { ax: "u" | "v"; k: number; c: number; dq: number; last: number; jog: boolean }>();
+  const across = new Map<number, { ax: "u" | "v"; k: number; c: number; d0: number; d1: number; last: number; jog: boolean; r0: number; r1: number }>();
   const round3 = (v: number) => Math.round(v * 1000) / 1000;
   for (const cells of streets.tiles) {
     if (cells.length < 2) continue;
@@ -272,15 +276,25 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
     const as = [...slices.keys()].sort((p, q) => p - q);
     const widths = as.map((a) => slices.get(a)!.length).sort((p, q) => p - q), k = widths[widths.length >> 1];
     if (k < 2) continue;
-    // ITS MIDDLE, slice by slice, smoothed as the lanes' is: through a jog it slants over a few cells. @see agents/lanes/graph smooth
-    const raw = as.map((a) => { const bs = slices.get(a)!; return (Math.min(...bs) + Math.max(...bs)) / 2 + 0.5; });
-    const mid = raw.map((_, n) => { const r = Math.min(2, n, raw.length - 1 - n); let t = 0; for (let q = n - r; q <= n + r; q++) t += raw[q]; return t / (2 * r + 1); });
+    // ITS MIDDLE, slice by slice, as the lanes have it: the middle of each slice's cells, and straight from one
+    // slice's to the next — so through a jog it slants, from the middle of the slice before to the middle of the
+    // slice after. @see agents/lanes/graph
+    const mid = as.map((a) => { const bs = slices.get(a)!; return (Math.min(...bs) + Math.max(...bs)) / 2 + 0.5; });
     as.forEach((a, n) => {
       // Where it crosses this slice's two edges: half way to the slice before, and to the one after.
-      const e0 = n > 0 && as[n - 1] === a - 1 ? (mid[n - 1] + mid[n]) / 2 : mid[n], e1 = n + 1 < as.length && as[n + 1] === a + 1 ? (mid[n] + mid[n + 1]) / 2 : mid[n];
+      // Where it meets the slice either side: half way between their middles — but a jog's own slice takes the
+      // whole of the step, as its kerbs do, so the slices beside it run straight to it.
+      const wide = (q: number) => slices.get(as[q])!.length > k;
+      const edge = (p: number, q: number) => (wide(p) !== wide(q) ? mid[wide(p) ? q : p] : (mid[p] + mid[q]) / 2);
+      const e0 = n > 0 && as[n - 1] === a - 1 ? edge(n - 1, n) : mid[n], e1 = n + 1 < as.length && as[n + 1] === a + 1 ? edge(n, n + 1) : mid[n];
       // The street's own last slice each way, a bit each: where its run can end. A cell of a jog with no road on from it is not that.
       const last = (n === 0 ? 1 : 0) | (n === as.length - 1 ? 2 : 0);
-      for (const b of slices.get(a)!) across.set(ax === "u" ? idx(g, a, b) : idx(g, b, a), { ax, k, c: round3(b - (mid[n] - k / 2)), dq: round3(e1 - e0), last, jog: slices.get(a)!.length > k });
+      // ITS KERB-SIDE EDGE as the cells have it, not smoothed: its low edge where it comes into this slice and
+      // where it leaves — the same, but in the slice of a jog, which it crosses from the one before to the one after.
+      const lowOf = (m: number) => Math.min(...slices.get(as[m])!);
+      const wider = slices.get(a)!.length > k;
+      const in0 = wider && n > 0 ? lowOf(n - 1) : lowOf(n), in1 = wider && n + 1 < as.length ? lowOf(n + 1) : lowOf(n);
+      for (const b of slices.get(a)!) across.set(ax === "u" ? idx(g, a, b) : idx(g, b, a), { ax, k, c: round3(b - (mid[n] - k / 2)), d0: round3(e0 - mid[n]), d1: round3(e1 - mid[n]), last, jog: wider, r0: in0 - b, r1: in1 - b });
     });
   }
   const regionAt = (x: number, y: number) => { const i = at(x, y); return i < 0 ? null : region[i] < 0 ? null : regions[region[i]]; };
@@ -476,7 +490,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
       if (wide.k >= HIGHWAY && !L.hw && !L.spd && !warn && !near && (wide.ax === "u" ? x : y) % ARROW_EVERY === 2) L.hw = along.map((sd) => `${sd}P`).join("");
       // Its own lanes' arrows, not the one a two-cell road's whole cell had.
       if (L.hw) L.arrow = "";
-      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${short && ends ? "n" : ""}${wide.jog ? "j" : ""}${warn ? "!" : ""}${wide.k}.${wide.c}${wide.dq ? "~" + wide.dq : ""}`;
+      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${short && ends ? "n" : ""}${wide.jog ? "j" : ""}${warn ? "!" : ""}${wide.k}.${wide.c}${wide.d0 || wide.d1 ? `~${wide.d0},${wide.d1}` : ""}${wide.r0 !== -wide.c || wide.r1 !== -wide.c ? `^${wide.r0},${wide.r1}` : ""}`;
     }
     else if (lane >= 0) L.ctr = (warn ? "H" : "h") + opposite(lane as Side);
     else if (r === "thick-curve") { L.ctr = "b"; L.yl = true; }

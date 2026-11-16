@@ -305,13 +305,18 @@ describe("a wide road that jogs a cell sideways", () => {
     // The wider slice, and it alone, is marked as the jog: its kerbs cut the corner.
     for (const y of [8, 9, 10]) expect(look(g, 20, y).ln).toMatch(/^uj/);
     for (const x of [19, 21]) expect(look(g, x, 9).ln).not.toMatch(/^uj/);
+    // Its shoulder lines keep to the kerb: straight either side of the jog — the low edge where the cells are —
+    // and across the jog's own slice from the one to the other.
+    expect(look(g, 19, 9).ln).toBe("u2.1");
+    expect(look(g, 20, 9).ln).toBe("uj2.0.5~-0.5,0.5^-1,0");
+    expect(look(g, 21, 9).ln).toBe("u2.0");
   });
 
   test("its painted middle is where its lanes' middle is, slice by slice", () => {
     const G = buildLaneGraph(g), st = G.streets.find((q) => q.width === 2 && q.a1 - q.a0 > 30)!;
     expect(st).toBeDefined();
     for (let x = st.a0; x <= st.a1; x++) {
-      const m = /^u[abcnj!x]*2\.(-?[\d.]+?)(?:~(-?[\d.]+))?$/.exec(look(g, x, 9).ln)!;
+      const m = /^u[abcnj!x]*2\.(-?[\d.]+?)(?:~.*)?(?:\^.*)?$/.exec(look(g, x, 9).ln)!;
       // The cell at y = 9 is `c` across from the road's low edge; its middle one cell on: so the road's middle, in cell middles.
       const painted = 9 + 1 - Number(m[1]) - 0.5;
       expect(Math.abs(painted - st.mid[x - st.a0])).toBeLessThan(0.002);

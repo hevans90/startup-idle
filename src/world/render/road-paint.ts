@@ -454,18 +454,24 @@ function centreLine(ctx: Ctx, L: Look) {
 const LANE_DASH: [number, number][] = [[0.4, 0.6]];
 
 /** A WIDE ROAD's own Look.ln, read: the way it runs, where its run ends (1 its low end, 2 its high, 3 both), warned of a junction, through one, how wide, and which cell across. */
-type Wide = { ax: "u" | "v"; ends: number; plain: boolean; jog: boolean; warn: boolean; thru: boolean; k: number; c: number; dq: number };
+type Wide = { ax: "u" | "v"; ends: number; plain: boolean; jog: boolean; warn: boolean; thru: boolean; k: number; c: number; d0: number; d1: number; r0: number; r1: number };
 function wideOf(ln: string): Wide | null {
-  const m = /^([uv])([abc]?)(n?)(j?)(!?)(x?)(\d+)\.(-?\d+(?:\.\d+)?)(?:~(-?[\d.]+))?$/.exec(ln);
-  return m ? { ax: m[1] as "u" | "v", ends: m[2] ? "abc".indexOf(m[2]) + 1 : 0, plain: !!m[3], jog: !!m[4], warn: !!m[5], thru: !!m[6], k: Number(m[7]), c: Number(m[8]), dq: Number(m[9] ?? 0) } : null;
+  const m = /^([uv])([abc]?)(n?)(j?)(!?)(x?)(\d+)\.(-?\d+(?:\.\d+)?)(?:~(-?[\d.]+),(-?[\d.]+))?(?:\^(-?[\d.]+),(-?[\d.]+))?$/.exec(ln);
+  if (!m) return null;
+  const c = Number(m[8]);
+  // Its low edge as the cells have it, into this cell and out: where its middle puts it, unless said.
+  return { ax: m[1] as "u" | "v", ends: m[2] ? "abc".indexOf(m[2]) + 1 : 0, plain: !!m[3], jog: !!m[4], warn: !!m[5], thru: !!m[6], k: Number(m[7]), c, d0: Number(m[9] ?? 0), d1: Number(m[10] ?? 0), r0: m[11] !== undefined ? Number(m[11]) : -c, r1: m[12] !== undefined ? Number(m[12]) : -c };
 }
 /** How far across a road's middle has slanted, `a` along this cell from its low edge: nothing on a straight road; through a jog, a little a cell. */
-const slantAt = (W: Wide, a: number) => W.dq * (a - 0.5);
+const slantAt = (W: Wide, a: number) => (a < 0.5 ? W.d0 * (1 - 2 * a) : W.d1 * (2 * a - 1));
+/** Whether a stretch of it from `a0` to `a1` bends at the cell's middle: its slant one way in, another out. */
+const bends = (W: Wide, a0: number, a1: number) => a0 < 0.5 && a1 > 0.5 && W.d0 !== -W.d1;
 /** A point of a wide road: `a` along the cell, `q` across where the road stands at the cell's middle, slanting with it. */
 const widePt = (W: Wide, a: number, q: number): [number, number] => runPt(W.ax, a, q + slantAt(W, a));
 /** A strip of a wide road, from `a0` to `a1` along and `q0` to `q1` across, slanting with the road through a jog. */
 function wideRect(ctx: Ctx, W: Wide, a0: number, a1: number, q0: number, q1: number) {
-  poly(ctx, [widePt(W, a0, q0), widePt(W, a1, q0), widePt(W, a1, q1), widePt(W, a0, q1)]);
+  const mid: [number, number][][] = bends(W, a0, a1) ? [[widePt(W, 0.5, q0)], [widePt(W, 0.5, q1)]] : [[], []];
+  poly(ctx, [widePt(W, a0, q0), ...mid[0], widePt(W, a1, q0), widePt(W, a1, q1), ...mid[1], widePt(W, a0, q1)]);
 }
 
 /** A rectangle of a road running along `ax`: from `a0` to `a1` along it, `q0` to `q1` across. */
@@ -541,14 +547,17 @@ function wideLines(ctx: Ctx, L: Look) {
     }
   }
   if (!highway) return;
-  // THE SHOULDER LINES, where the lanes end and the strip begins: solid, and at a side road's mouth an exit's dashes.
+  // THE SHOULDER LINES, where the lanes end and the strip begins: solid, and at a side road's mouth an exit's
+  // dashes. They keep to the KERB, a strip's width in from it — through a jog straight across with it, where
+  // the lanes' own lines slant over a few cells.
   const span = laneSpanOf(W.k);
   for (const sg of [-1, 1]) {
-    const q = W.k / 2 + sg * span - W.c;
-    if (q < 0 || q > 1) continue;
+    const q0 = W.r0 + W.k / 2 + sg * span, q1 = W.r1 + W.k / 2 + sg * span;
+    if (Math.max(q0, q1) < 0 || Math.min(q0, q1) > 1) continue;
+    const at = (a: number, o: number) => runPt(W.ax, a, q0 + (q1 - q0) * a + o);
     const mouth = W.thru && has(L.open, W.ax === "u" ? (sg < 0 ? 2 : 3) : (sg < 0 ? 0 : 1));
-    if (!mouth) { wideRect(ctx, W, -0.05, 1.05, q - w, q + w); ctx.fill(); continue; }
-    for (const [a0, a1] of dashes(0.02, 1, 0.09, 0.07)) { wideRect(ctx, W, a0, a1, q - 2 * w, q + 2 * w); ctx.fill(); }
+    if (!mouth) { poly(ctx, [at(-0.05, -w), at(1.05, -w), at(1.05, w), at(-0.05, w)]); ctx.fill(); continue; }
+    for (const [a0, a1] of dashes(0.02, 1, 0.09, 0.07)) { poly(ctx, [at(a0, -2 * w), at(a1, -2 * w), at(a1, 2 * w), at(a0, 2 * w)]); ctx.fill(); }
   }
 }
 
@@ -578,8 +587,10 @@ function medianShape(ctx: Ctx, W: Wide, m0: number, m1: number, q: number, half:
   const N = 8, pts: [number, number][] = [];
   if (ends & 1) for (let k = 0; k <= N; k++) { const t = Math.PI / 2 + (k / N) * Math.PI; pts.push(widePt(W, m0 + half + Math.cos(t) * half, q + Math.sin(t) * half)); }
   else pts.push(widePt(W, m0, q + half), widePt(W, m0, q - half));
+  if (bends(W, m0, m1)) pts.push(widePt(W, 0.5, q - half));
   if (ends & 2) for (let k = 0; k <= N; k++) { const t = -Math.PI / 2 + (k / N) * Math.PI; pts.push(widePt(W, m1 - half + Math.cos(t) * half, q + Math.sin(t) * half)); }
   else pts.push(widePt(W, m1, q - half), widePt(W, m1, q + half));
+  if (bends(W, m0, m1)) pts.push(widePt(W, 0.5, q + half));
   pts.forEach(([u, v], k) => (k ? ctx.lineTo(u, v) : ctx.moveTo(u, v)));
   ctx.closePath();
 }
