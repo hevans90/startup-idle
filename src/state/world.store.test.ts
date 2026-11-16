@@ -106,10 +106,11 @@ describe("derived ramps", () => {
     expect(rampDir(at(4, 5))).not.toBe(RAMP.NONE);
   });
 
-  test("a HALF step is not bridged — there is no paved half-ramp art", () => {
+  test("a HALF step is bridged too, by a ramp half as steep", () => {
     roadOntoStep(1);
-    expect(rampDir(at(4, 5))).toBe(RAMP.NONE);
-    expect(s().netComponents).toBe(2);
+    expect(rampDir(at(4, 5))).toBe(RAMP.W);
+    expect(rampRise(at(4, 5))).toBe(1);
+    expect(s().netComponents).toBe(1);
   });
 
   test("a step of two or more is not bridged either", () => {
@@ -266,11 +267,20 @@ describe("road network", () => {
   test("a height edit a ramp CANNOT bridge still splits the road", () => {
     paveRun(4, 2, 8);
     s().setTool("raise");
-    s().setHeightStep(1);                 // half step: no paved ramp art
-    s().beginStroke({ x: 4, y: 5 });
-    s().endStroke();
+    s().setHeightStep(2);
+    s().beginStroke({ x: 4, y: 5 }); s().endStroke();
+    s().beginStroke({ x: 4, y: 5 }); s().endStroke();   // two steps up: too tall for a ramp
     expect(rampDir(s().grid.ramp[4 * 12 + 4])).toBe(RAMP.NONE);
     expect(s().netComponents).toBe(3);    // the raised cell is stranded
+  });
+
+  test("a half step raised under a road is ramped up to from both sides", () => {
+    paveRun(4, 2, 8);
+    s().setTool("raise");
+    s().setHeightStep(1);
+    s().beginStroke({ x: 4, y: 5 }); s().endStroke();
+    expect(rampDir(s().grid.ramp[4 * 12 + 4])).not.toBe(RAMP.NONE);
+    expect(s().netComponents).toBe(1);
   });
 
   test("a fresh map has no networks", () => {

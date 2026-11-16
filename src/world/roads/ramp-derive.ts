@@ -19,11 +19,8 @@
 import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { RAMP, packRamp, type RampDir } from "../iso";
 
-/**
- * Rises a road can ramp, in half steps: a whole step only. A half-step
- * difference is not bridged by a road.
- */
-export const PAVED_RAMP_RISES: readonly number[] = [2];
+/** Rises a road can ramp, in half steps: a half step or a whole one. Taller, the road tool grades the ground. @see gradeRoad */
+export const PAVED_RAMP_RISES: readonly number[] = [1, 2];
 
 /** What the derivation needs to read. Satisfied by a grid, or by staged edits. */
 export type SurfaceReader = {
@@ -43,10 +40,10 @@ export type RampNeed =
 /**
  * The ramp a paved cell needs, if any.
  *
- * Only ONE direction is possible per cell, so a cell facing two higher paved
- * neighbours is reported unbridgeable rather than silently picking one. Likewise
- * a rise the artset has no paved ramp for — ×0.5 — which is why a half-step
- * step cannot carry a road.
+ * Only ONE direction is possible per cell. A cell facing two higher paved
+ * neighbours climbs the one its road runs on to; with no such one, or two, it
+ * is reported unbridgeable rather than silently picking. Likewise a rise
+ * taller than a step.
  */
 export function rampNeed(read: SurfaceReader, x: number, y: number): RampNeed {
   if (!read.inBounds(x, y) || !read.paved(x, y)) return { kind: "none" };
@@ -62,14 +59,22 @@ export function rampNeed(read: SurfaceReader, x: number, y: number): RampNeed {
     up.push({ dir: RAMP[d] as RampDir, rise });
   }
   if (!up.length) return { kind: "none" };
-  if (up.length > 1) {
+  // TWO HIGHER NEIGHBOURS: the road goes on up the one it comes to from below
+  // — the one opposite a paved cell no higher than this — and a road on a
+  // terrace beside it is simply not joined. None or both such, it is neither.
+  const through = up.length === 1 ? up : up.filter((u) => {
+    const d = DIRS[u.dir - 1], [dx, dy] = NEIGHBOUR[d];
+    const bx = x - dx, by = y - dy;
+    return read.inBounds(bx, by) && read.paved(bx, by) && read.height(bx, by) <= here;
+  });
+  if (through.length !== 1) {
     return { kind: "unbridgeable", reason: "two steps at once" };
   }
-  const [{ dir, rise }] = up;
+  const [{ dir, rise }] = through;
   if (!PAVED_RAMP_RISES.includes(rise)) {
     return {
       kind: "unbridgeable",
-      reason: rise === 1 ? "no paved half-ramp art" : `step of ${rise / 2} is too tall`,
+      reason: `step of ${rise / 2} is too tall`,
     };
   }
   return { kind: "ramp", dir, rise };

@@ -135,6 +135,7 @@ const CPU_SOLVE_MS = 8;
  */
 const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a080, closed: 0xa4a8ae, fire: 0x6a5c55, power: 0x707888, quake: 0xb8a690 };
 import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
+import { gradeStroke } from "./roads/grade";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
 import { seatsByCell, trafficOf, type Seat } from "./agents/town";
@@ -2678,6 +2679,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         valid = (_g, x, y) => ({ ok: can.has(`${x},${y}`) });
       }
 
+      // A ROAD OVER A HILL, as it will lie: its cells at the heights it grades
+      // them to, and red where the climb is too steep for the run. @see gradeRoad
+      let level: ((x: number, y: number) => number | undefined) | undefined;
+      const grade = gradeStroke(grid, s0, brushRadius);
+      if (grade) {
+        const to = new Map(cells.map((c, k) => [`${c.x},${c.y}`, grade.heights[k]]));
+        const no = new Set(grade.blocked.map((c) => `${c.x},${c.y}`));
+        level = (x, y) => to.get(`${x},${y}`);
+        if (no.size) valid = (_g, x, y) => (no.has(`${x},${y}`) ? { ok: false, reason: grade.why } : { ok: true });
+      }
+
       // THE HOLOGRAM of what the click puts down: the building itself, red where it cannot go. @see createHolograms
       const holos: HoloSpec[] = [];
       if (s0.tool === "placeStructure") {
@@ -2704,6 +2716,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         tool: s0.tool,
         scale,
         wet: s0.tool === "dredge",
+        level,
       });
     };
     draw();

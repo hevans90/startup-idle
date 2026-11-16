@@ -82,6 +82,7 @@ export function footprintPerimeter(
   cells: readonly Cell[],
   scale: number,
   wet = false,
+  level?: (x: number, y: number) => number | undefined,
 ): [number, number, number, number][] {
   // A MASK OVER THE GRID, not a set of "x,y" strings: a pour dragged over a
   // 128 tile map is sixteen thousand cells, and this ran on every pointer
@@ -101,7 +102,7 @@ export function footprintPerimeter(
     // AN INTERIOR CELL HAS NO EDGE TO DRAW, and is most of a big footprint:
     // asked first, so only the rim works out its corners.
     if (EDGES.every((e) => has(c.x + e.dx, c.y + e.dy))) continue;
-    const v = vertices(c.x, c.y, levelAt(grid, c.x, c.y, wet), scale);
+    const v = vertices(c.x, c.y, level?.(c.x, c.y) ?? levelAt(grid, c.x, c.y, wet), scale);
     for (const e of EDGES) {
       if (has(c.x + e.dx, c.y + e.dy)) continue;
       out.push([v[e.a][0], v[e.a][1], v[e.b][0], v[e.b][1]]);
@@ -125,6 +126,11 @@ export type CursorInput = {
    * the river as it is seen, whose bed may lie well below. @see levelAt
    */
   wet?: boolean;
+  /**
+   * Where a cell WILL stand, in half steps, where the tool moves the ground:
+   * a road graded over a hill is shown as it will lie. @see gradeRoad
+   */
+  level?: (x: number, y: number) => number | undefined;
 };
 
 /**
@@ -150,7 +156,7 @@ export function cursorSignature(grid: Grid, input: CursorInput, valid: Validator
     // pointer moves the cursor and changes nothing else, and a signature off
     // the ground would call that the same picture and skip the redraw.
     const on = inBounds(grid, c.x, c.y);
-    const h = on ? levelAt(grid, c.x, c.y, input.wet) : 0;
+    const h = on ? input.level?.(c.x, c.y) ?? levelAt(grid, c.x, c.y, input.wet) : 0;
     const d = on ? grid.deck[idx(grid, c.x, c.y)] : 0;
     mix(c.x); mix(c.y); mix(Math.round(h * 64)); mix(d);
     mix(valid(grid, c.x, c.y).ok ? 1 : 0);
@@ -263,7 +269,7 @@ export function createBuildCursor(overlay: Container): BuildCursor {
       // cell, and the march stops at the deck — so a cursor drawn off
       // `grid.height` sat in the channel under the span the pointer was on,
       // which is the one reading of a bridge nobody wants.
-      heights[n] = levelAt(grid, c.x, c.y, input.wet);
+      heights[n] = input.level?.(c.x, c.y) ?? levelAt(grid, c.x, c.y, input.wet);
       const ok = valid(grid, c.x, c.y).ok;
       oks[n] = ok ? 1 : 2;
       if (!ok) blocked++;
@@ -291,7 +297,7 @@ export function createBuildCursor(overlay: Container): BuildCursor {
       setTint(want === 1 ? 0 : 1, corners, q, want === 1 ? CURSOR_OK : CURSOR_BLOCKED);
     }
     // perimeter last and bolder, so the footprint reads as one shape
-    for (const [x0, y0, x1, y1] of footprintPerimeter(grid, input.cells, input.scale, input.wet)) {
+    for (const [x0, y0, x1, y1] of footprintPerimeter(grid, input.cells, input.scale, input.wet, input.level)) {
       outline.moveTo(x0, y0).lineTo(x1, y1);
     }
     outline.stroke({

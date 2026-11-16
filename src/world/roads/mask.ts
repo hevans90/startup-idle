@@ -11,7 +11,7 @@
  * when the diagonals behind it are paved, and a T-junction when they are not.
  */
 import { DIR, NEIGHBOUR } from "../../iso/dir";
-import { idx, inBounds, rampDir, rampRise, surfaceHeightAt, VOID, type Grid } from "../grid";
+import { idx, inBounds, rampDir, rampRise, VOID, type Grid } from "../grid";
 import { RAMP } from "../iso";
 
 export { DIR };
@@ -100,11 +100,28 @@ export const OPPOSITE: Record<keyof typeof DIR, keyof typeof DIR> = {
 };
 
 /**
+ * Height a cell's surface reaches at one of its corners: the one toward
+ * `(sx, sy)`, each −1 or +1. A ramp's corners on its high edge stand its rise
+ * above the other two.
+ */
+export function cornerHeight(g: Grid, x: number, y: number, sx: number, sy: number): number {
+  const i = idx(g, x, y);
+  if (g.deck[i] !== 0) return g.deckZ[i];
+  const packed = g.ramp[i], d = rampDir(packed);
+  if (d === RAMP.NONE) return g.height[i];
+  // N is the edge toward x − 1, S toward x + 1, E toward y − 1, W toward y + 1. @see NEIGHBOUR
+  const high = d === RAMP.N ? sx < 0 : d === RAMP.S ? sx > 0 : d === RAMP.E ? sy < 0 : sy > 0;
+  return g.height[i] + (high ? rampRise(packed) : 0);
+}
+
+/**
  * Eight-bit connection mask for a cell.
  *
- * A diagonal counts only when the cell itself is paved and level with it —
- * diagonals exist to tell a wide road's inside from a junction, and a diagonal
- * across a step is neither.
+ * A diagonal counts only when the cell itself is paved and the two surfaces
+ * meet at the corner they share — diagonals exist to tell a wide road's
+ * inside from a junction, and a diagonal across a step is neither. At the
+ * corner, not the middle: a wide road's ramp meets the flat cells diagonally
+ * before and after it there, and nowhere else.
  */
 export function maskAt(g: Grid, x: number, y: number): number {
   if (!isPaved(g, x, y)) return 0;
@@ -112,12 +129,11 @@ export function maskAt(g: Grid, x: number, y: number): number {
   for (const dir of ["N", "E", "S", "W"] as const) {
     if (connects(g, x, y, dir)) m |= DIR[dir];
   }
-  const h = surfaceHeightAt(g, x, y);
   for (const dir of ["NE", "SE", "SW", "NW"] as const) {
     const [dx, dy] = DIAG_NEIGHBOUR[dir];
     const nx = x + dx, ny = y + dy;
     if (!isPaved(g, nx, ny)) continue;
-    if (surfaceHeightAt(g, nx, ny) !== h) continue;
+    if (cornerHeight(g, nx, ny, -dx, -dy) !== cornerHeight(g, x, y, dx, dy)) continue;
     m |= DIAG[dir];
   }
   return m;

@@ -48,10 +48,10 @@ describe("rampNeed", () => {
     }
   });
 
-  test("a HALF step is unbridgeable, and says why", () => {
+  test("a HALF step is a ramp half as steep", () => {
     const need = rampNeed(world(["4,4", "4,5"], { "4,5": 1 }), 4, 4);
-    expect(need.kind).toBe("unbridgeable");
-    if (need.kind === "unbridgeable") expect(need.reason).toBe("no paved half-ramp art");
+    expect(need.kind).toBe("ramp");
+    if (need.kind === "ramp") expect(need.rise).toBe(1);
   });
 
   test("a step of two or more is unbridgeable, and says how tall", () => {
@@ -89,7 +89,7 @@ describe("derivedRamp", () => {
 
   test("zero for every case that is not a ramp", () => {
     expect(derivedRamp(world([]), 4, 4)).toBe(RAMP.NONE);
-    expect(derivedRamp(world(["4,4", "4,5"], { "4,5": 1 }), 4, 4)).toBe(RAMP.NONE);
+    expect(derivedRamp(world(["4,4", "4,5"], { "4,5": 3 }), 4, 4)).toBe(RAMP.NONE);
     expect(derivedRamp(world(["4,4", "4,5"], { "4,5": 9 }), 4, 4)).toBe(RAMP.NONE);
   });
 

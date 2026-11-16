@@ -41,6 +41,7 @@ import { terrainName } from "../world/terrain-names";
 import { MAIN_AI, MAIN_BORE, MAIN_END, MAIN_SEWER, SEWER_BORE, SEWER_FIT, SEWER_GRATE, createGrid, edited, fillTerrain, idx, inBounds, type Grid, structureAt } from "../world/grid";
 import type { Cell } from "../world/iso";
 import { derivedRamp, type SurfaceReader } from "../world/roads/ramp-derive";
+import { gradeStroke } from "../world/roads/grade";
 import { LEVEE, structureDef } from "../world/structures/def";
 import { DRY } from "../world/water/materials";
 import { findMains, hasMain, mainsToPorts, planMain, previewSewer } from "../world/water/mains";
@@ -1261,6 +1262,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (!s0) return;
     // What a road stroke cost, for taking it back. @see undoLastBuild
     let roadPaid = 0;
+    /** Cells whose ground a road stroke moved. @see gradeRoad */
+    const graded: { x: number; y: number }[] = [];
     let dredged: { x: number; y: number }[] = [];
     // DEMOLISH ON A PIPE OR A ROAD lifts it. @see demolishLifts
     // In the editor a pipe only: Demolish there has never taken up a road.
@@ -1478,6 +1481,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         set({ stroke: null, ...(aiActing() ? {} : { notice: { text: "A road can't go over a sewer connection", at: Date.now() } }) });
         return;
       }
+      // A ROAD GRADES ITS OWN GROUND: the hill cut and filled under it, in this command. @see gradeRoad
+      const grade = gradeStroke(st.grid, s0, st.brushRadius);
+      if (grade?.blocked.length) {
+        set({ stroke: null, ...(aiActing() ? {} : { notice: { text: grade.why, at: Date.now() } }) });
+        return;
+      }
       if (st.playing && s0.tool === "paintRoad") {
         const fresh = cells.filter((c) => st.grid.paved[c.y * st.grid.w + c.x] === VOID_MATERIAL).length;
         // THE PARTNERSHIP pays half of a road in its district, from its wallet. @see playerShare
@@ -1490,6 +1499,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         }
         if (fresh > 0) roadPaid = price.toNumber();
       }
+      for (const m of grade?.moved ?? []) { b.set("height", m.x, m.y, m.to); graded.push({ x: m.x, y: m.y }); }
       for (const c of cells) b.set("paved", c.x, c.y, value);
     } else {
       const value = s0.tool === "erase" ? VOID_MATERIAL : st.material;
@@ -1526,7 +1536,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // the hitch on letting go. @see rampNeed
     if (!isSlopeTool(s0.tool) && (isRoadTool(s0.tool) || isHeightTool(s0.tool))) {
       const read = readerFor(b, st.grid);
-      for (const c of heightDirtyCells(st.grid, cells)) {
+      // And round a ramp a junction levelled, which can lie off the stroke. @see gradeRoad
+      for (const c of heightDirtyCells(st.grid, graded.length ? [...cells, ...graded] : cells)) {
         b.set("ramp", c.x, c.y, derivedRamp(read, c.x, c.y));
       }
     }

@@ -31,7 +31,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -108,6 +108,29 @@ const paveRun = (g: Grid, x0: number, y0: number, x1: number, y1: number) => {
     x += dx; y += dy;
   }
 };
+
+/**
+ * HILLS TO LAY ROADS OVER: terraces across the map, each a different climb —
+ * half a step, a step, a cliff of three, a valley one cell wide and one of
+ * three, a ridge — and nothing paved. The road tool is what is under test:
+ * dragged across, it has to leave one road. @see gradeRoad
+ */
+export function buildHills(g: Grid, material: number) {
+  clear(g, material);
+  const at = (x: number): number => {
+    if (x < 8) return 0;
+    if (x < 14) return 1;            // half a step up
+    if (x < 20) return 3;            // a step
+    if (x < 26) return 9;            // a cliff of three steps
+    if (x === 29) return 3;          // a valley one cell wide
+    if (x < 34) return 9;
+    if (x < 37) return 4;            // a valley of three
+    if (x < 41) return 9;
+    if (x === 43) return 12;         // a ridge
+    return 6;
+  };
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) set(g, x, y, at(x));
+}
 
 /**
  * Stepped ziggurat with a ramp climbing each face.
@@ -1098,7 +1121,7 @@ export function buildIslands(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1110,7 +1133,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1154,6 +1177,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "pipeyard": buildPipeYard(g, material); recomputeHeightRange(g); return;
     case "glass": buildGlassGallery(g, material); recomputeHeightRange(g); return;
     case "traffic": buildTraffic(g, material); recomputeHeightRange(g); return;
+    case "hills": buildHills(g, material); recomputeHeightRange(g); return;
   }
 }
 
