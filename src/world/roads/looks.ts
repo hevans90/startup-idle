@@ -261,7 +261,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
     R.major = through.length === 1 ? through[0] : through.length === 2 ? (len("v") > len("u") ? "v" : "u") : "";
   }
   // ACROSS A WIDE STREET: the way it runs, how wide it is, and where each of its cells is across it.
-  const across = new Map<number, { ax: "u" | "v"; k: number; c: number; d0: number; d1: number; last: number; jog: boolean; r0: number; r1: number }>();
+  const across = new Map<number, { ax: "u" | "v"; k: number; c: number; d0: number; d1: number; j0: number; js: number; last: number; jog: boolean; r0: number; r1: number }>();
   const round3 = (v: number) => Math.round(v * 1000) / 1000;
   for (const cells of streets.tiles) {
     if (cells.length < 2) continue;
@@ -293,7 +293,12 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
       const lowOf = (m: number) => Math.min(...slices.get(as[m])!);
       const wider = slices.get(a)!.length > k;
       const in0 = wider && n > 0 ? lowOf(n - 1) : lowOf(n), in1 = wider && n + 1 < as.length ? lowOf(n + 1) : lowOf(n);
-      for (const b of slices.get(a)!) across.set(ax === "u" ? idx(g, a, b) : idx(g, b, a), { ax, k, c: round3(b - (mid[n] - k / 2)), d0: round3(e0 - mid[n]), d1: round3(e1 - mid[n]), last, jog: wider, r0: in0 - b, r1: in1 - b });
+      // A JOG, in this slice or the one either side: which (−1 the slice before, 0 this, 1 the next) and which way
+      // it steps. Its lines cross it each a little along from the slice. @see agents/lanes/graph jogSpread
+      const joined = (p: number) => p > 0 && p + 1 < as.length && as[p - 1] === as[p] - 1 && as[p + 1] === as[p] + 1 && wide(p) && mid[p + 1] !== mid[p - 1];
+      const J = joined(n) ? n : joined(n - 1) && as[n - 1] === a - 1 ? n - 1 : joined(n + 1) && as[n + 1] === a + 1 ? n + 1 : -1;
+      const j0 = J < 0 ? 0 : J - n, js = J < 0 ? 0 : Math.sign(mid[J + 1] - mid[J - 1]);
+      for (const b of slices.get(a)!) across.set(ax === "u" ? idx(g, a, b) : idx(g, b, a), { ax, k, c: round3(b - (mid[n] - k / 2)), d0: js ? 0 : round3(e0 - mid[n]), d1: js ? 0 : round3(e1 - mid[n]), j0, js, last, jog: wider, r0: in0 - b, r1: in1 - b });
     });
   }
   const regionAt = (x: number, y: number) => { const i = at(x, y); return i < 0 ? null : region[i] < 0 ? null : regions[region[i]]; };
@@ -489,7 +494,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
       if (L.hw) L.spd = "";
       // Its own lanes' arrows, not the one a two-cell road's whole cell had.
       if (L.hw) L.arrow = "";
-      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${short && ends ? "n" : ""}${wide.jog ? "j" : ""}${warn ? "!" : ""}${wide.k}.${wide.c}${wide.d0 || wide.d1 ? `~${wide.d0},${wide.d1}` : ""}${wide.r0 !== -wide.c || wide.r1 !== -wide.c ? `^${wide.r0},${wide.r1}` : ""}`;
+      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${short && ends ? "n" : ""}${wide.jog ? "j" : ""}${warn ? "!" : ""}${wide.k}.${wide.c}${wide.d0 || wide.d1 ? `~${wide.d0},${wide.d1}` : ""}${wide.js ? `@${wide.j0},${wide.js}` : ""}${wide.r0 !== -wide.c || wide.r1 !== -wide.c ? `^${wide.r0},${wide.r1}` : ""}`;
     }
     else if (lane >= 0) L.ctr = (warn ? "H" : "h") + opposite(lane as Side);
     else if (r === "thick-curve") { L.ctr = "b"; L.yl = true; }

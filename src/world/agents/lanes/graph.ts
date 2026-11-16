@@ -34,7 +34,7 @@ import { idx, inBounds, structureAt, type Grid } from "../../grid";
 import { connects, isPaved } from "../../roads/mask";
 import { streetsOf } from "../../roads/streets";
 import {
-  add, arc, chaikin, cross, distToLine, dot, lengths, minRadius, pointAt, right, turnCurve, type Pt, FAR_TURN, KEEP, NEAR_TURN } from "./geometry";
+  add, arc, chaikin, cross, distToLine, dot, lengths, minRadius, norm, pointAt, right, sub, turnCurve, type Pt, FAR_TURN, KEEP, NEAR_TURN } from "./geometry";
 
 /** How far back of a crossing's middle a car's nose waits at a junction, tiles: clear of its stripes. @see render/road-paint stopLine */
 export const CROSS_HOLD = 0.3;
@@ -78,6 +78,8 @@ export type Lane = {
   lanes?: number;
   /** A street lane's neighbours going the same way, a slot either side: where a car may change lane to. */
   beside?: number[];
+  /** Where along a street's lane it turns sharply — the two ends of its slant through a jog: a long vehicle swings there. */
+  kinks?: number[];
   /** On a street one cell wide, the lane the other way: what a long vehicle turning in swings over. */
   opposite?: number;
   /** A curve's junction, the arm it comes in from (an index into the junction's arms), the way it turns, and its tightest radius. */
@@ -211,6 +213,14 @@ export const laneSpan = (k: number) => Math.min(lanesFor(k) * LANE_MAX, k / 2 - 
 /** Where its lanes end, out from its middle: its shoulder line, or its bays'. */
 export const laneEdge = (k: number) => laneInner(k) + laneSpan(k);
 export const laneOffset = (k: number, i: number) => laneInner(k) + ((i + 0.5) * laneSpan(k)) / lanesFor(k);
+/**
+ * HOW A JOG IS SPREAD. Where a wide road steps a cell sideways in the length of a cell, a line `q` out from its
+ * middle crosses not in the jog's own slice but `q × (1 − spread)` along from it — sooner on the side the road
+ * steps toward, later on the other — so the lanes keep their distance through the slant, which sheared straight
+ * across would bring them to seven tenths of it and their traffic into each other. As far as that goes (√2,
+ * lanes their full width apart) while the outside lane's traffic stays off the pavement. @see roads/looks, render/road-paint
+ */
+export const jogSpread = (k: number) => Math.max(1, Math.min(Math.SQRT2, (k / 2 - WALK - 0.02 - 0.115) / laneOffset(k, lanesFor(k) - 1)));
 export const laneLines = (k: number): number[] => {
   const n = lanesFor(k), out = [0];
   for (let i = 1; i < n; i++) { const q = laneInner(k) + (i * laneSpan(k)) / n; out.push(q, -q); }
@@ -303,15 +313,23 @@ export function buildLaneGraph(g: Grid): LaneGraph {
       for (let s = 0; s < lanesFor(k); s++) {
         const off = bSign * sign * laneOffset(k, s);
         const line: Pt[] = [P(endAt(0), mid[0] + off)];
+        let past = -Infinity;
         for (let a = d.a0; a <= d.a1; a++) {
           const at = a === d.a0 ? Math.max(a, endAt(0)) : a === d.a1 ? Math.min(a, endAt(1)) : a;
           // WHERE A WIDE ROAD JOGS a cell sideways — the one slice a cell wider — the lane crosses in that slice,
           // edge to edge, as the kerbs and the lines do, and runs straight either side of it. @see roads/looks
           const n = a - d.a0, [b0, b1] = d.span[n];
-          if (k > 1 && b1 - b0 + 1 > k && a > d.a0 && a < d.a1) {
-            line.push(P(a - 0.5, mid[n - 1] + off), P(a + 0.5, mid[n + 1] + off));
+          if (k > 1 && b1 - b0 + 1 > k && a > d.a0 && a < d.a1 && mid[n + 1] !== mid[n - 1]) {
+            // (Each lane a little along from the slice, by how far out it is. @see jogSpread)
+            const sh = Math.sign(mid[n + 1] - mid[n - 1]) * off * (1 - jogSpread(k));
+            const x0 = Math.max(endAt(0) + 0.05, a - 0.5 + sh), x1 = Math.min(endAt(1) - 0.05, a + 0.5 + sh);
+            // The slices' own points either side that this takes the place of: on the straight it leaves and joins.
+            while (line.length > 1 && (d.axis === "x" ? line[line.length - 1].x : line[line.length - 1].y) >= x0 - 0.02) line.pop();
+            line.push(P(x0, mid[n - 1] + off), P(x1, mid[n + 1] + off));
+            past = x1;
             continue;
           }
+          if (at <= past + 0.02) continue;
           line.push(P(at, mid[n] + off));
         }
         line.push(P(endAt(1), mid[mid.length - 1] + off));
@@ -322,6 +340,13 @@ export function buildLaneGraph(g: Grid): LaneGraph {
           ...(ends[startEnd].kind === "rim" ? { source: true } : {}),
           ...(ends[finishEnd].kind === "rim" ? { sink: true } : {}),
         });
+        // Where it turns by more than a little: a jog's two corners.
+        const kinks: number[] = [];
+        for (let q = 1; q + 1 < pts.length; q++) {
+          const h0 = norm(sub(pts[q], pts[q - 1])), h1 = norm(sub(pts[q + 1], pts[q]));
+          if (Math.abs(cross(h0, h1)) > 0.3) kinks.push(l.at[q]);
+        }
+        if (kinks.length) l.kinks = kinks;
         st.lanes.push(l.id);
         way.push(l);
       }
@@ -436,6 +461,8 @@ function stopsOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], cr
     const a = st.axis === "x" ? cell.x : cell.y;
     for (let k = -1; k <= 1; k++) crossed.add(`${st.id},${a + k}`);
   }
+  // Nor where a wide road jogs a cell sideways, nor a cell either side: nothing stands at a kerb that slants.
+  for (const st of streets) st.span.forEach(([b0, b1], n) => { if (st.width > 1 && b1 - b0 + 1 > st.width) for (let k = -1; k <= 1; k++) crossed.add(`${st.id},${st.a0 + n + k}`); });
   for (const st of streets) {
     if (st.a1 - st.a0 + 1 < STOP_STREET || st.ends.some((e) => e.kind === "dead")) continue;
     const outer = st.lanes.map((id) => lanes[id]).filter((l) => l.slot === (l.lanes ?? 1) - 1);
@@ -484,6 +511,8 @@ function baysOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], cro
     const a = st.axis === "x" ? cell.x : cell.y;
     for (let k = -1; k <= 1; k++) crossed.add(`${st.id},${a + k}`);
   }
+  // Nor where a wide road jogs a cell sideways, nor a cell either side: nothing stands at a kerb that slants.
+  for (const st of streets) st.span.forEach(([b0, b1], n) => { if (st.width > 1 && b1 - b0 + 1 > st.width) for (let k = -1; k <= 1; k++) crossed.add(`${st.id},${st.a0 + n + k}`); });
   for (const st of streets) {
     // A road four cells wide or more keeps no bays: its strip is a hard shoulder.
     if (st.width >= SHOULDERED) continue;

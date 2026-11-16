@@ -27,6 +27,32 @@ export function crossroads(kx: number, ky: number, n = 40) {
   return g;
 }
 
+/** Houses along a town's roads, one every third cell on each side where there is room: somewhere for its traffic to go. */
+export function settle(g: Grid): Grid {
+  const history = createHistory();
+  const kit = structureDef("kit:intern.t0")!;
+  const road = (x: number, y: number) => x >= 0 && y >= 0 && x < g.w && y < g.h && g.paved[idx(g, x, y)] !== 0;
+  for (let y = 1; y < g.h - 1; y++) for (let x = 1; x < g.w - 1; x++) {
+    if (road(x, y) || (x + 2 * y) % 3 || ![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => road(x + dx, y + dy))) continue;
+    const cmd = placeCommand(g, kit, x, y);
+    if (cmd) commit(g, history, cmd);
+  }
+  return g;
+}
+
+/**
+ * A ROAD `k` CELLS WIDE THAT WINDS: in from the rim, a jog a cell sideways, round a bend, another jog, and out by
+ * the rim — with houses along it.
+ */
+export function winding(k: number, n = 48) {
+  const g = createGrid(n, n);
+  fillTerrain(g, 1);
+  // Along x at rows 10.., a cell over from x = 14; then down from the bend, a cell over from y = 30.
+  for (let x = 0; x <= 32; x++) for (let j = 0; j < k + (x === 14 ? 1 : 0); j++) pave(g, x, 10 + j + (x > 14 ? 1 : 0));
+  for (let y = 11; y < n; y++) for (let j = 0; j < k + (y === 30 ? 1 : 0); j++) pave(g, 33 - k + j + (y > 30 ? 1 : 0), y);
+  return settle(g);
+}
+
 /** A vehicle's half width, tiles: a car's, or a bike's and its rider's. */
 const halfWidth = (m: Mover) => (m.kind === "bike" ? 0.03 : 0.08);
 

@@ -33,7 +33,7 @@ import { HEIGHT_UNIT, rampDir, rampRise, RAMP } from "../iso";
 import { hash } from "../structures/projects/model";
 import { mix, tone } from "../structures/projects/pen";
 import { HIGHWAY, KEEP, MEDIAN_FROM, WORN, opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
-import { CROSS_HOLD, LAYBY, MEDIAN_HALF, laneEdge, laneInner, laneLines, laneOffset, laneSpan, lanesFor, PARK_STRIP } from "../agents/lanes/graph";
+import { CROSS_HOLD, LAYBY, MEDIAN_HALF, jogSpread, laneEdge, laneInner, laneLines, laneOffset, laneSpan, lanesFor, PARK_STRIP } from "../agents/lanes/graph";
 
 /** How far in from the tile's edge the pavement runs, its kerb, and both. */
 export const PAVE = 0.22, KERB = 0.04, WALK = PAVE + KERB;
@@ -462,24 +462,36 @@ function centreLine(ctx: Ctx, L: Look) {
 const LANE_DASH: [number, number][] = [[0.4, 0.6]];
 
 /** A WIDE ROAD's own Look.ln, read: the way it runs, where its run ends (1 its low end, 2 its high, 3 both), warned of a junction, through one, how wide, and which cell across. */
-type Wide = { ax: "u" | "v"; ends: number; plain: boolean; jog: boolean; warn: boolean; thru: boolean; k: number; c: number; d0: number; d1: number; r0: number; r1: number };
+type Wide = { ax: "u" | "v"; ends: number; plain: boolean; jog: boolean; warn: boolean; thru: boolean; k: number; c: number; d0: number; d1: number; j0: number; js: number; r0: number; r1: number };
 function wideOf(ln: string): Wide | null {
-  const m = /^([uv])([abc]?)(n?)(j?)(!?)(x?)(\d+)\.(-?\d+(?:\.\d+)?)(?:~(-?[\d.]+),(-?[\d.]+))?(?:\^(-?[\d.]+),(-?[\d.]+))?$/.exec(ln);
+  const m = /^([uv])([abc]?)(n?)(j?)(!?)(x?)(\d+)\.(-?\d+(?:\.\d+)?)(?:~(-?[\d.]+),(-?[\d.]+))?(?:@(-?\d),(-?\d))?(?:\^(-?[\d.]+),(-?[\d.]+))?$/.exec(ln);
   if (!m) return null;
   const c = Number(m[8]);
   // Its low edge as the cells have it, into this cell and out: where its middle puts it, unless said.
-  return { ax: m[1] as "u" | "v", ends: m[2] ? "abc".indexOf(m[2]) + 1 : 0, plain: !!m[3], jog: !!m[4], warn: !!m[5], thru: !!m[6], k: Number(m[7]), c, d0: Number(m[9] ?? 0), d1: Number(m[10] ?? 0), r0: m[11] !== undefined ? Number(m[11]) : -c, r1: m[12] !== undefined ? Number(m[12]) : -c };
+  return { ax: m[1] as "u" | "v", ends: m[2] ? "abc".indexOf(m[2]) + 1 : 0, plain: !!m[3], jog: !!m[4], warn: !!m[5], thru: !!m[6], k: Number(m[7]), c, d0: Number(m[9] ?? 0), d1: Number(m[10] ?? 0), j0: Number(m[11] ?? 0), js: Number(m[12] ?? 0), r0: m[13] !== undefined ? Number(m[13]) : -c, r1: m[14] !== undefined ? Number(m[14]) : -c };
 }
 /** How far across a road's middle has slanted, `a` along this cell from its low edge: nothing on a straight road; through a jog, a little a cell. */
 const slantAt = (W: Wide, a: number) => (a < 0.5 ? W.d0 * (1 - 2 * a) : W.d1 * (2 * a - 1));
-/** Whether a stretch of it from `a0` to `a1` bends at the cell's middle: its slant one way in, another out. */
-const bends = (W: Wide, a0: number, a1: number) => a0 < 0.5 && a1 > 0.5 && W.d0 !== -W.d1;
+/**
+ * WHERE A LINE `q` ACROSS BEGINS TO CROSS A JOG, along this cell: at the jog's slice for the road's middle, and for
+ * a line out from the middle a little before it or after — so the lines keep their distance through the slant.
+ * @see agents/lanes/graph jogSpread
+ */
+const jogFrom = (W: Wide, q: number) => W.j0 + W.js * (q - (W.k / 2 - W.c)) * (1 - jogSpread(W.k));
+/** How far across a line has moved, `a` along this cell, from where it stands at the cell's middle on a straight road. */
+const shiftAt = (W: Wide, a: number, q: number) =>
+  W.js ? W.js * (Math.max(0, Math.min(1, a - jogFrom(W, q))) - (1 - W.j0) / 2) : slantAt(W, a);
+/** Where along this cell, between `a0` and `a1`, a line `q` across turns: the two ends of its slant through a jog; or the cell's middle, where its slant changes. */
+const knots = (W: Wide, a0: number, a1: number, q: number): number[] =>
+  (W.js ? [jogFrom(W, q), jogFrom(W, q) + 1] : W.d0 !== -W.d1 ? [0.5] : []).filter((a) => a > a0 + 1e-6 && a < a1 - 1e-6);
 /** A point of a wide road: `a` along the cell, `q` across where the road stands at the cell's middle, slanting with it. */
-const widePt = (W: Wide, a: number, q: number): [number, number] => runPt(W.ax, a, q + slantAt(W, a));
+const widePt = (W: Wide, a: number, q: number): [number, number] => runPt(W.ax, a, q + shiftAt(W, a, q));
 /** A strip of a wide road, from `a0` to `a1` along and `q0` to `q1` across, slanting with the road through a jog. */
 function wideRect(ctx: Ctx, W: Wide, a0: number, a1: number, q0: number, q1: number) {
-  const mid: [number, number][][] = bends(W, a0, a1) ? [[widePt(W, 0.5, q0)], [widePt(W, 0.5, q1)]] : [[], []];
-  poly(ctx, [widePt(W, a0, q0), ...mid[0], widePt(W, a1, q0), widePt(W, a1, q1), ...mid[1], widePt(W, a0, q1)]);
+  poly(ctx, [
+    widePt(W, a0, q0), ...knots(W, a0, a1, q0).map((a) => widePt(W, a, q0)), widePt(W, a1, q0),
+    widePt(W, a1, q1), ...knots(W, a0, a1, q1).reverse().map((a) => widePt(W, a, q1)), widePt(W, a0, q1),
+  ]);
 }
 
 /** A rectangle of a road running along `ax`: from `a0` to `a1` along it, `q0` to `q1` across. */
@@ -565,16 +577,20 @@ function wideLines(ctx: Ctx, L: Look) {
   }
   ctx.fillStyle = css(WHITE, 0.92);
   // THE SHOULDER LINES, where the lanes end and the strip begins: solid, and at a side road's mouth an exit's
-  // dashes. They keep to the KERB, a strip's width in from it — through a jog straight across with it, where
-  // the lanes' own lines slant over a few cells.
+  // dashes. They keep to the KERB, a strip's width in from it.
   const span = laneSpanOf(W.k);
   for (const sg of [-1, 1]) {
     const q0 = W.r0 + W.k / 2 + sg * span, q1 = W.r1 + W.k / 2 + sg * span;
-    if (Math.max(q0, q1) < 0 || Math.min(q0, q1) > 1) continue;
-    const at = (a: number, o: number) => runPt(W.ax, a, q0 + (q1 - q0) * a + o);
+    // THROUGH A JOG it crosses as the lanes do, a little along from the slice — as far along as leaves it inside
+    // the kerb, which crosses in the slice itself. @see jogFrom
+    const qe = W.k / 2 - W.c + sg * span, fe = Math.min(jogSpread(W.k), (W.k / 2 - WALK - 0.04) / span);
+    if (W.js ? qe < -0.6 || qe > 1.6 : Math.max(q0, q1) < 0 || Math.min(q0, q1) > 1) continue;
+    const from = W.j0 + W.js * sg * span * (1 - fe);
+    const at = (a: number, o: number) => runPt(W.ax, a, W.js ? qe + W.js * (Math.max(0, Math.min(1, a - from)) - (1 - W.j0) / 2) + o : q0 + (q1 - q0) * a + o);
     const mouth = W.thru && has(L.open, W.ax === "u" ? (sg < 0 ? 2 : 3) : (sg < 0 ? 0 : 1));
     if (!mouth) {
-      poly(ctx, [at(-0.05, -EDGE), at(1.05, -EDGE), at(1.05, EDGE), at(-0.05, EDGE)]); ctx.fill();
+      const turns = W.js ? [from, from + 1].filter((a) => a > -0.05 && a < 1.05) : [];
+      poly(ctx, [at(-0.05, -EDGE), ...turns.map((a) => at(a, -EDGE)), at(1.05, -EDGE), at(1.05, EDGE), ...turns.reverse().map((a) => at(a, EDGE)), at(-0.05, EDGE)]); ctx.fill();
       // RED STUDS outside it, on the strip's side.
       if (DETAIL > 0) { for (const a of [0, 0.5]) stud(at(a, sg * 0.022), STUD_RED); ctx.fillStyle = css(WHITE, 0.92); }
       continue;
@@ -611,10 +627,12 @@ function medianShape(ctx: Ctx, W: Wide, m0: number, m1: number, q: number, half:
   const N = 8, pts: [number, number][] = [];
   if (ends & 1) for (let k = 0; k <= N; k++) { const t = Math.PI / 2 + (k / N) * Math.PI; pts.push(widePt(W, m0 + half + Math.cos(t) * half, q + Math.sin(t) * half)); }
   else pts.push(widePt(W, m0, q + half), widePt(W, m0, q - half));
-  if (bends(W, m0, m1)) pts.push(widePt(W, 0.5, q - half));
+  // (Between its ends, where each edge turns through a jog. Its ends' own points take the middle's slant.)
+  const inner = (qq: number) => knots(W, m0 + (ends & 1 ? half : 0), m1 - (ends & 2 ? half : 0), qq);
+  pts.splice(pts.length, 0, ...inner(q - half).map((a) => widePt(W, a, q - half)));
   if (ends & 2) for (let k = 0; k <= N; k++) { const t = -Math.PI / 2 + (k / N) * Math.PI; pts.push(widePt(W, m1 - half + Math.cos(t) * half, q + Math.sin(t) * half)); }
   else pts.push(widePt(W, m1, q - half), widePt(W, m1, q + half));
-  if (bends(W, m0, m1)) pts.push(widePt(W, 0.5, q + half));
+  pts.push(...inner(q + half).reverse().map((a) => widePt(W, a, q + half)));
   pts.forEach(([u, v], k) => (k ? ctx.lineTo(u, v) : ctx.moveTo(u, v)));
   ctx.closePath();
 }

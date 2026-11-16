@@ -844,6 +844,17 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
       if (turn) heldOf(T).set(x.c, t.t);
       if (now.foot.on.has(x.c) || (!turn && (patient || (now.foot.waiting.has(x.c) && zebraAt(t, T, x.c))))) follow(A, v, front - CROSS_STOP, 0, 0.02);
     }
+    // NOT ABREAST OF A LONG ONE THROUGH A JOG: a bus swings as it turns, into the lane beside. Whichever of the
+    // two is behind keeps behind till the one ahead is through.
+    for (const b of G.lanes[d.lanes[j]].beside ?? []) {
+      const kinks = G.lanes[b].kinks;
+      if (!kinks) continue;
+      for (const o of now.on.get(b) ?? []) {
+        if (o.m === m || (halfLength(o.m) <= LONG && half <= LONG)) continue;
+        const gap = d.start[j] + o.s - m.s, reach = halfLength(o.m) + half + 0.3;
+        if (gap > 0 && gap < FOLLOW && kinks.some((s) => o.s > s - 1.4 && o.s < s + reach)) follow(A, v, gap - spacing(m, o.m) + GAP, o.m.speed, GAP);
+      }
+    }
     // LETTING IN one waiting beside to change onto this lane, a little ahead.
     for (const b of G.lanes[d.lanes[j]].beside ?? []) {
       for (const o of now.on.get(b) ?? []) {
@@ -947,6 +958,8 @@ function restSide(T: Traffic, now: ReturnType<typeof trafficNow>, m: Mover): num
   // A CYCLIST at the kerb, out in the lane to get by one pulled in there — a bus at its stop — just ahead or alongside.
   if (m.kind === "bike" && l?.kind === "street") {
     const mine = m.s - d!.start[d!.k], half = halfLength(m);
+    // (Through a jog, in the middle of the lane: the lanes are at their closest there.)
+    if (l.kinks?.some((s) => Math.abs(mine - s) < 1.5)) return 0;
     for (const o of now.on.get(d!.lanes[d!.k]) ?? []) {
       if (o.m === m || (o.m.side ?? 0) < BIKE_SIDE + 0.05) continue;
       const gap = o.s - mine, ho = halfLength(o.m);

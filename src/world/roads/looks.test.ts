@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { createGrid, fillTerrain, idx, type Grid } from "../grid";
-import { buildLaneGraph } from "../agents/lanes/graph";
+import { buildLaneGraph, jogSpread } from "../agents/lanes/graph";
 import { PLAIN, VARIANTS, WORN, dressOf, keyOf, lookAt, looksOf, rightOf, variantOf } from "./looks";
 
 function grid(w: number, h: number, cells: [number, number][]): Grid {
@@ -316,43 +316,53 @@ describe("a wide road that jogs a cell sideways", () => {
     // Away from the jog, as any straight road; through it, its middle slants.
     expect(look(g, 5, 8).ln).toBe("u2.0");
     expect(look(g, 35, 10).ln).toBe("u2.1");
-    expect(look(g, 20, 9).ln).toMatch(/~/);
+    expect(look(g, 20, 9).ln).toMatch(/@/);
     // The wider slice, and it alone, is marked as the jog: its kerbs cut the corner.
     for (const y of [8, 9, 10]) expect(look(g, 20, y).ln).toMatch(/^uj/);
     for (const x of [19, 21]) expect(look(g, x, 9).ln).not.toMatch(/^uj/);
     // Its shoulder lines keep to the kerb: straight either side of the jog — the low edge where the cells are —
     // and across the jog's own slice from the one to the other.
-    expect(look(g, 19, 9).ln).toBe("u2.1");
-    expect(look(g, 20, 9).ln).toBe("uj2.0.5~-0.5,0.5^-1,0");
-    expect(look(g, 21, 9).ln).toBe("u2.0");
+    // (`@`: where the jog is — the next slice, this one, the one before — and which way it steps. Its lines cross
+    // it each a little along from the slice, so the cells either side know of it too.)
+    expect(look(g, 19, 9).ln).toBe("u2.1@1,1");
+    expect(look(g, 20, 9).ln).toBe("uj2.0.5@0,1^-1,0");
+    expect(look(g, 21, 9).ln).toBe("u2.0@-1,1");
+    expect(look(g, 18, 9).ln).toBe("u2.1");
+    expect(look(g, 22, 9).ln).toBe("u2.0");
   });
 
   test("its painted middle is where its lanes' middle is, slice by slice", () => {
     const G = buildLaneGraph(g), st = G.streets.find((q) => q.width === 2 && q.a1 - q.a0 > 30)!;
     expect(st).toBeDefined();
     for (let x = st.a0; x <= st.a1; x++) {
-      const m = /^u[abcnj!x]*2\.(-?[\d.]+?)(?:~.*)?(?:\^.*)?$/.exec(look(g, x, 9).ln)!;
+      const m = /^u[abcnj!x]*2\.(-?[\d.]+?)(?:~.*)?(?:@.*)?(?:\^.*)?$/.exec(look(g, x, 9).ln)!;
       // The cell at y = 9 is `c` across from the road's low edge; its middle one cell on: so the road's middle, in cell middles.
       const painted = 9 + 1 - Number(m[1]) - 0.5;
       expect(Math.abs(painted - st.mid[x - st.a0])).toBeLessThan(0.002);
     }
   });
 
-  test("its lanes cross the jog in the jog's own slice, edge to edge, and nowhere else", () => {
+  test("its lanes cross the jog over a cell's length each, a little along from its slice by how far out they are, and keep their distance", () => {
     const G = buildLaneGraph(g), st = G.streets.find((q) => q.width === 2 && q.a1 - q.a0 > 30)!;
     expect(st.lanes.length).toBe(4);
+    const slants: number[] = [];
     for (const id of st.lanes) {
       const pts = [...G.lanes[id].pts].sort((p, q) => p.x - q.x);
-      // Straight to the slice's low edge, across it, straight on: four points, the middle two the jog's.
+      // Straight, across, straight on: four points, the middle two the jog's — a cell apart along, about the slice.
       expect(pts.length).toBe(4);
-      expect(pts[1].x).toBeCloseTo(19.5, 6);
-      expect(pts[2].x).toBeCloseTo(20.5, 6);
+      expect(pts[2].x - pts[1].x).toBeCloseTo(1, 6);
+      expect(pts[1].x).toBeCloseTo(19.5 + (pts[1].y - 8.5) * (1 - jogSpread(2)), 6);
+      // Where its slant crosses x = 20, across the road.
+      slants.push(pts[1].y + (20 - pts[1].x));
       expect(pts[0].y).toBeCloseTo(pts[1].y, 6);
       expect(pts[2].y).toBeCloseTo(pts[1].y + 1, 6);
       expect(pts[3].y).toBeCloseTo(pts[2].y, 6);
       // On the road either side: within a cell of its middle (8.5 before the jog, 9.5 after).
       expect(Math.abs(pts[1].y - 8.5)).toBeLessThan(1);
     }
+    // Through the slant, each lane as far from the next as on the straight, measured square across it.
+    slants.sort((p, q) => p - q);
+    for (let i = 1; i < slants.length; i++) expect((slants[i] - slants[i - 1]) * Math.SQRT1_2).toBeGreaterThan(0.26);
   });
 
   // Three cells wide, and four — the widest road, whose jog's slice is wider than any road and still no junction.
@@ -364,13 +374,15 @@ describe("a wide road that jogs a cell sideways", () => {
     expect([st.a0, st.a1]).toEqual([0, 39]);
     expect(G.streets.length).toBe(1);
     // The jog's slice, every cell of it: the road, marked as the jog, slanting a cell across.
-    for (let j = 0; j <= k; j++) expect(look(w, 20, 8 + j).ln).toBe(`uj${k}.${j - 0.5}~-0.5,0.5^${-j},${1 - j}`);
-    for (let j = 0; j < k; j++) { expect(look(w, 19, 8 + j).ln).toBe(`u${k}.${j}`); expect(look(w, 21, 9 + j).ln).toBe(`u${k}.${j}`); }
+    for (let j = 0; j <= k; j++) expect(look(w, 20, 8 + j).ln).toBe(`uj${k}.${j - 0.5}@0,1^${-j},${1 - j}`);
+    for (let j = 0; j < k; j++) { expect(look(w, 19, 8 + j).ln).toBe(`u${k}.${j}@1,1`); expect(look(w, 21, 9 + j).ln).toBe(`u${k}.${j}@-1,1`); }
     // Every lane: straight, across the slice, straight; and inside the road's kerbs either side.
     expect(st.lanes.length).toBe(2 * Math.min(4, k));
     for (const id of st.lanes) {
       const pts = [...G.lanes[id].pts].sort((p, q) => p.x - q.x);
-      expect(pts.map((p) => p.x)).toEqual([-0.5, 19.5, 20.5, 39.5]);
+      expect(pts.length).toBe(4);
+      expect(pts[2].x - pts[1].x).toBeCloseTo(1, 6);
+      expect(pts[1].x).toBeCloseTo(19.5 + (pts[1].y - (7.5 + k / 2)) * (1 - jogSpread(k)), 6);
       expect(pts[1].y).toBeCloseTo(pts[0].y, 6);
       expect(pts[2].y).toBeCloseTo(pts[1].y + 1, 6);
       expect(pts[3].y).toBeCloseTo(pts[2].y, 6);

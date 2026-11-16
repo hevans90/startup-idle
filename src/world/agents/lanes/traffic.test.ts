@@ -9,13 +9,15 @@ import { createGrid, edited, idx, type Grid } from "../../grid";
 import { FIXTURE_SIZE, applyFixture, type FixtureId } from "../../debug/fixtures";
 import { createNetwork } from "../../roads/network";
 import { createTown, setTownCaps, stepTown, townCaps, trafficOf } from "../town";
-import { crossroads, overlap } from "./traffic.test-kit";
+import { crossroads, overlap, settle, winding } from "./traffic.test-kit";
+import { useWorldStore } from "../../../state/world.store";
+import { setHeight } from "../../grid";
 import { isChange, lightOf, lineOf, routeLanes, stepSignals } from "./drive";
 import { buildLaneGraph } from "./graph";
 import { isPaved } from "../../roads/mask";
 
 /** Run a town `secs` seconds: trips finished, vehicles lost, overlaps, the longest wait. */
-function soak(g: Grid, secs: number, seed?: number) {
+function soak(g: Grid, secs: number, seed?: number, each?: (m: Mover) => void) {
   const net = createNetwork(g);
   const t = createTown();
   if (seed !== undefined) t.seed = seed;
@@ -28,6 +30,7 @@ function soak(g: Grid, secs: number, seed?: number) {
     for (const [id, m] of before) if (!after.has(id)) { const G0 = m.drive?.graph; if (G0 && m.drive!.lanes.some((l, k) => k > 0 && isChange(G0, m.drive!.lanes[k - 1], l))) changed++; if (!m.gone && m.kind === "bike") bikes++; if (m.gone) { gone++; if (process.env.DBG) console.log("GONE", k * dt, id, m.x.toFixed(2), m.y.toFixed(2), m.stuck.toFixed(1), m.drive?.lanes.join(">"), m.drive?.k, m.drive?.let, (m.at[m.at.length - 1] - m.s).toFixed(2)); } else arrived++; }
     const cars = t.movers.filter((m) => m.kind !== "person");
     peak = Math.max(peak, cars.length);
+    if (each) for (const m of cars) each(m);
     for (const m of cars) longest = Math.max(longest, m.stuck);
     // A car close behind a cyclist on its lane, at the cyclist's pace.
     for (const b of cars) if (b.kind === "bike" && b.speed > 0.2) for (const m of cars) {
@@ -195,6 +198,46 @@ describe("traffic on the lanes", () => {
     expect(r.gone).toBe(0);
     expect(r.changed).toBeGreaterThan(0);
     expect(r.arrived).toBeGreaterThan(60);
+  });
+
+  test.each([2, 3, 4])("a road %i cells wide that winds — a jog, a bend, a jog: driven end to end, on the road, nobody into anybody", (k) => {
+    busy();
+    const g = winding(k);
+    const G = buildLaneGraph(g);
+    // One road: its two legs and the bend between them, no junction at either jog.
+    expect(G.streets.filter((st) => st.width === k).length).toBe(2);
+    expect(G.junctions.length).toBe(1);
+    let off = 0;
+    const r = soak(g, 150, undefined, (m) => { if (m.kind !== "person" && m.x > 0.5 && m.y > 0.5 && m.x < g.w - 1.5 && m.y < g.h - 1.5 && !isPaved(g, Math.round(m.x), Math.round(m.y))) off++; });
+    done();
+    expect(off).toBe(0);
+    expect(r.overlaps).toBe(0);
+    expect(r.gone).toBe(0);
+    expect(r.arrived).toBeGreaterThan(40);
+    expect(r.longest).toBeLessThan(20);
+  });
+
+  test.each([2, 3, 4])("a road %i cells wide laid up the terraces and round a bend on the climb: driven, on the road, nobody into anybody", (k) => {
+    const s = () => useWorldStore.getState();
+    s().resize(48, 48);
+    const g = s().grid;
+    const at = (x: number) => (x < 8 ? 0 : x < 14 ? 1 : x < 20 ? 3 : x < 26 ? 9 : x === 29 ? 3 : x < 34 ? 9 : x < 37 ? 4 : x < 41 ? 9 : x === 43 ? 12 : 6);
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) setHeight(g, x, y, at(x));
+    const lay = (x0: number, y0: number, x1: number, y1: number) => { s().setTool("paintRoad"); s().setBrush("line"); s().beginStroke({ x: x0, y: y0 }); s().updateStroke({ x: x1, y: y1 }); s().endStroke(); };
+    // Up from the rim over every terrace, and its leg off the end, where the road is still climbing, down to the rim.
+    for (let c = 0; c < k; c++) lay(0, 10 + c, 38, 10 + c);
+    for (let c = 0; c < k; c++) lay(38 - k + 1 + c, 10 + k, 38 - k + 1 + c, 47);
+    s().setTool("inspect");
+    settle(g);
+    busy();
+    let off = 0;
+    const r = soak(g, 150, undefined, (m) => { if (m.kind !== "person" && m.x > 0.5 && m.y > 0.5 && m.x < g.w - 1.5 && m.y < g.h - 1.5 && !isPaved(g, Math.round(m.x), Math.round(m.y))) off++; });
+    done();
+    expect(off).toBe(0);
+    expect(r.overlaps).toBe(0);
+    expect(r.gone).toBe(0);
+    expect(r.arrived).toBeGreaterThan(30);
+    expect(r.longest).toBeLessThan(20);
   });
 
   test.each(["traffic", "streets", "singularity", "bigtown"] as FixtureId[])("%s, busy for three minutes: no overlaps, no knots", (id) => {
