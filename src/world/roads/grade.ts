@@ -65,7 +65,7 @@ const briefly = (short: number) => (short ? `Too steep · ${short} more tile${sh
  * junction then stands at; null if it cannot be. The ramp's whole row across
  * its road is levelled with it. `was` reads a cell's height as already staged.
  */
-function levelRamp(g: Grid, x: number, y: number, was: (i: number) => number): { writes: Map<number, number>; z: number } | null {
+function levelRamp(g: Grid, x: number, y: number, was: (i: number) => number, only?: "raise" | "lower"): { writes: Map<number, number>; z: number } | null {
   const i0 = idx(g, x, y), up = upOf(g, i0);
   if (!up) return { writes: new Map(), z: was(i0) };
   const [ux, uy] = up, h = g.height[i0], r = rampRise(g.ramp[i0]);
@@ -92,9 +92,9 @@ function levelRamp(g: Grid, x: number, y: number, was: (i: number) => number): {
     }
     return out;
   };
-  /** A row's one height, if its cells agree and none ramps another way; else null. */
+  /** A row's one height, if its cells agree; else null. */
   const levelOf = (cells: number[] | null): number | null =>
-    cells && cells.every((j) => g.height[j] === g.height[cells[0]] && (g.ramp[j] === 0 || rampDir(g.ramp[j]) === rampDir(g.ramp[i0]))) ? g.height[cells[0]] : null;
+    cells && cells.every((j) => g.height[j] === g.height[cells[0]]) ? g.height[cells[0]] : null;
   /** How many rows a levelling may reach along the road before it is given up. */
   const REACH = 8;
 
@@ -114,7 +114,8 @@ function levelRamp(g: Grid, x: number, y: number, was: (i: number) => number): {
       const to = Math.max(was, next - MAX_RISE);
       // The row just below climbs to it anew, and any row brought up is climbed to anew: road alone, each.
       if ((k === -1 || to !== was) && !rowAt(k)) return null;
-      if (to === was) return writes;
+      // Left where it is, it climbs to the row brought up: not if it is the foot of a climb the other way too.
+      if (to === was) { const under = ends(k - 1) ? null : levelOf(rowAt(k - 1, false)); return was < next && under !== null && under > was ? null : writes; }
       for (const j of rowAt(k)!) writes.set(j, to);
       next = to;
     }
@@ -140,9 +141,9 @@ function levelRamp(g: Grid, x: number, y: number, was: (i: number) => number): {
     }
     return null;
   };
-  const raised = raise();
+  const raised = only === "lower" ? null : raise();
   if (raised) return { writes: raised, z: h + r };
-  const lowered = lower();
+  const lowered = only === "raise" ? null : lower();
   if (lowered) return { writes: lowered, z: h };
   return null;
 }
@@ -162,6 +163,12 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
   const refused = new Set<number>();
   let why = "";
   const beside = (k: number, dx: number, dy: number) => [k - 1, k + 1].some((j) => j >= 0 && j < n && path[j].x - path[k].x === dx && path[j].y - path[k].y === dy);
+  /** Whether the path turns at cell `k`. */
+  const turns = (k: number) => k > 0 && k < n - 1 && (path[k + 1].x - path[k].x !== path[k].x - path[k - 1].x || path[k + 1].y - path[k].y !== path[k].y - path[k - 1].y);
+  // A CORNER IS LEVEL: the cell the road turns on and the one either side of it stand at one height — a ramp
+  // tilts one way, and a road cannot turn on one. `lim[e]`, how far cell e + 1 may stand from cell e.
+  const lim = new Array<number>(Math.max(0, n - 1)).fill(MAX_RISE);
+  for (let k = 1; k < n - 1; k++) if (turns(k)) { lim[k - 1] = 0; lim[k] = 0; }
   /** Level the ramp at a cell for a junction, or refuse the stroke at path cell `k`. Its height then. */
   const level = (x: number, y: number, k: number): number => {
     const L = levelRamp(g, x, y, was);
@@ -170,9 +177,60 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
     return L.z;
   };
 
+  for (let k = 0; k < n; k++) h[k] = g.height[idx(g, path[k].x, path[k].y)];
+  /** The road cells beside path cell `k` that are off the path: where they are and their index. */
+  const outside = (k: number) => {
+    const { x, y } = path[k], out: { nx: number; ny: number; j: number; dx: number; dy: number }[] = [];
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (paved(g, nx, ny) && !on.has(idx(g, nx, ny)) && !beside(k, dx, dy)) out.push({ nx, ny, j: idx(g, nx, ny), dx, dy });
+    }
+    return out;
+  };
+  // ROUND THE OUTSIDE OF A TURN, the lane laid before runs both ways from this corner: the corner stands with
+  // it — a ramp of it there levelled, nothing turns beside a ramp's side — and so do the cells either side of
+  // the corner, the lane outside them brought level with it where it climbs.
+  const cornered = new Set<number>();
+  for (let k = 1; k < n - 1; k++) {
+    if (!turns(k) || held(g, path[k].x, path[k].y)) continue;
+    const by = outside(k);
+    if (!by.length) continue;
+    // Its height: the level road beside it, if there is any; and every ramp beside it levelled to that.
+    const flat = by.find((q) => !upOf(g, q.j));
+    let z = flat ? was(flat.j) : NaN;
+    for (const { nx, ny, j } of by) {
+      if (!upOf(g, j)) { if (was(j) !== z) { refused.add(k); why = ON_A_SLOPE; } continue; }
+      const L = levelRamp(g, nx, ny, was);
+      if (Number.isNaN(z) && L) z = L.z;
+      if (!L || L.z !== z) {
+        // Raised where it had to come down, or the other way: the way that meets the corner, if there is one.
+        const other = L ? levelRamp(g, nx, ny, was, L.z > z ? "lower" : "raise") : null;
+        if (!other || other.z !== z) { refused.add(k); why = ON_A_SLOPE; continue; }
+        for (const [q, v] of other.writes) levelled.set(q, v);
+        continue;
+      }
+      for (const [q, v] of L.writes) levelled.set(q, v);
+    }
+    h[k] = Number.isNaN(z) ? h[k] : z;
+    pin[k] = true;
+    cornered.add(k);
+  }
+  for (const c of cornered) for (const k of [c - 1, c + 1]) {
+    if (pin[k] || held(g, path[k].x, path[k].y)) continue;
+    h[k] = h[c];
+    pin[k] = true;
+    for (const { nx, ny, j } of outside(k)) {
+      if (was(j) === h[c]) continue;
+      const first = upOf(g, j) ? levelRamp(g, nx, ny, was) : null;
+      const L = first && first.z !== h[c] ? levelRamp(g, nx, ny, was, first.z > h[c] ? "lower" : "raise") : first;
+      if (!L || L.z !== h[c]) { refused.add(k); why = ON_A_SLOPE; continue; }
+      for (const [q, z] of L.writes) levelled.set(q, z);
+    }
+  }
+
   for (let k = 0; k < n; k++) {
     const { x, y } = path[k], i = idx(g, x, y);
-    h[k] = g.height[i];
+    if (pin[k]) continue;
     if (held(g, x, y)) {
       pin[k] = true;
       // ON A RAMP of a road already there: left alone where the stroke runs with its climb; levelled where it crosses or leaves by the side.
@@ -212,27 +270,39 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
   // WHAT THE HELD CELLS ALLOW: each cell no higher and no lower than a step a tile from every held one.
   const lo = new Array<number>(n).fill(-Infinity), hi = new Array<number>(n).fill(Infinity);
   for (let k = 0; k < n; k++) if (pin[k]) { lo[k] = h[k]; hi[k] = h[k]; }
-  for (let k = 1; k < n; k++) { lo[k] = Math.max(lo[k], lo[k - 1] - MAX_RISE); hi[k] = Math.min(hi[k], hi[k - 1] + MAX_RISE); }
-  for (let k = n - 2; k >= 0; k--) { lo[k] = Math.max(lo[k], lo[k + 1] - MAX_RISE); hi[k] = Math.min(hi[k], hi[k + 1] + MAX_RISE); }
+  // A ROAD ALREADY THERE NEVER CLIMBS TO THE NEW ONE: the cells of the stroke next to it stand no higher than it
+  // does, and do the climbing themselves. A junction cannot be the foot of a ramp.
+  for (let k = 0; k < n; k++) {
+    if (!paved(g, path[k].x, path[k].y)) continue;
+    for (const m of [k - 1, k + 1]) if (m >= 0 && m < n && !pin[m]) hi[m] = Math.min(hi[m], h[k]);
+  }
+  for (let k = 1; k < n; k++) { lo[k] = Math.max(lo[k], lo[k - 1] - lim[k - 1]); hi[k] = Math.min(hi[k], hi[k - 1] + lim[k - 1]); }
+  for (let k = n - 2; k >= 0; k--) { lo[k] = Math.max(lo[k], lo[k + 1] - lim[k]); hi[k] = Math.min(hi[k], hi[k + 1] + lim[k]); }
 
   // TOO STEEP between two held cells: every cell from one to the other is refused.
   let short = 0;
   const pins = [...Array(n).keys()].filter((k) => pin[k]);
   for (let a = 0; a + 1 < pins.length; a++) {
-    const p = pins[a], q = pins[a + 1], need = Math.ceil(Math.abs(h[q] - h[p]) / MAX_RISE);
-    if (need <= q - p) continue;
-    short = Math.max(short, need - (q - p));
+    const p = pins[a], q = pins[a + 1];
+    // What the run between them can climb: a step a tile, and nothing round a corner.
+    let room = 0;
+    for (let e = p; e < q; e++) room += lim[e];
+    const over = Math.abs(h[q] - h[p]) - room;
+    if (over <= 0) continue;
+    short = Math.max(short, Math.ceil(over / MAX_RISE));
     for (let k = p; k <= q; k++) refused.add(k);
   }
+  // Or held from both sides at once: no height serves.
+  for (let k = 0; k < n; k++) if (lo[k] > hi[k]) { refused.add(k); short = Math.max(short, Math.ceil((lo[k] - hi[k]) / MAX_RISE)); }
   if (short) why = tooSteep(short);
 
   // THE CUT AND THE FILL: the ground brought down to a flight of steps, and built up to one; the road half way.
   const cut = h.slice(), fill = h.slice();
-  for (let k = 1; k < n; k++) { cut[k] = Math.min(cut[k], cut[k - 1] + MAX_RISE); fill[k] = Math.max(fill[k], fill[k - 1] - MAX_RISE); }
-  for (let k = n - 2; k >= 0; k--) { cut[k] = Math.min(cut[k], cut[k + 1] + MAX_RISE); fill[k] = Math.max(fill[k], fill[k + 1] - MAX_RISE); }
+  for (let k = 1; k < n; k++) { cut[k] = Math.min(cut[k], cut[k - 1] + lim[k - 1]); fill[k] = Math.max(fill[k], fill[k - 1] - lim[k - 1]); }
+  for (let k = n - 2; k >= 0; k--) { cut[k] = Math.min(cut[k], cut[k + 1] + lim[k]); fill[k] = Math.max(fill[k], fill[k + 1] - lim[k]); }
   const out = h.map((_, k) => Math.max(lo[k], Math.min(hi[k], Math.floor((cut[k] + fill[k]) / 2))));
   // A DIP ONE CELL LONG is no use to a ramp, which tilts one way: filled level with the lower side.
-  for (let k = 1; k + 1 < n; k++) if (!pin[k] && out[k] < out[k - 1] && out[k] < out[k + 1]) out[k] = Math.min(out[k - 1], out[k + 1]);
+  for (let k = 1; k + 1 < n; k++) if (!pin[k] && lim[k - 1] && lim[k] && out[k] < out[k - 1] && out[k] < out[k + 1]) out[k] = Math.min(out[k - 1], out[k + 1]);
 
   // REFUSED: nothing moves, and the cursor shows the ground as it is.
   if (refused.size) {

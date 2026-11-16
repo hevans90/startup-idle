@@ -54,6 +54,29 @@ export function streetsOf(g: Grid): Streets {
   const junction = new Uint8Array(g.w * g.h);
   const rx = runs(g, "x"), ry = runs(g, "y");
   for (let i = 0; i < junction.length; i++) if (rx[i] > WIDEST && ry[i] > WIDEST) junction[i] = 1;
+  // WHERE A ROAD CHANGES WIDTH it is two streets, and the last slice of the wider one the junction between
+  // them: three lanes each way do not run on down a road one cell wide. Only where each width holds for two
+  // slices or more — a staircase's step, a cell wider for one slice, is the one street still.
+  const widthAt = (i: number, along: "x" | "y") => (along === "x" ? (rx[i] > ry[i] ? ry[i] : 0) : ry[i] > rx[i] ? rx[i] : 0);
+  for (const along of ["x", "y"] as const) {
+    const [dx, dy] = along === "x" ? [1, 0] : [0, 1];
+    const [fwd, across0, across1] = along === "x" ? (["S", "E", "W"] as const) : (["W", "N", "S"] as const);
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+      const i = idx(g, x, y), w = widthAt(i, along);
+      if (!w || junction[i] || !connects(g, x, y, fwd)) continue;
+      const j = idx(g, x + dx, y + dy), v = widthAt(j, along);
+      if (!v || v === w || junction[j]) continue;
+      const held = (cx: number, cy: number, want: number) => cx >= 0 && cy >= 0 && cx < g.w && cy < g.h && widthAt(idx(g, cx, cy), along) === want;
+      if (!held(x - dx, y - dy, w) || !held(x + 2 * dx, y + 2 * dy, v)) continue;
+      // The wider slice, the whole of it across.
+      const [wx, wy] = w > v ? [x, y] : [x + dx, y + dy];
+      junction[idx(g, wx, wy)] = 1;
+      for (const d of [across0, across1] as const) {
+        const [ax, ay] = NEIGHBOUR[d];
+        for (let cx = wx, cy = wy; connects(g, cx, cy, d); cx += ax, cy += ay) junction[idx(g, cx + ax, cy + ay)] = 1;
+      }
+    }
+  }
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
       const i = idx(g, x, y);
