@@ -692,14 +692,10 @@ const readerFor = (b: PatchBuilder, grid: Grid): SurfaceReader => ({
    * re-derives the ramps around it. What that looked like was a road with
    * slopes cut across it appearing the moment you poured anywhere near it.
    *
-   * Read off the GRID rather than the builder: `deck` is not a `LayerKey`,
-   * and nothing in an edit command changes one, so the grid is current.
-   * @see Grid.deck, surfaceHeightAt
+   * The deck as staged, like the rest: a road stroke over water lays one in
+   * its own command. @see Grid.deck, surfaceHeightAt, gradeRoad
    */
-  height: (x, y) => {
-    const i = idx(grid, x, y);
-    return grid.deck[i] !== 0 ? grid.deckZ[i] : b.peek("height", x, y);
-  },
+  height: (x, y) => (b.peek("deck", x, y) !== 0 ? b.peek("deckZ", x, y) : b.peek("height", x, y)),
 });
 
 const markDirty = (grid: Grid, touched: number[], surface: boolean) => {
@@ -1500,6 +1496,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         if (fresh > 0) roadPaid = price.toNumber();
       }
       for (const m of grade?.moved ?? []) { b.set("height", m.x, m.y, m.to); graded.push({ x: m.x, y: m.y }); }
+      // OVER WATER, A BRIDGE: the deck laid with the road on it; and a bridge's road lifted, its deck with it.
+      for (const d of grade?.decks ?? []) { b.set("deck", d.x, d.y, 1); b.set("deckZ", d.x, d.y, d.z); }
+      if (s0.tool === "eraseRoad") for (const c of cells) if (st.grid.deck[c.y * st.grid.w + c.x] !== 0) { b.set("deck", c.x, c.y, 0); b.set("deckZ", c.x, c.y, 0); }
       for (const c of cells) b.set("paved", c.x, c.y, value);
     } else {
       const value = s0.tool === "erase" ? VOID_MATERIAL : st.material;

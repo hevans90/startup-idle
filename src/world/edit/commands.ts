@@ -20,7 +20,9 @@ export type LayerKey =
   | "terrain" | "height" | "paved" | "fluid" | "source" | "main" | "mainEnd" | "sewer" | "sewerFit" | "ramp"
   | "structureAt"
   // The standing water: a port placed on a slanted bank fills or cuts a tile of it. @see straightenFor
-  | "pool";
+  | "pool"
+  // A bridge's deck and its level: a road stroke over water lays one, and lifting it takes it away. @see gradeRoad
+  | "deck" | "deckZ";
 
 export type CellPatch = {
   layer: LayerKey;
@@ -209,7 +211,7 @@ function applyPatches(grid: Grid, cmd: Command, dir: "do" | "undo"): number[] {
  */
 export const touchesSurface = (cmd: Command) =>
   cmd.patches.some((p) =>
-    p.layer === "height" || p.layer === "ramp" || p.layer === "structureAt");
+    p.layer === "height" || p.layer === "ramp" || p.layer === "structureAt" || p.layer === "deck" || p.layer === "deckZ");
 
 /**
  * Whether a command can change road connectivity.

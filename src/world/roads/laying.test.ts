@@ -226,6 +226,39 @@ describe("laying roads", () => {
     expect(sound(g)).toEqual([]);
   });
 
+  test("over water a road is a bridge: a deck from bank to bank, level, clear of the water; a lane laid beside it at its level; undone and lifted whole; never begun or ended or turned in the water", () => {
+    s().resize(48, 48);
+    const g = s().grid;
+    // A river down x = 20…24: its bed four half steps down, three of water in it.
+    for (let y = 0; y < g.h; y++) for (let x = 20; x <= 24; x++) { setHeight(g, x, y, -4); g.pool[idx(g, x, y)] = 3; }
+    s().loadGrid(g);
+    const G = s().grid, wet = [20, 21, 22, 23, 24];
+    expect(drag("paintRoad", 12, 10, 32, 10)).toBe("");
+    for (let x = 12; x <= 32; x++) expect(G.paved[idx(G, x, 10)]).not.toBe(0);
+    // Its deck: over the water's cells and no others, one level, at least two half steps over the water; the bed untouched.
+    for (let x = 12; x <= 32; x++) expect(G.deck[idx(G, x, 10)]).toBe(wet.includes(x) ? 1 : 0);
+    const z = G.deckZ[idx(G, 20, 10)];
+    for (const x of wet) { expect(G.deckZ[idx(G, x, 10)]).toBe(z); expect(G.height[idx(G, x, 10)]).toBe(-4); }
+    expect(z).toBeGreaterThanOrEqual(-4 + 3 + 2);
+    expect(sound(G)).toEqual([]);
+    // A second lane beside it runs at the same level, and the two are one bridge.
+    expect(drag("paintRoad", 12, 11, 32, 11)).toBe("");
+    for (const x of wet) expect(G.deckZ[idx(G, x, 11)]).toBe(z);
+    expect(sound(G)).toEqual([]);
+    // Undone, the second lane and its deck are gone; lifted, the first and its.
+    s().doUndo();
+    for (let x = 12; x <= 32; x++) { expect(G.paved[idx(G, x, 11)]).toBe(0); expect(G.deck[idx(G, x, 11)]).toBe(0); }
+    for (const x of wet) expect(G.deck[idx(G, x, 10)]).toBe(1);
+    drag("eraseRoad", 12, 10, 32, 10);
+    for (let i = 0; i < G.deck.length; i++) { expect(G.deck[i]).toBe(0); expect(G.deckZ[i]).toBe(0); expect(G.paved[i]).toBe(0); }
+    // Not begun in the water, nor ended in it, nor turned in it: nothing laid, and it says why.
+    expect(drag("paintRoad", 22, 30, 32, 30)).toBe(OPEN_WATER);
+    expect(drag("paintRoad", 12, 30, 22, 30)).toBe(OPEN_WATER);
+    for (let i = 0; i < G.paved.length; i++) expect(G.paved[i]).toBe(0);
+    // Down the river and not across it: it never comes to a bank.
+    expect(drag("paintRoad", 22, 5, 22, 40)).toBe(OPEN_WATER);
+  });
+
   test("open water: the road stops at it and says so; a bridge already there is joined", () => {
     s().resize(64, 64);
     const g = s().grid;

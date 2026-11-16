@@ -12,6 +12,12 @@
  * ground is. A cell beside a road laid alongside takes that road's height:
  * the lanes of a wide road climb together.
  *
+ * OVER WATER IT IS A BRIDGE. The cells of a stroke that lie in water are not
+ * graded: they are spanned, by a deck at one level from the dry cell before
+ * them to the dry cell after — as high as the higher bank, clear of the
+ * water, and level with a deck already alongside. It runs straight, and it
+ * starts and ends on dry ground. @see Grid.deck
+ *
  * A JUNCTION IS LEVEL. A ramp tilts one way, so a road cannot leave one by
  * its side. Where a stroke meets a road on a ramp, that ramp is levelled —
  * its row across the road raised to the top of its climb and the row below
@@ -30,6 +36,8 @@ export type Grade = {
   heights: number[];
   /** Cells whose ground moves — the path's, and a ramp's levelled for a junction: where, from, to. */
   moved: { x: number; y: number; from: number; to: number }[];
+  /** Cells of the path the road spans on a deck, and the level it runs at: a bridge over the water there. */
+  decks: { x: number; y: number; z: number }[];
   /** Cells of the path the road cannot serve. */
   blocked: { x: number; y: number }[];
   /** How many more tiles the steepest refused climb needs; 0 when none is refused for its steepness. */
@@ -64,8 +72,12 @@ function held(g: Grid, x: number, y: number): boolean {
 export const tooSteep = (short: number) => `Too steep here: the road needs ${short} more tile${short === 1 ? "" : "s"} to climb`;
 export const ON_A_SLOPE = "A road can't join here: this slope can't be levelled for a junction";
 export const IN_THE_WAY = "Something stands in the road's way";
-export const OPEN_WATER = "A road can't cross open water";
-const BRIEF: Record<string, string> = { [ON_A_SLOPE]: "Can't join on this slope", [IN_THE_WAY]: "Something in the way", [OPEN_WATER]: "Can't cross water" };
+export const OPEN_WATER = "A bridge runs straight, from dry ground to dry ground";
+/** How far over the water a deck is laid, at the least, half steps. */
+export const DECK_CLEAR = 2;
+/** How many cells of low shore between the water and a bank a bridge spans, each side, at the most. */
+export const SHORE = 3;
+const BRIEF: Record<string, string> = { [ON_A_SLOPE]: "Can't join on this slope", [IN_THE_WAY]: "Something in the way", [OPEN_WATER]: "Bridge: straight, bank to bank" };
 const briefly = (short: number, why: string) => BRIEF[why] ?? (short ? `Too steep · ${short} more tile${short === 1 ? "" : "s"}` : "Can't join on this slope");
 
 /**
@@ -176,13 +188,50 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
   const n = path.length;
   // NOT THROUGH A BUILDING, and not into open water: nothing is laid, and nothing graded.
   const stopped = (why: string, at: GradeCell[]): Grade =>
-    ({ heights: path.map((c) => surface(g, idx(g, c.x, c.y))), moved: [], blocked: at, short: 0, why, brief: briefly(0, why) });
+    ({ heights: path.map((c) => surface(g, idx(g, c.x, c.y))), moved: [], decks: [], blocked: at, short: 0, why, brief: briefly(0, why) });
   const fresh = path.filter((c) => g.paved[idx(g, c.x, c.y)] === 0);
   const built = fresh.filter((c) => structureAt(g, c.x, c.y) >= 0);
   if (built.length) return stopped(IN_THE_WAY, built);
-  const wet = fresh.filter((c) => { const i = idx(g, c.x, c.y); return g.deck[i] === 0 && (g.pool[i] > 0 || g.inflow[i] > 0); });
-  if (wet.length) return stopped(OPEN_WATER, wet);
   const h = new Array<number>(n), pin = new Array<boolean>(n).fill(false);
+  // OVER WATER, A BRIDGE: each run of the stroke's cells that lie in water is spanned at one level, from the dry
+  // cell before it to the dry cell after — straight, and not from the water's own edge of the stroke.
+  const isWet = (c: GradeCell) => { const i = idx(g, c.x, c.y); return g.paved[i] === 0 && g.deck[i] === 0 && (g.pool[i] > 0 || g.inflow[i] > 0); };
+  /** The level of the deck each cell of the path is spanned at; undefined where it is on the ground. */
+  const span: (number | undefined)[] = new Array(n);
+  for (let a = 0; a < n; a++) {
+    if (!isWet(path[a])) continue;
+    let b = a;
+    while (b + 1 < n && isWet(path[b + 1])) b++;
+    if (a === 0 || b === n - 1) return stopped(OPEN_WATER, path.slice(a, b + 1));
+    // How high it must be to clear the water.
+    let need = -Infinity;
+    for (let k = a; k <= b; k++) need = Math.max(need, g.height[idx(g, path[k].x, path[k].y)] + g.pool[idx(g, path[k].x, path[k].y)] + DECK_CLEAR);
+    // THE SHORE IS SPANNED TOO: a low strand between the water and a bank high enough to land on is under the
+    // bridge, not a dip in the road — up to SHORE cells of it each side, open ground, to the first that is.
+    const reach = (from: number, sg: 1 | -1) => {
+      for (let e = from, steps = 0; ; steps++) {
+        const j = e + sg;
+        if (j < 0 || j >= n) return from;
+        if (surface(g, idx(g, path[j].x, path[j].y)) >= need) return e;
+        if (steps === SHORE || held(g, path[j].x, path[j].y) || (sg < 0 ? j === 0 : j === n - 1)) return from;
+        e = j;
+      }
+    };
+    const wetTo = b;
+    a = reach(a, -1); b = reach(b, 1);
+    const run = path.slice(a, b + 1);
+    const dx = path[a].x - path[a - 1].x, dy = path[a].y - path[a - 1].y;
+    for (let k = a; k <= b + 1; k++) if (path[k].x - path[k - 1].x !== dx || path[k].y - path[k - 1].y !== dy) return stopped(OPEN_WATER, path.slice(a, wetTo + 1));
+    // As high as the higher bank and clear of the water; level with a deck already alongside, which was laid so.
+    let z = Math.max(need, surface(g, idx(g, path[a - 1].x, path[a - 1].y)), surface(g, idx(g, path[b + 1].x, path[b + 1].y)));
+    for (const c of run) for (const sg of [1, -1]) {
+      const nx = c.x + sg * dy, ny = c.y + sg * dx;
+      if (inBounds(g, nx, ny) && g.deck[idx(g, nx, ny)] !== 0) z = g.deckZ[idx(g, nx, ny)];
+    }
+    if (run.some((c) => z <= g.height[idx(g, c.x, c.y)] + g.pool[idx(g, c.x, c.y)])) return stopped(OPEN_WATER, run);
+    for (let k = a; k <= b; k++) span[k] = z;
+    a = b;
+  }
   const on = new Set(path.map((c) => idx(g, c.x, c.y)));
   /** Road cells off the path whose ground a junction moves. */
   const levelled = new Map<number, number>();
@@ -207,6 +256,8 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
   };
 
   for (let k = 0; k < n; k++) h[k] = surface(g, idx(g, path[k].x, path[k].y));
+  // A deck is level, and is where it is: its cells are held at it, and the banks do the climbing.
+  for (let k = 0; k < n; k++) if (span[k] !== undefined) { h[k] = span[k]!; pin[k] = true; }
   /** The road cells beside path cell `k` that are off the path: where they are and their index. */
   const outside = (k: number) => {
     const { x, y } = path[k], out: { nx: number; ny: number; j: number; dx: number; dy: number }[] = [];
@@ -343,20 +394,21 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
 
   // REFUSED: nothing moves, and the cursor shows the ground as it is.
   if (refused.size) {
-    return { heights: path.map((c) => surface(g, idx(g, c.x, c.y))), moved: [], blocked: [...refused].sort((a, b) => a - b).map((k) => ({ x: path[k].x, y: path[k].y })), short, why, brief: briefly(short, why) };
+    return { heights: path.map((c) => surface(g, idx(g, c.x, c.y))), moved: [], decks: [], blocked: [...refused].sort((a, b) => a - b).map((k) => ({ x: path[k].x, y: path[k].y })), short, why, brief: briefly(short, why) };
   }
 
-  const moved: Grade["moved"] = [];
+  const moved: Grade["moved"] = [], decks: Grade["decks"] = [];
   const first = new Map<number, number>();
   for (let k = 0; k < n; k++) {
     const { x, y } = path[k], i = idx(g, x, y);
     const seen = first.get(i);
     if (seen !== undefined) { out[k] = out[seen]; continue; }
     first.set(i, k);
+    if (span[k] !== undefined) { decks.push({ x, y, z: span[k]! }); continue; }
     if (g.deck[i] === 0 && out[k] !== g.height[i]) moved.push({ x, y, from: g.height[i], to: out[k] });
   }
   for (const [i, z] of levelled) if (!first.has(i) && z !== g.height[i]) moved.push({ x: i % g.w, y: (i / g.w) | 0, from: g.height[i], to: z });
-  return { heights: out, moved, blocked: [], short: 0, why: "", brief: "" };
+  return { heights: out, moved, decks, blocked: [], short: 0, why: "", brief: "" };
 }
 
 /**
