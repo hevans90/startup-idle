@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 
 import { createGrid, fillTerrain, idx, type Grid } from "../grid";
 import { BENT_UNDER, BRIDGE, HS } from "../props/bridges";
-import { PIER_EVERY, bridgePiecesOf, bridgesOf, kindOf, type BridgeKind } from "./bridge-props";
+import { bridgePiecesOf, bridgesOf, kindOf, springsOf, towersOf, type BridgeKind } from "./bridge-props";
 
 /** A road down x = 10… (`wide` of it) from y = 2 to `2 + len + 7`, the stretch from y = 6 of it, `len` long, a deck `up` half steps over the ground. */
 function bridged(up: number, wide = 2, len = 14): Grid {
@@ -34,13 +34,14 @@ describe("a bridge's pieces", () => {
     }
   });
 
-  test("a girder's piers: every third tile, the same tiles across its width, none under its ends; each from the waterline up to the deck, in the order it is drawn", () => {
+  test("a girder's piers: where two of its arches meet, the same tiles across its width, none under its ends; each from the waterline up to the deck, in the order it is drawn", () => {
     const g = bridged(10), pieces = bridgePiecesOf(g, () => 2, "girder");
     const caps = pieces.filter((p) => p.id === "girderCap");
     const ys = [...new Set(caps.map((p) => p.y))].sort((a, b) => a - b);
-    expect(ys).toEqual([7, 10, 13, 16]);
-    for (const y of ys) { expect(y % PIER_EVERY).toBe(1); expect(caps.filter((p) => p.y === y).map((p) => p.x).sort()).toEqual([10, 11]); }
-    const mine = pieces.filter((p) => p.x === 10 && p.y === 10 && p.tier === "under");
+    expect(ys).toEqual(springsOf(14).slice(1, -1).map((k) => 6 + k));
+    expect(ys).toEqual([9, 11, 14, 16]);
+    for (const y of ys) expect(caps.filter((p) => p.y === y).map((p) => p.x).sort()).toEqual([10, 11]);
+    const mine = pieces.filter((p) => p.x === 10 && p.y === 9 && p.tier === "under");
     expect(mine[0]).toMatchObject({ id: "girderFoot", z: 2 });
     expect(mine[mine.length - 1]).toMatchObject({ id: "girderCap", z: 10 });
     const shafts = mine.filter((p) => p.id === "girderShaft");
@@ -83,6 +84,49 @@ describe("a bridge's pieces", () => {
     const near = (y: number) => stay.find((p) => p.x === 11 && p.y === y && /^stay[AB]\d$/.test(p.id))!.id;
     expect(near(8)[4]).not.toBe(near(10)[4]);
     expect(near(12)).toMatch(/3$/);
+  });
+
+  test("every kind stands over the road as well as under it: arches over a girder, tile for tile, meeting where they spring; king posts along a timber bridge; gate towers on a viaduct's piers", () => {
+    // Arches of two or three tiles (one, over a bridge of two) from the first tile's middle to the last's.
+    for (let len = 2; len <= 30; len++) {
+      const s = springsOf(len);
+      expect([s[0], s[s.length - 1]]).toEqual([0, len - 1]);
+      for (let i = 1; i < s.length; i++) expect(s[i] - s[i - 1]).toBeGreaterThanOrEqual(len === 2 ? 1 : 2), expect(s[i] - s[i - 1]).toBeLessThanOrEqual(3);
+    }
+    const g = bridged(10), girder = bridgePiecesOf(g, () => 2, "girder"), s = springsOf(14);
+    for (const [x, turn] of [[11, 3], [10, 1]]) for (let k = 0; k < 14; k++) {
+      const bows = girder.filter((p) => p.x === x && p.y === 6 + k && p.turn === turn && /^bow\d/.test(p.id)).map((p) => p.id).sort();
+      const at = s.indexOf(k);
+      if (at < 0) { expect(bows.length).toBe(1); expect(bows[0]).toMatch(/^bow(2M|3M[AB])$/); continue; }
+      // Where two meet: the end of one and the start of the next, one each way; at the bridge's ends, the one.
+      expect(bows.length).toBe(at === 0 || at === s.length - 1 ? 1 : 2);
+      if (bows.length === 2) expect(bows[0].slice(-1)).not.toBe(bows[1].slice(-1));
+    }
+    // Either side of an arch's middle tiles, its rise and its fall: not the same piece twice.
+    const mids = girder.filter((p) => p.x === 11 && p.turn === 3 && /^bow3M/.test(p.id)).sort((a, b) => a.y - b.y);
+    for (let i = 0; i + 1 < mids.length; i += 2) expect(mids[i].id).not.toBe(mids[i + 1].id);
+    // The two edges mirror each other: a piece turned about is its other hand.
+    const hand = (x: number, turn: number, y: number) => girder.find((p) => p.x === x && p.turn === turn && p.y === y && /^bow\d[AB]$/.test(p.id))!.id.slice(-1);
+    expect(hand(11, 3, 6)).not.toBe(hand(10, 1, 6));
+    expect(girder.filter((p) => /^bowBrace/.test(p.id)).length).toBe(2 * (14 - s.length));
+
+    const timber = bridgePiecesOf(bridged(6, 1), () => 2, "trestle").filter((p) => p.id === "timberTruss");
+    expect(timber.length).toBe(28);
+    expect(timber.filter((p) => p.tier === "front").length).toBe(14);
+
+    // A gate tower: a turret on the pier at each edge, the gate between them — whole over one lane, in halves over two.
+    for (let len = 2; len <= 30; len++) for (const k of towersOf(len)) { expect(k).toBeGreaterThanOrEqual(1); expect(k).toBeLessThanOrEqual(len - 1); }
+    expect(towersOf(1)).toEqual([]);
+    expect(towersOf(14)).toEqual([1, 5, 9, 13]);
+    const two = bridgePiecesOf(g, () => 2, "arch"), one = bridgePiecesOf(bridged(10, 1), () => 2, "arch");
+    for (const [ps, wide] of [[two, 2], [one, 1]] as const) {
+      const turrets = ps.filter((p) => /^archTower/.test(p.id));
+      expect(turrets.length).toBe(8);
+      expect([...new Set(turrets.map((p) => p.y))].sort((a, b) => a - b)).toEqual([6.5, 10.5, 14.5, 18.5]);
+      expect(ps.filter((p) => p.id === "archGateHalf").length).toBe(wide === 2 ? 8 : 0);
+      expect(ps.filter((p) => p.id === "archGate").length).toBe(wide === 1 ? 4 : 0);
+      for (const p of ps.filter((q) => /^archGate/.test(q.id))) expect(p.tier).toBe("front");
+    }
   });
 
   test("what kind a bridge is: one its shape allows, and the same one every time", () => {

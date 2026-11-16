@@ -6,11 +6,13 @@
  * of the deck it is the edge of. @see render/bridge-props for what goes where
  *
  *  - `arch…`     a STONE VIADUCT: an arch a tile, coursed masonry, voussoirs
- *                and a keystone round each, a solid parapet with a coping.
+ *                and a keystone round each, a solid parapet with a coping; gate
+ *                towers on its piers, an arch between two battlemented turrets.
  *  - `trestle…`  a TIMBER BRIDGE: board-clad crib piers with cutwaters, a deep
- *                beam under planking, a braced railing.
+ *                beam under planking, a braced railing, king-post trusses over it.
  *  - `girder…`   a STEEL PLATE GIRDER on concrete hammerhead piers: stiffened
- *                web between flanges, a concrete parapet and steel rail.
+ *                web between flanges, a concrete parapet and steel rail; bowstring
+ *                arches over it, pier to pier, the deck hung from them.
  *  - `truss…`    a THROUGH TRUSS in red oxide: chords, posts and diagonals
  *                either side of the road, braced across over it.
  *  - `stay…`     a CABLE-STAYED bridge: white pylons through the deck, stays
@@ -113,6 +115,70 @@ function archFootTris(): Tri[] {
   return out;
 }
 
+/** A gate tower: where its arch springs over the road, how far it rises to its crown, its wall's top and its turrets'. */
+const GATE_Z = 4.3, GATE_TOP = 9.2, TURRET_TOP = 10.6;
+/** A turret's faces: how far in from the deck's edge, how far out; half its length along the bridge; half the gate wall's. */
+const TUR_IN = 0.75, TUR_OUT = 1.6, TUR_X = 1.3, GATE_X = 0.95;
+/** Battlements round a top at `z`: a merlon at each corner and one between along each side of `x0…x1`, `y0…y1` — or, `everyY` given, one every so far along both its long faces. */
+function merlons(x0: number, x1: number, y0: number, y1: number, z: number, out: Tri[], everyY = 0) {
+  const w = 0.3, put = (x: number, y: number) => { pbox(x - w, x + w, y - w, y + w, z, z + 0.7, "stoneA", out, masonry); box(x - w - 0.04, x + w + 0.04, y - w - 0.04, y + w + 0.04, z + 0.7, z + 0.8, "ashlar", out); };
+  if (everyY) { for (let y = y0 + everyY / 2; y < y1; y += everyY) for (const x of [x0 + w, x1 - w]) put(x, y); return; }
+  for (const x of [x0 + w, (x0 + x1) / 2, x1 - w]) for (const y of [y0 + w, (y0 + y1) / 2, y1 - w]) if (x !== (x0 + x1) / 2 || y !== (y0 + y1) / 2) put(x, y);
+}
+/** A loop in a wall's face at `x = f`, looking out along `sg`: a tall dark slit, dressed round. */
+function loopX(f: number, sg: number, y: number, z0: number, z1: number, out: Tri[]) {
+  box(Math.min(f, f + sg * 0.04), Math.max(f, f + sg * 0.04), y - 0.24, y + 0.24, z0, z1, "ashlar", out);
+  box(Math.min(f + sg * 0.04, f + sg * 0.06), Math.max(f + sg * 0.04, f + sg * 0.06), y - 0.09, y + 0.09, z0 + 0.15, z1 - 0.15, "joint", out);
+}
+/**
+ * A GATE TOWER'S TURRET, at the left edge, centred on the pier it stands on (x = 0): a square tower of coursed stone
+ * from `from` — the arch's springing on the side that shows it, the road on the side that hides it — up past the
+ * gate's wall; a battered foot, a band at the road and at the gate's springing, a corbelled, battlemented top, loops.
+ */
+function towerLegTris(from: number): Tri[] {
+  const out: Tri[] = [], x = TUR_X, y0 = HT - TUR_IN, y1 = HT + TUR_OUT, yc = (y0 + y1) / 2;
+  pbox(-x, x, y0, y1, from, TURRET_TOP, "stoneA", out, masonry);
+  if (from < 0) { pbox(-x - 0.25, x + 0.25, y0, y1 + 0.25, from, from + 2.2, "stoneB", out, masonry); box(-x - 0.3, x + 0.3, y0, y1 + 0.3, from + 2.2, from + 2.4, "ashlar", out); }
+  for (const z of [-0.3, GATE_Z - 0.3]) box(-x - 0.08, x + 0.08, y0 - 0.08, y1 + 0.08, z, z + 0.3, "ashlar", out);
+  // Corbels under an oversailing top, and its battlements.
+  for (const q of [-0.9, 0, 0.9]) { box(q - 0.16, q + 0.16, y1, y1 + 0.2, TURRET_TOP - 0.55, TURRET_TOP - 0.2, "stoneC", out); for (const sg of [-1, 1]) box(Math.min(sg * x, sg * (x + 0.2)), Math.max(sg * x, sg * (x + 0.2)), yc + q - 0.16, yc + q + 0.16, TURRET_TOP - 0.55, TURRET_TOP - 0.2, "stoneC", out); }
+  box(-x - 0.22, x + 0.22, y0 - 0.22, y1 + 0.22, TURRET_TOP - 0.2, TURRET_TOP, "ashlar", out);
+  pbox(-x - 0.2, x + 0.2, y0 - 0.2, y1 + 0.2, TURRET_TOP, TURRET_TOP + 0.55, "stoneA", out, masonry);
+  merlons(-x - 0.2, x + 0.2, y0 - 0.2, y1 + 0.2, TURRET_TOP + 0.55, out);
+  box(-0.24, 0.24, y1, y1 + 0.04, 6.2, 8.6, "ashlar", out); box(-0.09, 0.09, y1 + 0.04, y1 + 0.06, 6.35, 8.45, "joint", out);
+  for (const sg of [-1, 1]) loopX(sg * x, sg, yc, 6.2, 8.6, out);
+  return out;
+}
+/**
+ * THE GATE between two turrets, a tile of it across, centred on the pier (x = 0): a wall over the road on an arch —
+ * its crown at `crown` across the tile, `half` from there out to where it springs — voussoirs round the arch on
+ * both faces, a keystone, a string course, battlements along both faces, loops over the arch.
+ */
+function towerGateTris(crown: number, half: number, rise: number): Tri[] {
+  const out: Tri[] = [], X = GATE_X, N = 18;
+  const zc = (y: number) => { const u = Math.min(1, Math.abs(y - crown) / half); return GATE_Z + rise * Math.sqrt(1 - u * u); };
+  const ys = Array.from({ length: N + 1 }, (_, k) => -HT + (2 * HT * k) / N);
+  let n = out.length;
+  for (let k = 0; k < N; k++) for (const sg of [-1, 1]) {
+    const y0 = ys[k], y1 = ys[k + 1];
+    face([[sg * X, y0, zc(y0)], [sg * X, y1, zc(y1)], [sg * X, y1, GATE_TOP], [sg * X, y0, GATE_TOP]], "stoneA", [0, (y0 + y1) / 2, 7], out);
+  }
+  laid(out, n, masonry);
+  for (let k = 0; k < N; k++) {
+    const y0 = ys[k], y1 = ys[k + 1], ym = (y0 + y1) / 2;
+    if (Math.abs(ym - crown) > half) continue;
+    // The soffit, and the ring on each face: voussoirs, light and lighter.
+    face([[-X, y0, zc(y0)], [X, y0, zc(y0)], [X, y1, zc(y1)], [-X, y1, zc(y1)]], "stoneB", [0, ym, zc(ym) + 2], out);
+    for (const sg of [-1, 1]) face([[sg * (X + 0.07), y0, zc(y0)], [sg * (X + 0.07), y1, zc(y1)], [sg * (X + 0.07), y1, zc(y1) + 0.55], [sg * (X + 0.07), y0, zc(y0) + 0.55]], k & 1 ? "stoneC" : "ashlar", [0, ym, 7], out);
+  }
+  if (Math.abs(crown) < HT - 0.5) box(-X - 0.16, X + 0.16, crown - 0.3, crown + 0.3, GATE_Z + rise - 0.05, GATE_Z + rise + 0.85, "ashlar", out);
+  box(-X - 0.1, X + 0.1, -HT, HT, GATE_TOP - 0.25, GATE_TOP, "ashlar", out);
+  pbox(-X - 0.08, X + 0.08, -HT, HT, GATE_TOP, GATE_TOP + 0.45, "stoneA", out, masonry);
+  merlons(-X - 0.08, X + 0.08, -HT, HT, GATE_TOP + 0.45, out, 1.3875);
+  for (const sg of [-1, 1]) for (const y of [-3.2, 0, 3.2]) if (zc(y) + 1.2 < 7.2) loopX(sg * X, sg, y, 7.2, 8.6, out); else if (Math.abs(y - crown) > 1) loopX(sg * X, sg, y, 7.6, 8.6, out);
+  return out;
+}
+
 // ── a timber bridge ──────────────────────────────────────────────────────
 /** A squared timber between two points, `w` across: a brace, a rail. */
 const balk = (a: V3, b: V3, w: number, mat: Mat, out: Tri[]) => limb(a, b, w * 0.7, w * 0.7, mat, out, 4, false);
@@ -145,6 +211,29 @@ function trestleEdgeTris(): Tri[] {
   return out;
 }
 function trestleRailTris(): Tri[] { const out: Tri[] = []; fence(out); return out; }
+/**
+ * A KING-POST TRUSS over the left edge, a tile of it: two great rafters from the tile's ends up to a post at its
+ * middle, a strut from the post's foot out to each, iron straps where they meet and a rod down beside the post —
+ * the deck hung from it between the piers.
+ */
+function kingPostTris(): Tri[] {
+  const out: Tri[] = [], y = HT + 0.02, top = 5.2, w = 0.2;
+  const B = (x0: number, x1: number, z0: number, z1: number, m: Mat, d = w) => box(x0, x1, y - d, y + d, z0, z1, m, out);
+  for (const sg of [-1, 1]) {
+    // A shoe at its foot; the rafter; a strut up to the middle of it.
+    B(sg > 0 ? HT - 0.75 : -HT, sg > 0 ? HT : -HT + 0.75, -0.1, 0.5, "timberDark", w + 0.05);
+    balk([sg * (HT - 0.3), y, 0.35], [sg * 0.12, y, top - 0.25], 0.44, "timber", out);
+    balk([sg * 0.2, y, 0.75], [sg * 2.75, y, 2.5], 0.32, "timberLight", out);
+    B(sg * 2.75 - 0.22, sg * 2.75 + 0.22, 2.3, 2.85, "iron", w + 0.04);
+    B(sg > 0 ? HT - 0.62 : -HT + 0.5, sg > 0 ? HT - 0.5 : -HT + 0.62, -0.05, 0.62, "iron", w + 0.07);
+  }
+  // The king post, a cap on it, a strap round its head and its foot.
+  B(-0.23, 0.23, -0.1, top, "timberDark", 0.23);
+  B(-0.3, 0.3, top, top + 0.16, "timberLight", 0.3);
+  B(-0.26, 0.26, top - 0.75, top - 0.55, "iron", 0.26);
+  B(-0.26, 0.26, 0.5, 0.68, "iron", 0.26);
+  return out;
+}
 /** How tall a pier is made, half steps: one model for each. @see render/bridge-props */
 export const BENT_MAX = 12;
 /** How far under the road a timber pier's head is: the foot of the beams it carries. */
@@ -252,6 +341,43 @@ function girderFootTris(): Tri[] {
   }
   return out;
 }
+/** A BOWSTRING ARCH's rise, metres, by how many tiles it spans; and where it leaves the deck. */
+const BOW_RISE = [0, 2.5, 5.5, 7.5], BOW_FOOT = 0.5;
+/** How high the arch over `span` tiles is, `d` metres along from where it springs. */
+export const bowZ = (span: number, d: number) => { const t = d / (span * 2 * HT); return BOW_FOOT + 4 * BOW_RISE[span] * t * (1 - t); };
+/**
+ * A LENGTH OF A BOWSTRING ARCH over the left edge: a steel box rib from `d0` to `d1` metres along an arch `span`
+ * tiles long, `x = dir × (d − at)`; hangers down from it to the deck's edge; a shoe where it springs.
+ */
+function bowTris(span: number, d0: number, d1: number, at: number, dir: 1 | -1): Tri[] {
+  const out: Tri[] = [], yc = HT - 0.21, hw = 0.21, hd = 0.27, N = 10;
+  const X = (d: number) => dir * (d - at);
+  for (let k = 0; k < N; k++) {
+    const a = d0 + ((d1 - d0) * k) / N, b = d0 + ((d1 - d0) * (k + 1)) / N, za = bowZ(span, a), zb = bowZ(span, b), xa = X(a), xb = X(b);
+    const mid: V3 = [(xa + xb) / 2, yc, (za + zb) / 2];
+    for (const sy of [-1, 1]) face([[xa, yc + sy * hw, za - hd], [xb, yc + sy * hw, zb - hd], [xb, yc + sy * hw, zb + hd], [xa, yc + sy * hw, za + hd]], "steelBlue", mid, out);
+    for (const sz of [-1, 1]) face([[xa, yc - hw - 0.05, za + sz * hd], [xb, yc - hw - 0.05, zb + sz * hd], [xb, yc + hw + 0.05, zb + sz * hd], [xa, yc + hw + 0.05, za + sz * hd]], "steelBlueDark", mid, out);
+  }
+  // A hanger every 1.85 m, where the rib is clear of the rail; a plate where each leaves the rib.
+  for (let d = Math.ceil((d0 - 0.925) / 1.85) * 1.85 + 0.925; d < d1; d += 1.85) {
+    const z = bowZ(span, d);
+    if (z < 2) continue;
+    bar([X(d), yc, 0.68], [X(d), yc, z - hd], 0.04, "cable", out);
+    box(X(d) - 0.14, X(d) + 0.14, yc - hw - 0.03, yc + hw + 0.03, z - hd - 0.22, z - hd, "steelBlueDark", out);
+  }
+  if (d0 === 0) { const x0 = Math.min(X(0), X(1.0)), x1 = Math.max(X(0), X(1.0)); box(x0, x1, yc - 0.3, yc + 0.3, 0.6, 1.0, "steelBlueDark", out); box(x0, x1, yc - 0.34, yc + 0.34, 0.6, 0.68, "iron", out); }
+  return out;
+}
+/** A strut across the road between two arches, a tile of it, under their ribs at the tile's middle; a knee down at each end of it. */
+function bowBraceTris(span: number): Tri[] {
+  const out: Tri[] = [], z = bowZ(span, 2 * HT) - 0.3;
+  box(-0.16, 0.16, -HT, HT, z - 0.34, z, "steelBlue", out);
+  box(-0.2, 0.2, -HT, HT, z, z + 0.05, "steelBlueDark", out);
+  for (const x of [-1.6, 1.6]) bar([x, -HT, z - 0.17], [0, 0, z - 0.17], 0.06, "steelBlueDark", out, 4), bar([x, HT, z - 0.17], [0, 0, z - 0.17], 0.06, "steelBlueDark", out, 4);
+  return out;
+}
+const TL = 2 * HT;
+
 /** A lighting column on the parapet, its arm in over the road. */
 function lampTris(): Tri[] {
   const out: Tri[] = [], y = HT - 0.21;
@@ -378,6 +504,15 @@ function pylonBeamTris(): Tri[] {
 const P = (id: string, tris: () => Tri[]): Prop => ({ id, tris, shadow: NONE, flat: true });
 export const BRIDGE: readonly Prop[] = [
   P("archSide", archSideTris), P("archParapet", archParapetTris), P("archHead", archHeadTris), P("archShaft", archShaftTris), P("archFoot", archFootTris),
+  P("archTower", () => towerLegTris(-ARCH_SPRING)), P("archTowerFar", () => towerLegTris(0)),
+  // The gate over one lane, turret to turret; and half of one over two, from the turret at its left to its crown on the road's middle.
+  P("archGate", () => towerGateTris(0, HT - TUR_IN, 1.9)), P("archGateHalf", () => towerGateTris(-HT, 2 * HT - TUR_IN, 2.6)),
+  P("timberTruss", kingPostTris),
+  // An arch's half tile from where it springs, for each span, rising along the piece (A) or back along it (B); the
+  // tiles between: the crown of a two-tile arch (M), the rise (MA) and fall (MB) of a three-tile one.
+  ...([1, 2, 3] as const).flatMap((n) => [P(`bow${n}A`, () => bowTris(n, 0, HT, 0, 1)), P(`bow${n}B`, () => bowTris(n, 0, HT, 0, -1))]),
+  P("bow2M", () => bowTris(2, HT, 3 * HT, TL, 1)), P("bow3MA", () => bowTris(3, HT, 3 * HT, TL, 1)), P("bow3MB", () => bowTris(3, HT, 3 * HT, TL, -1)),
+  P("bowBrace2", () => bowBraceTris(2)), P("bowBrace3", () => bowBraceTris(3)),
   P("trestleEdge", trestleEdgeTris), P("trestleRail", trestleRailTris),
   ...Array.from({ length: BENT_MAX }, (_, k) => P(`timberPier${k + 1}`, () => cribPierTris(k + 1))),
   P("girderEdge", girderEdgeTris), P("girderRail", girderRailTris), P("girderCap", girderCapTris), P("girderShaft", girderShaftTris), P("girderFoot", girderFootTris),

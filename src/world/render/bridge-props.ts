@@ -72,6 +72,22 @@ export function bridgesOf(g: Grid, depth: (x: number, y: number) => number = () 
   return out;
 }
 
+/**
+ * WHERE A GIRDER'S ARCHES SPRING, in tiles along it from its first: its length from the middle of its first tile to
+ * the middle of its last, shared out into arches of two or three tiles (one, over a bridge of two).
+ */
+export function springsOf(len: number): number[] {
+  const n = len - 1, count = Math.ceil(n / 3);
+  return n < 1 ? [] : Array.from({ length: count + 1 }, (_, i) => Math.round((i * n) / count));
+}
+/** The tiles of a viaduct, along it from its first, with a gate tower on the pier at their low end: one in the middle of a short one, else one at each end and every three or four arches between. */
+export function towersOf(len: number): number[] {
+  if (len < 2) return [];
+  if (len <= 4) return [Math.round(len / 2)];
+  const n = len - 2, count = Math.max(1, Math.round(n / 3.5));
+  return Array.from({ length: count + 1 }, (_, i) => 1 + Math.round((i * n) / count));
+}
+
 const NEAR = { arch: "archSide", trestle: "trestleEdge", girder: "girderEdge", truss: "trussNear", stay: "stayEdge" } as const;
 const FAR = { arch: "archParapet", trestle: "trestleRail", girder: "girderRail", truss: "trussFar", stay: "stayRail" } as const;
 
@@ -91,6 +107,7 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
   ];
   for (const B of bridgesOf(g, depth, force)) {
     const K = B.kind, turn = B.alongX ? 0 : 1;
+    const springs = K === "girder" ? springsOf(B.len) : [], towers = K === "arch" ? towersOf(B.len) : [];
     for (const i of B.cells) {
       const x = i % g.w, y = (i / g.w) | 0, z = g.deckZ[i], k = (B.alongX ? x : y) - B.a0;
       const base = g.height[i] + Math.max(0, depth(x, y)), room = z - base;
@@ -113,7 +130,8 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
         const need = room - BENT_UNDER / HS, n = Math.max(1, Math.min(BENT_MAX, Math.round(need)));
         if ((B.alongX ? x : y) % 2 === 0 && need >= 0.6 && (B.len < 3 || (k >= 1 && k <= B.len - 2))) out.push({ id: `timberPier${n}`, turn, x, y, z: base, tier: "under", stretch: need / n });
       } else {
-        const here = K === "stay" ? off === 0 : (B.alongX ? x : y) % PIER_EVERY === 1 && k >= 1 && k <= B.len - 2;
+        // A stay's pier is its pylon's; a girder's, where two of its arches meet; a truss's, every third tile.
+        const here = K === "stay" ? off === 0 : K === "girder" ? k >= 1 && k <= B.len - 2 && springs.includes(k) : (B.alongX ? x : y) % PIER_EVERY === 1 && k >= 1 && k <= B.len - 2;
         if (here && room >= PIER_ROOM) { put("girderFoot", "under", base); stack("girderShaft", CAP_UNDER); put("girderCap", "under"); }
       }
 
@@ -124,7 +142,26 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
         put(id, tier, z, s.turn);
         // Along the bridge only, from here on: an end that stops in the air has a rail and no more.
         if ((s.dx !== 0) === B.alongX) continue;
-        if (K === "girder" && (B.alongX ? x : y) % 2 === 0) put("bridgeLamp", tier, z, s.turn);
+        // Which way along the bridge this piece's own +x runs.
+        const way = B.alongX ? s.fx : s.fy;
+        if (K === "trestle") put("timberTruss", tier, z, s.turn);
+        if (K === "arch" && towers.includes(k)) {
+          // A GATE TOWER on the pier at the tile's low end: a turret at this edge, and over two lanes the half of the gate that springs from it.
+          const at = { x: x - (B.alongX ? 0.5 : 0), y: y - (B.alongX ? 0 : 0.5), z, turn: s.turn };
+          out.push({ id: s.near ? "archTower" : "archTowerFar", tier, ...at });
+          if (B.width === 2) out.push({ id: "archGateHalf", tier: "front", ...at });
+        }
+        if (K === "girder") {
+          // THE ARCHES OVER IT: where two meet, the end of the one and the start of the next; between, its own tile of one.
+          const at = springs.indexOf(k);
+          if (at >= 0) {
+            if (at + 1 < springs.length) put(`bow${springs[at + 1] - k}${way > 0 ? "A" : "B"}`, tier, z, s.turn);
+            if (at > 0) put(`bow${k - springs[at - 1]}${way > 0 ? "B" : "A"}`, tier, z, s.turn);
+          } else {
+            const i = springs.findIndex((q) => q > k), span = springs[i] - springs[i - 1], j = k - springs[i - 1];
+            put(span === 2 ? "bow2M" : `bow3M${(j === 1) === way > 0 ? "A" : "B"}`, tier, z, s.turn);
+          }
+        }
         if (K !== "stay") continue;
         if (off === 0) put(s.near ? "pylonLeg" : "pylonLegFar", tier, z, s.turn);
         else if (Math.abs(off) <= 3) {
@@ -137,6 +174,8 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
       // OVER THE ROAD, last: a truss's bracing, a pylon's beams.
       if (K === "truss") put("trussTop", "front");
       if (K === "stay" && off === 0) put("pylonBeam", "front");
+      if (K === "arch" && B.width === 1 && towers.includes(k)) out.push({ id: "archGate", turn, x: x - (B.alongX ? 0.5 : 0), y: y - (B.alongX ? 0 : 0.5), z, tier: "front" });
+      if (K === "girder" && B.width <= 3 && springs.length && !springs.includes(k)) { const i = springs.findIndex((q) => q > k); put(`bowBrace${springs[i] - springs[i - 1]}`, "front"); }
     }
   }
   return out;
@@ -161,7 +200,8 @@ export function createBridgeProps(bands: BandLayer): BridgeProps {
       const still = depth ? (x: number, y: number) => Math.round(depth(x, y) * 2) / 2 : undefined;
       const under = new Map<number, Container>();
       for (const p of bridgePiecesOf(g, still, force)) {
-        const band = bandOf(p.x, p.y), sp = propSprite(P, p.id, p.turn, p.x, p.y, p.z, scale);
+        // (A piece between two tiles is the higher one's: drawn with it.)
+        const band = bandOf(Math.ceil(p.x), Math.ceil(p.y)), sp = propSprite(P, p.id, p.turn, p.x, p.y, p.z, scale);
         if (!sp) continue;
         if (p.stretch) sp.scale.y = p.stretch;
         if (p.tier === "under") {
