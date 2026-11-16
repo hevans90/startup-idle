@@ -2,6 +2,10 @@
 
 Status: **built** (2026-11-16), but for worn line edges (section 3), left out. Follows `plans/procedural-roads.md`; the sheet it kept as a fallback is gone, so every road is painted (`roads/looks.ts` decides, `render/road-paint.ts` paints).
 
+## Rebuilt, 2026-11-16: markings from the lanes
+
+The per-cell decisions for wide roads (the `ln`/`hw`/`hs`/`bd` codes, jog and bend cases, each written again in the painter) are gone. `roads/marks.ts` works every lane marking of a road two cells wide or more out from the lane graph — a line between two lanes, the middle between the two directions, an edge beyond the outside lane, a line where a lane waits, an arrow for the turns its connectors make, a roundel set to its heading — and hands each cell its shapes. Paint cannot disagree with traffic, and nothing in it knows of jogs, bends or the hand of the road. One-cell streets keep their own per-cell markings. The street/junction split was tightened with it (`roads/streets.ts`): a broad uniform strip is a road, a street is one width, a partly-joined end and a step of two cells are junctions; a roundabout only on a square crossing. Tested by rules that hold on any map (`marks.test.ts`), over scripted layouts and 400 random ones.
+
 ## What is wrong now
 
 - **A road dragged up a hill often ends up in two pieces, and nothing says so.**

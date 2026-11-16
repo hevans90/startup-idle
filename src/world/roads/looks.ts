@@ -21,7 +21,8 @@ import { hash } from "../structures/projects/model";
 import { DIAG, DIR, isPaved, maskAt } from "./mask";
 import { streetsOf } from "./streets";
 import { resolveRole, type RoadRole } from "./role";
-import { RING_OF } from "../agents/lanes/graph";
+import { RING_OF, buildLaneGraph } from "../agents/lanes/graph";
+import { marksOf } from "./marks";
 import { KEEP } from "../agents/lanes/geometry";
 
 /** Half a ring lane's width and a little: the island's edge inside the lane's middle. */
@@ -46,8 +47,6 @@ export const variantOf = (draw: number) => (draw < WORN ? draw : PLAIN + (draw &
 export const HIGHWAY = 2;
 /** From this many cells wide what keeps a highway's directions apart is a raised median with a barrier; narrower, a double line. */
 export const MEDIAN_FROM = 3;
-/** A run of highway this many cells or fewer between two junctions is too short for arrows or a tapered middle. */
-const SHORT_RUN = 4;
 /** A street shorter than this many cells has no speed roundels. */
 const ROUNDEL_MIN = 6;
 /** A junction of more cells than this is a square: the widest crossroads, of two 2-wide roads, is four. */
@@ -87,32 +86,15 @@ export type Look = {
    */
   ctr: string;
   /**
-   * THE LANE LINES of a road two cells wide or more: `u`/`v`, the way it
-   * runs; on a highway (two cells or more), `a`/`b`/`c` where the run ends
-   * at this cell's low end, its high end, or both — a junction, a crossing,
-   * the end of the road — so its median ends there, and `n` where it ends
-   * plainly, no taper, between two junctions close together; `j` in the slice
-   * where it jogs a cell sideways, a cell wider than the road, whose kerbs cut
-   * the corner; `!` before a junction
-   * (the centre line its warning line); `x` in a junction a highway runs
-   * through, its lines carried on past a side road's mouth; then its width in
-   * cells and which this is across it, from the low side: `ub!3.1` — not a
-   * whole number in the slice where the road jogs sideways; `~` and how far
-   * its middle stands, at the cell's low edge and its high one, from where it
-   * is at the cell's middle: `u2.1~0,0.25`; and, where that is not
-   * where its cells put it, `^` and its low edge as the cells have it, coming
-   * into this cell and leaving it — what its shoulder lines keep to, as its
-   * kerbs do.
-   * Empty elsewhere. @see agents/lanes/graph laneLines
+   * A WIDE ROAD'S MARKINGS on this cell, from its lanes: lane lines, its
+   * middle or central reservation, edge lines, the lines its lanes wait at,
+   * their arrows and roundels — shapes in the cell's own (u, v), as text.
+   * Empty on a one-cell street, whose markings are the fields beside this.
+   * @see roads/marks
    */
-  ln: string;
-  /**
-   * A HIGHWAY'S ARROWS, in every lane going toward each side listed: the side,
-   * then `L` and `R` where a road leaves that way at the junction ahead — the
-   * inside lane's arrow branches left, the outside lane's right — or `P`, plain,
-   * along a long run. @see render/road-paint highwayArrows
-   */
-  hw: string;
+  mk: string;
+  /** ON A WIDE STREET: the way it runs, `u` or `v`; and `j` after it in the slice where it jogs a cell sideways, whose kerbs cut the corner. Empty elsewhere. */
+  wx: string;
   /** Give way, across the lane coming in on each side listed: `0`–`3` on a one-cell road, `4`–`7` (side + 4) across a whole lane; set back behind a crossing, `a`–`h`. */
   gw: string;
   /** A stop line across the lane coming in, before a box or at lights: encoded as `gw` is. */
@@ -145,19 +127,6 @@ export type Look = {
    */
   bay: string;
   /**
-   * A WIDE ROAD'S LINES ACROSS ITS WAY IN to a junction (three cells or more;
-   * a two-cell road's are `stop`/`gw`): the side it comes in toward, `S` a
-   * stop line or `G` give way, and `b` set back behind a crossing: `1Sb`.
-   * Across the whole of that way's lanes, median to kerb. @see render/road-paint wideStops
-   */
-  hs: string;
-  /**
-   * A WIDE ROAD'S BEND: its width in cells, and the inside corner of the turn
-   * in the cell's own (u, v) — its lanes, shoulders and median are carried
-   * round on arcs about it. `3,0,3`. Empty elsewhere. @see render/road-paint bendLines
-   */
-  bd: string;
-  /**
    * SPEED ROUNDELS, one for each way along the road, two cells out of a
    * junction: the side that way's traffic is going toward, then the limit —
    * `020120`, 20 each way. @see render/road-paint roundels
@@ -167,7 +136,7 @@ export type Look = {
 
 /** A look as a key: every field, compact. */
 export const keyOf = (l: Look): string =>
-  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.ln}.${l.hw}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.xing}.${l.slow}.${l.rb}.${l.bay}.${l.spd}.${l.hs}.${l.bd}`;
+  `${l.open}.${l.diag}.${l.ramp}.${l.lvl}.${l.vr}.${l.ctr}.${l.mk}.${l.wx}.${l.gw}.${l.stop}.${l.arrow}.${l.box}.${l.yl ? 1 : 0}.${l.zz}.${l.zeb}.${l.xing}.${l.slow}.${l.rb}.${l.bay}.${l.spd}`;
 
 /** What the town's beauty puts on a road cell: its level, and a zebra if it has one. @see roadDressOf */
 export const dressOf = (lvl: number, zebra: boolean) => (lvl & 3) | (zebra ? 4 : 0);
@@ -212,7 +181,6 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
   }
   const at = (x: number, y: number) => (inBounds(g, x, y) ? idx(g, x, y) : -1);
   const roleOf = (x: number, y: number) => { const i = at(x, y); return i < 0 ? null : role[i]; };
-  const paved = (x: number, y: number) => { const i = at(x, y); return i >= 0 && mask[i] >= 0; };
   const openAt = (x: number, y: number) => { const i = at(x, y); return i < 0 || mask[i] < 0 ? 0 : openOf(mask[i]); };
   const zebraAt = (x: number, y: number) => { const i = at(x, y); return i >= 0 && !!dress && (dress[i] & 4) !== 0 && mask[i] >= 0; };
   const fourOpen = (x: number, y: number) => openAt(x, y) === 15;
@@ -232,10 +200,10 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
   const streets = streetsOf(g);
   const n = g.w * g.h;
   const region = new Int32Array(n).fill(-1);
-  const regions: { arms: Map<number, Side[]>; major: "u" | "v" | ""; cells: number; sx: number; sy: number; x0: number; x1: number; y0: number; y1: number }[] = [];
+  const regions: { cell0: number; arms: Map<number, Side[]>; major: "u" | "v" | ""; cells: number; sx: number; sy: number; x0: number; x1: number; y0: number; y1: number }[] = [];
   for (let i0 = 0; i0 < n; i0++) {
     if (mask[i0] < 0 || streets.of[i0] >= 0 || region[i0] >= 0) continue;
-    const id = regions.length, R = { arms: new Map<number, Side[]>(), major: "" as "u" | "v" | "", cells: 0, sx: 0, sy: 0, x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
+    const id = regions.length, R = { cell0: i0, arms: new Map<number, Side[]>(), major: "" as "u" | "v" | "", cells: 0, sx: 0, sy: 0, x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
     regions.push(R);
     const stack = [i0];
     region[i0] = id;
@@ -260,61 +228,26 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
     const len = (ax: "u" | "v") => [...R.arms].reduce((t, [st, sd]) => t + (sd.some((q) => (q < 2) === (ax === "u")) ? streets.tiles[st].length : 0), 0);
     R.major = through.length === 1 ? through[0] : through.length === 2 ? (len("v") > len("u") ? "v" : "u") : "";
   }
-  // ACROSS A WIDE STREET: the way it runs, how wide it is, and where each of its cells is across it.
-  const across = new Map<number, { ax: "u" | "v"; k: number; c: number; d0: number; d1: number; j0: number; js: number; last: number; jog: boolean; r0: number; r1: number }>();
-  const round3 = (v: number) => Math.round(v * 1000) / 1000;
-  for (const cells of streets.tiles) {
-    if (cells.length < 2) continue;
-    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    for (const i of cells) { const x = i % g.w, y = (i / g.w) | 0; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
-    const ax: "u" | "v" = x1 - x0 >= y1 - y0 ? "u" : "v";
-    const slices = new Map<number, number[]>();
-    for (const i of cells) { const x = i % g.w, y = (i / g.w) | 0, a = ax === "u" ? x : y; const s = slices.get(a); if (s) s.push(ax === "u" ? y : x); else slices.set(a, [ax === "u" ? y : x]); }
-    // THE ROAD'S OWN WIDTH, the most of its slices have: where it jogs a cell sideways one slice is a cell wider,
-    // and that slice is the same road still, not a wider one.
-    const as = [...slices.keys()].sort((p, q) => p - q);
-    const widths = as.map((a) => slices.get(a)!.length).sort((p, q) => p - q), k = widths[widths.length >> 1];
-    if (k < 2) continue;
-    // ITS MIDDLE, slice by slice, as the lanes have it: the middle of each slice's cells, and straight from one
-    // slice's to the next — so through a jog it slants, from the middle of the slice before to the middle of the
-    // slice after. @see agents/lanes/graph
-    const mid = as.map((a) => { const bs = slices.get(a)!; return (Math.min(...bs) + Math.max(...bs)) / 2 + 0.5; });
-    as.forEach((a, n) => {
-      // Where it crosses this slice's two edges: half way to the slice before, and to the one after.
-      // Where it meets the slice either side: half way between their middles — but a jog's own slice takes the
-      // whole of the step, as its kerbs do, so the slices beside it run straight to it.
-      const wide = (q: number) => slices.get(as[q])!.length > k;
-      const edge = (p: number, q: number) => (wide(p) !== wide(q) ? mid[wide(p) ? q : p] : (mid[p] + mid[q]) / 2);
-      const e0 = n > 0 && as[n - 1] === a - 1 ? edge(n - 1, n) : mid[n], e1 = n + 1 < as.length && as[n + 1] === a + 1 ? edge(n, n + 1) : mid[n];
-      // The street's own last slice each way, a bit each: where its run can end. A cell of a jog with no road on from it is not that.
-      const last = (n === 0 ? 1 : 0) | (n === as.length - 1 ? 2 : 0);
-      // ITS KERB-SIDE EDGE as the cells have it, not smoothed: its low edge where it comes into this slice and
-      // where it leaves — the same, but in the slice of a jog, which it crosses from the one before to the one after.
-      const lowOf = (m: number) => Math.min(...slices.get(as[m])!);
-      const wider = slices.get(a)!.length > k;
-      const in0 = wider && n > 0 ? lowOf(n - 1) : lowOf(n), in1 = wider && n + 1 < as.length ? lowOf(n + 1) : lowOf(n);
-      // A JOG, in this slice or the one either side: which (−1 the slice before, 0 this, 1 the next) and which way
-      // it steps. Its lines cross it each a little along from the slice. @see agents/lanes/graph jogSpread
-      const joined = (p: number) => p > 0 && p + 1 < as.length && as[p - 1] === as[p] - 1 && as[p + 1] === as[p] + 1 && wide(p) && mid[p + 1] !== mid[p - 1];
-      const J = joined(n) ? n : joined(n - 1) && as[n - 1] === a - 1 ? n - 1 : joined(n + 1) && as[n + 1] === a + 1 ? n + 1 : -1;
-      const j0 = J < 0 ? 0 : J - n, js = J < 0 ? 0 : Math.sign(mid[J + 1] - mid[J - 1]);
-      for (const b of slices.get(a)!) across.set(ax === "u" ? idx(g, a, b) : idx(g, b, a), { ax, k, c: round3(b - (mid[n] - k / 2)), d0: js ? 0 : round3(e0 - mid[n]), d1: js ? 0 : round3(e1 - mid[n]), j0, js, last, jog: wider, r0: in0 - b, r1: in1 - b });
+  // A WIDE STREET'S CELLS, as the lanes have them, and the way each runs: what is painted on them of lanes is
+  // worked out from the lanes themselves. @see roads/marks
+  const G = buildLaneGraph(g), marks = marksOf(g, G);
+  const wideAx = new Map<number, string>();
+  for (const st of G.streets) {
+    if (st.width < 2) continue;
+    st.span.forEach(([b0, b1], k) => {
+      // (The slice of a jog: a cell wider than the road, the road stepping over between the slices either side.)
+      const jog = b1 - b0 + 1 > st.width && k > 0 && k + 1 < st.span.length && st.span[k - 1][0] !== st.span[k + 1][0];
+      for (let b = b0; b <= b1; b++) wideAx.set(st.axis === "x" ? idx(g, st.a0 + k, b) : idx(g, b, st.a0 + k), (st.axis === "x" ? "u" : "v") + (jog ? "j" : ""));
     });
   }
   const regionAt = (x: number, y: number) => { const i = at(x, y); return i < 0 ? null : region[i] < 0 ? null : regions[region[i]]; };
   // A ROUNDABOUT where four roads two cells wide or more meet, as the lanes have it. @see agents/lanes/graph kindOf
-  const roundabout = (R: (typeof regions)[number] | null) => !!R && R.arms.size === 4 && [...R.arms.values()].every((sd) => sd.length >= 2);
+  // (What a junction is, the lanes say: one decision, for the traffic and for the paint.)
+  const kindAt = new Map<number, string>();
+  for (const J of G.junctions) for (const c of J.cells) kindAt.set(c, J.kind);
+  const roundabout = (R: (typeof regions)[number] | null) => !!R && kindAt.get(R.cell0) === "roundabout";
   // LIGHTS where four roads or more meet and one is two cells wide or more, short of a roundabout.
-  const lights = (R: (typeof regions)[number] | null) => !!R && R.arms.size >= 4 && !roundabout(R) && [...R.arms.values()].some((sd) => sd.length >= 2);
-  // A HIGHWAY THROUGH a junction: the major way, three cells or more across, the junction a plain block of it, and no lights.
-  const throughOf = (R: (typeof regions)[number] | null): { ax: "u" | "v"; k: number; lo: number } | null => {
-    if (!R || !R.major || R.arms.size < 3 || roundabout(R) || lights(R)) return null;
-    const k = R.major === "u" ? R.y1 - R.y0 + 1 : R.x1 - R.x0 + 1, m = R.major === "u" ? R.x1 - R.x0 + 1 : R.y1 - R.y0 + 1;
-    if (k < HIGHWAY || R.cells !== k * m) return null;
-    // Both ways on along it are that wide: a side road, not another highway, is what meets it.
-    const wideArms = [...R.arms.values()].filter((sd) => sd.length === k && sd.every((q) => (q < 2) === (R.major === "u"))).length;
-    return wideArms === 2 ? { ax: R.major, k, lo: R.major === "u" ? R.y0 : R.x0 } : null;
-  };
+  const lights = (R: (typeof regions)[number] | null) => !!R && kindAt.get(R.cell0) === "signals";
   // A WIDE ROAD'S BEND: two ways out at right angles, each the road's whole width, the corner a square of it.
   const bendOf = (R: (typeof regions)[number] | null): { k: number; px: number; py: number } | null => {
     if (!R || R.arms.size !== 2) return null;
@@ -344,7 +277,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
     const L: Look = {
       open: o, diag: diagOf(mask[i]), ramp: g.ramp[i], lvl,
       vr: variantOf(Math.floor(hash(x * 31.7 + y * 57.3 + 0.5) * VARIANTS)),
-      ctr: "", ln: "", hw: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", xing: "", slow: "", rb: "", bay: "", spd: "", hs: "", bd: "",
+      ctr: "", mk: marks[i], wx: wideAx.get(i) ?? "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", xing: "", slow: "", rb: "", bay: "", spd: "",
     };
     out[i] = L;
     // PARKING BAYS at its kerbs, and a lay-by's taper in beside them.
@@ -370,10 +303,11 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
     const straight = r === "thin-straight" && ax !== "";
 
     // A ZEBRA, and the zigzags either side of it.
-    if (zebraAt(x, y) && (straight || lane >= 0) && ax) { L.zeb = ax; continue; }
+    // (Over a zebra no lane is marked; beside one, the zigzags are its lines, and only a central reservation runs on.)
+    if (zebraAt(x, y) && (straight || lane >= 0) && ax) { L.zeb = ax; L.mk = ""; continue; }
     if ((straight || lane >= 0) && ax) {
       const [ex, ey] = ax === "u" ? [1, 0] : [0, 1];
-      if (zebraAt(x + ex, y + ey) || zebraAt(x - ex, y - ey)) { L.zz = ax; continue; }
+      if (zebraAt(x + ex, y + ey) || zebraAt(x - ex, y - ey)) { L.zz = ax; L.mk = L.mk.split(";").filter((q) => q[0] === "M").join(";"); continue; }
     }
 
     const R = regionAt(x, y);
@@ -387,25 +321,22 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
         continue;
       }
       // ROUND A WIDE ROAD'S BEND: its lines carried on round the corner.
-      const B = bendOf(R);
-      if (B) { L.bd = `${B.k},${B.px - x},${B.py - y}`; continue; }
+      if (bendOf(R)) continue;
       if (R.arms.size >= 3 && boxAt(x, y)) {
         let border = 0;
         for (const sd of SIDES) { const [dx, dy] = STEP[sd]; if (!boxAt(x + dx, y + dy)) border |= 1 << sd; }
         L.box = 1 | (border << 1);
       } else if (r === "thick-curve") L.ctr = "b";
       else if ((r === "thin-T" || r === "thin-cross") && R.major) L.ctr = R.major.toUpperCase();
-      // A HIGHWAY THROUGH A JUNCTION with side roads, no lights: its lanes are marked on through it.
-      const T = throughOf(R);
-      if (T && !L.box) L.ln = `${T.ax}x${T.k}.${(T.ax === "u" ? y : x) - T.lo}`;
       // No double yellows round a square: it is somewhere to stop.
       if (kerbed && R.cells <= PLAZA) L.yl = true;
       continue;
     }
 
-    // ON A STREET: its centre line, and what it says before the end of it.
-    const wide = across.get(i);
-    const along = (straight ? (ax === "u" ? [0, 1] : [2, 3]) : lane >= 0 ? (opposite(lane as Side) < 2 ? [2, 3] : [0, 1]) : wide ? (wide.ax === "u" ? [0, 1] : [2, 3]) : []) as Side[];
+    // ON A STREET: its centre line, and what it says before the end of it. (A wide street's lines, the lines its
+    // lanes wait at, its arrows and its roundels are its lanes' own, in `mk`: here only what is the kerb's and the crossing's.)
+    const wide = wideAx.get(i);
+    const along = (straight ? (ax === "u" ? [0, 1] : [2, 3]) : wide ? (wide[0] === "u" ? [0, 1] : [2, 3]) : []) as Side[];
     let warn = false;
     for (const sd of along) {
       const [dx, dy] = STEP[sd], J = regionAt(x + dx, y + dy);
@@ -419,85 +350,25 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
         if (straight && J.arms.size === 2) L.slow += sd;
         continue;
       }
-      // ONTO A ROUNDABOUT: everyone gives way, to the ring.
       // (Three ways or more, the street's mouth is crossed: the line set back behind the crossing, `a`–`h`.)
       const code = (k: number) => (J.arms.size >= 3 ? String.fromCharCode(97 + k) : String(k));
-      // A ROAD THREE CELLS WIDE OR MORE says it across its whole way in, median to kerb: every cell of its width the same.
-      if (wide && wide.k >= MEDIAN_FROM) {
-        const lit = lights(J);
-        // A STOP LINE at lights and nowhere else; off the lights, the minor road gives way and the major runs through.
-        const gives = roundabout(J) || (!lit && (J.major === "" || J.major !== (sd < 2 ? "u" : "v")));
-        if (lit && J.arms.size >= 3 && !L.zeb) L.xing = sd < 2 ? "u" : "v";
-        if (lit || gives) L.hs += `${sd}${gives ? "G" : "S"}${J.arms.size >= 3 ? "b" : ""}`;
-        continue;
-      }
-      if (roundabout(J)) {
-        const [rx, ry] = rightOf(dx, dy);
-        if (straight) L.gw += code(sd);
-        else if (sideOf(rx, ry) === lane) L.gw += code(sd + 4);
-        continue;
-      }
-      // AT LIGHTS: a stop line on every way in.
-      const lit = lights(J);
-      // A junction ahead: give way, unless this is the major road through it.
-      const minor = !lit && (J.major === "" || J.major !== (sd < 2 ? "u" : "v"));
       // Crossed at the lights: marked, where it is not a zebra.
+      const lit = lights(J);
       if (lit && J.arms.size >= 3 && !L.zeb) L.xing = sd < 2 ? "u" : "v";
-      if (straight) { if (minor) L.gw += code(sd); else if (lit) L.stop += code(sd); continue; }
-      // On a two-lane road, only the lane coming in: the one with its kerb on the right.
-      const [rx, ry] = rightOf(dx, dy);
-      if (sideOf(rx, ry) !== lane) continue;
-      if (lit || (J.arms.size >= 4 && boxAt(x + dx, y + dy))) L.stop += code(sd + 4);
-      else if (minor) L.gw += code(sd + 4);
-      if (!minor && !L.stop) continue;
+      if (!straight) continue;
+      // ONTO A ROUNDABOUT: everyone gives way, to the ring.
+      if (roundabout(J)) { L.gw += code(sd); continue; }
+      // A junction ahead: give way, unless this is the major road through it; at lights, a stop line.
+      const minor = !lit && (J.major === "" || J.major !== (sd < 2 ? "u" : "v"));
+      if (minor) L.gw += code(sd); else if (lit) L.stop += code(sd);
     }
-    // A SPEED ROUNDEL three cells out of a junction — past the arrows — on a street long enough to want one: one for each way along it,
-    // the traffic leaving the junction and the traffic coming to it alike.
-    if ((straight || wide) && !warn && streets.tiles[streets.of[i]]?.length >= (wide ? wide.k : 1) * ROUNDEL_MIN
+    // A SPEED ROUNDEL three cells out of a junction, on a one-cell street long enough to want one: one for each way along it.
+    if (straight && !warn && streets.tiles[streets.of[i]]?.length >= ROUNDEL_MIN
       && along.some((sd) => { const [dx, dy] = STEP[sd], J = regionAt(x - 3 * dx, y - 3 * dy); return !!J && !regionAt(x - dx, y - dy) && !regionAt(x - 2 * dx, y - 2 * dy) && J.arms.size >= 3; })) {
-      for (const sd of along) L.spd += `${sd}${!wide ? 20 : wide.k < MEDIAN_FROM ? 30 : 40}`;
-    }
-    // THE ARROW in the lane, a cell back from the line — the cell at the line is
-    // the crossing's — at lights or a box, on a two-lane road's lane coming in.
-    if (lane >= 0) for (const sd of along) {
-      const [dx, dy] = STEP[sd], J = regionAt(x + 2 * dx, y + 2 * dy);
-      if (!J || regionAt(x + dx, y + dy) || J.arms.size < 3 || roundabout(J)) continue;
-      const [rx, ry] = rightOf(dx, dy);
-      if (sideOf(rx, ry) !== lane) continue;
-      if (!lights(J) && !(J.arms.size >= 4 && boxAt(x + 2 * dx, y + 2 * dy))) continue;
-      const left = paved(x + 3 * dx - 2 * rx, y + 3 * dy - 2 * ry);
-      const ahead = paved(x + 4 * dx, y + 4 * dy);
-      const right = paved(x + 2 * dx + rx, y + 2 * dy + ry);
-      if (left || ahead || right) L.arrow = `${sd}${left ? "L" : ""}${ahead ? "A" : ""}${right ? "R" : ""}`;
+      for (const sd of along) L.spd += `${sd}20`;
     }
     if (straight) L.ctr = warn ? ax.toUpperCase() : ax;
-    else if (wide) {
-      // A HIGHWAY: where its run ends, for its median; and its arrows.
-      let ends = 0;
-      // BETWEEN TWO JUNCTIONS CLOSE TOGETHER there is no room to say anything twice: no arrows, and its middle ends plainly.
-      const toJunction = (sd: Side) => { const [dx, dy] = STEP[sd]; for (let d = 1; d <= SHORT_RUN; d++) { const J = regionAt(x + d * dx, y + d * dy); if (J) return bendOf(J) ? Infinity : d; } return Infinity; };
-      const short = wide.k >= HIGHWAY && along.length === 2 && toJunction(along[0]) + toJunction(along[1]) - 1 <= SHORT_RUN;
-      if (wide.k >= HIGHWAY) for (const sd of along) {
-        const [dx, dy] = STEP[sd];
-        const terminal = (wide.last & (sd & 1 ? 2 : 1)) !== 0;
-        if ((terminal && !bendOf(regionAt(x + dx, y + dy))) || zebraAt(x + 2 * dx, y + 2 * dy)) ends |= sd & 1 ? 2 : 1;
-        // ARROWS a cell back from the junction, in the lanes going to it; and plain ones every few cells of a long run.
-        const J = regionAt(x + 2 * dx, y + 2 * dy);
-        if (!short && J && !regionAt(x + dx, y + dy) && J.arms.size >= 3 && !roundabout(J)) {
-          const [rx, ry] = rightOf(dx, dy), sides = new Set([...J.arms.values()].flat());
-          // (`N`: no way straight on — the head of a T — and every lane's arrow is a turn.)
-          L.hw += `${sd}${sides.has(sideOf(-rx, -ry)) ? "L" : ""}${sides.has(sideOf(rx, ry)) ? "R" : ""}${sides.has(sideOf(dx, dy)) ? "" : "N"}`;
-        }
-      }
-      // Arrows before a junction take the place of a roundel that would lie under them. (Along a run there are none:
-      // an arrow is painted where there is a choice of lane to make, coming up to a junction.)
-      if (L.hw) L.spd = "";
-      // Its own lanes' arrows, not the one a two-cell road's whole cell had.
-      if (L.hw) L.arrow = "";
-      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${short && ends ? "n" : ""}${wide.jog ? "j" : ""}${warn ? "!" : ""}${wide.k}.${wide.c}${wide.d0 || wide.d1 ? `~${wide.d0},${wide.d1}` : ""}${wide.js ? `@${wide.j0},${wide.js}` : ""}${wide.r0 !== -wide.c || wide.r1 !== -wide.c ? `^${wide.r0},${wide.r1}` : ""}`;
-    }
-    else if (lane >= 0) L.ctr = (warn ? "H" : "h") + opposite(lane as Side);
-    else if (r === "thick-curve") { L.ctr = "b"; L.yl = true; }
+    else if (r === "thick-curve" && !wide) { L.ctr = "b"; L.yl = true; }
     if (kerbed && nub) L.yl = true;
   }
   return out;

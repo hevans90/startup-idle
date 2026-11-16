@@ -70,7 +70,26 @@ export function streetsOf(g: Grid): Streets {
     const lo = side(-1), hi = side(1);
     return lo !== 0 && hi !== 0 && lo !== hi;
   };
-  for (let i = 0; i < junction.length; i++) if (rx[i] > WIDEST && ry[i] > WIDEST && !jog(i, "x") && !jog(i, "y")) junction[i] = 1;
+  // NOR A BROAD STRIP: road wider than any road is, but one width for longer than it is wide — two roads laid side
+  // by side, say. It is a road still, with the widest road's lanes and the rest of it shoulder; not a square with
+  // nothing in it. Only where it is crossed, or its width changes, is there a junction.
+  const strip = (i: number, along: "x" | "y") => {
+    const across = along === "x" ? ry : rx, w = across[i];
+    if (w <= WIDEST || w > 2 * WIDEST) return false;
+    const [dx, dy] = along === "x" ? [1, 0] : [0, 1], [ax, ay] = along === "x" ? [0, 1] : [1, 0];
+    const x0 = i % g.w, y0 = (i - x0) / g.w;
+    // Its low edge across, here; and the same width from the same edge, cell after cell along.
+    const low = (x: number, y: number) => { let q = 0; while (paved(x - (q + 1) * ax, y - (q + 1) * ay) && connects(g, x - q * ax, y - q * ay, along === "x" ? "E" : "N")) q++; return q; };
+    const mine = low(x0, y0);
+    let n = 1;
+    for (const sg of [1, -1]) for (let k = 1; ; k++) {
+      const x = x0 + sg * k * dx, y = y0 + sg * k * dy;
+      if (!paved(x, y) || across[idx(g, x, y)] !== w || low(x, y) !== mine || !connects(g, x - sg * dx, y - sg * dy, along === "x" ? (sg > 0 ? "S" : "N") : (sg > 0 ? "W" : "E"))) break;
+      n++;
+    }
+    return n > w;
+  };
+  for (let i = 0; i < junction.length; i++) if (rx[i] > WIDEST && ry[i] > WIDEST && !jog(i, "x") && !jog(i, "y") && !strip(i, "x") && !strip(i, "y")) junction[i] = 1;
   // WHERE A ROAD CHANGES WIDTH it is two streets, and the last slice of the wider one the junction between
   // them: three lanes each way do not run on down a road one cell wide. Only where each width holds for two
   // slices or more — a staircase's step, a cell wider for one slice, is the one street still.
@@ -94,25 +113,72 @@ export function streetsOf(g: Grid): Streets {
       }
     }
   }
-  for (let y = 0; y < g.h; y++) {
-    for (let x = 0; x < g.w; x++) {
-      const i = idx(g, x, y);
-      if (of[i] >= 0 || junction[i] || !waysOn(g, x, y)) continue;
-      const n = tiles.length, run = [i];
-      of[i] = n;
-      for (let q = 0; q < run.length; q++) {
-        const c = run[q], cx = c % g.w, cy = (c - cx) / g.w;
-        for (const d of DIRS) {
-          if (!connects(g, cx, cy, d)) continue;
-          const [dx, dy] = NEIGHBOUR[d];
-          const j = idx(g, cx + dx, cy + dy);
-          if (of[j] >= 0 || junction[j]) continue;
-          of[j] = n;
-          run.push(j);
+  /** The streets as the junctions leave them: road joined up, between them. */
+  const flood = () => {
+    of.fill(-1); tiles.length = 0;
+    for (let y = 0; y < g.h; y++) {
+      for (let x = 0; x < g.w; x++) {
+        const i = idx(g, x, y);
+        if (of[i] >= 0 || junction[i] || !waysOn(g, x, y)) continue;
+        const n = tiles.length, run = [i];
+        of[i] = n;
+        for (let q = 0; q < run.length; q++) {
+          const c = run[q], cx = c % g.w, cy = (c - cx) / g.w;
+          for (const d of DIRS) {
+            if (!connects(g, cx, cy, d)) continue;
+            const [dx, dy] = NEIGHBOUR[d];
+            const j = idx(g, cx + dx, cy + dy);
+            if (of[j] >= 0 || junction[j]) continue;
+            of[j] = n;
+            run.push(j);
+          }
         }
+        tiles.push(run);
       }
-      tiles.push(run);
     }
+  };
+  flood();
+  // A STREET IS ONE WIDTH. Where a slice of it is narrower than the rest — the throat a narrower road comes into it
+  // by, a pinch — its lanes do not fit: that slice is the junction's, and the street is what is as wide as itself.
+  for (let pass = 0; pass < 4; pass++) {
+    let changed = false;
+    for (const cells of tiles) {
+      if (cells.length < 3) continue;
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (const i of cells) { const x = i % g.w, y = (i - x) / g.w; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      const alongX = x1 - x0 >= y1 - y0;
+      const slices = new Map<number, number[]>();
+      for (const i of cells) { const x = i % g.w, y = (i - x) / g.w, a = alongX ? x : y; (slices.get(a) ?? slices.set(a, []).get(a)!).push(i); }
+      if (slices.size < 2) continue;
+      const widths = [...slices.values()].map((q) => q.length).sort((p, q) => p - q), k = widths[widths.length >> 1];
+      if (k < 2) continue;
+      // (But not a narrow tail it ends in that leads nowhere: its dead end, where its traffic turns back.)
+      const keys = [...slices.keys()].sort((p, q) => p - q), mine = of[cells[0]], tail = new Set<number>();
+      const leadsOut = (i: number) => { const x = i % g.w, y = (i - x) / g.w; return DIRS.some((d) => connects(g, x, y, d) && of[idx(g, x + NEIGHBOUR[d][0], y + NEIGHBOUR[d][1])] !== mine); };
+      for (const order of [keys, [...keys].reverse()]) {
+        const run: number[] = [];
+        for (const a of order) { if (slices.get(a)!.length >= k) break; run.push(a); }
+        if (run.length && !run.some((a) => slices.get(a)!.some(leadsOut))) for (const a of run) tail.add(a);
+      }
+      for (const [a, q] of slices) if (q.length < k && !tail.has(a)) { for (const i of q) junction[i] = 1; changed = true; }
+      // AND WHERE ITS END MEETS THE ROAD BEYOND ALONG ONLY PART OF ITS WIDTH — the rest of it facing the verge — its
+      // last slice is the junction's: every lane then turns on paving, not over the grass to reach it.
+      for (const [a, sg] of [[keys[0], -1], [keys[keys.length - 1], 1]] as const) {
+        const q = slices.get(a)!;
+        if (q.length < k) continue;
+        const on = q.filter((i) => { const x = i % g.w, y = (i - x) / g.w; return connects(g, x, y, alongX ? (sg > 0 ? "S" : "N") : (sg > 0 ? "W" : "E")); }).length;
+        if (on > 0 && on < q.length) { for (const i of q) junction[i] = 1; changed = true; }
+      }
+      // NOR IS IT A STREET where it steps sideways by more than a cell in the length of one: no lane takes that.
+      // (A step of one cell is a jog, and the road still.)
+      const low = (a: number) => { const q = slices.get(a); return q && q.length >= k ? Math.min(...q.map((i) => (alongX ? (i - (i % g.w)) / g.w : i % g.w))) : null; };
+      for (const [a, q] of slices) {
+        const p = low(a - 1), n = low(a + 1);
+        if (q.length > k && p !== null && n !== null && Math.abs(p - n) >= 2) { for (const i of q) junction[i] = 1; changed = true; }
+      }
+    }
+    if (!changed) break;
+    flood();
   }
   return { of, tiles };
 }

@@ -294,7 +294,15 @@ export function buildLaneGraph(g: Grid): LaneGraph {
     // A road one cell wide is smoothed through its steps: there is a kerb's width to spare either side. A wider
     // one keeps to its cells' middle, slice by slice — its lanes fill it, and smoothed they ran over the kerb
     // where it jogs a cell sideways. @see roads/looks, which paints its lines the same way
-    const rawMid = d.span.map(([b0, b1]) => (b0 + b1) / 2);
+    // (A slice wider than the road and no jog — a cell of paving beside it — is the road where it was: the part of
+    // the slice nearest the slice before, not its middle.)
+    const rawMid: number[] = [];
+    d.span.forEach(([b0, b1], q) => {
+      const jogs = q > 0 && q + 1 < d.span.length && d.span[q - 1][0] !== d.span[q + 1][0];
+      if (b1 - b0 + 1 <= k || jogs || k < 2) { rawMid.push((b0 + b1) / 2); return; }
+      const want = q > 0 ? rawMid[q - 1] : (b0 + b0 + k - 1) / 2, lo = b0 + (k - 1) / 2, hi = b1 - (k - 1) / 2;
+      rawMid.push(Math.max(lo, Math.min(hi, want)));
+    });
     const mid = d.width > 1 ? rawMid : smooth(rawMid);
     const st: Street = { id, axis: d.axis, a0: d.a0, a1: d.a1, span: d.span, width: k, mid, ends, lanes: [] };
     streets.push(st);
@@ -393,7 +401,7 @@ export function buildLaneGraph(g: Grid): LaneGraph {
   // ── junctions: what each is, and the way through ─────────────────────
   const zones: Zone[] = [];
   for (const J of junctions) {
-    J.kind = kindOf(J);
+    J.kind = kindOf(J, g.w);
     if (J.kind === "priority") markMajor(J, streets);
     const inner: Lane[] = J.kind === "roundabout" ? ring(J, lanes, mk) : throughJunction(g, J, lanes, mk, region);
     for (const l of inner) l.junction = J.id;
@@ -780,12 +788,18 @@ function straighten(raw: readonly Pt[]): Pt[] {
  * roads two cells wide or more, a roundabout; four with any such, lights.
  * The rest give way to the main road. @see plans/traffic-overhaul.md
  */
-function kindOf(J: Junction): JunctionKind {
+function kindOf(J: Junction, w: number): JunctionKind {
   const arms = J.arms.length;
   if (arms <= 1) return "end";
   if (arms === 2) return "bend";
   const wide = J.arms.filter((a) => a.width >= 2).length;
-  if (arms === 4 && wide === 4) return "roundabout";
+  // (A roundabout only where the roads cross squarely: a block of road as wide as they are and no wider, all of it
+  // road. A sprawl of a junction — roads meeting askew, a square — has no middle for an island to stand in.)
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const i of J.cells) { const x = i % w, y = (i - x) / w; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const most = Math.max(...J.arms.map((a) => a.width));
+  const square = J.cells.length === (x1 - x0 + 1) * (y1 - y0 + 1) && x1 - x0 + 1 <= most && y1 - y0 + 1 <= most;
+  if (arms === 4 && wide === 4 && square) return "roundabout";
   if (arms >= 4 && wide > 0) return "signals";
   return "priority";
 }

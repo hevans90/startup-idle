@@ -50,7 +50,9 @@ function pieces(G: LaneGraph, ok: (e: LaneGraph["walk"]["edges"][number]) => boo
 /** Every point of every curve and lane is on the road. */
 const onRoad = (g: Grid, G: LaneGraph) => {
   const c = (v: number, n: number) => Math.min(n - 1, Math.max(0, Math.round(v)));
-  return G.lanes.every((l) => l.pts.every((p) => isPaved(g, c(p.x, g.w), c(p.y, g.h))));
+  // (A lane's end on the line between two cells — the gate of a junction narrower than its street — is on the road if the cell it came by is.)
+  const on = (p: { x: number; y: number }) => [-1e-6, 1e-6].some((e) => isPaved(g, c(p.x + e, g.w), c(p.y + e, g.h)));
+  return G.lanes.every((l) => l.pts.every(on));
 };
 
 describe("a road's lanes, measured as a British road's", () => {

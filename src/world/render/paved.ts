@@ -63,15 +63,16 @@ export function createPavedLayer(grid: Grid, scale = 1, renderer?: Renderer, pai
 
 /**
  * Work out every cell's look again: before syncing cells after an edit. The
- * cells whose parking bays changed — a street's lay-bys can move along it, out
- * of an edit's reach — to sync too.
+ * cells whose parking bays or lane markings changed — a street's lay-bys can
+ * move along it, and its lanes' markings change the length of it, out of an
+ * edit's reach — to sync too.
  */
 export function refreshLooks(pl: PavedLayer, grid: Grid): number[] {
   if (!pl.painter) return [];
   const old = pl.looks;
   pl.looks = looksOf(grid, pl.dress, pl.bays?.(grid));
   const changed: number[] = [];
-  if (old.length === pl.looks.length) for (let i = 0; i < old.length; i++) if ((old[i]?.bay ?? "") !== (pl.looks[i]?.bay ?? "")) changed.push(i);
+  if (old.length === pl.looks.length) for (let i = 0; i < old.length; i++) if ((old[i]?.bay ?? "") !== (pl.looks[i]?.bay ?? "") || (old[i]?.mk ?? "") !== (pl.looks[i]?.mk ?? "")) changed.push(i);
   return changed;
 }
 

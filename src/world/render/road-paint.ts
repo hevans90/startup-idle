@@ -32,8 +32,8 @@ import { CanvasSource, Container, Rectangle, RenderTexture, Sprite, Texture, typ
 import { HEIGHT_UNIT, rampDir, rampRise, RAMP } from "../iso";
 import { hash } from "../structures/projects/model";
 import { mix, tone } from "../structures/projects/pen";
-import { HIGHWAY, KEEP, MEDIAN_FROM, WORN, opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
-import { CROSS_HOLD, LAYBY, MEDIAN_HALF, jogSpread, laneEdge, laneInner, laneLines, laneOffset, laneSpan, lanesFor, PARK_STRIP } from "../agents/lanes/graph";
+import { KEEP, WORN, opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
+import { CROSS_HOLD, LAYBY, MEDIAN_HALF, PARK_STRIP } from "../agents/lanes/graph";
 
 /** How far in from the tile's edge the pavement runs, its kerb, and both. */
 export const PAVE = 0.22, KERB = 0.04, WALK = PAVE + KERB;
@@ -170,7 +170,7 @@ function shapeOf(L: Look): Shape {
   if (L.open === 0) return { bands: [], rounds: [], nubs: [], cuts: [], full: true };
   const rounds: Round[] = [], nubs: number[] = [], cuts: Cut[] = [];
   // WHERE A WIDE ROAD JOGS, its corners are cut straight: the kerb runs on through, not out and round.
-  const jog = wideOf(L.ln)?.jog ?? false;
+  const jog = L.wx.endsWith("j");
   const cutSide = new Set<Side>();
   const rcOf: (number | null)[] = [null, null, null, null];
   for (let c = 0; c < 4; c++) {
@@ -427,13 +427,7 @@ function dashes(a0: number, a1: number, dash: number, gap: number): [number, num
 const CENTRE: [number, number][] = [[0.34, 0.66]];
 const WARNING: [number, number][] = [[0.04, 0.42], [0.58, 0.96]];
 
-/**
- * HALF A LINE'S WIDTH, tiles: a lane or centre line 150 mm across, an edge line 200 mm — as they are painted, a
- * tile being 11 m. @see cars/models TILES_PER_M
- */
-const LINE = 0.007, EDGE = 0.009;
-/** A stud's colours: red along the nearside edge, amber by the central reservation, green across a slip road's mouth. */
-const STUD_RED = 0xd8432f, STUD_AMBER = 0xf2a31c, STUD_GREEN = 0x44c065;
+const LINE = 0.007;
 
 function centreLine(ctx: Ctx, L: Look) {
   const w = LINE;
@@ -458,321 +452,80 @@ function centreLine(ctx: Ctx, L: Look) {
   }
 }
 
-/** A lane line's dashes on a tile: shorter than the centre line's. */
-const LANE_DASH: [number, number][] = [[0.4, 0.6]];
-
-/** A WIDE ROAD's own Look.ln, read: the way it runs, where its run ends (1 its low end, 2 its high, 3 both), warned of a junction, through one, how wide, and which cell across. */
-type Wide = { ax: "u" | "v"; ends: number; plain: boolean; jog: boolean; warn: boolean; thru: boolean; k: number; c: number; d0: number; d1: number; j0: number; js: number; r0: number; r1: number };
-function wideOf(ln: string): Wide | null {
-  const m = /^([uv])([abc]?)(n?)(j?)(!?)(x?)(\d+)\.(-?\d+(?:\.\d+)?)(?:~(-?[\d.]+),(-?[\d.]+))?(?:@(-?\d),(-?\d))?(?:\^(-?[\d.]+),(-?[\d.]+))?$/.exec(ln);
-  if (!m) return null;
-  const c = Number(m[8]);
-  // Its low edge as the cells have it, into this cell and out: where its middle puts it, unless said.
-  return { ax: m[1] as "u" | "v", ends: m[2] ? "abc".indexOf(m[2]) + 1 : 0, plain: !!m[3], jog: !!m[4], warn: !!m[5], thru: !!m[6], k: Number(m[7]), c, d0: Number(m[9] ?? 0), d1: Number(m[10] ?? 0), j0: Number(m[11] ?? 0), js: Number(m[12] ?? 0), r0: m[13] !== undefined ? Number(m[13]) : -c, r1: m[14] !== undefined ? Number(m[14]) : -c };
-}
-/** How far across a road's middle has slanted, `a` along this cell from its low edge: nothing on a straight road; through a jog, a little a cell. */
-const slantAt = (W: Wide, a: number) => (a < 0.5 ? W.d0 * (1 - 2 * a) : W.d1 * (2 * a - 1));
-/**
- * WHERE A LINE `q` ACROSS BEGINS TO CROSS A JOG, along this cell: at the jog's slice for the road's middle, and for
- * a line out from the middle a little before it or after — so the lines keep their distance through the slant.
- * @see agents/lanes/graph jogSpread
- */
-const jogFrom = (W: Wide, q: number) => W.j0 + W.js * (q - (W.k / 2 - W.c)) * (1 - jogSpread(W.k));
-/** How far across a line has moved, `a` along this cell, from where it stands at the cell's middle on a straight road. */
-const shiftAt = (W: Wide, a: number, q: number) =>
-  W.js ? W.js * (Math.max(0, Math.min(1, a - jogFrom(W, q))) - (1 - W.j0) / 2) : slantAt(W, a);
-/** Where along this cell, between `a0` and `a1`, a line `q` across turns: the two ends of its slant through a jog; or the cell's middle, where its slant changes. */
-const knots = (W: Wide, a0: number, a1: number, q: number): number[] =>
-  (W.js ? [jogFrom(W, q), jogFrom(W, q) + 1] : W.d0 !== -W.d1 ? [0.5] : []).filter((a) => a > a0 + 1e-6 && a < a1 - 1e-6);
-/** A point of a wide road: `a` along the cell, `q` across where the road stands at the cell's middle, slanting with it. */
-const widePt = (W: Wide, a: number, q: number): [number, number] => runPt(W.ax, a, q + shiftAt(W, a, q));
-/** A strip of a wide road, from `a0` to `a1` along and `q0` to `q1` across, slanting with the road through a jog. */
-function wideRect(ctx: Ctx, W: Wide, a0: number, a1: number, q0: number, q1: number) {
-  poly(ctx, [
-    widePt(W, a0, q0), ...knots(W, a0, a1, q0).map((a) => widePt(W, a, q0)), widePt(W, a1, q0),
-    widePt(W, a1, q1), ...knots(W, a0, a1, q1).reverse().map((a) => widePt(W, a, q1)), widePt(W, a0, q1),
-  ]);
-}
-
+/** A point of a road running along `ax`: `a` along it, `q` across. */
+const runPt = (ax: "u" | "v", a: number, q: number): [number, number] => (ax === "u" ? [a, q] : [q, a]);
 /** A rectangle of a road running along `ax`: from `a0` to `a1` along it, `q0` to `q1` across. */
 function runRect(ctx: Ctx, ax: "u" | "v", a0: number, a1: number, q0: number, q1: number) {
   poly(ctx, ax === "u" ? [[a0, q0], [a1, q0], [a1, q1], [a0, q1]] : [[q0, a0], [q1, a0], [q1, a1], [q0, a1]]);
 }
-/** A point of such a road: `a` along it, `q` across. */
-const runPt = (ax: "u" | "v", a: number, q: number): [number, number] => (ax === "u" ? [a, q] : [q, a]);
-
-/** A highway's median: half its width, and how far short of a cell's end its nose stops where its run ends. */
-const MEDIAN = MEDIAN_HALF, NOSE = 0.42;
-/** Where a highway's median runs along a cell, given which ends of its run are here. */
-const medianSpan = (ends: number, crossed = false, plain = false): [number, number] => {
-  // Behind a crossing and the line cars wait at, it stops well back: there is no room for a taper.
-  // Between two junctions close together it ends plainly, a little short of each.
-  const nose = crossed ? CROSSED_NOSE : plain ? PLAIN_NOSE : NOSE;
-  return [ends & 1 ? nose : -0.05, ends & 2 ? 1 - nose : 1.05];
-};
-const CROSSED_NOSE = 0.86, PLAIN_NOSE = 0.22;
 
 /**
- * THE LINES OF A WIDE ROAD where they cross this cell: the centre line down
- * its middle (its warning line before a junction) and a broken line between
- * each of its lanes — where the lanes run. A HIGHWAY has a solid line along
- * each shoulder, studs between its lanes close up, a double line or a median
- * down its middle, hatched where the median ends, and is marked on through a
- * junction with a side road: its shoulder line there the short broad dashes
- * of an exit. @see agents/lanes/graph laneLines
+ * A WIDE ROAD'S MARKINGS, as its lanes have them: the shapes `roads/marks` worked out for this cell, painted. On the
+ * road (`raised` false): its lines, studs, arrows, the lines its lanes wait at, the hatching where its middle ends,
+ * its roundels, and the foot and shade of its central reservation. A kerb's height up: the reservation itself, and
+ * the barrier along it. Nothing here decides anything. @see roads/marks
  */
-function wideLines(ctx: Ctx, L: Look) {
-  const W = wideOf(L.ln);
-  if (!W) return;
-  const w = LINE, highway = W.k >= HIGHWAY;
-  ctx.fillStyle = css(WHITE, 0.92);
-  for (const off of laneLines(W.k)) {
-    // Across this cell, from its low side.
-    const q = W.k / 2 + off - W.c;
-    if (q < -0.1 || q > 1.1) continue;
-    if (off !== 0) {
-      for (const [a0, a1] of LANE_DASH) { wideRect(ctx, W, a0, a1, q - w, q + w); ctx.fill(); }
-      // STUDS between the dashes, close up.
-      if (highway && DETAIL > 0) for (const a of [0, 1]) { ctx.beginPath(); ctx.arc(...widePt(W, a, q), 0.009, 0, Math.PI * 2); ctx.fill(); }
+function paintMarks(ctx: Ctx, L: Look, raised: boolean) {
+  if (!L.mk) return;
+  const STUD = [WHITE, 0xd8432f, 0xf2a31c, 0x44c065];
+  const path = (pts: number[][], close = false) => { ctx.beginPath(); pts.forEach(([u, v], k) => (k ? ctx.lineTo(u, v) : ctx.moveTo(u, v))); if (close) ctx.closePath(); };
+  for (const item of L.mk.split(";")) {
+    const cut = item.indexOf(":"), kind = item[0], arg = item.slice(1, cut);
+    const pts = item.slice(cut + 1).split(" ").map((q) => q.split(",").map(Number));
+    if (kind === "M") {
+      // THE CENTRAL RESERVATION: a concrete strip a kerb's height up, lit along one edge, a steel barrier down it.
+      const caps = Number(arg), kc = KERB_OF[L.lvl];
+      const strip = (w: number, colour: string, du = 0, dv = 0) => {
+        ctx.save(); ctx.translate(du, dv);
+        ctx.strokeStyle = colour; ctx.lineWidth = 2 * w; ctx.lineJoin = "round"; ctx.lineCap = "butt";
+        path(pts); ctx.stroke();
+        // Rounded where its run ends.
+        ctx.fillStyle = colour;
+        if (caps & 1) { ctx.beginPath(); ctx.arc(pts[0][0], pts[0][1], w, 0, Math.PI * 2); ctx.fill(); }
+        if (caps & 2) { const e = pts[pts.length - 1]; ctx.beginPath(); ctx.arc(e[0], e[1], w, 0, Math.PI * 2); ctx.fill(); }
+        ctx.restore();
+      };
+      if (!raised) { strip(MEDIAN_HALF + 0.014, css(0x000000, 0.16), 0.008, 0.008); strip(MEDIAN_HALF, css(tone(kc, 0.55))); continue; }
+      strip(MEDIAN_HALF, css(kc));
+      strip(MEDIAN_HALF - 0.016, css(tone(kc, 0.86)));
+      strip(0.016, css(0x8d959d));
+      strip(0.004, css(0xc9d0d6), 0.008, 0.004);
+      strip(0.004, css(0xc9d0d6), -0.008, -0.004);
       continue;
     }
-    if (!highway) {
-      for (const [a0, a1] of W.warn ? WARNING : CENTRE) { wideRect(ctx, W, a0, a1, q - w, q + w); ctx.fill(); }
-      continue;
-    }
-    // THROUGH A JUNCTION the middle is open: traffic turns across it.
-    if (W.thru) continue;
-    const crossed = !!L.xing || /b/.test(L.hs) || /[a-h]/.test(L.stop + L.gw);
-    const [m0, m1] = medianSpan(W.ends, crossed, W.plain);
-    // One cell between two junctions: nothing down its middle at all.
-    if (W.plain && W.ends === 3) continue;
-    if (W.k < MEDIAN_FROM) {
-      // A DOUBLE LINE, the two directions never crossing it.
-      for (const o of [-0.016, 0.016]) { wideRect(ctx, W, m0, m1, q + o - w, q + o + w); ctx.fill(); }
-    }
-    // HATCHED where it ends: a taper from the nose to a point, barred across.
-    for (const [end, nose, tip] of [[1, m0, 0.06], [2, m1, 0.94]] as const) {
-      if (!(W.ends & end) || crossed || W.plain) continue;
-      const half = W.k < MEDIAN_FROM ? 0.033 : MEDIAN + 0.012;
+    if (raised) continue;
+    if (kind === "K") {
+      // WHERE THE TYRES RUN, close up: a darker, polished track.
+      if (DETAIL <= 0) continue;
+      ctx.strokeStyle = css(0x1f2023, 0.09); ctx.lineWidth = 0.036; ctx.lineJoin = "round"; ctx.lineCap = "butt";
+      path(pts); ctx.stroke();
+    } else if (kind === "L") {
+      const [c, w] = arg.split(",").map(Number);
+      ctx.strokeStyle = css(STUD[c], 0.92); ctx.lineWidth = 2 * w; ctx.lineJoin = "miter"; ctx.lineCap = "butt";
+      path(pts); ctx.stroke();
+    } else if (kind === "P") {
+      ctx.fillStyle = css(STUD[Number(arg)], 0.93);
+      path(pts, true); ctx.fill();
+    } else if (kind === "O") {
+      ctx.strokeStyle = css(WHITE, 0.9); ctx.lineWidth = Number(arg); ctx.lineJoin = "miter";
+      path(pts, true); ctx.stroke();
+    } else if (kind === "D") {
+      if (DETAIL <= 0) continue;
+      ctx.fillStyle = css(STUD[Number(arg)], 0.95);
+      ctx.beginPath(); ctx.arc(pts[0][0], pts[0][1], Number(arg) ? 0.008 : 0.009, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === "H") {
+      // HATCHED: a taper from the nose of the road's middle to a point, barred across, a line down each side of it.
+      const h = Number(arg), [a, b] = pts, d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, ux = (b[0] - a[0]) / d, uy = (b[1] - a[1]) / d;
+      const at = (t: number, c: number): [number, number] => [a[0] + ux * t - uy * c, a[1] + uy * t + ux * c];
+      ctx.fillStyle = css(WHITE, 0.92);
       ctx.save();
-      poly(ctx, [widePt(W, nose, q - half), widePt(W, nose, q + half), widePt(W, tip, q)]);
+      poly(ctx, [at(0, -h), at(0, h), at(d, 0)]);
       ctx.clip();
-      for (let a = Math.min(nose, tip) - 0.1; a < Math.max(nose, tip) + 0.1; a += 0.055) {
-        poly(ctx, [widePt(W, a, q - half), widePt(W, a + 0.022, q - half), widePt(W, a + 0.022 + half, q + half), widePt(W, a + half, q + half)]);
-        ctx.fill();
-      }
+      for (let t = -0.1; t < d + 0.1; t += 0.055) { poly(ctx, [at(t, -h), at(t + 0.022, -h), at(t + 0.022 + h, h), at(t + h, h)]); ctx.fill(); }
       ctx.restore();
-      // Its edges, a line each side to the point.
-      for (const sg of [-1, 1]) { poly(ctx, [widePt(W, nose, q + sg * half), widePt(W, nose, q + sg * (half - 0.014)), widePt(W, tip, q - sg * 0.007), widePt(W, tip, q + sg * 0.007)]); ctx.fill(); }
-    }
-  }
-  // (A road with bays along its kerbs has no edge line: the bays' own line is its edge. One with a central
-  // reservation has no bays, and a solid edge line with a hard strip beyond it.)
-  if (W.k < MEDIAN_FROM) return;
-  const stud = (p: [number, number], colour: number) => { ctx.fillStyle = css(colour, 0.95); ctx.beginPath(); ctx.arc(p[0], p[1], 0.008, 0, Math.PI * 2); ctx.fill(); };
-  // AMBER STUDS along the central reservation's edge, each way.
-  if (DETAIL > 0 && !W.thru) for (const sg of [-1, 1]) for (const a of [0, 0.5]) {
-    const q = W.k / 2 - W.c + sg * (MEDIAN_HALF + 0.012);
-    if (q > -0.02 && q < 1.02) stud(widePt(W, a, q), STUD_AMBER);
-  }
-  ctx.fillStyle = css(WHITE, 0.92);
-  // THE SHOULDER LINES, where the lanes end and the strip begins: solid, and at a side road's mouth an exit's
-  // dashes. They keep to the KERB, a strip's width in from it.
-  const span = laneSpanOf(W.k);
-  for (const sg of [-1, 1]) {
-    const q0 = W.r0 + W.k / 2 + sg * span, q1 = W.r1 + W.k / 2 + sg * span;
-    // THROUGH A JOG it crosses as the lanes do, a little along from the slice — as far along as leaves it inside
-    // the kerb, which crosses in the slice itself. @see jogFrom
-    const qe = W.k / 2 - W.c + sg * span, fe = Math.min(jogSpread(W.k), (W.k / 2 - WALK - 0.04) / span);
-    if (W.js ? qe < -0.6 || qe > 1.6 : Math.max(q0, q1) < 0 || Math.min(q0, q1) > 1) continue;
-    const from = W.j0 + W.js * sg * span * (1 - fe);
-    const at = (a: number, o: number) => runPt(W.ax, a, W.js ? qe + W.js * (Math.max(0, Math.min(1, a - from)) - (1 - W.j0) / 2) + o : q0 + (q1 - q0) * a + o);
-    const mouth = W.thru && has(L.open, W.ax === "u" ? (sg < 0 ? 2 : 3) : (sg < 0 ? 0 : 1));
-    if (!mouth) {
-      const turns = W.js ? [from, from + 1].filter((a) => a > -0.05 && a < 1.05) : [];
-      poly(ctx, [at(-0.05, -EDGE), ...turns.map((a) => at(a, -EDGE)), at(1.05, -EDGE), at(1.05, EDGE), ...turns.reverse().map((a) => at(a, EDGE)), at(-0.05, EDGE)]); ctx.fill();
-      // RED STUDS outside it, on the strip's side.
-      if (DETAIL > 0) { for (const a of [0, 0.5]) stud(at(a, sg * 0.022), STUD_RED); ctx.fillStyle = css(WHITE, 0.92); }
-      continue;
-    }
-    // A SLIP ROAD'S MOUTH: a metre of line, a metre of gap, and green studs.
-    for (const [a0, a1] of dashes(0.02, 1, 0.09, 0.09)) { poly(ctx, [at(a0, -EDGE), at(a1, -EDGE), at(a1, EDGE), at(a0, EDGE)]); ctx.fill(); }
-    if (DETAIL > 0) { for (const a of [0.155, 0.515, 0.875]) stud(at(a, 0), STUD_GREEN); ctx.fillStyle = css(WHITE, 0.92); }
-  }
-}
-
-/** How wide a wide road's lanes are together, each way: where its shoulder line runs from its middle. */
-const laneSpanOf = (k: number) => laneEdge(k);
-
-/**
- * A HIGHWAY'S MEDIAN (three cells or more), on the road: its kerb's face and
- * the shade it casts, under the raised part. @see median
- */
-function medianFoot(ctx: Ctx, L: Look) {
-  const W = wideOf(L.ln);
-  if (!W || W.k < MEDIAN_FROM || W.thru) return;
-  const q = W.k / 2 - W.c;
-  if (q < -0.1 || q > 1.1) return;
-  if (W.plain && W.ends === 3) return;
-  const [m0, m1] = medianSpan(W.ends, !!L.xing || /b/.test(L.hs), W.plain);
-  ctx.fillStyle = css(0x000000, 0.16);
-  medianShape(ctx, W, m0, m1, q + 0.012, MEDIAN + 0.014, W.ends); ctx.fill();
-  ctx.fillStyle = css(tone(KERB_OF[L.lvl], 0.55));
-  medianShape(ctx, W, m0, m1, q, MEDIAN, W.ends); ctx.fill();
-}
-
-/** A median's outline: a strip `half` either side of `q`, its ends rounded where its run ends. */
-function medianShape(ctx: Ctx, W: Wide, m0: number, m1: number, q: number, half: number, ends: number) {
-  ctx.beginPath();
-  const N = 8, pts: [number, number][] = [];
-  if (ends & 1) for (let k = 0; k <= N; k++) { const t = Math.PI / 2 + (k / N) * Math.PI; pts.push(widePt(W, m0 + half + Math.cos(t) * half, q + Math.sin(t) * half)); }
-  else pts.push(widePt(W, m0, q + half), widePt(W, m0, q - half));
-  // (Between its ends, where each edge turns through a jog. Its ends' own points take the middle's slant.)
-  const inner = (qq: number) => knots(W, m0 + (ends & 1 ? half : 0), m1 - (ends & 2 ? half : 0), qq);
-  pts.splice(pts.length, 0, ...inner(q - half).map((a) => widePt(W, a, q - half)));
-  if (ends & 2) for (let k = 0; k <= N; k++) { const t = -Math.PI / 2 + (k / N) * Math.PI; pts.push(widePt(W, m1 - half + Math.cos(t) * half, q + Math.sin(t) * half)); }
-  else pts.push(widePt(W, m1, q - half), widePt(W, m1, q + half));
-  pts.push(...inner(q + half).reverse().map((a) => widePt(W, a, q + half)));
-  pts.forEach(([u, v], k) => (k ? ctx.lineTo(u, v) : ctx.moveTo(u, v)));
-  ctx.closePath();
-}
-
-/**
- * A HIGHWAY'S MEDIAN, a kerb's height up: a concrete strip, lit along one
- * edge, and down its middle a steel barrier on posts, a reflector on each.
- */
-function median(ctx: Ctx, L: Look) {
-  const W = wideOf(L.ln);
-  if (!W || W.k < MEDIAN_FROM || W.thru) return;
-  const q = W.k / 2 - W.c;
-  if (q < -0.1 || q > 1.1) return;
-  if (W.plain && W.ends === 3) return;
-  const [m0, m1] = medianSpan(W.ends, !!L.xing || /b/.test(L.hs), W.plain), kc = KERB_OF[L.lvl];
-  ctx.fillStyle = css(kc);
-  medianShape(ctx, W, m0, m1, q, MEDIAN, W.ends); ctx.fill();
-  ctx.fillStyle = css(tone(kc, 0.86));
-  medianShape(ctx, W, m0, m1, q, MEDIAN - 0.016, W.ends); ctx.fill();
-  // THE BARRIER: two rails either side of its posts, their shade beside them, short of a rounded end.
-  const b0 = m0 + (W.ends & 1 ? MEDIAN : 0), b1 = m1 - (W.ends & 2 ? MEDIAN : 0);
-  ctx.fillStyle = css(0x000000, 0.22);
-  wideRect(ctx, W, b0, b1, q + 0.012, q + 0.03); ctx.fill();
-  ctx.fillStyle = css(0x8d959d);
-  wideRect(ctx, W, b0, b1, q - 0.016, q + 0.016); ctx.fill();
-  ctx.fillStyle = css(0xc9d0d6);
-  for (const o of [-0.013, 0.007]) { wideRect(ctx, W, b0, b1, q + o, q + o + 0.006); ctx.fill(); }
-  for (let a = Math.ceil(b0 / 0.25) * 0.25; a <= b1 + 1e-6; a += 0.25) {
-    ctx.fillStyle = css(0x4a5057);
-    wideRect(ctx, W, a - 0.012, a + 0.012, q - 0.02, q + 0.02); ctx.fill();
-    if (DETAIL > 0) { ctx.fillStyle = css(0xf2a531); for (const o of [-0.024, 0.024]) { ctx.beginPath(); ctx.arc(...widePt(W, a, q + o), 0.006, 0, Math.PI * 2); ctx.fill(); } }
-  }
-}
-
-/**
- * A WIDE ROAD'S STOP AND GIVE-WAY LINES: across the whole of the way in
- * toward each side listed — every lane of it, from the median to the kerb —
- * as much of that as crosses this cell. @see Look.hs
- */
-function wideStops(ctx: Ctx, L: Look) {
-  const W = wideOf(L.ln);
-  if (!W || !L.hs) return;
-  for (const m of L.hs.matchAll(/([0-3])([SG])(b?)/g)) {
-    const s = Number(m[1]) as Side, [hx, hy] = STEP[s], [rx, ry] = rightOf(hx, hy);
-    // Right of this cell's middle, where the road's middle is: its way in runs from there out to the kerb.
-    const sg = W.ax === "u" ? ry : rx, mid = sg * (W.k / 2 - W.c - 0.5);
-    const c0 = Math.max(-0.5, mid + (W.k >= MEDIAN_FROM ? MEDIAN + 0.02 : 0.04)), c1 = Math.min(0.5, mid + W.k / 2 - WALK - 0.005);
-    if (c1 - c0 < 0.02) continue;
-    ctx.fillStyle = css(WHITE, 0.94);
-    if (m[2] === "S") { const e = m[3] ? SET_BACK : 0.04; laneRect(ctx, s, e, e + 0.045, c0, c1); ctx.fill(); continue; }
-    const e0 = m[3] ? SET_BACK - 0.03 : 0;
-    // Dashes in step from the road's middle, so they run on from one cell of its width to the next.
-    for (const e of [0.035, 0.085]) for (let a = mid + 0.05; a < c1; a += 0.075) {
-      const lo = Math.max(c0, a), hi = Math.min(c1, a + 0.045);
-      if (hi > lo) { laneRect(ctx, s, e0 + e, e0 + e + 0.022, lo, hi); ctx.fill(); }
-    }
-  }
-}
-
-/** A wide road's bend, read: its width, and the inside corner of the turn in the cell's own (u, v). @see Look.bd */
-function bendOf(bd: string): { k: number; pu: number; pv: number } | null {
-  const m = /^(\d+),(-?\d+),(-?\d+)$/.exec(bd);
-  return m ? { k: Number(m[1]), pu: Number(m[2]), pv: Number(m[3]) } : null;
-}
-/** A ring about a bend's inside corner, `r` out, stroked `w` wide. */
-function ring(ctx: Ctx, B: { pu: number; pv: number }, r: number, w: number, colour: string, dash?: [number, number]) {
-  if (r <= 0) return;
-  ctx.strokeStyle = colour;
-  ctx.lineWidth = w;
-  ctx.setLineDash(dash ?? []);
-  ctx.beginPath(); ctx.arc(B.pu, B.pv, r, 0, Math.PI * 2); ctx.stroke();
-  ctx.setLineDash([]);
-}
-
-/**
- * ROUND A WIDE ROAD'S BEND, on the road: its shoulder lines and the lines
- * between its lanes carried round on arcs about the inside corner, and down
- * its middle the double line, or the foot of its median. @see Look.bd
- */
-function bendLines(ctx: Ctx, L: Look) {
-  const B = bendOf(L.bd);
-  if (!B) return;
-  const w = 2 * LINE, white = css(WHITE, 0.92), n = lanesFor(B.k), span = laneSpanOf(B.k), mid = B.k / 2;
-  for (const sg of [-1, 1]) {
-    if (B.k >= MEDIAN_FROM) ring(ctx, B, mid + sg * span, 2 * EDGE, white);
-    for (let i = 1; i < n; i++) ring(ctx, B, mid + sg * (laneInner(B.k) + (i * laneSpan(B.k)) / n), w, white, [0.2, 0.8]);
-  }
-  if (B.k < MEDIAN_FROM) { for (const o of [-0.016, 0.016]) ring(ctx, B, mid + o, w, white); return; }
-  ring(ctx, B, mid + 0.012, 2 * (MEDIAN + 0.014), css(0x000000, 0.16));
-  ring(ctx, B, mid, 2 * MEDIAN, css(tone(KERB_OF[L.lvl], 0.55)));
-}
-
-/** And a kerb's height up: its median round the bend, the barrier on it. */
-function bendMedian(ctx: Ctx, L: Look) {
-  const B = bendOf(L.bd);
-  if (!B || B.k < MEDIAN_FROM) return;
-  const mid = B.k / 2, kc = KERB_OF[L.lvl];
-  ring(ctx, B, mid, 2 * MEDIAN, css(kc));
-  ring(ctx, B, mid, 2 * (MEDIAN - 0.016), css(tone(kc, 0.86)));
-  ring(ctx, B, mid + 0.02, 0.018, css(0x000000, 0.22));
-  ring(ctx, B, mid, 0.032, css(0x8d959d));
-  for (const o of [-0.01, 0.01]) ring(ctx, B, mid + o, 0.006, css(0xc9d0d6));
-  // Its posts, a quarter of a tile apart round it.
-  ring(ctx, B, mid, 0.04, css(0x4a5057), [0.024, 0.226]);
-}
-
-/**
- * A HIGHWAY'S ARROWS: one in every lane going toward each side its look
- * lists, ahead; the inside lane's branching left and the outside lane's
- * right where a road leaves that way at the junction ahead. @see Look.hw
- */
-function highwayArrows(ctx: Ctx, L: Look) {
-  const W = wideOf(L.ln);
-  if (!W || !L.hw) return;
-  ctx.fillStyle = css(WHITE, 0.92);
-  const n = lanesFor(W.k);
-  for (const m of L.hw.matchAll(/(\d)([LRPN]*)/g)) {
-    const s = Number(m[1]) as Side, [hx, hy] = STEP[s], [rx, ry] = rightOf(hx, hy);
-    for (let i = 0; i < n; i++) {
-      // The lane's middle across this cell: right of the road's middle, as its traffic sees it.
-      const off = laneOffset(W.k, i), mid = W.k / 2 - W.c;
-      const cu = W.ax === "u" ? 0.5 : mid + rx * off, cv = W.ax === "u" ? mid + ry * off : 0.5;
-      const q = W.ax === "u" ? cv : cu;
-      // A lane whose middle is on the line between two cells is painted by both, each its half.
-      if (q < -0.2 || q > 1.2) continue;
-      // `t` on toward where it is going, `c` to its right.
-      const pt = (t: number, c: number): [number, number] => [cu + t * hx + c * rx, cv + t * hy + c * ry];
-      // NO WAY STRAIGHT ON: a turn in every lane — the kerb lane toward the kerb, the rest across the road, as the
-      // lanes go; or all the one way there is. @see agents/lanes/graph throughJunction
-      const only = m[2].includes("N"), hasL = m[2].includes("L"), hasR = m[2].includes("R");
-      const mine = !only ? null : hasL && hasR ? (i === n - 1 ? "R" : "L") : hasL ? "L" : hasR ? "R" : null;
-      poly(ctx, only ? [pt(-0.3, -0.018), pt(-0.06, -0.018), pt(-0.06, 0.018), pt(-0.3, 0.018)] : [pt(-0.3, -0.018), pt(0.13, -0.018), pt(0.13, 0.018), pt(-0.3, 0.018)]); ctx.fill();
-      if (!only) { poly(ctx, [pt(0.3, 0), pt(0.12, -0.058), pt(0.12, 0.058)]); ctx.fill(); }
-      for (const [turn, sg, lane] of [["L", -1, 0], ["R", 1, n - 1]] as const) {
-        if (only ? mine !== turn : !m[2].includes(turn) || i !== lane) continue;
-        const [x0, y0] = pt(-0.1, 0), [x1, y1] = pt(0.05, sg * 0.085);
-        const len = Math.hypot(x1 - x0, y1 - y0), dx = (x1 - x0) / len, dy = (y1 - y0) / len, px = -dy, py = dx, hw = 0.017;
-        poly(ctx, [[x0 + px * hw, y0 + py * hw], [x1 + px * hw, y1 + py * hw], [x1 - px * hw, y1 - py * hw], [x0 - px * hw, y0 - py * hw]]); ctx.fill();
-        poly(ctx, [[x1 + dx * 0.1, y1 + dy * 0.1], [x1 + px * 0.052, y1 + py * 0.052], [x1 - px * 0.052, y1 - py * 0.052]]); ctx.fill();
-      }
+      for (const sg of [-1, 1]) { poly(ctx, [at(0, sg * h), at(0, sg * (h - 0.014)), at(d, -sg * 0.007), at(d, sg * 0.007)]); ctx.fill(); }
+    } else if (kind === "R") {
+      roundelAt(ctx, arg, pts[0][0], pts[0][1], pts[1][0], pts[1][1]);
     }
   }
 }
@@ -915,8 +668,8 @@ function signalCrossing(ctx: Ctx, L: Look) {
  * run only: across a junction they would belong to no road.
  */
 function wear(ctx: Ctx, L: Look, v: number) {
-  const W = wideOf(L.ln), c = L.ctr.toLowerCase();
-  const ax: "u" | "v" | "" = W && !W.thru ? W.ax : c === "u" || c === "v" ? c : "";
+  const c = L.ctr.toLowerCase();
+  const ax: "u" | "v" | "" = L.wx ? (L.wx[0] as "u" | "v") : c === "u" || c === "v" ? c : "";
   if (!ax) return;
   // Across the road, the carriageway between its kerbs: the whole cell in the middle of a wide one.
   const side = (s: number) => (has(L.open, s) ? 0 : WALK + 0.01);
@@ -1008,13 +761,6 @@ function wheelTracks(ctx: Ctx, L: Look) {
     const s = Number(c[1]) as Side, lane = (1 - WALK) / 2;
     across = s < 2 ? "u" : "v";
     mids = [s & 1 ? 1 - lane : lane];
-  } else if (wideOf(L.ln)) {
-    // A wide road's lanes, where they run across this cell.
-    const W = wideOf(L.ln)!;
-    across = W.ax === "u" ? "v" : "u";
-    mids = [];
-    for (let i = 0; i < lanesFor(W.k); i++) for (const sg of [1, -1]) mids.push(W.k / 2 + sg * laneOffset(W.k, i) - W.c);
-    mids = mids.filter((m) => m > -0.2 && m < 1.2);
   } else return;
   ctx.fillStyle = css(0x1f2023, 0.09);
   for (const m of mids) for (const o of [-0.055, 0.055]) {
@@ -1076,37 +822,35 @@ const ROUNDEL_BACK = 0.2;
  */
 function roundels(ctx: Ctx, L: Look) {
   if (!L.spd) return;
-  const W = wideOf(L.ln);
   for (const m of L.spd.matchAll(/([0-3])(\d\d)/g)) {
     const s = Number(m[1]) as Side, [hx, hy] = STEP[s], [rx, ry] = rightOf(hx, hy);
-    // The nearside lane's middle, right of the road's: on a one-cell street, its half of the road.
-    let cu: number, cv: number;
-    if (!W) { const off = (0.5 - WALK) / 2; cu = 0.5 + rx * off; cv = 0.5 + ry * off; }
-    else {
-      const off = laneOffset(W.k, lanesFor(W.k) - 1), mid = W.k / 2 - W.c;
-      cu = W.ax === "u" ? 0.5 : mid + rx * off; cv = W.ax === "u" ? mid + ry * off : 0.5;
-      const q = W.ax === "u" ? cv : cu;
-      // That lane runs through another cell of the road's width; on the line between two, both paint it.
-      if (q < -0.2 || q > 1.2) continue;
-    }
-    ctx.save();
-    // Its right the driver's right, its top toward where they are going.
-    ctx.transform(-hy, hx, -hx, -hy, cu - hx * ROUNDEL_BACK, cv - hy * ROUNDEL_BACK);
-    ctx.strokeStyle = css(WHITE, 0.9);
-    ctx.lineWidth = 0.014;
-    // LONGER DOWN THE LANE than across it, as it is painted — but half again, not the real thing's near three
-    // times, which is drawn to read round from a driver's seat and from above reads as nothing.
-    ctx.beginPath(); ctx.ellipse(0, 0, 0.085, 0.135, 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = css(WHITE, 0.92);
-    ctx.font = "900 10px Arial, Helvetica, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    // Its figures stretched down the lane with it.
-    const sx = 0.115 / ctx.measureText(m[2]).width, sy = 0.165 / 7.2;
-    ctx.scale(sx, sy);
-    ctx.fillText(m[2], 0, 0.3);
-    ctx.restore();
+    // The lane's middle, on its side of a one-cell street: its half of the road.
+    const off = (0.5 - WALK) / 2;
+    roundelAt(ctx, m[2], 0.5 + rx * off - hx * ROUNDEL_BACK, 0.5 + ry * off - hy * ROUNDEL_BACK, hx, hy);
   }
+}
+
+/**
+ * A ROUNDEL at a point, for traffic going `(hx, hy)`: its top toward where they are going, its figures running to
+ * the driver's right — a turn of the way they go, never a side of the road, which flips with the hand of the road
+ * and lays lettering back to front.
+ */
+function roundelAt(ctx: Ctx, n: string, u: number, v: number, hx: number, hy: number) {
+  ctx.save();
+  ctx.transform(-hy, hx, -hx, -hy, u, v);
+  ctx.strokeStyle = css(WHITE, 0.9);
+  ctx.lineWidth = 0.012;
+  // LONGER DOWN THE LANE than across it, as it is painted — but half again, not the real thing's near three
+  // times, which is drawn to read round from a driver's seat and from above reads as nothing.
+  ctx.beginPath(); ctx.ellipse(0, 0, 0.085, 0.135, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = css(WHITE, 0.92);
+  ctx.font = "900 10px Arial, Helvetica, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const sx = 0.115 / ctx.measureText(n).width, sy = 0.165 / 7.2;
+  ctx.scale(sx, sy);
+  ctx.fillText(n, 0, 0.3);
+  ctx.restore();
 }
 
 /** Everything on the ground of one cell, in its own (u, v). */
@@ -1129,11 +873,7 @@ function paintGround(ctx: Ctx, L: Look) {
   else if (L.xing) signalCrossing(ctx, L);
   if (L.zz) zigzags(ctx, L);
   centreLine(ctx, L);
-  wideLines(ctx, L);
-  highwayArrows(ctx, L);
-  wideStops(ctx, L);
-  bendLines(ctx, L);
-  medianFoot(ctx, L);
+  paintMarks(ctx, L, false);
   if (L.bay) { bayLines(ctx, L); busCages(ctx, L); }
   roundels(ctx, L);
   if (L.yl) {
@@ -1198,8 +938,7 @@ function island(ctx: Ctx, L: Look) {
 /** The pavement and its kerb, a kerb's height up. */
 function paintRaised(ctx: Ctx, L: Look) {
   if (L.rb) island(ctx, L);
-  median(ctx, L);
-  bendMedian(ctx, L);
+  paintMarks(ctx, L, true);
   const S = shapeOf(L), lvl = L.lvl;
   // Under the pieces, what lies between them.
   ctx.fillStyle = css(JOINT[lvl]);
