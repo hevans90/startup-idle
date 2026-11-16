@@ -1,6 +1,6 @@
 # Roads: highways, hills and a quality pass
 
-Status: **in progress** (2026-11-16). Follows `plans/procedural-roads.md`; the sheet it kept as a fallback is gone, so every road is painted (`roads/looks.ts` decides, `render/road-paint.ts` paints).
+Status: **built** (2026-11-16), but for worn line edges (section 3), left out. Follows `plans/procedural-roads.md`; the sheet it kept as a fallback is gone, so every road is painted (`roads/looks.ts` decides, `render/road-paint.ts` paints).
 
 ## What is wrong now
 
@@ -24,11 +24,12 @@ The stroke grades its own ground. Along the path the tool works out the heights 
 
 Tests: profiles over a cliff, a valley, a ridge, mixed pins; the refusal and its count; a second lane beside a graded one matches it; ramps derived from a graded stroke join the network end to end.
 
-## 2. Highways — a street three cells wide or more
+## 2. Highways
 
 Lanes stay where the lane graph has them (`laneOffset`), so traffic needs no change.
 
-- **Central reservation** between the directions: a double solid line on a three-cell road; from four cells a raised median with a steel barrier, reflectors along it, ended before each junction by a rounded nose and a hatched taper.
+- **A highway is two cells wide or more** (two lanes or more each way).
+- **Central reservation** between the directions: a double solid line on a two-cell road; from three cells a raised median with a steel barrier, reflectors along it, ended before each junction by a rounded nose and a hatched taper.
 - **Edge lines**, solid, along the shoulder; **studs** along the lane lines close up.
 - **No parking bays on a four-cell road or wider**: its strip is a hard shoulder.
 - **Lane arrows** in every lane at intervals along a long run, and before a junction.
@@ -37,9 +38,9 @@ Lanes stay where the lane graph has them (`laneOffset`), so traffic needs no cha
 ## 3. Markings and wear, across the board
 
 - **Bus-stop cages**: the broken yellow box and BUS STOP at every stop the lanes have.
-- **Speed roundels** where a street leaves a junction: 20 on one-cell streets, 30 on two, 40 on highways.
-- **Wear**: more stamps (long patches, a trench reinstatement across the road, tar seams, oil at junction mouths), chosen from more variants, none on fresh highway.
-- **Line quality**: slightly broader lines with worn edges close up, consistent widths from one table.
+- **Speed roundels** where a street leaves a junction: 20 on one-cell streets, 30 on two-cell roads, 40 on wider.
+- **Wear**: more stamps that follow the road's run (a trench across it made good, tar along its seams, a strip relaid down a lane), chosen from more variants.
+- Not built: worn edges on the lines close up.
 
 ## Order
 

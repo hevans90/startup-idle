@@ -453,6 +453,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const woodsRef = useRef<Woods | null>(null);
   /** The traffic lights at the lights junctions. @see createSignals */
   const signalsRef = useRef<Signals | null>(null);
+  /** The stops the bus routes call at, as last painted on the road. @see bayMarksOf */
+  const servedStops = useRef<{ key: string; ids: Set<number> }>({ key: "", ids: new Set() });
   /** The bus shelters at the routes' stops. @see createBusStops */
   const busStopsRef = useRef<BusStops | null>(null);
   /** The seats last given the town. */
@@ -619,7 +621,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const bl = createBandLayer(grid.w, grid.h);
       const tl = createTerrainLayer(grid, useWorldStore.getState().palette, scale);
       const pl = createPavedLayer(grid, scale, app.renderer);
-      pl.bays = (g) => bayMarksOf(trafficOf(getTown(), g).G, g);
+      pl.bays = (g) => bayMarksOf(trafficOf(getTown(), g).G, g, servedStops.current.ids);
       const sl = createStructureLayer();
       const water = useWorldStore.getState().getWaterField();
       sceneField.current = water?.columns ?? null;
@@ -3808,7 +3810,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // The lanes the town last drove on: kept current by stepTown. @see trafficOf
         const town = getTown(), T = town.traffic;
         if (T) { signalsRef.current.sync(useWorldStore.getState().grid, T, scale); signalsRef.current.tick(T, town.t); }
-        if (T && busStopsRef.current) busStopsRef.current.sync(useWorldStore.getState().grid, T, town.buses?.G === T.G ? town.buses.routes : [], scale);
+        const routes = T && town.buses?.G === T.G ? town.buses.routes : [];
+        if (T && busStopsRef.current) busStopsRef.current.sync(useWorldStore.getState().grid, T, routes, scale);
+        // THE STOPS THE ROUTES CALL AT get a cage on the road: painted again where they have changed. @see bayMarksOf
+        const pl = plRef.current, bl = blRef.current;
+        if (T && pl?.painter && bl) {
+          const ids = [...new Set(routes.flatMap((r) => r.stops))].sort((p, q) => p - q), key = `${T.key}|${ids.join(",")}`;
+          if (key !== servedStops.current.key) {
+            servedStops.current = { key, ids: new Set(ids) };
+            const g = useWorldStore.getState().grid;
+            for (const i of refreshLooks(pl, g)) {
+              const x = i % g.w, y = (i / g.w) | 0;
+              for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(g, x + dx, y + dy)) syncPaved(pl, bl, g, x + dx, y + dy);
+            }
+          }
+        }
       }
       const streetNet = getNetwork();
       if (streetPropsRef.current && streetNet) {

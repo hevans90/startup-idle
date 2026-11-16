@@ -28,7 +28,7 @@ export type PavedLayer = {
   /** The street's level and its zebras, per cell. @see dressPaved */
   dress: Uint8Array | undefined;
   /** Where the parking bays are, per cell, as the lanes have them: set by the scene. @see agents/lanes/graph bayMarksOf */
-  bays?: (grid: Grid) => Uint8Array | undefined;
+  bays?: (grid: Grid) => Uint16Array | undefined;
   /** Each cell's level of detail, as its sprite draws it now. @see lodPaved */
   lod: Uint8Array;
   /** The level wanted on screen, as last asked for. */

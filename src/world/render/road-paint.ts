@@ -32,7 +32,7 @@ import { CanvasSource, Container, Rectangle, RenderTexture, Sprite, Texture, typ
 import { HEIGHT_UNIT, rampDir, rampRise, RAMP } from "../iso";
 import { hash } from "../structures/projects/model";
 import { mix, tone } from "../structures/projects/pen";
-import { HIGHWAY, MEDIAN_FROM, opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
+import { HIGHWAY, KEEP, MEDIAN_FROM, opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
 import { CROSS_HOLD, LAYBY, laneLines, laneOffset, lanesFor, PARK_STRIP } from "../agents/lanes/graph";
 
 /** How far in from the tile's edge the pavement runs, its kerb, and both. */
@@ -733,11 +733,53 @@ function signalCrossing(ctx: Ctx, L: Look) {
   for (const a of [0.33, 0.65]) for (const [b0, b1] of dashes(lo, hi, 0.035, 0.03)) { bandRect(ctx, s0, a, a + 0.02, b0, b1); ctx.fill(); }
 }
 
-/** A road's wear and fittings, one of four: a gully, a manhole, a patch, cracks and a stain. */
+/**
+ * WEAR that follows the road's own run: a trench dug across it and made good,
+ * tar poured along its seams, a long strip relaid in one lane. On a straight
+ * run only: across a junction they would belong to no road.
+ */
+function wear(ctx: Ctx, L: Look, v: number) {
+  const W = wideOf(L.ln), c = L.ctr.toLowerCase();
+  const ax: "u" | "v" | "" = W && !W.thru ? W.ax : c === "u" || c === "v" ? c : "";
+  if (!ax) return;
+  // Across the road, the carriageway between its kerbs: the whole cell in the middle of a wide one.
+  const side = (s: number) => (has(L.open, s) ? 0 : WALK + 0.01);
+  const [q0, q1] = ax === "u" ? [side(2), 1 - side(3)] : [side(0), 1 - side(1)];
+  if (v === 4) {
+    // A TRENCH across, relaid darker, its edges sealed and one of them sunk a little.
+    const a0 = 0.3 + hash(L.vr * 3.1 + L.open) * 0.3;
+    ctx.fillStyle = css(0x47494d, 0.9);
+    runRect(ctx, ax, a0, a0 + 0.075, q0, q1); ctx.fill();
+    ctx.fillStyle = css(0x1c1d20, 0.5);
+    for (const a of [a0, a0 + 0.075]) { runRect(ctx, ax, a - 0.004, a + 0.004, q0, q1); ctx.fill(); }
+    ctx.fillStyle = css(0xffffff, 0.05);
+    runRect(ctx, ax, a0 + 0.008, a0 + 0.02, q0, q1); ctx.fill();
+  } else if (v === 5) {
+    // TAR along the seams: two wandering lines of sealant down the lane.
+    ctx.strokeStyle = css(0x17181a, 0.55);
+    ctx.lineWidth = 0.007;
+    ctx.lineJoin = "round";
+    for (const t of [0.3, 0.68]) {
+      const q = q0 + (q1 - q0) * t;
+      ctx.beginPath();
+      for (let k = 0; k <= 8; k++) { const [x, y] = runPt(ax, -0.05 + k * 0.1375, q + (hash(k * 5.3 + t * 9) - 0.5) * 0.02); if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
+      ctx.stroke();
+    }
+  } else {
+    // A STRIP RELAID down one lane, newer and darker, a seam along each side.
+    const lo = q0 + (q1 - q0) * 0.12, hi = q0 + (q1 - q0) * 0.44;
+    ctx.fillStyle = css(0x4a4c50, 0.8);
+    runRect(ctx, ax, 0.12, 0.9, lo, hi); ctx.fill();
+    ctx.strokeStyle = css(0x1e1f22, 0.4); ctx.lineWidth = 0.006; ctx.stroke();
+  }
+}
+
+/** A road's wear and fittings: a gully, a manhole, a patch, cracks and a stain; or wear along its run. @see wear */
 function fittings(ctx: Ctx, L: Look, S: Shape) {
   if (L.open === 0 || L.box || L.zeb || L.xing || L.rb) return;
   const v = L.vr;
-  if (v > 3) return; // most of a road is just road
+  if (v > 6) return; // half of a road is just road
+  if (v >= 4) { wear(ctx, L, v); return; }
   const gutter = S.bands.length ? S.bands.find((B) => B.s === S.bands[0].s && B.a0 <= 0.42 && B.a1 >= 0.56) : undefined;
   if (v === 0 && S.bands.length) {
     // A GULLY in the gutter: an iron grate, its slots.
@@ -821,6 +863,71 @@ function bayLines(ctx: Ctx, L: Look) {
   }
 }
 
+/**
+ * A BUS STOP'S CAGE at a kerb: a broken yellow line round the stretch a bus
+ * stands in, and BUS STOP in it, read by the driver coming up to it.
+ */
+function busCages(ctx: Ctx, L: Look) {
+  for (const m of L.bay.matchAll(/B(\d)/g)) {
+    const s = Number(m[1]) as Side, w = 0.014, d0 = WALK + 0.014, d1 = WALK + 0.2;
+    ctx.fillStyle = css(YELLOW, 0.92);
+    for (const [a0, a1] of dashes(0.06, 0.94, 0.07, 0.04)) { bandRect(ctx, s, a0, a1, d1 - w / 2, d1 + w / 2); ctx.fill(); }
+    for (const a of [0.06, 0.94]) { bandRect(ctx, s, a - w / 2, a + w / 2, d0, d1); ctx.fill(); }
+    // The words, their tops toward where the bus is going: the kerb is on its right.
+    const [kx, ky] = STEP[s], hx = ky * KEEP, hy = -kx * KEEP;
+    const mid = 0.5 - (d0 + d1) / 2, cu = 0.5 + kx * mid, cv = 0.5 + ky * mid;
+    ctx.save();
+    ctx.font = "900 10px Arial, Helvetica, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const [word, t] of [["BUS", -0.17], ["STOP", 0.13]] as const) {
+      const sx = 0.14 / ctx.measureText(word).width, sy = 0.22 / 7.2;
+      ctx.save();
+      ctx.transform(kx * sx, ky * sx, -hx * sy, -hy * sy, cu + hx * t, cv + hy * t);
+      ctx.fillText(word, 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+}
+
+/**
+ * SPEED ROUNDELS: the limit in a ring, long down the lane as road lettering
+ * is, in every lane going toward each side its look lists. @see Look.spd
+ */
+function roundels(ctx: Ctx, L: Look) {
+  if (!L.spd) return;
+  const W = wideOf(L.ln);
+  for (const m of L.spd.matchAll(/([0-3])(\d\d)/g)) {
+    const s = Number(m[1]) as Side, [hx, hy] = STEP[s], [rx, ry] = rightOf(hx, hy);
+    // Each lane's middle, right of the road's: one on a one-cell street.
+    const mids: [number, number][] = [];
+    if (!W) { const off = (0.5 - WALK) / 2; mids.push([0.5 + rx * off, 0.5 + ry * off]); }
+    else for (let i = 0; i < lanesFor(W.k); i++) {
+      const off = laneOffset(W.k, i), mid = W.k / 2 - W.c;
+      const cu = W.ax === "u" ? 0.5 : mid + rx * off, cv = W.ax === "u" ? mid + ry * off : 0.5;
+      const q = W.ax === "u" ? cv : cu;
+      if (q > 0.08 && q < 0.92) mids.push([cu, cv]);
+    }
+    for (const [cu, cv] of mids) {
+      ctx.save();
+      // Its right the driver's right, its top toward where they are going.
+      ctx.transform(rx, ry, -hx, -hy, cu, cv);
+      ctx.strokeStyle = css(WHITE, 0.9);
+      ctx.lineWidth = 0.014;
+      ctx.beginPath(); ctx.ellipse(0, 0, 0.078, 0.17, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = css(WHITE, 0.92);
+      ctx.font = "900 10px Arial, Helvetica, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const sx = 0.095 / ctx.measureText(m[2]).width, sy = 0.2 / 7.2;
+      ctx.scale(sx, sy);
+      ctx.fillText(m[2], 0, 0.3);
+      ctx.restore();
+    }
+  }
+}
+
 /** Everything on the ground of one cell, in its own (u, v). */
 function paintGround(ctx: Ctx, L: Look) {
   const S = shapeOf(L);
@@ -844,7 +951,8 @@ function paintGround(ctx: Ctx, L: Look) {
   wideLines(ctx, L);
   highwayArrows(ctx, L);
   medianFoot(ctx, L);
-  if (L.bay) bayLines(ctx, L);
+  if (L.bay) { bayLines(ctx, L); busCages(ctx, L); }
+  roundels(ctx, L);
   if (L.yl) {
     alongKerb(ctx, S, WALK + 0.018, WALK + 0.03, css(YELLOW, 0.92));
     alongKerb(ctx, S, WALK + 0.04, WALK + 0.052, css(YELLOW, 0.92));

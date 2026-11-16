@@ -540,15 +540,16 @@ function baysOf(g: Grid, streets: readonly Street[], lanes: readonly Lane[], cro
 
 /**
  * THE BAYS AS THE PAINT HAS THEM: per cell, its kerbs with bays — a lay-by's
- * a bit a side, a wide road's marked bays a bit a side shifted up four — the
+ * a bit a side, a wide road's marked bays a bit a side shifted up four, a bus
+ * stop's cage (of the stops `served`) a bit a side shifted up eight — the
  * sides as roads/looks numbers them. @see roads/looks Look.bay
  */
-export function bayMarksOf(G: LaneGraph, g: Grid): Uint8Array {
-  const out = new Uint8Array(g.w * g.h);
-  for (const b of G.bays) {
-    const [dx, dy] = NEIGHBOUR[b.kerb], side = dx < 0 ? 0 : dx > 0 ? 1 : dy < 0 ? 2 : 3;
-    out[b.cell] |= (1 << side) << (b.layby ? 0 : 4);
-  }
+export function bayMarksOf(G: LaneGraph, g: Grid, served?: ReadonlySet<number>): Uint16Array {
+  const out = new Uint16Array(g.w * g.h);
+  const sideOf = (kerb: Dir) => { const [dx, dy] = NEIGHBOUR[kerb]; return dx < 0 ? 0 : dx > 0 ? 1 : dy < 0 ? 2 : 3; };
+  for (const b of G.bays) out[b.cell] |= (1 << sideOf(b.kerb)) << (b.layby ? 0 : 4);
+  // AND THE BUS STOPS a route calls at, a bit a side shifted up eight: a cage on the road at each.
+  if (served) for (const s of G.stops) if (served.has(s.id)) out[s.cell] |= (1 << sideOf(s.kerb)) << 8;
   return out;
 }
 
