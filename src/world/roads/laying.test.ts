@@ -279,6 +279,35 @@ describe("laying roads", () => {
     }
   });
 
+  test("a bridge and a junction or a bend at its end, one bank lower: laid in either order the junction is level, never a ramp, and every road joined", () => {
+    const river = (left: number, right: number) => {
+      s().resize(48, 48);
+      const g = s().grid;
+      for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) { if (x >= 20 && x <= 24) { setHeight(g, x, y, -4); g.pool[idx(g, x, y)] = 3; } else setHeight(g, x, y, x < 20 ? left : right); }
+      s().loadGrid(g);
+      return s().grid;
+    };
+    const bridge: Stroke = [12, 10, 25, 10];
+    const others: [string, Stroke][] = [["a road across its end", [25, 4, 25, 16]], ["a bend at its end", [25, 10, 25, 16]], ["a road on from its end, and one off that", [25, 10, 32, 10]]];
+    for (const [left, right] of [[1, 0], [0, 1], [0, 0], [2, 0]]) for (const [name, other] of others) for (const first of ["bridge", "other"]) {
+      const G = river(left, right), said: string[] = [];
+      for (const st of first === "bridge" ? [bridge, other] : [other, bridge]) said.push(drag("paintRoad", ...st));
+      const at = { left, right, name, first };
+      // Laid, or refused whole and saying why: never half a road.
+      if (said.some((t) => t !== "")) { expect({ ...at, said: said.filter(Boolean).every((t) => t === ON_A_SLOPE || /Too steep/.test(t)) }).toEqual({ ...at, said: true }); continue; }
+      expect({ ...at, problems: sound(G) }).toEqual({ ...at, problems: [] });
+      // No cell where roads meet from three ways, or turn, is a ramp.
+      for (let y = 0; y < G.h; y++) for (let x = 0; x < G.w; x++) {
+        if (!isPaved(G, x, y) || !G.ramp[idx(G, x, y)]) continue;
+        const ways = (["N", "E", "S", "W"] as const).filter((d) => connects(G, x, y, d));
+        expect({ ...at, x, y, ways: ways.join("") }).toEqual({ ...at, x, y, ways: ways.length === 2 && (ways.join("") === "NS" || ways.join("") === "EW") ? ways.join("") : "straight" });
+      }
+      // And the bridge is there, joined to the road at each end of it.
+      for (let x = 20; x <= 24; x++) expect(G.deck[idx(G, x, 10)]).toBe(1);
+      expect({ ...at, a: connects(G, 19, 10, "S"), b: connects(G, 24, 10, "S") }).toEqual({ ...at, a: true, b: true });
+    }
+  });
+
   test("open water: the road stops at it and says so; a bridge already there is joined", () => {
     s().resize(64, 64);
     const g = s().grid;

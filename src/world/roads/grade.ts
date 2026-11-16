@@ -224,9 +224,25 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
     for (let k = a; k <= b + 1; k++) if (path[k].x - path[k - 1].x !== dx || path[k].y - path[k - 1].y !== dy) return stopped(OPEN_WATER, path.slice(a, wetTo + 1));
     // As high as the higher bank and clear of the water; level with a deck already alongside, which was laid so.
     let z = Math.max(need, surface(g, idx(g, path[a - 1].x, path[a - 1].y)), surface(g, idx(g, path[b + 1].x, path[b + 1].y)));
+    // A BANK THAT CANNOT CLIMB TO IT SETS ITS LEVEL: a bridge already there, or a road with another joining it from
+    // the side — a junction, a bend, a lane of a wider road — is level and stays so, and the deck meets it where it
+    // stands: over the water still, if by less. Two such banks at two levels, and there is no bridge between them.
+    const fixed = [a - 1, b + 1].map((j) => {
+      const c = path[j], i = idx(g, c.x, c.y);
+      if (g.deck[i] !== 0) return g.deckZ[i];
+      if (g.paved[i] === 0 || g.ramp[i] !== RAMP.NONE) return undefined;
+      return [1, -1].some((sg) => paved(g, c.x + sg * dy, c.y + sg * dx)) ? g.height[i] : undefined;
+    }).filter((v): v is number => v !== undefined);
+    if (fixed.length) {
+      if (fixed.some((v) => v !== fixed[0]) || fixed[0] < need - DECK_CLEAR + 1) return stopped(ON_A_SLOPE, path.slice(a, wetTo + 1));
+      z = fixed[0];
+    }
     for (const c of run) for (const sg of [1, -1]) {
       const nx = c.x + sg * dy, ny = c.y + sg * dx;
-      if (inBounds(g, nx, ny) && g.deck[idx(g, nx, ny)] !== 0) z = g.deckZ[idx(g, nx, ny)];
+      if (inBounds(g, nx, ny) && g.deck[idx(g, nx, ny)] !== 0) {
+        if (fixed.length && g.deckZ[idx(g, nx, ny)] !== z) return stopped(ON_A_SLOPE, path.slice(a, wetTo + 1));
+        z = g.deckZ[idx(g, nx, ny)];
+      }
     }
     if (run.some((c) => z <= g.height[idx(g, c.x, c.y)] + g.pool[idx(g, c.x, c.y)])) return stopped(OPEN_WATER, run);
     for (let k = a; k <= b; k++) span[k] = z;
@@ -385,7 +401,8 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
   // A ROAD ALREADY THERE NEVER CLIMBS TO THE NEW ONE: the cells of the stroke next to it stand no higher than it
   // does, and do the climbing themselves. A junction cannot be the foot of a ramp.
   for (let k = 0; k < n; k++) {
-    if (!paved(g, path[k].x, path[k].y)) continue;
+    // (Nor does a deck, which is level: the bank beside it stands no higher, and climbs away from it.)
+    if (!paved(g, path[k].x, path[k].y) && span[k] === undefined) continue;
     for (const m of [k - 1, k + 1]) if (m >= 0 && m < n && !pin[m]) hi[m] = Math.min(hi[m], h[k]);
   }
   for (let k = 1; k < n; k++) { lo[k] = Math.max(lo[k], lo[k - 1] - lim[k - 1]); hi[k] = Math.min(hi[k], hi[k - 1] + lim[k - 1]); }
