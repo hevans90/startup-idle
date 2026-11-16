@@ -296,7 +296,14 @@ export function buildLaneGraph(g: Grid): LaneGraph {
         const line: Pt[] = [P(endAt(0), mid[0] + off)];
         for (let a = d.a0; a <= d.a1; a++) {
           const at = a === d.a0 ? Math.max(a, endAt(0)) : a === d.a1 ? Math.min(a, endAt(1)) : a;
-          line.push(P(at, mid[a - d.a0] + off));
+          // WHERE A WIDE ROAD JOGS a cell sideways — the one slice a cell wider — the lane crosses in that slice,
+          // edge to edge, as the kerbs and the lines do, and runs straight either side of it. @see roads/looks
+          const n = a - d.a0, [b0, b1] = d.span[n];
+          if (k > 1 && b1 - b0 + 1 > k && a > d.a0 && a < d.a1) {
+            line.push(P(a - 0.5, mid[n - 1] + off), P(a + 0.5, mid[n + 1] + off));
+            continue;
+          }
+          line.push(P(at, mid[n] + off));
         }
         line.push(P(endAt(1), mid[mid.length - 1] + off));
         const pts = straighten(sign > 0 ? line : line.reverse());

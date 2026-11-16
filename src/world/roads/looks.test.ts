@@ -322,4 +322,21 @@ describe("a wide road that jogs a cell sideways", () => {
       expect(Math.abs(painted - st.mid[x - st.a0])).toBeLessThan(0.002);
     }
   });
+
+  test("its lanes cross the jog in the jog's own slice, edge to edge, and nowhere else", () => {
+    const G = buildLaneGraph(g), st = G.streets.find((q) => q.width === 2 && q.a1 - q.a0 > 30)!;
+    expect(st.lanes.length).toBe(4);
+    for (const id of st.lanes) {
+      const pts = [...G.lanes[id].pts].sort((p, q) => p.x - q.x);
+      // Straight to the slice's low edge, across it, straight on: four points, the middle two the jog's.
+      expect(pts.length).toBe(4);
+      expect(pts[1].x).toBeCloseTo(19.5, 6);
+      expect(pts[2].x).toBeCloseTo(20.5, 6);
+      expect(pts[0].y).toBeCloseTo(pts[1].y, 6);
+      expect(pts[2].y).toBeCloseTo(pts[1].y + 1, 6);
+      expect(pts[3].y).toBeCloseTo(pts[2].y, 6);
+      // On the road either side: within a cell of its middle (8.5 before the jog, 9.5 after).
+      expect(Math.abs(pts[1].y - 8.5)).toBeLessThan(1);
+    }
+  });
 });
