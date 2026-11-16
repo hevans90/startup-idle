@@ -272,7 +272,10 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
       if (!ahead && beside(k, -dx, -dy)) continue;
       // AN END MEETING THE ROAD AHEAD OF IT stands no higher than it, and may be a step below, climbing to it:
       // where the ground already is within that, it stays — a stretch taken up is relaid as it lay.
-      if (!up && ahead) { range[k] = [was(j) - MAX_RISE, was(j)]; break; }
+      // (And then looks beside it: a lane already laid alongside, climbing to the same road, says where in that.)
+      if (!up && ahead) { range[k] = [was(j) - MAX_RISE, was(j)]; continue; }
+      const within = (z: number) => !range[k] || (z >= range[k]![0] && z <= range[k]![1]);
+      if (range[k] && !within(was(j))) continue;
       if (!up) { h[k] = was(j); pin[k] = true; break; }
       const inLine = up[0] === -dx && up[1] === -dy ? 1 : up[0] === dx && up[1] === dy ? -1 : 0;
       if (inLine) {
@@ -282,7 +285,10 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
         break;
       }
       // BESIDE A RAMP: a lane alongside climbs with it; an end joining it by its side levels it.
-      if (ahead) h[k] = level(nx, ny, k); else h[k] = was(j);
+      // (Levelled, it is the road ahead as any other: the end no higher than it, a step below at most — and a lane
+      // already laid beside the end says where.)
+      if (ahead) { const z = level(nx, ny, k); range[k] = [z - MAX_RISE, z]; continue; }
+      h[k] = was(j);
       pin[k] = true;
       break;
     }

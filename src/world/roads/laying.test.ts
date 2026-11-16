@@ -114,12 +114,23 @@ describe("laying roads", () => {
         run(`${tn}: ${k} wide, a road across it on the climb`, t, [...lanes(k, (c): Stroke => [2, 20 + c, 46, 20 + c]), [17, 6, 17, 40]]);
         run(`${tn}: ${k} wide with a bend`, t, lanes(k, (c) => [2, 20 + c, 34 - c, 44]));
       }
+      // A WIDE BEND with its corner at every tile of the climb, its legs laid apart, lane by lane: the road and then
+      // the leg off its end, and the leg first. Each lane of the leg meets the road's end where the one before did.
+      for (const k of [2, 3, 4]) for (let x = 12; x <= 44; x += 1) {
+        const road = lanes(k, (c): Stroke => [x - 10, 4 + c, x, 4 + c]), leg = lanes(k, (c): Stroke => [x - k + 1 + c, 4 + k, x - k + 1 + c, 16]);
+        // (Terraces, four wide, its end across the slot one cell wide and three steps deep at x = 29: the road
+        // crosses it on two ramps back to back, and a lane of the leg coming onto those is refused, and says so.)
+        const slot = t === hills && k === 4 && (x === 30 || x === 31);
+        run(`${tn}: ${k} wide bend, corner at x=${x}, the leg after`, t, [...road, ...leg], slot ? 1 : 0);
+        run(`${tn}: ${k} wide bend, corner at x=${x}, the leg first`, t, [...lanes(k, (c): Stroke => [x - k + 1 + c, 4, x - k + 1 + c, 16]), ...lanes(k, (c): Stroke => [x - 10, 4 + c, x - k, 4 + c])]);
+      }
       for (let x = 6; x <= 44; x += 1) run(`${tn}: side road onto the climb at x=${x}`, t, [[2, 20, 46, 20], [x, 34, x, 20]]);
       for (let x = 6; x <= 44; x += 3) run(`${tn}: road across the climb at x=${x}`, t, [[2, 20, 46, 20], [x, 8, x, 34]]);
       for (let x = 6; x <= 44; x += 3) run(`${tn}: side road onto a 3 wide climb at x=${x}`, t, [...lanes(3, (c): Stroke => [2, 20 + c, 46, 20 + c]), [x, 36, x, 22]]);
     }
     expect(failed()).toEqual([]);
-  });
+    // (Some twelve hundred layings: longer than a test's five seconds when the whole suite runs at once.)
+  }, 60_000);
 
   /** One stroke of any line tool, and what it said. */
   const drag = (tool: "paintRoad" | "eraseRoad" | "pipe" | "sewer", x0: number, y0: number, x1: number, y1: number) => {
