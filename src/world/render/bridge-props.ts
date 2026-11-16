@@ -73,7 +73,7 @@ export function bridgesOf(g: Grid, depth: (x: number, y: number) => number = () 
 }
 
 /**
- * WHERE A GIRDER'S ARCHES SPRING, in tiles along it from its first: its length from the middle of its first tile to
+ * WHERE A GIRDER'S ARCHES SPRING — and a timber bridge's trusses — in tiles along it from its first: its length from the middle of its first tile to
  * the middle of its last, shared out into arches of two or three tiles (one, over a bridge of two).
  */
 export function springsOf(len: number): number[] {
@@ -107,7 +107,7 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
   ];
   for (const B of bridgesOf(g, depth, force)) {
     const K = B.kind, turn = B.alongX ? 0 : 1;
-    const springs = K === "girder" ? springsOf(B.len) : [], towers = K === "arch" ? towersOf(B.len) : [];
+    const springs = K === "girder" || K === "trestle" ? springsOf(B.len) : [], towers = K === "arch" ? towersOf(B.len) : [];
     for (const i of B.cells) {
       const x = i % g.w, y = (i / g.w) | 0, z = g.deckZ[i], k = (B.alongX ? x : y) - B.a0;
       const base = g.height[i] + Math.max(0, depth(x, y)), room = z - base;
@@ -125,10 +125,10 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
           put("archHead", "under");
         }
       } else if (K === "trestle") {
-        // A pier every other tile, whole: the one made nearest the room there is from the water to the beams, and
+        // A pier where two of its trusses meet, whole: the one made nearest the room there is from the water to the beams, and
         // drawn the little taller or shorter that fits it exactly.
         const need = room - BENT_UNDER / HS, n = Math.max(1, Math.min(BENT_MAX, Math.round(need)));
-        if ((B.alongX ? x : y) % 2 === 0 && need >= 0.6 && (B.len < 3 || (k >= 1 && k <= B.len - 2))) out.push({ id: `timberPier${n}`, turn, x, y, z: base, tier: "under", stretch: need / n });
+        if (k >= 1 && k <= B.len - 2 && springs.includes(k) && need >= 0.6) out.push({ id: `timberPier${n}`, turn, x, y, z: base, tier: "under", stretch: need / n });
       } else {
         // A stay's pier is its pylon's; a girder's, where two of its arches meet; a truss's, every third tile.
         const here = K === "stay" ? off === 0 : K === "girder" ? k >= 1 && k <= B.len - 2 && springs.includes(k) : (B.alongX ? x : y) % PIER_EVERY === 1 && k >= 1 && k <= B.len - 2;
@@ -144,22 +144,25 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
         if ((s.dx !== 0) === B.alongX) continue;
         // Which way along the bridge this piece's own +x runs.
         const way = B.alongX ? s.fx : s.fy;
-        if (K === "trestle") put("timberTruss", tier, z, s.turn);
         if (K === "arch" && towers.includes(k)) {
           // A GATE TOWER on the pier at the tile's low end: a turret at this edge, and over two lanes the half of the gate that springs from it.
           const at = { x: x - (B.alongX ? 0.5 : 0), y: y - (B.alongX ? 0 : 0.5), z, turn: s.turn };
           out.push({ id: s.near ? "archTower" : "archTowerFar", tier, ...at });
+          // The turret's foot is the pier's: its stone on down from the springing to the water.
+          if (s.near && room > SPRING + 0.6) for (let top = base + 1; top - 1 < z - SPRING; top++) out.push({ id: "archTowerShaft", tier: "under", ...at, z: Math.min(top, z - SPRING) });
           if (B.width === 2) out.push({ id: "archGateHalf", tier: "front", ...at });
         }
-        if (K === "girder") {
-          // THE ARCHES OVER IT: where two meet, the end of the one and the start of the next; between, its own tile of one.
-          const at = springs.indexOf(k);
+        if (springs.length) {
+          // THE ARCHES OR TRUSSES OVER IT: where two meet, the end of the one and the start of the next; between, its own tile of one.
+          const at = springs.indexOf(k), P = K === "girder" ? "bow" : "kp";
           if (at >= 0) {
-            if (at + 1 < springs.length) put(`bow${springs[at + 1] - k}${way > 0 ? "A" : "B"}`, tier, z, s.turn);
-            if (at > 0) put(`bow${k - springs[at - 1]}${way > 0 ? "B" : "A"}`, tier, z, s.turn);
+            // A girder's arch springs from the pier's own concrete, brought up past the deck's edge.
+            if (K === "girder") put(s.near && k >= 1 && k <= B.len - 2 && room >= PIER_ROOM ? "bowSeat" : "bowSeatFar", tier, z, s.turn);
+            if (at + 1 < springs.length) put(`${P}${springs[at + 1] - k}${way > 0 ? "A" : "B"}`, tier, z, s.turn);
+            if (at > 0) put(`${P}${k - springs[at - 1]}${way > 0 ? "B" : "A"}`, tier, z, s.turn);
           } else {
             const i = springs.findIndex((q) => q > k), span = springs[i] - springs[i - 1], j = k - springs[i - 1];
-            put(span === 2 ? "bow2M" : `bow3M${(j === 1) === way > 0 ? "A" : "B"}`, tier, z, s.turn);
+            put(span === 2 ? `${P}2M` : `${P}3M${(j === 1) === way > 0 ? "A" : "B"}`, tier, z, s.turn);
           }
         }
         if (K !== "stay") continue;

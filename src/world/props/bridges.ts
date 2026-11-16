@@ -9,7 +9,8 @@
  *                and a keystone round each, a solid parapet with a coping; gate
  *                towers on its piers, an arch between two battlemented turrets.
  *  - `trestle…`  a TIMBER BRIDGE: board-clad crib piers with cutwaters, a deep
- *                beam under planking, a braced railing, king-post trusses over it.
+ *                beam under planking, a braced railing, king-post trusses over it
+ *                from pier to pier.
  *  - `girder…`   a STEEL PLATE GIRDER on concrete hammerhead piers: stiffened
  *                web between flanges, a concrete parapet and steel rail; bowstring
  *                arches over it, pier to pier, the deck hung from them.
@@ -125,6 +126,12 @@ function merlons(x0: number, x1: number, y0: number, y1: number, z: number, out:
   if (everyY) { for (let y = y0 + everyY / 2; y < y1; y += everyY) for (const x of [x0 + w, x1 - w]) put(x, y); return; }
   for (const x of [x0 + w, (x0 + x1) / 2, x1 - w]) for (const y of [y0 + w, (y0 + y1) / 2, y1 - w]) if (x !== (x0 + x1) / 2 || y !== (y0 + y1) / 2) put(x, y);
 }
+/** A half step of a turret's foot under the arches' springing, its top at the origin: the pier's own stone, out to the turret's face, stood one on another from the water up. */
+function towerShaftTris(): Tri[] {
+  const out: Tri[] = [];
+  pbox(-TUR_X - 0.25, TUR_X + 0.25, HT - TUR_IN, HT + TUR_OUT + 0.25, -HS, 0, "stoneB", out, masonry);
+  return out;
+}
 /** A loop in a wall's face at `x = f`, looking out along `sg`: a tall dark slit, dressed round. */
 function loopX(f: number, sg: number, y: number, z0: number, z1: number, out: Tri[]) {
   box(Math.min(f, f + sg * 0.04), Math.max(f, f + sg * 0.04), y - 0.24, y + 0.24, z0, z1, "ashlar", out);
@@ -180,6 +187,8 @@ function towerGateTris(crown: number, half: number, rise: number): Tri[] {
 }
 
 // ── a timber bridge ──────────────────────────────────────────────────────
+/** How far under the road a timber pier's head is: the foot of the beams it carries. */
+export const BENT_UNDER = 1.0;
 /** A squared timber between two points, `w` across: a brace, a rail. */
 const balk = (a: V3, b: V3, w: number, mat: Mat, out: Tri[]) => limb(a, b, w * 0.7, w * 0.7, mat, out, 4, false);
 /** BOARDS laid one on another up a wall: each 0.34 m, a shadow between, no two quite the colour of each other. */
@@ -211,33 +220,43 @@ function trestleEdgeTris(): Tri[] {
   return out;
 }
 function trestleRailTris(): Tri[] { const out: Tri[] = []; fence(out); return out; }
+/** A KING-POST TRUSS's height over the road, metres, by how many tiles it spans from pier to pier. */
+const KP_TOP = [0, 3.6, 5.6, 7.0];
 /**
- * A KING-POST TRUSS over the left edge, a tile of it: two great rafters from the tile's ends up to a post at its
- * middle, a strut from the post's foot out to each, iron straps where they meet and a rod down beside the post —
- * the deck hung from it between the piers.
+ * A LENGTH OF A KING-POST TRUSS over the left edge, from `d0` to `d1` metres along one `span` tiles long,
+ * `x = dir × (d − at)`: two great rafters from the piers up to a post at the middle, a strut from the post's foot out
+ * to each, an iron rod down from where they meet; and where it springs, the pier's own post up through the deck
+ * with the rafter's foot let into it.
  */
-function kingPostTris(): Tri[] {
-  const out: Tri[] = [], y = HT + 0.02, top = 5.2, w = 0.2;
-  const B = (x0: number, x1: number, z0: number, z1: number, m: Mat, d = w) => box(x0, x1, y - d, y + d, z0, z1, m, out);
-  for (const sg of [-1, 1]) {
-    // A shoe at its foot; the rafter; a strut up to the middle of it.
-    B(sg > 0 ? HT - 0.75 : -HT, sg > 0 ? HT : -HT + 0.75, -0.1, 0.5, "timberDark", w + 0.05);
-    balk([sg * (HT - 0.3), y, 0.35], [sg * 0.12, y, top - 0.25], 0.44, "timber", out);
-    balk([sg * 0.2, y, 0.75], [sg * 2.75, y, 2.5], 0.32, "timberLight", out);
-    B(sg * 2.75 - 0.22, sg * 2.75 + 0.22, 2.3, 2.85, "iron", w + 0.04);
-    B(sg > 0 ? HT - 0.62 : -HT + 0.5, sg > 0 ? HT - 0.5 : -HT + 0.62, -0.05, 0.62, "iron", w + 0.07);
+function kingPostTris(span: number, d0: number, d1: number, at: number, dir: 1 | -1): Tri[] {
+  const out: Tri[] = [], y = HT + 0.02, L = span * 2 * HT, top = KP_TOP[span], w = 0.2, mid = L / 2;
+  const X = (d: number) => dir * (d - at);
+  const B = (da: number, db: number, z0: number, z1: number, m: Mat, hw = w) => { const a = Math.max(d0, da), b = Math.min(d1, db); if (b > a) box(Math.min(X(a), X(b)), Math.max(X(a), X(b)), y - hw, y + hw, z0, z1, m, out); };
+  /** A timber from (`da`, `za`) to (`db`, `zb`), the part of it over this tile. */
+  const seg = (da: number, za: number, db: number, zb: number, wide: number, m: Mat) => {
+    const lo = Math.min(da, db), hi = Math.max(da, db), a = Math.max(d0, lo), b = Math.min(d1, hi), z = (d: number) => za + ((zb - za) * (d - da)) / (db - da);
+    if (b - a > 0.05) balk([X(a), y, z(a)], [X(b), y, z(b)], wide, m, out);
+  };
+  const rz = (d: number) => 0.6 + ((top - 0.25 - 0.6) * Math.min(d, L - d)) / mid;
+  for (const e of [0, L]) {
+    const q = e === 0 ? mid / 2 : L - mid / 2;
+    seg(e, 0.6, mid, top - 0.25, 0.44, "timber");
+    seg(e === 0 ? mid - 0.2 : mid + 0.2, 0.75, q, rz(q), 0.32, "timberLight");
+    B(q - 0.22, q + 0.22, rz(q) - 0.25, rz(q) + 0.3, "iron", w + 0.04);
+    if (span > 1 && q >= d0 - 1e-6 && q <= d1 + 1e-6) bar([X(q), y, 0], [X(q), y, rz(q)], 0.05, "iron", out);
+    // THE PIER'S POST, up through the deck from its cap: the rafter's foot in an iron shoe on it.
+    B(e - 0.34, e + 0.34, -BENT_UNDER, 1.55, "timberDark", 0.3);
+    B(e - 0.4, e + 0.4, 1.55, 1.72, "timberLight", 0.36);
+    B(e - 0.38, e + 0.38, 0.5, 0.72, "iron", 0.34);
   }
-  // The king post, a cap on it, a strap round its head and its foot.
-  B(-0.23, 0.23, -0.1, top, "timberDark", 0.23);
-  B(-0.3, 0.3, top, top + 0.16, "timberLight", 0.3);
-  B(-0.26, 0.26, top - 0.75, top - 0.55, "iron", 0.26);
-  B(-0.26, 0.26, 0.5, 0.68, "iron", 0.26);
+  B(mid - 0.23, mid + 0.23, -0.1, top, "timberDark", 0.23);
+  B(mid - 0.3, mid + 0.3, top, top + 0.16, "timberLight", 0.3);
+  B(mid - 0.26, mid + 0.26, top - 0.75, top - 0.55, "iron", 0.26);
+  B(mid - 0.26, mid + 0.26, 0.5, 0.68, "iron", 0.26);
   return out;
 }
 /** How tall a pier is made, half steps: one model for each. @see render/bridge-props */
 export const BENT_MAX = 12;
-/** How far under the road a timber pier's head is: the foot of the beams it carries. */
-export const BENT_UNDER = 1.0;
 /**
  * A TIMBER PIER `n` half steps tall, its foot at the origin — the waterline — and its head under the beams: a crib
  * of boards between four corner posts, broader at the foot than the head, a brace let into each broad face, a
@@ -366,6 +385,18 @@ function bowTris(span: number, d0: number, d1: number, at: number, dir: 1 | -1):
     box(X(d) - 0.14, X(d) + 0.14, yc - hw - 0.03, yc + hw + 0.03, z - hd - 0.22, z - hd, "steelBlueDark", out);
   }
   if (d0 === 0) { const x0 = Math.min(X(0), X(1.0)), x1 = Math.max(X(0), X(1.0)); box(x0, x1, yc - 0.3, yc + 0.3, 0.6, 1.0, "steelBlueDark", out); box(x0, x1, yc - 0.34, yc + 0.34, 0.6, 0.68, "iron", out); }
+  return out;
+}
+/**
+ * WHERE AN ARCH SPRINGS, at the left edge over the pier (x = 0): the pier's own concrete brought up past the girder
+ * and the deck's edge from `from` — its crosshead's end where there is a pier, the road where there is none — to a
+ * bearing shelf the arch's shoe sits on.
+ */
+function bowSeatTris(from: number): Tri[] {
+  const out: Tri[] = [];
+  pbox(-1.05, 1.05, HT - 0.62, HT + 0.22, from, 0.62, "concrete", out, concrete);
+  box(-1.12, 1.12, HT - 0.68, HT + 0.28, 0.5, 0.62, "pave", out);
+  if (from < 0) box(-1.15, 1.15, HT - 0.62, HT + 0.3, from, from + 0.12, "pave", out);
   return out;
 }
 /** A strut across the road between two arches, a tile of it, under their ribs at the tile's middle; a knee down at each end of it. */
@@ -507,7 +538,11 @@ export const BRIDGE: readonly Prop[] = [
   P("archTower", () => towerLegTris(-ARCH_SPRING)), P("archTowerFar", () => towerLegTris(0)),
   // The gate over one lane, turret to turret; and half of one over two, from the turret at its left to its crown on the road's middle.
   P("archGate", () => towerGateTris(0, HT - TUR_IN, 1.9)), P("archGateHalf", () => towerGateTris(-HT, 2 * HT - TUR_IN, 2.6)),
-  P("timberTruss", kingPostTris),
+  P("archTowerShaft", towerShaftTris),
+  // A king-post truss's tiles, named as the arches' are below.
+  ...([1, 2, 3] as const).flatMap((n) => [P(`kp${n}A`, () => kingPostTris(n, 0, HT, 0, 1)), P(`kp${n}B`, () => kingPostTris(n, 0, HT, 0, -1))]),
+  P("kp2M", () => kingPostTris(2, HT, 3 * HT, TL, 1)), P("kp3MA", () => kingPostTris(3, HT, 3 * HT, TL, 1)), P("kp3MB", () => kingPostTris(3, HT, 3 * HT, TL, -1)),
+  P("bowSeat", () => bowSeatTris(-2.0)), P("bowSeatFar", () => bowSeatTris(0)),
   // An arch's half tile from where it springs, for each span, rising along the piece (A) or back along it (B); the
   // tiles between: the crown of a two-tile arch (M), the rise (MA) and fall (MB) of a three-tile one.
   ...([1, 2, 3] as const).flatMap((n) => [P(`bow${n}A`, () => bowTris(n, 0, HT, 0, 1)), P(`bow${n}B`, () => bowTris(n, 0, HT, 0, -1))]),

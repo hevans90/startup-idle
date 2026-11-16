@@ -50,16 +50,16 @@ describe("a bridge's pieces", () => {
     expect(shafts[shafts.length - 1].z).toBeLessThan(10);
   });
 
-  test("a viaduct has a pier between every arch and the next; a timber bridge a pier under every other tile; a truss its bracing over every tile", () => {
+  test("a viaduct has a pier between every arch and the next; a timber bridge a pier where its trusses meet; a truss its bracing over every tile", () => {
     const g = bridged(10);
     const arch = bridgePiecesOf(g, () => 2, "arch");
     expect(arch.filter((p) => p.id === "archSide").length).toBe(14);
     expect(new Set(arch.filter((p) => p.id === "archHead").map((p) => p.y)).size).toBe(13);
-    // A timber pier under every other tile, across its width, none under its ends: each whole, made to the nearest
+    // A timber pier where two of its trusses meet, across its width, none under its ends: each whole, made to the nearest
     // half step and drawn the little taller or shorter that reaches from the water to the beams exactly.
     const piers = bridgePiecesOf(g, () => 2, "trestle").filter((p) => /^timberPier\d+$/.test(p.id));
-    expect([...new Set(piers.map((p) => p.y))].sort((a, b) => a - b)).toEqual([8, 10, 12, 14, 16, 18]);
-    expect(piers.length).toBe(12);
+    expect([...new Set(piers.map((p) => p.y))].sort((a, b) => a - b)).toEqual(springsOf(14).slice(1, -1).map((k) => 6 + k));
+    expect(piers.length).toBe(8);
     for (const p of piers) {
       const n = Number(p.id.slice(10)), need = 10 - 2 - BENT_UNDER / HS;
       expect(p).toMatchObject({ z: 2, tier: "under" });
@@ -110,9 +110,17 @@ describe("a bridge's pieces", () => {
     expect(hand(11, 3, 6)).not.toBe(hand(10, 1, 6));
     expect(girder.filter((p) => /^bowBrace/.test(p.id)).length).toBe(2 * (14 - s.length));
 
-    const timber = bridgePiecesOf(bridged(6, 1), () => 2, "trestle").filter((p) => p.id === "timberTruss");
-    expect(timber.length).toBe(28);
-    expect(timber.filter((p) => p.tier === "front").length).toBe(14);
+    // WHAT STANDS OVER IT STANDS ON WHAT IS UNDER IT. A girder's arch springs from a seat at each edge over each pier —
+    // the pier's concrete brought up where the edge shows it; a timber truss's feet are over the timber piers.
+    const seats = girder.filter((p) => /^bowSeat/.test(p.id));
+    expect([...new Set(seats.map((p) => p.y))].sort((a, b) => a - b)).toEqual(s.map((k) => 6 + k));
+    for (const p of seats) expect(p.id).toBe(p.x === 11 && p.y !== 6 && p.y !== 19 ? "bowSeat" : "bowSeatFar");
+    const low = bridged(6, 1), timber = bridgePiecesOf(low, () => 2, "trestle");
+    const feet = timber.filter((p) => /^kp\d[AB]$/.test(p.id)), kps = timber.filter((p) => /^kp\d/.test(p.id));
+    expect(new Set(kps.map((p) => p.y)).size).toBe(14);
+    expect(kps.filter((p) => p.tier === "front").length).toBe(kps.length / 2);
+    expect([...new Set(feet.map((p) => p.y))].sort((a, b) => a - b)).toEqual(s.map((k) => 6 + k));
+    expect(new Set(timber.filter((p) => /^timberPier/.test(p.id)).map((p) => p.y))).toEqual(new Set(s.slice(1, -1).map((k) => 6 + k)));
 
     // A gate tower: a turret on the pier at each edge, the gate between them — whole over one lane, in halves over two.
     for (let len = 2; len <= 30; len++) for (const k of towersOf(len)) { expect(k).toBeGreaterThanOrEqual(1); expect(k).toBeLessThanOrEqual(len - 1); }
@@ -120,9 +128,13 @@ describe("a bridge's pieces", () => {
     expect(towersOf(14)).toEqual([1, 5, 9, 13]);
     const two = bridgePiecesOf(g, () => 2, "arch"), one = bridgePiecesOf(bridged(10, 1), () => 2, "arch");
     for (const [ps, wide] of [[two, 2], [one, 1]] as const) {
-      const turrets = ps.filter((p) => /^archTower/.test(p.id));
+      const turrets = ps.filter((p) => /^archTower(Far)?$/.test(p.id));
       expect(turrets.length).toBe(8);
       expect([...new Set(turrets.map((p) => p.y))].sort((a, b) => a - b)).toEqual([6.5, 10.5, 14.5, 18.5]);
+      // Each turret that shows its foot has the pier's stone under it, down to the water.
+      const shafts = ps.filter((p) => p.id === "archTowerShaft");
+      expect(new Set(shafts.map((p) => p.y))).toEqual(new Set([6.5, 10.5, 14.5, 18.5]));
+      for (const p of shafts) { expect(p.tier).toBe("under"); expect(p.z).toBeGreaterThan(2); expect(p.z).toBeLessThanOrEqual(10 - 6.6 / HS + 1e-9); }
       expect(ps.filter((p) => p.id === "archGateHalf").length).toBe(wide === 2 ? 8 : 0);
       expect(ps.filter((p) => p.id === "archGate").length).toBe(wide === 1 ? 4 : 0);
       for (const p of ps.filter((q) => /^archGate/.test(q.id))) expect(p.tier).toBe("front");
