@@ -135,8 +135,9 @@ export type Look = {
    */
   bay: string;
   /**
-   * A SPEED ROUNDEL in the lanes leaving a junction: the side they are going
-   * toward, then the limit — `120`, 20 toward side 1. @see render/road-paint roundels
+   * SPEED ROUNDELS, one for each way along the road, two cells out of a
+   * junction: the side that way's traffic is going toward, then the limit —
+   * `020120`, 20 each way. @see render/road-paint roundels
    */
   spd: string;
 };
@@ -376,11 +377,11 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
       else if (minor) L.gw += code(sd + 4);
       if (!minor && !L.stop) continue;
     }
-    // A SPEED ROUNDEL two cells out of a junction, in the lanes leaving it, on a street long enough to want one.
-    if ((straight || wide) && !warn && streets.tiles[streets.of[i]]?.length >= (wide ? wide.k : 1) * ROUNDEL_MIN) for (const sd of along) {
-      const [dx, dy] = STEP[sd], J = regionAt(x - 2 * dx, y - 2 * dy);
-      if (!J || regionAt(x - dx, y - dy) || J.arms.size < 3) continue;
-      L.spd += `${sd}${!wide ? 20 : wide.k < MEDIAN_FROM ? 30 : 40}`;
+    // A SPEED ROUNDEL two cells out of a junction, on a street long enough to want one: one for each way along it,
+    // the traffic leaving the junction and the traffic coming to it alike.
+    if ((straight || wide) && !warn && streets.tiles[streets.of[i]]?.length >= (wide ? wide.k : 1) * ROUNDEL_MIN
+      && along.some((sd) => { const [dx, dy] = STEP[sd], J = regionAt(x - 2 * dx, y - 2 * dy); return !!J && !regionAt(x - dx, y - dy) && J.arms.size >= 3; })) {
+      for (const sd of along) L.spd += `${sd}${!wide ? 20 : wide.k < MEDIAN_FROM ? 30 : 40}`;
     }
     // THE ARROW in the lane, a cell back from the line — the cell at the line is
     // the crossing's — at lights or a box, on a two-lane road's lane coming in.

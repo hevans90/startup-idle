@@ -216,3 +216,18 @@ describe("a road tile's variant", () => {
     for (const v of plain) expect(v).toBeGreaterThanOrEqual(PLAIN);
   });
 });
+
+describe("speed roundels", () => {
+  test("two cells out of a junction there is one for each way along the road, and none elsewhere", () => {
+    // A long street off a T at x = 10.
+    const g = grid(40, 20, [...row(8, 0, 39), ...col(10, 9, 19)]);
+    expect(look(g, 12, 8).spd).toBe("020120");
+    expect(look(g, 8, 8).spd).toBe("020120");
+    expect(look(g, 13, 8).spd).toBe("");
+    expect(look(g, 20, 8).spd).toBe("");
+    // On a road two cells wide, every cell across it says so: each way's nearside lane is in one of them.
+    const w = grid(40, 20, [...row(8, 0, 39), ...row(9, 0, 39), ...col(10, 10, 19)]);
+    expect(look(w, 12, 8).spd).toBe("030130");
+    expect(look(w, 12, 9).spd).toBe("030130");
+  });
+});

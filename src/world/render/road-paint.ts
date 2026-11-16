@@ -891,45 +891,43 @@ function busCages(ctx: Ctx, L: Look) {
   }
 }
 
+/** How far back along its way a roundel sits from the cell's middle: the two ways' roundels pass each other, never side by side. */
+const ROUNDEL_BACK = 0.2;
 /**
- * SPEED ROUNDELS: the limit in a ring, its top toward where the lane's
- * traffic is going, in every lane going toward each side its look lists.
- * @see Look.spd
+ * SPEED ROUNDELS: the limit in a ring, ONE for each way along the road — in
+ * that way's nearside lane, its top toward where that traffic is going — so
+ * both sides of the road have one and neither has two. @see Look.spd
  */
-/** How far along its lane a roundel sits from the cell's middle: the inside lane's back, the next lane's on, turn about. */
-const ROUNDEL_STAGGER = 0.24;
 function roundels(ctx: Ctx, L: Look) {
   if (!L.spd) return;
   const W = wideOf(L.ln);
   for (const m of L.spd.matchAll(/([0-3])(\d\d)/g)) {
     const s = Number(m[1]) as Side, [hx, hy] = STEP[s], [rx, ry] = rightOf(hx, hy);
-    // Each lane's middle, right of the road's: one on a one-cell street. On a
-    // wider road STAGGERED, one lane's ahead of the next's, never side by side.
-    const mids: [number, number][] = [];
-    if (!W) { const off = (0.5 - WALK) / 2; mids.push([0.5 + rx * off, 0.5 + ry * off]); }
-    else for (let i = 0; i < lanesFor(W.k); i++) {
-      const off = laneOffset(W.k, i), mid = W.k / 2 - W.c, on = i % 2 ? ROUNDEL_STAGGER : -ROUNDEL_STAGGER;
-      const cu = W.ax === "u" ? 0.5 : mid + rx * off, cv = W.ax === "u" ? mid + ry * off : 0.5;
+    // The nearside lane's middle, right of the road's: on a one-cell street, its half of the road.
+    let cu: number, cv: number;
+    if (!W) { const off = (0.5 - WALK) / 2; cu = 0.5 + rx * off; cv = 0.5 + ry * off; }
+    else {
+      const off = laneOffset(W.k, lanesFor(W.k) - 1), mid = W.k / 2 - W.c;
+      cu = W.ax === "u" ? 0.5 : mid + rx * off; cv = W.ax === "u" ? mid + ry * off : 0.5;
       const q = W.ax === "u" ? cv : cu;
-      if (q > 0.08 && q < 0.92) mids.push([cu + hx * on, cv + hy * on]);
+      // That lane runs through another cell of the road's width.
+      if (q < 0.08 || q > 0.92) continue;
     }
-    for (const [cu, cv] of mids) {
-      ctx.save();
-      // Its right the driver's right, its top toward where they are going.
-      ctx.transform(rx, ry, -hx, -hy, cu, cv);
-      ctx.strokeStyle = css(WHITE, 0.9);
-      ctx.lineWidth = 0.014;
-      ctx.beginPath(); ctx.ellipse(0, 0, 0.098, 0.118, 0, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = css(WHITE, 0.92);
-      ctx.font = "900 10px Arial, Helvetica, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      // As tall as it is wide on the ground: stretched down the lane as real lettering is, seen from above it reads as nothing.
-      const sx = 0.13 / ctx.measureText(m[2]).width, sy = 0.13 / 7.2;
-      ctx.scale(sx, sy);
-      ctx.fillText(m[2], 0, 0.3);
-      ctx.restore();
-    }
+    ctx.save();
+    // Its right the driver's right, its top toward where they are going.
+    ctx.transform(rx, ry, -hx, -hy, cu - hx * ROUNDEL_BACK, cv - hy * ROUNDEL_BACK);
+    ctx.strokeStyle = css(WHITE, 0.9);
+    ctx.lineWidth = 0.014;
+    ctx.beginPath(); ctx.ellipse(0, 0, 0.098, 0.118, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = css(WHITE, 0.92);
+    ctx.font = "900 10px Arial, Helvetica, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    // As tall as it is wide on the ground: stretched down the lane as real lettering is, seen from above it reads as nothing.
+    const sx = 0.13 / ctx.measureText(m[2]).width, sy = 0.13 / 7.2;
+    ctx.scale(sx, sy);
+    ctx.fillText(m[2], 0, 0.3);
+    ctx.restore();
   }
 }
 
