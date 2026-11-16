@@ -18,7 +18,7 @@ import type { Grid } from "../grid";
 import { idx, inBounds } from "../grid";
 import { bandOf } from "../iso";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { ARCH_SPRING, BENT_MAX, BENT_UNDER, HS } from "../props/bridges";
+import { ARCH_SPRING, BENT_MAX, BENT_UNDER, HS, FRAME_DEEP, FRAME_LOW, RIB_CROWN, RIB_FOOT } from "../props/bridges";
 import type { BandLayer } from "./bands";
 
 export type BridgeKind = "arch" | "trestle" | "girder" | "truss" | "stay";
@@ -26,8 +26,8 @@ export type BridgePiece = { id: string; turn: number; x: number; y: number; z: n
 /** A bridge: the deck's cells joined up, the way it runs, how long and wide it is, the room under it, and what kind it is. */
 export type Bridge = { kind: BridgeKind; cells: number[]; alongX: boolean; a0: number; len: number; width: number; room: number };
 
-/** A pier every this many tiles along a girder or a truss; a pylon every this many of a cable-stayed bridge; the least room under a deck, half steps, for a pier to be worth standing. */
-export const PIER_EVERY = 3, PYLON_EVERY = 7, PIER_ROOM = 3;
+/** A pylon every this many tiles of a cable-stayed bridge; the least room under a deck, half steps, for a pier to be worth standing. */
+export const PYLON_EVERY = 7, PIER_ROOM = 3;
 /** The most room under a deck, half steps, that timber is built over: higher is stone's or steel's. */
 export const TRESTLE_ROOM = 8;
 /** How far under the road each thing hangs, half steps; and how tall a footing stands. @see props/bridges */
@@ -107,11 +107,17 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
   ];
   for (const B of bridgesOf(g, depth, force)) {
     const K = B.kind, turn = B.alongX ? 0 : 1;
-    const springs = K === "girder" || K === "trestle" ? springsOf(B.len) : [], towers = K === "arch" ? towersOf(B.len) : [];
+    const springs = K === "girder" || K === "trestle" || K === "truss" ? springsOf(B.len) : [], towers = K === "arch" ? towersOf(B.len) : [];
+    // BETWEEN ITS PIERS, under the deck: a timber bridge's braced frame, a girder's or a truss's arch ribs — where there is the room for them over the water.
+    const between = K === "trestle" ? (B.room * HS >= FRAME_DEEP + 1.4 ? "frame" : B.room * HS >= FRAME_LOW + 1.2 ? "frameLow" : "") : K === "girder" || K === "truss" ? (B.room >= PIER_ROOM ? (K === "truss" ? "ribR" : "rib") : "") : "";
+    // AN ARCH RIB IS MADE FOR A HIGH BRIDGE and drawn the shallower a lower one needs: from its crown, which stays
+    // where it is under the deck, down to feet a little over the water. `ribZ`: where such a piece is put to be so.
+    const crown = between === "rib" || between === "ribR" ? RIB_CROWN[between] : 0;
+    const ribFit = crown ? Math.min(1, (B.room * HS - 1.6 - crown) / (RIB_FOOT - crown)) : 1, ribZ = (z: number) => z - (crown * (1 - ribFit)) / HS;
     for (const i of B.cells) {
       const x = i % g.w, y = (i / g.w) | 0, z = g.deckZ[i], k = (B.alongX ? x : y) - B.a0;
       const base = g.height[i] + Math.max(0, depth(x, y)), room = z - base;
-      const put = (id: string, tier: BridgePiece["tier"], zz = z, t = turn) => out.push({ id, turn: t, x, y, z: zz, tier });
+      const put = (id: string, tier: BridgePiece["tier"], zz = z, t = turn, stretch?: number) => out.push({ id, turn: t, x, y, z: zz, tier, ...(stretch && stretch !== 1 ? { stretch } : {}) });
       /** A column from the footing up, a half step at a time, to `under` below the road: the last of it up behind what it carries. */
       const stack = (shaft: string, under: number, from = base + FOOT) => { for (let top = from + 1; top - 1 < z - under; top++) put(shaft, "under", top); };
       // The nearest pylon of a cable-stayed bridge, in tiles along it from here: + if this tile is on from it.
@@ -131,8 +137,8 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
         if (k >= 1 && k <= B.len - 2 && springs.includes(k) && need >= 0.6) out.push({ id: `timberPier${n}`, turn, x, y, z: base, tier: "under", stretch: need / n });
       } else {
         // A stay's pier is its pylon's; a girder's, where two of its arches meet; a truss's, every third tile.
-        const here = K === "stay" ? off === 0 : K === "girder" ? k >= 1 && k <= B.len - 2 && springs.includes(k) : (B.alongX ? x : y) % PIER_EVERY === 1 && k >= 1 && k <= B.len - 2;
-        if (here && room >= PIER_ROOM) { put("girderFoot", "under", base); stack("girderShaft", CAP_UNDER); put("girderCap", "under"); }
+        const here = K === "stay" ? off === 0 : k >= 1 && k <= B.len - 2 && springs.includes(k);
+        if (here && room >= PIER_ROOM) { put("girderFoot", "under", base); stack("girderShaft", CAP_UNDER); if (crown) put("ribWall", "under", ribZ(z), turn, ribFit); put("girderCap", "under"); }
       }
 
       // ITS OPEN EDGES: what faces the camera shows its side; what faces away, only what stands over the road.
@@ -144,6 +150,18 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
         if ((s.dx !== 0) === B.alongX) continue;
         // Which way along the bridge this piece's own +x runs.
         const way = B.alongX ? s.fx : s.fy;
+        // A span's own tile of what runs along it, by name: where two meet, the end of one and the start of the next.
+        const along = (P: string, zz = z, fit = 1) => {
+          const at = springs.indexOf(k);
+          if (at >= 0) {
+            if (at + 1 < springs.length) put(`${P}${springs[at + 1] - k}${way > 0 ? "A" : "B"}`, tier, zz, s.turn, fit);
+            if (at > 0) put(`${P}${k - springs[at - 1]}${way > 0 ? "B" : "A"}`, tier, zz, s.turn, fit);
+          } else {
+            const i = springs.findIndex((q) => q > k), span = springs[i] - springs[i - 1], j = k - springs[i - 1];
+            put(span === 2 ? `${P}2M` : `${P}3M${(j === 1) === way > 0 ? "A" : "B"}`, tier, zz, s.turn, fit);
+          }
+        };
+        if (between && s.near) along(between, crown ? ribZ(z) : z, ribFit);
         if (K === "arch" && towers.includes(k)) {
           // A GATE TOWER on the pier at the tile's low end: a turret at this edge, and over two lanes the half of the gate that springs from it.
           const at = { x: x - (B.alongX ? 0.5 : 0), y: y - (B.alongX ? 0 : 0.5), z, turn: s.turn };
@@ -152,19 +170,10 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
           if (s.near && room > SPRING + 0.6) for (let top = base + 1; top - 1 < z - SPRING; top++) out.push({ id: "archTowerShaft", tier: "under", ...at, z: Math.min(top, z - SPRING) });
           if (B.width === 2) out.push({ id: "archGateHalf", tier: "front", ...at });
         }
-        if (springs.length) {
-          // THE ARCHES OR TRUSSES OVER IT: where two meet, the end of the one and the start of the next; between, its own tile of one.
-          const at = springs.indexOf(k), P = K === "girder" ? "bow" : "kp";
-          if (at >= 0) {
-            // A girder's arch springs from the pier's own concrete, brought up past the deck's edge.
-            if (K === "girder") put(s.near && k >= 1 && k <= B.len - 2 && room >= PIER_ROOM ? "bowSeat" : "bowSeatFar", tier, z, s.turn);
-            if (at + 1 < springs.length) put(`${P}${springs[at + 1] - k}${way > 0 ? "A" : "B"}`, tier, z, s.turn);
-            if (at > 0) put(`${P}${k - springs[at - 1]}${way > 0 ? "B" : "A"}`, tier, z, s.turn);
-          } else {
-            const i = springs.findIndex((q) => q > k), span = springs[i] - springs[i - 1], j = k - springs[i - 1];
-            put(span === 2 ? `${P}2M` : `${P}3M${(j === 1) === way > 0 ? "A" : "B"}`, tier, z, s.turn);
-          }
-        }
+        // OVER IT: a girder's arches, each springing from the pier's own concrete brought up past the deck's edge; a timber bridge's trusses.
+        if (K === "girder" && springs.includes(k)) put(s.near && k >= 1 && k <= B.len - 2 && room >= PIER_ROOM ? "bowSeat" : "bowSeatFar", tier, z, s.turn);
+        if (K === "girder") along("bow");
+        if (K === "trestle") along("kp");
         if (K !== "stay") continue;
         if (off === 0) put(s.near ? "pylonLeg" : "pylonLegFar", tier, z, s.turn);
         else if (Math.abs(off) <= 3) {

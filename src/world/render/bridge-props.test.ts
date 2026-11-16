@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import { createGrid, fillTerrain, idx, type Grid } from "../grid";
-import { BENT_UNDER, BRIDGE, HS } from "../props/bridges";
+import { BENT_UNDER, BRIDGE, HS, RIB_CROWN, RIB_FOOT } from "../props/bridges";
 import { bridgePiecesOf, bridgesOf, kindOf, springsOf, towersOf, type BridgeKind } from "./bridge-props";
 
 /** A road down x = 10… (`wide` of it) from y = 2 to `2 + len + 7`, the stretch from y = 6 of it, `len` long, a deck `up` half steps over the ground. */
@@ -139,6 +139,32 @@ describe("a bridge's pieces", () => {
       expect(ps.filter((p) => p.id === "archGate").length).toBe(wide === 1 ? 4 : 0);
       for (const p of ps.filter((q) => /^archGate/.test(q.id))) expect(p.tier).toBe("front");
     }
+  });
+
+  test("between its piers, under the deck: a timber bridge's braced frame, a girder's and a truss's arch ribs — along the edge that shows, tile for tile, and fitted to the room over the water", () => {
+    const s = springsOf(14);
+    for (const [kind, name] of [["trestle", "frame"], ["girder", "rib"], ["truss", "ribR"]] as const) {
+      const ps = bridgePiecesOf(bridged(10), () => 2, kind).filter((p) => new RegExp(`^${name}\\d`).test(p.id));
+      // Only along the near edge, in front; every tile of it; two where two spans meet.
+      for (const p of ps) expect(p).toMatchObject({ x: 11, turn: 3, tier: "front" });
+      for (let k = 0; k < 14; k++) expect(ps.filter((p) => p.y === 6 + k).length).toBe(s.includes(k) && k > 0 && k < 13 ? 2 : 1);
+    }
+    // A truss's piers are where its ribs spring, as a girder's are.
+    const truss = bridgePiecesOf(bridged(10), () => 2, "truss");
+    expect([...new Set(truss.filter((p) => p.id === "girderCap").map((p) => p.y))].sort((a, b) => a - b)).toEqual(s.slice(1, -1).map((k) => 6 + k));
+    expect(truss.filter((p) => p.id === "ribWall").length).toBe(8);
+    // A RIB'S CROWN STAYS under the deck and its feet stay over the water, however much room there is.
+    for (const up of [5, 6, 8, 12, 20]) for (const [kind, name] of [["girder", "rib"], ["truss", "ribR"]] as const) {
+      const rib = bridgePiecesOf(bridged(up), () => 2, kind).find((p) => p.id.startsWith(`${name}3A`) || p.id.startsWith(`${name}2A`))!;
+      const fit = rib.stretch ?? 1, crown = rib.z - (fit * RIB_CROWN[name]) / HS, foot = rib.z - (fit * RIB_FOOT) / HS;
+      expect(crown).toBeCloseTo(up - RIB_CROWN[name] / HS, 9);
+      expect(foot).toBeGreaterThanOrEqual(2 + 1.6 / HS - 1e-9);
+      expect(fit).toBeLessThanOrEqual(1);
+      expect(fit).toBeGreaterThan(0.5);
+    }
+    // A low timber bridge has the shallow frame; one too low, none.
+    expect(bridgePiecesOf(bridged(4, 1), () => 2, "trestle").some((p) => /^frameLow\d/.test(p.id))).toBe(true);
+    expect(bridgePiecesOf(bridged(3, 1), () => 2, "trestle").some((p) => /^frame/.test(p.id))).toBe(false);
   });
 
   test("what kind a bridge is: one its shape allows, and the same one every time", () => {
