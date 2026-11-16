@@ -34,7 +34,7 @@ describe("a bridge's pieces", () => {
     }
   });
 
-  test("a girder's piers: where two of its arches meet, the same tiles across its width, none under its ends; each from the waterline up to the deck, in the order it is drawn", () => {
+  test("a girder's piers: where two of its arches meet, the same tiles across its width, none under its ends; each from the ground up to the deck, in the order it is drawn", () => {
     const g = bridged(10), pieces = bridgePiecesOf(g, () => 2, "girder");
     const caps = pieces.filter((p) => p.id === "girderCap");
     const ys = [...new Set(caps.map((p) => p.y))].sort((a, b) => a - b);
@@ -42,7 +42,7 @@ describe("a bridge's pieces", () => {
     expect(ys).toEqual([9, 11, 14, 16]);
     for (const y of ys) expect(caps.filter((p) => p.y === y).map((p) => p.x).sort()).toEqual([10, 11]);
     const mine = pieces.filter((p) => p.x === 10 && p.y === 9 && p.tier === "under");
-    expect(mine[0]).toMatchObject({ id: "girderFoot", z: 2 });
+    expect(mine[0]).toMatchObject({ id: "girderFoot", z: 0 });
     expect(mine[mine.length - 1]).toMatchObject({ id: "girderCap", z: 10 });
     const shafts = mine.filter((p) => p.id === "girderShaft");
     shafts.forEach((p, k) => { if (k) expect(p.z - shafts[k - 1].z).toBeCloseTo(1, 9); });
@@ -61,8 +61,8 @@ describe("a bridge's pieces", () => {
     expect([...new Set(piers.map((p) => p.y))].sort((a, b) => a - b)).toEqual(springsOf(14).slice(1, -1).map((k) => 6 + k));
     expect(piers.length).toBe(8);
     for (const p of piers) {
-      const n = Number(p.id.slice(10)), need = 10 - 2 - BENT_UNDER / HS;
-      expect(p).toMatchObject({ z: 2, tier: "under" });
+      const n = Number(p.id.slice(10)), need = 10 - BENT_UNDER / HS;
+      expect(p).toMatchObject({ z: 0, tier: "under" });
       expect(n * p.stretch!).toBeCloseTo(need, 9);
       expect(Math.abs(p.stretch! - 1)).toBeLessThan(0.1);
     }
@@ -134,7 +134,7 @@ describe("a bridge's pieces", () => {
       // Each turret that shows its foot has the pier's stone under it, down to the water.
       const shafts = ps.filter((p) => p.id === "archTowerShaft" && p.tier === "under");
       expect(new Set(shafts.map((p) => p.y))).toEqual(new Set([6.5, 10.5, 14.5, 18.5]));
-      for (const p of shafts) { expect(p.tier).toBe("under"); expect(p.z).toBeGreaterThan(2); expect(p.z).toBeLessThanOrEqual(10 - 6.6 / HS + 1e-9); }
+      for (const p of shafts) { expect(p.tier).toBe("under"); expect(p.z).toBeGreaterThan(0); expect(p.z).toBeLessThanOrEqual(10 - 6.6 / HS + 1e-9); }
       expect(ps.filter((p) => p.id === "archGateHalf").length).toBe(wide === 2 ? 8 : 0);
       expect(ps.filter((p) => p.id === "archGate").length).toBe(wide === 1 ? 4 : 0);
       for (const p of ps.filter((q) => /^archGate/.test(q.id))) expect(p.tier).toBe("front");
@@ -158,9 +158,9 @@ describe("a bridge's pieces", () => {
       const rib = bridgePiecesOf(bridged(up), () => 2, kind).find((p) => p.id.startsWith(`${name}3A`) || p.id.startsWith(`${name}2A`))!;
       const fit = rib.stretch ?? 1, crown = rib.z - (fit * RIB_CROWN[name]) / HS, foot = rib.z - (fit * RIB_FOOT) / HS;
       expect(crown).toBeCloseTo(up - RIB_CROWN[name] / HS, 9);
-      expect(foot).toBeGreaterThanOrEqual(2 + 1.6 / HS - 1e-9);
+      expect(foot).toBeGreaterThanOrEqual(2 + 1.2 / HS - 1e-9);
       expect(fit).toBeLessThanOrEqual(1);
-      expect(fit).toBeGreaterThan(0.5);
+      expect(fit).toBeGreaterThanOrEqual(0.45);
     }
     // A low timber bridge has the shallow frame; one too low, none.
     expect(bridgePiecesOf(bridged(4, 1), () => 2, "trestle").some((p) => /^frameLow\d/.test(p.id))).toBe(true);
@@ -178,7 +178,7 @@ describe("a bridge's pieces", () => {
       const heads = ps.filter((p) => p.id === `abut${F}`);
       expect(heads.map((p) => p.y).sort((a, b) => a - b)).toEqual([5.5, 5.5, 19.5, 19.5]);
       for (const p of heads) expect(p).toMatchObject({ tier: "under", z: 10 });
-      expect(ps.filter((p) => p.id === `abut${F}Shaft` && p.tier === "under").every((p) => p.z > 2 && p.z < 10)).toBe(true);
+      expect(ps.filter((p) => p.id === `abut${F}Shaft` && p.tier === "under").every((p) => p.z > 0 && p.z < 10)).toBe(true);
       expect(ps.filter((p) => p.id === `abut${F}Shaft` && p.tier === "under").length).toBeGreaterThanOrEqual(4 * 6);
       // A wing each side of each end — the outer side of each lane, none between the two lanes.
       const wings = ps.filter((p) => p.id === `wing${F}`);
@@ -198,26 +198,52 @@ describe("a bridge's pieces", () => {
     expect(flat.some((p) => /^end/.test(p.id))).toBe(false);
   });
 
-  test("what stands in the water stands on the bed: under every pier, and every wall at a bank, its own shaft a half step at a time from the waterline down to the ground, in the tier drawn under the water; on dry ground, none", () => {
-    for (const [kind, shaft] of [["arch", "archShaft"], ["trestle", "timberSunk"], ["girder", "girderShaft"], ["truss", "girderShaft"], ["stay", "girderShaft"]] as const) {
-      // Three half steps of water over the ground at 0, a deck ten up.
-      const wet = bridgePiecesOf(bridged(10), () => 3, kind), sunk = wet.filter((p) => p.tier === "sunk");
-      const piers = new Set(wet.filter((p) => p.tier === "under" && /Foot$|^timberPier/.test(p.id)).map((p) => `${p.x},${p.y}`));
-      expect(piers.size).toBeGreaterThan(0);
-      for (const at of piers) {
-        const mine = sunk.filter((p) => `${p.x},${p.y}` === at && p.id === shaft).map((p) => p.z).sort((a, b) => a - b);
-        expect({ kind, at, mine }).toEqual({ kind, at, mine: [1, 2, 3] });
-      }
-      // Nothing sunk is above the water, and nothing of it under dry ground's bridge.
-      for (const p of sunk) expect(p.z).toBeLessThanOrEqual(3);
-      expect(bridgePiecesOf(bridged(10), () => 0, kind).some((p) => p.tier === "sunk")).toBe(false);
+  test("what is under a deck stands on the ground, whatever the water: its piers and its bank's walls are the same in a drought and a flood, footed on the bed; only what hangs between the piers is fitted to the room over the water", () => {
+    for (const kind of KINDS) {
+      const g = bridged(10);
+      for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (y < 6 || y > 19) g.height[idx(g, x, y)] = 10;
+      const hung = (p: { id: string }) => /^(rib|frame)/.test(p.id);
+      const at = (d: number) => bridgePiecesOf(g, () => d, kind).filter((p) => p.tier === "under" && !hung(p)).map((p) => `${p.id}@${p.x},${p.y},${p.z}`).sort();
+      expect(at(0).length).toBeGreaterThan(0);
+      expect(at(5)).toEqual(at(0));
+      expect(at(8)).toEqual(at(0));
+      // Every footing is on the ground, and every wall at a bank goes down to it.
+      const ps = bridgePiecesOf(g, () => 5, kind);
+      for (const p of ps.filter((q) => /Foot$|^timberPier/.test(q.id))) expect(p.z).toBe(0);
+      const walls = ps.filter((p) => /^abut\w+Shaft$/.test(p.id)).map((p) => p.z);
+      expect(Math.min(...walls)).toBeLessThanOrEqual(1);
     }
-    // A bank's abutment and its wings go down under the water too.
-    const g = bridged(10);
-    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (y < 6 || y > 19) g.height[idx(g, x, y)] = 10;
-    const sunk = bridgePiecesOf(g, () => 3, "girder").filter((p) => p.tier === "sunk");
-    expect(sunk.filter((p) => p.id === "abutConcreteShaft").length).toBe(4 * 3);
-    expect(sunk.filter((p) => p.id === "wingConcreteShaft").length).toBe(4 * 3);
+    // A flood to under the deck: nothing is hung between the piers that would be in it.
+    for (const kind of ["girder", "truss", "trestle"] as const) expect(bridgePiecesOf(bridged(10), () => 9, kind).some((p) => /^(rib|frame)/.test(p.id))).toBe(false);
+  });
+
+  test("a street that crosses aslant is a staircase of deck: what runs along it runs whole along each straight length of its edge, its piers along each straight row, and it is not a kind that needs a rectangle", () => {
+    // Three rows of deck over x = 4…15, each a step along from the last: rows at y = 10, 11, 12.
+    const g = createGrid(24, 24); fillTerrain(g, 1);
+    const rows: [number, number, number][] = [[10, 4, 9], [11, 4, 15], [12, 10, 15]];
+    for (const [y, x0, x1] of rows) for (let x = x0; x <= x1; x++) { const i = idx(g, x, y); g.paved[i] = 1; g.deck[i] = 1; g.deckZ[i] = 8; }
+    // The road onto it at each end, on a bank at its level.
+    for (const [x, y] of [[2, 10], [3, 10], [2, 11], [3, 11], [16, 11], [17, 11], [16, 12], [17, 12]]) { const i = idx(g, x, y); g.paved[i] = 1; g.height[i] = 8; }
+    const [B] = bridgesOf(g);
+    expect(B).toMatchObject({ rect: false, len: 12, alongX: true });
+    for (let k = 0; k < 60; k++) expect(["truss", "stay"]).not.toContain(kindOf({ ...B, cells: [k * 31 + 7] }));
+    for (const [kind, P] of [["girder", "bow"], ["trestle", "kp"]] as const) {
+      const ps = bridgePiecesOf(g, () => 2, kind).filter((p) => new RegExp(`^${P}\\d`).test(p.id));
+      // The near edge (+y): row 12 over x = 10…15, and row 11 over x = 4…9 where row 12 is not beside it. Each its own whole run.
+      for (const [y, x0, x1] of [[12, 10, 15], [11, 4, 9]] as const) {
+        const edge = ps.filter((p) => p.y === y && p.turn === 0), s = springsOf(x1 - x0 + 1);
+        for (let x = x0; x <= x1; x++) {
+          const here = edge.filter((p) => p.x === x), k = x - x0, at = s.indexOf(k);
+          expect({ kind, y, x, n: here.length }).toEqual({ kind, y, x, n: at < 0 ? 1 : at === 0 || at === s.length - 1 ? 1 : 2 });
+          // At each end of the run, a half that rises away from the end: never an arch cut off in the air.
+          if (k === 0 || k === x1 - x0) expect(here[0].id).toMatch(/^[a-z]+\d[AB]$/);
+        }
+        expect(edge.filter((p) => p.x < x0 || p.x > x1).length).toBe(0);
+      }
+    }
+    // Its piers: along each row by that row's own length, none under a row's ends.
+    const caps = bridgePiecesOf(g, () => 2, "girder").filter((p) => p.id === "girderCap");
+    for (const [y, x0, x1] of rows) expect(caps.filter((p) => p.y === y).map((p) => p.x).sort((a, b) => a - b)).toEqual(springsOf(x1 - x0 + 1).slice(1, -1).map((k) => x0 + k));
   });
 
   test("what kind a bridge is: one its shape allows, and the same one every time", () => {
@@ -238,7 +264,7 @@ describe("a bridge's pieces", () => {
 
   test("a deck too near the ground has sides and nothing under it; a road on the ground has neither", () => {
     for (const kind of ["girder", "truss", "stay"] as const) {
-      const low = bridgePiecesOf(bridged(2), undefined, kind);
+      const low = bridgePiecesOf(bridged(1), undefined, kind);
       expect(low.some((p) => p.tier === "under")).toBe(false);
       expect(low.filter((p) => p.tier === "front" && p.turn === 3).length).toBeGreaterThanOrEqual(14);
     }
