@@ -53,7 +53,24 @@ export function streetsOf(g: Grid): Streets {
   // its lanes are the one street.
   const junction = new Uint8Array(g.w * g.h);
   const rx = runs(g, "x"), ry = runs(g, "y");
-  for (let i = 0; i < junction.length; i++) if (rx[i] > WIDEST && ry[i] > WIDEST) junction[i] = 1;
+  // BUT FOR A JOG: where the widest road steps a cell sideways, the one slice is a cell wider than any road — the
+  // road as it comes in, and as it goes out, a cell over. That slice is the road still, as a narrower road's is.
+  const paved = (x: number, y: number) => x >= 0 && y >= 0 && x < g.w && y < g.h && waysOn(g, x, y) > 0;
+  const jog = (i: number, along: "x" | "y") => {
+    const across = along === "x" ? ry : rx;
+    if (across[i] !== WIDEST + 1) return false;
+    const [dx, dy] = along === "x" ? [1, 0] : [0, 1], [ax, ay] = along === "x" ? [0, 1] : [1, 0];
+    let x = i % g.w, y = (i - x) / g.w;
+    while (paved(x - ax, y - ay) && connects(g, x, y, along === "x" ? "E" : "N")) { x -= ax; y -= ay; }
+    // Either side of the slice: the road at its own width, over the low cells one side and the high the other.
+    const side = (s: number) => {
+      const at = (q: number) => paved(x + s * dx + q * ax, y + s * dy + q * ay) && across[idx(g, x + s * dx + q * ax, y + s * dy + q * ay)] === WIDEST;
+      return at(0) && !paved(x + s * dx + WIDEST * ax, y + s * dy + WIDEST * ay) ? -1 : at(WIDEST) && !paved(x + s * dx, y + s * dy) ? 1 : 0;
+    };
+    const lo = side(-1), hi = side(1);
+    return lo !== 0 && hi !== 0 && lo !== hi;
+  };
+  for (let i = 0; i < junction.length; i++) if (rx[i] > WIDEST && ry[i] > WIDEST && !jog(i, "x") && !jog(i, "y")) junction[i] = 1;
   // WHERE A ROAD CHANGES WIDTH it is two streets, and the last slice of the wider one the junction between
   // them: three lanes each way do not run on down a road one cell wide. Only where each width holds for two
   // slices or more — a staircase's step, a cell wider for one slice, is the one street still.

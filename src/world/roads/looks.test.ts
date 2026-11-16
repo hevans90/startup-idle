@@ -339,4 +339,28 @@ describe("a wide road that jogs a cell sideways", () => {
       expect(Math.abs(pts[1].y - 8.5)).toBeLessThan(1);
     }
   });
+
+  // Three cells wide, and four — the widest road, whose jog's slice is wider than any road and still no junction.
+  for (const k of [3, 4]) test(`a road ${k} cells wide jogs the same way: one street, its lines and its lanes through the one slice`, () => {
+    const cells: [number, number][] = [];
+    for (let x = 0; x < 40; x++) for (let j = 0; j <= k; j++) if (x < 20 ? j < k : x === 20 || j >= 1) cells.push([x, 8 + j]);
+    const w = grid(40, 24, cells), G = buildLaneGraph(w);
+    const st = G.streets.find((q) => q.width === k)!;
+    expect([st.a0, st.a1]).toEqual([0, 39]);
+    expect(G.streets.length).toBe(1);
+    // The jog's slice, every cell of it: the road, marked as the jog, slanting a cell across.
+    for (let j = 0; j <= k; j++) expect(look(w, 20, 8 + j).ln).toBe(`uj${k}.${j - 0.5}~-0.5,0.5^${-j},${1 - j}`);
+    for (let j = 0; j < k; j++) { expect(look(w, 19, 8 + j).ln).toBe(`u${k}.${j}`); expect(look(w, 21, 9 + j).ln).toBe(`u${k}.${j}`); }
+    // Every lane: straight, across the slice, straight; and inside the road's kerbs either side.
+    expect(st.lanes.length).toBe(2 * Math.min(4, k));
+    for (const id of st.lanes) {
+      const pts = [...G.lanes[id].pts].sort((p, q) => p.x - q.x);
+      expect(pts.map((p) => p.x)).toEqual([-0.5, 19.5, 20.5, 39.5]);
+      expect(pts[1].y).toBeCloseTo(pts[0].y, 6);
+      expect(pts[2].y).toBeCloseTo(pts[1].y + 1, 6);
+      expect(pts[3].y).toBeCloseTo(pts[2].y, 6);
+      expect(pts[1].y).toBeGreaterThan(7.5);
+      expect(pts[1].y).toBeLessThan(7.5 + k);
+    }
+  });
 });
