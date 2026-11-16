@@ -7,8 +7,8 @@
  *
  *  - `arch…`     a STONE VIADUCT: an arch a tile, coursed masonry, voussoirs
  *                and a keystone round each, a solid parapet with a coping.
- *  - `trestle…`  a TIMBER TRESTLE: pile bents braced corner to corner, a
- *                stringer under planking, a post-and-rail fence.
+ *  - `trestle…`  a TIMBER BRIDGE: board-clad crib piers with cutwaters, a deep
+ *                beam under planking, a braced railing.
  *  - `girder…`   a STEEL PLATE GIRDER on concrete hammerhead piers: stiffened
  *                web between flanges, a concrete parapet and steel rail.
  *  - `truss…`    a THROUGH TRUSS in red oxide: chords, posts and diagonals
@@ -113,50 +113,81 @@ function archFootTris(): Tri[] {
   return out;
 }
 
-// ── a timber trestle ─────────────────────────────────────────────────────
-/** A post-and-rail fence along the left edge, a brace in every bay. */
+// ── a timber bridge ──────────────────────────────────────────────────────
+/** A squared timber between two points, `w` across: a brace, a rail. */
+const balk = (a: V3, b: V3, w: number, mat: Mat, out: Tri[]) => limb(a, b, w * 0.7, w * 0.7, mat, out, 4, false);
+/** BOARDS laid one on another up a wall: each 0.34 m, a shadow between, no two quite the colour of each other. */
+const boards = (p: V3): Mat => { const z = p[2] + 60, k = Math.floor(z / 0.34); return z % 0.34 < 0.045 ? "timberDark" : hash(k * 3.7) < 0.3 ? "timberLight" : "timber"; };
+/** A braced railing along the left edge: stout posts with caps, a top and a bottom rail, a brace across each bay, one way then the other. */
 function fence(out: Tri[]) {
-  for (let x = -HT + 0.925; x < HT; x += 1.85) {
-    box(x - 0.08, x + 0.08, HT - 0.3, HT - 0.14, 0, 1.2, "timberDark", out);
-    bar([x, HT - 0.22, 0.12], [x + 1.85 > HT ? HT : x + 1.85, HT - 0.22, 0.98], 0.035, "timber", out, 4);
+  const y = HT - 0.24, bay = (2 * HT) / 4;
+  for (let k = 0; k <= 4; k++) {
+    const x = -HT + k * bay, half = k === 0 || k === 4 ? 0.09 : 0.14;
+    box(Math.max(-HT, x - half), Math.min(HT, x + half), y - 0.14, y + 0.14, -0.1, 1.28, "timberDark", out);
+    box(Math.max(-HT, x - half - 0.04), Math.min(HT, x + half + 0.04), y - 0.18, y + 0.18, 1.28, 1.37, "timberLight", out);
+    if (k === 4) continue;
+    const up = k % 2 === 0;
+    balk([x + 0.14, y, up ? 0.3 : 1.0], [x + bay - 0.14, y, up ? 1.0 : 0.3], 0.13, "timber", out);
   }
-  bar([-HT, HT - 0.22, 0.12], [-HT + 0.925, HT - 0.22, 0.55], 0.035, "timber", out, 4);
-  for (const z of [0.62, 1.12]) box(-HT, HT, HT - 0.27, HT - 0.17, z - 0.06, z + 0.06, "timberLight", out);
-  box(-HT, HT, HT - 0.34, HT - 0.1, 1.2, 1.27, "timber", out);
+  box(-HT, HT, y - 0.1, y + 0.1, 1.02, 1.2, "timber", out);
+  box(-HT, HT, y - 0.08, y + 0.08, 0.16, 0.32, "timber", out);
 }
 function trestleEdgeTris(): Tri[] {
   const out: Tri[] = [];
-  // The planking's ends over a kerb timber, and the stringers under them: two deep, the outer one on show.
-  pbox(-HT, HT, HT - 0.7, HT + 0.14, -0.12, 0.02, "timber", out, planks);
-  box(-HT, HT, HT - 0.52, HT - 0.36, 0.02, 0.2, "timberDark", out);
-  box(-HT, HT, HT - 0.42, HT - 0.08, -0.62, -0.12, "timberDark", out);
-  box(-HT, HT, HT - 0.4, HT - 0.06, -0.56, -0.18, "timber", out);
-  // Bolted plates where a stringer laps the next, over the bents.
-  for (const x of [-0.5, 0.5]) box(x - 0.07, x + 0.07, HT - 0.07, HT - 0.03, -0.52, -0.22, "iron", out);
+  // A heavy kerb timber on the planking's ends; under them a deep beam, faced, and the joists' ends along it.
+  pbox(-HT, HT, HT - 0.75, HT + 0.18, -0.16, 0.02, "timber", out, planks);
+  box(-HT, HT, HT - 0.62, HT - 0.4, 0.02, 0.24, "timberDark", out);
+  box(-HT, HT, HT - 0.5, HT + 0.02, -1.0, -0.16, "timberDark", out);
+  box(-HT, HT, HT - 0.48, HT + 0.05, -0.9, -0.26, "timber", out);
+  for (let x = -HT + 0.46; x < HT; x += 0.925) box(x - 0.12, x + 0.12, HT + 0.05, HT + 0.16, -0.44, -0.18, "timberLight", out);
+  for (const x of [-HT + 0.2, HT - 0.2]) box(x - 0.06, x + 0.06, HT + 0.05, HT + 0.09, -0.94, -0.22, "iron", out);
   fence(out);
   return out;
 }
 function trestleRailTris(): Tri[] { const out: Tri[] = []; fence(out); return out; }
-/** A bent's cap: a timber across the tops of the piles, corbels under the stringers. */
-function trestleCapTris(): Tri[] {
-  const out: Tri[] = [];
-  box(-0.24, 0.24, -HT + 0.1, HT - 0.1, -1.08, -0.62, "timberDark", out);
-  box(-0.2, 0.2, -HT + 0.14, HT - 0.14, -1.02, -0.68, "timber", out);
-  for (const y of [-4.1, 0, 4.1]) box(-0.55, 0.55, y - 0.2, y + 0.2, -0.72, -0.6, "timberLight", out);
-  return out;
-}
-/** A half step of a bent, its top at the origin: three piles, the outer two raked, braced across corner to corner. */
-function trestleBentTris(): Tri[] {
-  const out: Tri[] = [];
-  // (Upright, all three: a length stood on the next runs straight on.)
-  const rake = 0;
-  for (const [y, lean] of [[-4.1, -rake], [0, 0], [4.1, rake]]) limb([0, y + lean, -HS], [0, y, 0], 0.21, 0.21, "timber", out, 10, false);
-  for (const [a, b] of [[-4.1, 0], [0, 4.1]]) {
-    bar([0.24, a, -HS + 0.15], [0.24, b, -0.15], 0.075, "timberLight", out, 4);
-    bar([-0.24, b, -HS + 0.15], [-0.24, a, -0.15], 0.075, "timberDark", out, 4);
+/** How tall a pier is made, half steps: one model for each. @see render/bridge-props */
+export const BENT_MAX = 12;
+/** How far under the road a timber pier's head is: the foot of the beams it carries. */
+export const BENT_UNDER = 1.0;
+/**
+ * A TIMBER PIER `n` half steps tall, its foot at the origin — the waterline — and its head under the beams: a crib
+ * of boards between four corner posts, broader at the foot than the head, a brace let into each broad face, a
+ * cap of two great timbers crossed on top, and a pointed cutwater up and down stream. One solid thing, not a
+ * thicket of poles: timber as this town builds it.
+ */
+function cribPierTris(n: number): Tri[] {
+  const out: Tri[] = [], H = n * HS, top = H - 0.75;
+  // Half its size along the bridge and across it, at a height.
+  const ax = (z: number) => 1.0 + 0.045 * (top - z), ay = (z: number) => 4.5 + 0.07 * (top - z);
+  const c = (sx: number, sy: number, z: number): V3 => [sx * ax(z), sy * ay(z), z], mid: V3 = [0, 0, H / 2];
+  let m = out.length;
+  for (const [a, b] of [[[1, 1], [1, -1]], [[1, -1], [-1, -1]], [[-1, -1], [-1, 1]], [[-1, 1], [1, 1]]]) face([c(a[0], a[1], 0), c(b[0], b[1], 0), c(b[0], b[1], top), c(a[0], a[1], top)], "timber", mid, out);
+  laid(out, m, boards);
+  // Its corner posts, proud of the boards, an iron strap round the head of each.
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    limb(c(sx, sy, 0), c(sx, sy, top), 0.24, 0.22, "timberDark", out, 8, false);
+    limb(c(sx, sy, top - 0.5), c(sx, sy, top - 0.36), 0.25, 0.25, "iron", out, 8, false);
   }
-  // A waling along the top of it, bolted through.
-  box(0.2, 0.34, -HT + 0.9, HT - 0.9, -0.3, -0.08, "timberDark", out);
+  // A brace across each broad face, foot to head, and a waling over its foot.
+  if (H > 3.2) for (const sx of [-1, 1]) {
+    const x = (z: number) => sx * (ax(z) + 0.1);
+    balk([x(0.5), -sx * ay(0.5) * 0.92, 0.5], [x(top - 0.5), sx * ay(top - 0.5) * 0.92, top - 0.5], 0.24, "timberLight", out);
+    box(Math.min(x(0.4), x(0.4) + sx * 0.14), Math.max(x(0.4), x(0.4) + sx * 0.14), -ay(0.4) - 0.1, ay(0.4) + 0.1, 0.25, 0.55, "timberDark", out);
+  }
+  // THE CAP: a great timber across the pier, and a shorter one each side of it under the beams.
+  box(-0.45, 0.45, -HT + 0.05, HT - 0.05, top, H, "timberDark", out);
+  box(-0.4, 0.4, -HT + 0.02, HT - 0.02, top + 0.07, H - 0.07, "timber", out);
+  for (const y of [-HT + 0.3, HT - 0.3]) box(-1.3, 1.3, y - 0.25, y + 0.25, H - 0.32, H, "timberLight", out);
+  // CUTWATERS: a prow of boards up and down stream, an iron edge to it.
+  const hw = Math.min(1.9, H * 0.45);
+  for (const sy of [-1, 1]) {
+    const y0 = sy * ay(0), y1 = sy * (ay(0) + 1.3), k: V3 = [0, sy * (ay(0) + 0.3), hw / 2];
+    m = out.length;
+    face([[-ax(0), y0, 0], [0, y1, 0], [0, y1 - sy * 0.5, hw], [-ax(hw), sy * ay(hw), hw]], "timber", k, out);
+    face([[ax(0), y0, 0], [0, y1, 0], [0, y1 - sy * 0.5, hw], [ax(hw), sy * ay(hw), hw]], "timber", k, out);
+    laid(out, m, boards);
+    limb([0, y1, 0], [0, y1 - sy * 0.5, hw], 0.07, 0.07, "iron", out, 6, false);
+  }
   return out;
 }
 
@@ -347,7 +378,8 @@ function pylonBeamTris(): Tri[] {
 const P = (id: string, tris: () => Tri[]): Prop => ({ id, tris, shadow: NONE, flat: true });
 export const BRIDGE: readonly Prop[] = [
   P("archSide", archSideTris), P("archParapet", archParapetTris), P("archHead", archHeadTris), P("archShaft", archShaftTris), P("archFoot", archFootTris),
-  P("trestleEdge", trestleEdgeTris), P("trestleRail", trestleRailTris), P("trestleCap", trestleCapTris), P("trestleBent", trestleBentTris),
+  P("trestleEdge", trestleEdgeTris), P("trestleRail", trestleRailTris),
+  ...Array.from({ length: BENT_MAX }, (_, k) => P(`timberPier${k + 1}`, () => cribPierTris(k + 1))),
   P("girderEdge", girderEdgeTris), P("girderRail", girderRailTris), P("girderCap", girderCapTris), P("girderShaft", girderShaftTris), P("girderFoot", girderFootTris),
   P("bridgeLamp", lampTris),
   P("trussNear", trussNearTris), P("trussFar", trussFarTris), P("trussTop", trussTopTris),

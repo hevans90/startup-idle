@@ -18,30 +18,32 @@ import type { Grid } from "../grid";
 import { idx, inBounds } from "../grid";
 import { bandOf } from "../iso";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { ARCH_SPRING, HS } from "../props/bridges";
+import { ARCH_SPRING, BENT_MAX, BENT_UNDER, HS } from "../props/bridges";
 import type { BandLayer } from "./bands";
 
 export type BridgeKind = "arch" | "trestle" | "girder" | "truss" | "stay";
-export type BridgePiece = { id: string; turn: number; x: number; y: number; z: number; tier: "under" | "back" | "front" };
+export type BridgePiece = { id: string; turn: number; x: number; y: number; z: number; tier: "under" | "back" | "front"; /** Drawn this much taller than baked, from its foot: a pier made to the nearest half step, fitted to the room there is. */ stretch?: number };
 /** A bridge: the deck's cells joined up, the way it runs, how long and wide it is, the room under it, and what kind it is. */
 export type Bridge = { kind: BridgeKind; cells: number[]; alongX: boolean; a0: number; len: number; width: number; room: number };
 
 /** A pier every this many tiles along a girder or a truss; a pylon every this many of a cable-stayed bridge; the least room under a deck, half steps, for a pier to be worth standing. */
 export const PIER_EVERY = 3, PYLON_EVERY = 7, PIER_ROOM = 3;
+/** The most room under a deck, half steps, that timber is built over: higher is stone's or steel's. */
+export const TRESTLE_ROOM = 8;
 /** How far under the road each thing hangs, half steps; and how tall a footing stands. @see props/bridges */
-const CAP_UNDER = 3.5 / HS, SPRING = ARCH_SPRING / HS, BENT_UNDER = 1.08 / HS, FOOT = 0.75 / HS;
+const CAP_UNDER = 3.5 / HS, SPRING = ARCH_SPRING / HS, FOOT = 0.75 / HS;
 const hash = (n: number) => { const s = Math.sin(n * 91.7 + 13.1) * 43758.5453; return s - Math.floor(s); };
 
 /**
  * WHAT KIND A BRIDGE IS: one of those its shape allows, picked by where it
  * stands — so the same bridge is the same kind every time, and a map of them
- * is not five of one. Timber for a lane close over the water; stone arches
+ * is not five of one. Timber for a lane not far over the water; stone arches
  * for one or two lanes with room to spring from; a truss for a long span;
  * pylons and stays for a broad, long one; a plate girder anywhere.
  */
 export function kindOf(b: Pick<Bridge, "len" | "width" | "room" | "cells">): BridgeKind {
   const can: BridgeKind[] = ["girder"];
-  if (b.width === 1 && b.room <= 9) can.push("trestle");
+  if (b.width === 1 && b.room <= TRESTLE_ROOM) can.push("trestle");
   if (b.width <= 2 && b.room >= 4) can.push("arch");
   if (b.width <= 3 && b.len >= 5) can.push("truss");
   if (b.width >= 2 && b.len >= 9) can.push("stay");
@@ -106,7 +108,10 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
           put("archHead", "under");
         }
       } else if (K === "trestle") {
-        if (room >= 1) { stack("trestleBent", BENT_UNDER, base - 0.3); put("trestleCap", "under"); }
+        // A pier every other tile, whole: the one made nearest the room there is from the water to the beams, and
+        // drawn the little taller or shorter that fits it exactly.
+        const need = room - BENT_UNDER / HS, n = Math.max(1, Math.min(BENT_MAX, Math.round(need)));
+        if ((B.alongX ? x : y) % 2 === 0 && need >= 0.6 && (B.len < 3 || (k >= 1 && k <= B.len - 2))) out.push({ id: `timberPier${n}`, turn, x, y, z: base, tier: "under", stretch: need / n });
       } else {
         const here = K === "stay" ? off === 0 : (B.alongX ? x : y) % PIER_EVERY === 1 && k >= 1 && k <= B.len - 2;
         if (here && room >= PIER_ROOM) { put("girderFoot", "under", base); stack("girderShaft", CAP_UNDER); put("girderCap", "under"); }
@@ -158,6 +163,7 @@ export function createBridgeProps(bands: BandLayer): BridgeProps {
       for (const p of bridgePiecesOf(g, still, force)) {
         const band = bandOf(p.x, p.y), sp = propSprite(P, p.id, p.turn, p.x, p.y, p.z, scale);
         if (!sp) continue;
+        if (p.stretch) sp.scale.y = p.stretch;
         if (p.tier === "under") {
           // BEFORE THE BAND'S ROADS: its own deck is over a pier, and is drawn over it.
           let c = under.get(band);

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import { createGrid, fillTerrain, idx, type Grid } from "../grid";
-import { BRIDGE } from "../props/bridges";
+import { BENT_UNDER, BRIDGE, HS } from "../props/bridges";
 import { PIER_EVERY, bridgePiecesOf, bridgesOf, kindOf, type BridgeKind } from "./bridge-props";
 
 /** A road down x = 10… (`wide` of it) from y = 2 to `2 + len + 7`, the stretch from y = 6 of it, `len` long, a deck `up` half steps over the ground. */
@@ -49,14 +49,22 @@ describe("a bridge's pieces", () => {
     expect(shafts[shafts.length - 1].z).toBeLessThan(10);
   });
 
-  test("a viaduct has a pier between every arch and the next; a trestle a bent under every tile; a truss its bracing over every tile", () => {
+  test("a viaduct has a pier between every arch and the next; a timber bridge a pier under every other tile; a truss its bracing over every tile", () => {
     const g = bridged(10);
     const arch = bridgePiecesOf(g, () => 2, "arch");
     expect(arch.filter((p) => p.id === "archSide").length).toBe(14);
     expect(new Set(arch.filter((p) => p.id === "archHead").map((p) => p.y)).size).toBe(13);
-    const trestle = bridgePiecesOf(g, () => 2, "trestle");
-    expect(trestle.filter((p) => p.id === "trestleCap").length).toBe(28);
-    expect(trestle.filter((p) => p.id === "trestleBent").length).toBeGreaterThan(28 * 5);
+    // A timber pier under every other tile, across its width, none under its ends: each whole, made to the nearest
+    // half step and drawn the little taller or shorter that reaches from the water to the beams exactly.
+    const piers = bridgePiecesOf(g, () => 2, "trestle").filter((p) => /^timberPier\d+$/.test(p.id));
+    expect([...new Set(piers.map((p) => p.y))].sort((a, b) => a - b)).toEqual([8, 10, 12, 14, 16, 18]);
+    expect(piers.length).toBe(12);
+    for (const p of piers) {
+      const n = Number(p.id.slice(10)), need = 10 - 2 - BENT_UNDER / HS;
+      expect(p).toMatchObject({ z: 2, tier: "under" });
+      expect(n * p.stretch!).toBeCloseTo(need, 9);
+      expect(Math.abs(p.stretch! - 1)).toBeLessThan(0.1);
+    }
     const truss = bridgePiecesOf(g, () => 2, "truss");
     expect(truss.filter((p) => p.id === "trussTop").length).toBe(28);
     expect(truss.filter((p) => p.id === "trussNear").length).toBe(14);
