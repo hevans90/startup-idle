@@ -92,7 +92,7 @@ React 19 + TypeScript (Vite, SWC); Tailwind CSS v4 with the console's tokens (`s
 | `bun run lint` | ESLint |
 | `bun run preview` | Preview the build |
 | `bun run tauri:dev` / `tauri:build` | Desktop app |
-| `bun run bake:cars` | Bake vehicle models (`agents/cars/models.ts`) into `derived/cars_*.png` + `cars.json`; `dev/preview-cars.ts out.png` draws a gallery |
+| `bun run bake:cars` | Bake vehicle models (`agents/cars/models.ts`) into `derived/cars_*.png` + `cars.json`: 32 headings level, and leant at a ramp's four slopes for a road's four ways (`poseOf`); ~2.5 min. `dev/preview-cars.ts out.png [RES] [ids] [PITCH]` draws a gallery |
 | `bun run bake:houses` | Bake the house kits (`houses/models.ts`) into `derived/houses_*.png` + `houses.json`; `dev/preview-houses.ts out.png` draws a gallery |
 | `bun run bake:props` | Bake trees and furniture (`props/models.ts`) into `derived/props_0.png` + `props.json`; `dev/preview-props.ts out.png` draws a gallery |
 | `bun run bake:people` | Bake figures (`agents/people/figures.ts`) into `derived/people_*.png` + `people.json`; `dev/preview-people.ts out.png` draws a gallery |

@@ -18,7 +18,7 @@
  * paint gives the texel's true coverage: no seam shows between them.
  */
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
-import { HALF_STEPS_PER_M, TILES_PER_M, type Disc, type Hull, type Mat, type Model, type Section, type Slab } from "./models";
+import { HALF_STEPS_PER_M, TILES_PER_M, pitchAngle, type Disc, type Hull, type Mat, type Model, type Section, type Slab } from "./models";
 
 export type Image = { w: number; h: number; px: Uint8Array };
 /** A baked frame: its paint and trim layers, and where the vehicle's middle at road level is in them. */
@@ -266,8 +266,9 @@ export function modelTris(m: Model): Tri[] {
  * Bake one frame of a model at `heading` (radians, as a mover's), `res`
  * texels to a world px at scale 1.
  */
-export function bakeFrame(m: Model, heading: number, res: number): Baked {
+export function bakeFrame(m: Model, heading: number, res: number, pitch = 0): Baked {
   const b = bakeTris(modelTris(m), heading, res, {
+    pitch,
     layers: 2, layerOf: (mat) => (PAINTED.has(mat) ? 0 : 1),
     shadow: { hl: m.length / 2 - 0.25, hw: m.width / 2 - 0.25, edge: 0.08, soft: 0.4, strength: 0.42, reach: 0.35 },
     marks: { n: LAMPS.length, of: lampOf },
@@ -292,6 +293,11 @@ export type BakeOpts = {
    * material at a point of the model (metres).
    */
   marks?: { n: number; of: (mat: Mat, p: V3) => number };
+  /**
+   * STOOD ON A SLOPE of this many half steps a tile along its heading: the whole of it turned about its middle at
+   * the road — its nose up, its roof back — and its shadow laid on the slope under it. @see models pitchAngle
+   */
+  pitch?: number;
 };
 
 /**
@@ -302,7 +308,11 @@ export type BakeOpts = {
 export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpts): { layers: Image[]; marks: Image[]; ox: number; oy: number } {
   const ch = Math.cos(heading), sh = Math.sin(heading);
   // Model metres → ground (u, v tiles; up half steps), as town-render's `at`.
-  const ground = (p: V3) => {
+  const pitch = opt.pitch ?? 0, th = pitchAngle(pitch), cp = Math.cos(th), sp = Math.sin(th);
+  /** A point or a direction of the model, pitched: turned about the axis across it. */
+  const tip = (p: V3): V3 => (pitch ? [p[0] * cp - p[2] * sp, p[1], p[0] * sp + p[2] * cp] : p);
+  const ground = (q: V3) => {
+    const p = tip(q);
     const l = p[0] * TILES_PER_M, w = p[1] * TILES_PER_M;
     return { u: l * ch - w * sh, v: l * sh + w * ch, up: p[2] * HALF_STEPS_PER_M };
   };
@@ -313,7 +323,7 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
   const sl = sd.hl + 0.25 + sd.reach, sw = sd.hw + 0.25 + sd.reach - 0.05;
   const pts: { x: number; y: number }[] = [];
   for (const t of tris) for (const p of t.p) { const g = ground(p); pts.push(screen(g.u, g.v, g.up)); }
-  for (const [l, w] of [[sl, sw], [sl, -sw], [-sl, sw], [-sl, -sw]]) { const g = ground([l, w, 0]); pts.push(screen(g.u, g.v, 0)); }
+  for (const [l, w] of [[sl, sw], [sl, -sw], [-sl, sw], [-sl, -sw]]) { const g = ground([l, w, 0]); pts.push(screen(g.u, g.v, g.up)); }
   const PAD = 2;
   const x0 = Math.floor(Math.min(...pts.map((p) => p.x))) - PAD, y0 = Math.floor(Math.min(...pts.map((p) => p.y))) - PAD;
   const W = Math.ceil(Math.max(...pts.map((p) => p.x))) + PAD - x0, H = Math.ceil(Math.max(...pts.map((p) => p.y))) + PAD - y0;
@@ -336,8 +346,8 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
     const d = g.map((q) => q.u + q.v + q.up / 4);
     const zm = t.p.map((p) => p[2]);
     // The light at a normal, turned into the ground's frame: diffuse, the sky in glass, and a highlight.
-    const shade = (n: V3, mat: Mat): V3 => {
-      const base = COLOUR[mat], gloss = GLOSS[mat], glows = GLOWS.has(mat);
+    const shade = (n0: V3, mat: Mat): V3 => {
+      const base = COLOUR[mat], gloss = GLOSS[mat], glows = GLOWS.has(mat), n = tip(n0);
       const nu = n[0] * ch - n[1] * sh, nv = n[0] * sh + n[1] * ch, nz = n[2];
       const lam = Math.max(0, nu * LIGHT[0] + nv * LIGHT[1] + nz * LIGHT[2]);
       const lit = glows ? 0.88 + 0.12 * lam : 0.55 + 0.45 * lam;
@@ -389,11 +399,13 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
 
   // THE SHADOW on the road: a soft rounded rectangle under the car, where nothing of it is drawn.
   const shadowAt = (sx: number, sy: number) => {
-    const a = (sx / SS + x0) / (HW * res), b = (sy / SS + y0) / (HH * res); // u − v, u + v
-    const u = (a + b) / 2, v = (b - a) / 2;
-    // Back into the car's frame, metres, a touch toward the shade (+x on the ground).
-    const uu = u / TILES_PER_M - 0.12, vv = v / TILES_PER_M + 0.06;
-    const l = uu * ch + vv * sh, w = -uu * sh + vv * ch;
+    // On the screen, as the level ground would have it: u − v and u + v, a touch toward the shade (+x on the ground).
+    const a = (sx / SS + x0) / (HW * res) - 0.18 * TILES_PER_M, b = (sy / SS + y0) / (HH * res) - 0.06 * TILES_PER_M;
+    // Back onto the slope under the car, in its own frame: along it `L` tiles of level ground, which rise `pitch`
+    // half steps each up the screen; across it `Wt`. (Level, this is the ground's own u and v turned to the car.)
+    const K = (pitch * HEIGHT_UNIT) / HH, det = 2 - K * (sh + ch);
+    const L = (a * (ch - sh) + b * (sh + ch)) / det, Wt = (b * (ch - sh) - a * (ch + sh - K)) / det;
+    const l = L / (cp * TILES_PER_M), w = Wt / TILES_PER_M;
     const ex = Math.max(Math.abs(l) - sd.hl, 0), ey = Math.max(Math.abs(w) - sd.hw, 0);
     const out = Math.hypot(ex, ey);
     return sd.strength * (1 - Math.min(1, Math.max(0, (out - sd.edge) / sd.soft)));

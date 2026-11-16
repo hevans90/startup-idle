@@ -24,11 +24,24 @@ export type CarFrame = [
   ...lamps: number[],
 ];
 
+/**
+ * ON A SLOPE a vehicle is baked again, leant back or forward as it stands on it: at each of these pitches (half
+ * steps a tile along its heading — a ramp's one or two, up and down), for the headings a ramp is driven at, which
+ * are a road's four ways. `PITCH_HEADINGS` of them round the turn, evenly: every `headings / PITCH_HEADINGS`th.
+ * Any other heading on a slope, and what is left of a pitch between two of these, is sheared. @see car-sheet poseOf
+ */
+export const CAR_PITCHES = [-2, -1, 1, 2] as const;
+export const PITCH_HEADINGS = 4;
+
 export type CarSheet = {
   res: number;
   headings: number;
+  /** The pitches baked, and how many headings of each. */
+  pitches?: number[];
+  pitchHeadings?: number;
   pages: string[];
-  models: Record<string, { length: number; width: number; frames: CarFrame[] }>;
+  /** `tilted[p][k]`: the frame at pitch `pitches[p]`, heading `k` of `pitchHeadings`. */
+  models: Record<string, { length: number; width: number; frames: CarFrame[]; tilted?: CarFrame[][] }>;
 };
 
 /** Texels between the paint layer and the trim layer of a frame. */

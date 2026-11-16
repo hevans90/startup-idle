@@ -11,15 +11,12 @@ import { Assets, Matrix, Rectangle, Texture } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
 import { TILES_PER_M } from "./models";
-import { CAR_GAP, type CarSheet } from "./sheet-format";
+import { CAR_GAP, type CarFrame, type CarSheet } from "./sheet-format";
 
 const BASE = "/isometric_assets/derived";
 
-export type CarLook = {
-  id: string;
-  /** Length and width, tiles. */
-  length: number;
-  width: number;
+/** A run of frames, one a heading. */
+export type CarPoses = {
   paint: Texture[];
   trim: Texture[];
   /** Each heading's anchor in each layer: the vehicle's middle at the road, as a share of the layer. */
@@ -28,7 +25,15 @@ export type CarLook = {
   /** Each heading's lamps' masks, in `LAMPS` order, and their anchors; an empty texture where there is none. @see raster LAMPS */
   lamps: { tex: Texture; anchor: { x: number; y: number } }[][];
 };
-export type CarSprites = { res: number; headings: number; looks: Map<string, CarLook> };
+export type CarLook = CarPoses & {
+  id: string;
+  /** Length and width, tiles. */
+  length: number;
+  width: number;
+  /** Leant on a slope: a run for each pitch baked, a frame for each of a road's four ways. @see sheet-format CAR_PITCHES */
+  tilted: CarPoses[];
+};
+export type CarSprites = { res: number; headings: number; pitches: number[]; pitchHeadings: number; looks: Map<string, CarLook> };
 
 /** Whether vehicles come from the baked sheet: in a browser, unless `?cars=boxes`. */
 export const bakedCars = () =>
@@ -40,11 +45,12 @@ export async function loadCarSprites(): Promise<CarSprites> {
   const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
     Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } })));
   const looks = new Map<string, CarLook>();
-  for (const [id, m] of Object.entries(sheet.models)) {
+  /** A run of frames cut from the pages: each layer's texture and anchor, and its lamps. */
+  const cut = (frames: CarFrame[]): CarPoses => {
     const paint: Texture[] = [], trim: Texture[] = [], paintAnchor: { x: number; y: number }[] = [], trimAnchor: typeof paintAnchor = [];
-    const lamps: CarLook["lamps"] = [];
-    for (const [page, x, y, pw, ph, pox, poy, tw, th, tox, toy, ...ls] of m.frames) {
-      const mine: CarLook["lamps"][number] = [];
+    const lamps: CarPoses["lamps"] = [];
+    for (const [page, x, y, pw, ph, pox, poy, tw, th, tox, toy, ...ls] of frames) {
+      const mine: CarPoses["lamps"][number] = [];
       for (let k = 0; k + 6 < ls.length; k += 7) {
         const [lp, lx, ly, lw, lh, lox, loy] = ls.slice(k, k + 7);
         mine.push(lw ? { tex: new Texture({ source: pages[lp].source, frame: new Rectangle(lx, ly, lw, lh) }), anchor: { x: lox / lw, y: loy / lh } } : { tex: Texture.EMPTY, anchor: { x: 0, y: 0 } });
@@ -57,9 +63,33 @@ export async function loadCarSprites(): Promise<CarSprites> {
       paintAnchor.push(pw ? { x: pox / pw, y: poy / ph } : { x: 0, y: 0 });
       trimAnchor.push({ x: tox / tw, y: toy / th });
     }
-    looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, paint, trim, paintAnchor, trimAnchor, lamps });
+    return { paint, trim, paintAnchor, trimAnchor, lamps };
+  };
+  for (const [id, m] of Object.entries(sheet.models)) {
+    looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, ...cut(m.frames), tilted: (m.tilted ?? []).map(cut) });
   }
-  return { res: sheet.res, headings: sheet.headings, looks };
+  return { res: sheet.res, headings: sheet.headings, pitches: sheet.pitches ?? [], pitchHeadings: sheet.pitchHeadings ?? 0, looks };
+}
+
+/**
+ * WHICH FRAME A VEHICLE IS DRAWN FROM, at heading `h` (of the sheet's) on a slope of `pitch` half steps a tile.
+ * Level, its heading's own. On a slope, heading one of a road's four ways or within a frame's turn of one — it
+ * changes lane on a ramp without being drawn askew — the frame baked nearest its pitch, leant as it stands; and
+ * `shear`, what is left of the pitch, for the pair to be sheared by: the little between two baked pitches as it
+ * comes onto a ramp. Any other heading on a slope is its level frame sheared the whole way.
+ */
+export function poseOf(sheet: Pick<CarSprites, "headings" | "pitches" | "pitchHeadings">, look: CarLook, h: number, pitch: number):
+  { from: CarPoses; k: number; heading: number; lean: number; shear: number; key: string } {
+  const level = { from: look as CarPoses, k: h, heading: (h / sheet.headings) * Math.PI * 2, lean: 0, shear: pitch, key: `${h}` };
+  const n = sheet.pitchHeadings, every = n ? sheet.headings / n : 0;
+  if (!n || !look.tilted.length || Math.abs(pitch) < 0.5) return level;
+  const k = Math.round(h / every), off = Math.abs(h - k * every);
+  if (off > 1) return level;
+  let best = 0;
+  sheet.pitches.forEach((q, i) => { if (Math.abs(q - pitch) < Math.abs(sheet.pitches[best] - pitch)) best = i; });
+  if (Math.abs(sheet.pitches[best] - pitch) > Math.abs(pitch)) return level;
+  const kk = ((k % n) + n) % n;
+  return { from: look.tilted[best], k: kk, heading: (kk / n) * Math.PI * 2, lean: sheet.pitches[best], shear: pitch - sheet.pitches[best], key: `t${best}.${kk}` };
 }
 
 export { modelFor } from "./fleet";

@@ -95,6 +95,8 @@ export const TILES_PER_M = 0.09;
  * half step is 0.204 tiles tall — and a metre up is 0.09 / 0.204 of one.
  */
 export const HALF_STEPS_PER_M = TILES_PER_M / 0.2041;
+/** The angle of a slope of `pitch` half steps a tile, radians: a ramp of a whole step is 22°. */
+export const pitchAngle = (pitch: number) => Math.atan((pitch * TILES_PER_M) / HALF_STEPS_PER_M);
 
 // ─── PARTS ───────────────────────────────────────────────────────────────────
 

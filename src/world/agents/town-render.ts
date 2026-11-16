@@ -21,8 +21,8 @@ import { Container, Graphics, Matrix, Rectangle, RenderTexture, Sprite, Texture,
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
-import { baseCorners, bakedCars, headingIndex, loadCarSprites, modelFor, pitchMatrix, type CarSprites } from "./cars/car-sheet";
-import { beaconsOf, HALF_STEPS_PER_M, TILES_PER_M } from "./cars/models";
+import { baseCorners, bakedCars, headingIndex, loadCarSprites, modelFor, pitchMatrix, poseOf, type CarSprites } from "./cars/car-sheet";
+import { beaconsOf, HALF_STEPS_PER_M, TILES_PER_M, pitchAngle } from "./cars/models";
 import { flashing } from "./emergency";
 import { BIKE_LENGTH, BIKE_WIDTH, COLLAR, DOGS } from "./people/people-format";
 
@@ -434,15 +434,17 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       if (car) {
         // FROM THE SHEET: the paint tinted, the trim over it, the frame for its heading.
         const h = headingIndex(m.heading, sheet!.headings);
-        const key = `baked|${car.id}|${h}|${scale}`;
+        // ON A SLOPE, the frame baked leaning as it stands there. @see car-sheet poseOf
+        const pose = poseOf(sheet!, car, h, m.pitch ?? 0), P = pose.from, f = pose.k;
+        const key = `baked|${car.id}|${pose.key}|${scale}`;
         if (d.key !== key) {
           d.key = key;
-          d.parts[0].texture = car.paint[h]; d.parts[1].texture = car.trim[h];
-          d.parts[0].anchor.set(car.paintAnchor[h].x, car.paintAnchor[h].y);
-          d.parts[1].anchor.set(car.trimAnchor[h].x, car.trimAnchor[h].y);
+          d.parts[0].texture = P.paint[f]; d.parts[1].texture = P.trim[f];
+          d.parts[0].anchor.set(P.paintAnchor[f].x, P.paintAnchor[f].y);
+          d.parts[1].anchor.set(P.trimAnchor[f].x, P.trimAnchor[f].y);
           for (const sp of d.parts) sp.scale.set(scale / sheet!.res);
           d.lamps?.forEach((sp, k) => {
-            const l = car.lamps[h][k];
+            const l = P.lamps[f][k];
             sp.texture = l.tex; sp.anchor.set(l.anchor.x, l.anchor.y); sp.scale.set(scale / sheet!.res);
           });
         }
@@ -455,14 +457,14 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
           const lit = lampsOf(m, signalOf(town.traffic?.G ?? null, m), brakes, night, town.t);
           d.lamps.forEach((sp, k) => { if (sp.alpha !== lit[k]) sp.alpha = lit[k]; });
         }
-        // Tilted on a ramp; set straight again off it.
-        const tilt = pitchMatrix((h / sheet!.headings) * Math.PI * 2, m.pitch ?? 0);
+        // What is left of its pitch, sheared; set straight again where there is none.
+        const tilt = pitchMatrix(pose.heading, pose.shear);
         if (tilt) { tilt.tx = x; tilt.ty = y; d.c.setFromMatrix(tilt); d.tilted = true; }
         else {
           if (d.tilted) { d.c.scale.set(1); d.c.skew.set(0, 0); d.c.rotation = 0; d.tilted = false; }
           d.c.position.set(x, y);
         }
-        front = baseCorners(car, (h / sheet!.headings) * Math.PI * 2);
+        front = baseCorners(car, pose.heading);
         if (d.flash) {
           const b = beaconsOf(car.id), on = flashing(m);
           const tick = Math.floor(town.t * FLASHES * 2 + m.id) % 2;
@@ -470,10 +472,12 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
             sp.alpha = on && b && tick === k ? 1 : 0;
             if (!b || !on) return;
             // The bar's end, on the roof, turned with the vehicle.
-            const hh = (h / sheet!.headings) * Math.PI * 2, ch = Math.cos(hh), sh = Math.sin(hh);
+            const hh = pose.heading, ch = Math.cos(hh), sh = Math.sin(hh);
             const y = (k ? 1 : -1) * b.w * 0.8;
-            const u = (b.l * ch - y * sh) * TILES_PER_M, v = (b.l * sh + y * ch) * TILES_PER_M;
-            sp.position.set((u - v) * HW * scale, (u + v) * HH * scale - b.z * HALF_STEPS_PER_M * HEIGHT_UNIT * scale);
+            // (Leant with the vehicle: along it and up, turned by its slope.)
+            const th = pitchAngle(pose.lean), bl = b.l * Math.cos(th) - b.z * Math.sin(th), bz = b.l * Math.sin(th) + b.z * Math.cos(th);
+            const u = (bl * ch - y * sh) * TILES_PER_M, v = (bl * sh + y * ch) * TILES_PER_M;
+            sp.position.set((u - v) * HW * scale, (u + v) * HH * scale - bz * HALF_STEPS_PER_M * HEIGHT_UNIT * scale);
             sp.scale.set(scale * 0.5);
           });
         }
