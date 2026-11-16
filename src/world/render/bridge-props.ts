@@ -8,6 +8,7 @@
  * WHAT GOES WHERE is worked out here from the deck's cells and nothing else
  * ({@link bridgePiecesOf}); the pieces are baked models (`props/bridges`), in
  * the props' sheet. Three tiers a tile, by what hides what:
+ *  - `sunk`: what of that is under the water, down to the bed: drawn before the tile's water, which is over it;
  *  - `under`: what it stands on, drawn before the tile's own road, which is over it;
  *  - `back`: what stands along a far edge, behind whoever is on the deck;
  *  - `front`: its side along a near edge, and what is over the road, in front of them.
@@ -22,7 +23,7 @@ import { ABUT_HEAD, ARCH_SPRING, BENT_MAX, BENT_UNDER, HS, FRAME_DEEP, FRAME_LOW
 import type { BandLayer } from "./bands";
 
 export type BridgeKind = "arch" | "trestle" | "girder" | "truss" | "stay";
-export type BridgePiece = { id: string; turn: number; x: number; y: number; z: number; tier: "under" | "back" | "front"; /** The cell it is drawn with, where that is not the one it stands on: a piece on the line between two tiles. */ cell?: { x: number; y: number }; /** Drawn this much taller than baked, from its foot: a pier made to the nearest half step, fitted to the room there is. */ stretch?: number };
+export type BridgePiece = { id: string; turn: number; x: number; y: number; z: number; tier: "sunk" | "under" | "back" | "front"; /** The cell it is drawn with, where that is not the one it stands on: a piece on the line between two tiles. */ cell?: { x: number; y: number }; /** Drawn this much taller than baked, from its foot: a pier made to the nearest half step, fitted to the room there is. */ stretch?: number };
 /** A bridge: the deck's cells joined up, the way it runs, how long and wide it is, the room under it, and what kind it is. */
 export type Bridge = { kind: BridgeKind; cells: number[]; alongX: boolean; a0: number; len: number; width: number; room: number };
 
@@ -120,6 +121,10 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
     for (const i of B.cells) {
       const x = i % g.w, y = (i / g.w) | 0, z = g.deckZ[i], k = (B.alongX ? x : y) - B.a0;
       const base = g.height[i] + Math.max(0, depth(x, y)), room = z - base;
+      // WHAT STANDS IN THE WATER STANDS ON THE BED: a half step at a time from the waterline down to it, under the water.
+      const ground = g.height[i];
+      const sink = (id: string, at: { x: number; y: number; turn: number; cell?: { x: number; y: number } }, water = base, bed = ground) => { for (let top = water; top > bed; top--) out.push({ id, tier: "sunk", z: top, ...at }); };
+      const here0 = { x, y, turn };
       const put = (id: string, tier: BridgePiece["tier"], zz = z, t = turn, stretch?: number) => out.push({ id, turn: t, x, y, z: zz, tier, ...(stretch && stretch !== 1 ? { stretch } : {}) });
       /** A column from the footing up, a half step at a time, to `under` below the road: the last of it up behind what it carries. */
       const stack = (shaft: string, under: number, from = base + FOOT) => { for (let top = from + 1; top - 1 < z - under; top++) put(shaft, "under", top); };
@@ -130,18 +135,18 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
       if (K === "arch") {
         // A pier between each arch and the last, at the tile's low end; the bank is the first one's.
         if (k > 0 && room > 0.8) {
-          if (room > SPRING + 0.6) { put("archFoot", "under", base); stack("archShaft", SPRING); }
+          if (room > SPRING + 0.6) { put("archFoot", "under", base); stack("archShaft", SPRING); sink("archShaft", here0); if (base > ground) put("archFoot", "sunk", ground); }
           put("archHead", "under");
         }
       } else if (K === "trestle") {
         // A pier where two of its trusses meet, whole: the one made nearest the room there is from the water to the beams, and
         // drawn the little taller or shorter that fits it exactly.
         const need = room - BENT_UNDER / HS, n = Math.max(1, Math.min(BENT_MAX, Math.round(need)));
-        if (k >= 1 && k <= B.len - 2 && springs.includes(k) && need >= 0.6) out.push({ id: `timberPier${n}`, turn, x, y, z: base, tier: "under", stretch: need / n });
+        if (k >= 1 && k <= B.len - 2 && springs.includes(k) && need >= 0.6) { out.push({ id: `timberPier${n}`, turn, x, y, z: base, tier: "under", stretch: need / n }); sink("timberSunk", here0); }
       } else {
         // A stay's pier is its pylon's; a girder's, where two of its arches meet; a truss's, every third tile.
         const here = K === "stay" ? off === 0 : k >= 1 && k <= B.len - 2 && springs.includes(k);
-        if (here && room >= PIER_ROOM) { put("girderFoot", "under", base); stack("girderShaft", CAP_UNDER); if (crown) put("ribWall", "under", ribZ(z), turn, ribFit); put("girderCap", "under"); }
+        if (here && room >= PIER_ROOM) { put("girderFoot", "under", base); sink("girderShaft", here0); if (base > ground) put("girderFoot", "sunk", ground); stack("girderShaft", CAP_UNDER); if (crown) put("ribWall", "under", ribZ(z), turn, ribFit); put("girderCap", "under"); }
       }
 
       // ITS OPEN EDGES: what faces the camera shows its side; what faces away, only what stands over the road.
@@ -171,6 +176,7 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
           out.push({ id: s.near ? "archTower" : "archTowerFar", tier, ...at });
           // The turret's foot is the pier's: its stone on down from the springing to the water.
           if (s.near && room > SPRING + 0.6) for (let top = base + 1; top - 1 < z - SPRING; top++) out.push({ id: "archTowerShaft", tier: "under", ...at, z: Math.min(top, z - SPRING) });
+          if (s.near && room > SPRING + 0.6) sink("archTowerShaft", { x: at.x, y: at.y, turn: at.turn, cell: { x, y } });
           if (B.width === 2) out.push({ id: "archGateHalf", tier: "front", ...at });
         }
         // OVER IT: a girder's arches, each springing from the pier's own concrete brought up past the deck's edge; a timber bridge's trusses.
@@ -202,6 +208,7 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
         if (g.height[idx(g, ax, ay)] > base + 0.5 && room * HS >= ABUT_HEAD + 0.4) {
           const at = { x: x + ox * 0.5, y: y + oy * 0.5, turn: (turn + (e ? 2 : 0)) % 4, tier: "under" as const, cell: { x, y } };
           for (let top = z - ABUT_HEAD / HS; top > base; top--) out.push({ id: `abut${F}Shaft`, z: top, ...at });
+          sink(`abut${F}Shaft`, { x: at.x, y: at.y, turn: at.turn, cell: at.cell });
           out.push({ id: `abut${F}`, z, ...at });
           // A WING WALL along the bank's face each side of it, where the bank runs on there and the ground falls away
           // in front of it: a piece's left is the side its turn names, so the other wing is the same piece turned about.
@@ -211,6 +218,7 @@ export function bridgePiecesOf(g: Grid, depth: (x: number, y: number) => number 
             const foot = g.height[fi] + Math.max(0, depth(x + L.dx, y + L.dy));
             if (foot > z - ABUT_HEAD / HS) continue;
             for (let top = z - ABUT_HEAD / HS; top > foot; top--) out.push({ id: `wing${F}Shaft`, z: top, ...at, turn: t });
+            sink(`wing${F}Shaft`, { x: at.x, y: at.y, turn: t, cell: at.cell }, foot, g.height[fi]);
             out.push({ id: `wing${F}`, z, ...at, turn: t });
           }
         }
@@ -246,13 +254,24 @@ export function createBridgeProps(bands: BandLayer): BridgeProps {
       if (!P) return;
       // (Read once: a pier does not rise and fall with every ripple.)
       const still = depth ? (x: number, y: number) => Math.round(depth(x, y) * 2) / 2 : undefined;
-      const under = new Map<number, Container>();
+      const under = new Map<number, Container>(), sunk = new Map<number, Container>();
       for (const p of bridgePiecesOf(g, still, force)) {
         // (A piece between two tiles is the higher one's: drawn with it.)
         const band = p.cell ? bandOf(p.cell.x, p.cell.y) : bandOf(Math.ceil(p.x), Math.ceil(p.y)), sp = propSprite(P, p.id, p.turn, p.x, p.y, p.z, scale);
         if (!sp) continue;
         if (p.stretch) sp.scale.y = p.stretch;
-        if (p.tier === "under") {
+        if (p.tier === "sunk") {
+          // BEFORE THE BAND'S WATER, on its ground: the river is over a pier's foot, and is drawn over it.
+          let c = sunk.get(band);
+          if (!c) {
+            const layer = bands.staticOf[band];
+            if (!layer) { sp.destroy({ children: true }); continue; }
+            c = new Container(); c.eventMode = "none";
+            layer.addChild(c);
+            sunk.set(band, c); drawn.push(c);
+          }
+          c.addChild(sp);
+        } else if (p.tier === "under") {
           // BEFORE THE BAND'S ROADS: its own deck is over a pier, and is drawn over it.
           let c = under.get(band);
           if (!c) {

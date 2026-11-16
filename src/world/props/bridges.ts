@@ -335,6 +335,21 @@ function cribPierTris(n: number): Tri[] {
   return out;
 }
 
+/** A half step of a timber pier's foot under the water, its top at the origin: a boarded starling the pier stands on, pointed up and down stream, down to the bed. */
+function timberSunkTris(): Tri[] {
+  const out: Tri[] = [], X = 2.3, Y = 5.5;
+  pbox(-X, X, -Y, Y, -HS, 0, "timber", out, boards);
+  for (const sg of [-1, 1]) {
+    const n = out.length, c: V3 = [0, sg * (Y + 0.4), -HS / 2];
+    face([[-X, sg * Y, -HS], [0, sg * (Y + 1.6), -HS], [0, sg * (Y + 1.6), 0], [-X, sg * Y, 0]], "timber", c, out);
+    face([[X, sg * Y, -HS], [0, sg * (Y + 1.6), -HS], [0, sg * (Y + 1.6), 0], [X, sg * Y, 0]], "timber", c, out);
+    laid(out, n, boards);
+    face([[-X, sg * Y, 0], [X, sg * Y, 0], [0, sg * (Y + 1.6), 0]], "timberDark", c, out);
+  }
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) limb([sx * X, sy * Y, -HS], [sx * X, sy * Y, 0], 0.24, 0.24, "timberDark", out, 8, false);
+  return out;
+}
+
 // ── a steel plate girder ─────────────────────────────────────────────────
 /** A concrete parapet with a steel rail on posts along the left edge. */
 function railed(out: Tri[], steel: Mat = "chrome") {
@@ -662,7 +677,7 @@ export const BRIDGE: readonly Prop[] = [
   P("archTower", () => towerLegTris(-ARCH_SPRING)), P("archTowerFar", () => towerLegTris(0)),
   // The gate over one lane, turret to turret; and half of one over two, from the turret at its left to its crown on the road's middle.
   P("archGate", () => towerGateTris(0, HT - TUR_IN, 1.9)), P("archGateHalf", () => towerGateTris(-HT, 2 * HT - TUR_IN, 2.6)),
-  P("archTowerShaft", towerShaftTris),
+  P("archTowerShaft", towerShaftTris), P("timberSunk", timberSunkTris),
   // A king-post truss's tiles, named as the arches' are below.
   ...([1, 2, 3] as const).flatMap((n) => [P(`kp${n}A`, () => kingPostTris(n, 0, HT, 0, 1)), P(`kp${n}B`, () => kingPostTris(n, 0, HT, 0, -1))]),
   P("kp2M", () => kingPostTris(2, HT, 3 * HT, TL, 1)), P("kp3MA", () => kingPostTris(3, HT, 3 * HT, TL, 1)), P("kp3MB", () => kingPostTris(3, HT, 3 * HT, TL, -1)),
