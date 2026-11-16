@@ -291,3 +291,27 @@ describe("the paint and the traffic agree", () => {
     }
   });
 });
+
+describe("a wide road that jogs a cell sideways", () => {
+  // Two cells wide along y 8-9 to x = 20, the slice at x = 20 three cells (y 8-10), then along y 9-10.
+  const g = grid(40, 20, [...row(8, 0, 20), ...row(9, 0, 39), ...row(10, 20, 39)]);
+
+  test("is the one road all the way: two cells wide, the wider slice too, with no end at the jog", () => {
+    for (const [x, y] of [[5, 8], [19, 9], [20, 8], [20, 9], [20, 10], [21, 10], [35, 9]]) expect(look(g, x, y).ln).toMatch(/^u!?2\./);
+    // Away from the jog, as any straight road; through it, its middle slants.
+    expect(look(g, 5, 8).ln).toBe("u2.0");
+    expect(look(g, 35, 10).ln).toBe("u2.1");
+    expect(look(g, 20, 9).ln).toMatch(/~/);
+  });
+
+  test("its painted middle is where its lanes' middle is, slice by slice", () => {
+    const G = buildLaneGraph(g), st = G.streets.find((q) => q.width === 2 && q.a1 - q.a0 > 30)!;
+    expect(st).toBeDefined();
+    for (let x = st.a0; x <= st.a1; x++) {
+      const m = /^u[abcn!x]*2\.(-?[\d.]+?)(?:~(-?[\d.]+))?$/.exec(look(g, x, 9).ln)!;
+      // The cell at y = 9 is `c` across from the road's low edge; its middle one cell on: so the road's middle, in cell middles.
+      const painted = 9 + 1 - Number(m[1]) - 0.5;
+      expect(Math.abs(painted - st.mid[x - st.a0])).toBeLessThan(0.002);
+    }
+  });
+});

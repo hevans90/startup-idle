@@ -95,7 +95,9 @@ export type Look = {
    * plainly, no taper, between two junctions close together; `!` before a junction
    * (the centre line its warning line); `x` in a junction a highway runs
    * through, its lines carried on past a side road's mouth; then its width in
-   * cells and which this is across it, from the low side: `ub!3.1`.
+   * cells and which this is across it, from the low side: `ub!3.1` — not a
+   * whole number where the road jogs sideways, and then `~` and how far its
+   * middle slants across this cell: `u2.0.75~0.25`.
    * Empty elsewhere. @see agents/lanes/graph laneLines
    */
   ln: string;
@@ -254,7 +256,8 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
     R.major = through.length === 1 ? through[0] : through.length === 2 ? (len("v") > len("u") ? "v" : "u") : "";
   }
   // ACROSS A WIDE STREET: the way it runs, how wide it is, and where each of its cells is across it.
-  const across = new Map<number, { ax: "u" | "v"; k: number; c: number }>();
+  const across = new Map<number, { ax: "u" | "v"; k: number; c: number; dq: number; last: number }>();
+  const round3 = (v: number) => Math.round(v * 1000) / 1000;
   for (const cells of streets.tiles) {
     if (cells.length < 2) continue;
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
@@ -262,11 +265,21 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
     const ax: "u" | "v" = x1 - x0 >= y1 - y0 ? "u" : "v";
     const slices = new Map<number, number[]>();
     for (const i of cells) { const x = i % g.w, y = (i / g.w) | 0, a = ax === "u" ? x : y; const s = slices.get(a); if (s) s.push(ax === "u" ? y : x); else slices.set(a, [ax === "u" ? y : x]); }
-    for (const [a, bs] of slices) {
-      if (bs.length < 2) continue;
-      const lo = Math.min(...bs);
-      for (const b of bs) across.set(ax === "u" ? idx(g, a, b) : idx(g, b, a), { ax, k: bs.length, c: b - lo });
-    }
+    // THE ROAD'S OWN WIDTH, the most of its slices have: where it jogs a cell sideways one slice is a cell wider,
+    // and that slice is the same road still, not a wider one.
+    const as = [...slices.keys()].sort((p, q) => p - q);
+    const widths = as.map((a) => slices.get(a)!.length).sort((p, q) => p - q), k = widths[widths.length >> 1];
+    if (k < 2) continue;
+    // ITS MIDDLE, slice by slice, smoothed as the lanes' is: through a jog it slants over a few cells. @see agents/lanes/graph smooth
+    const raw = as.map((a) => { const bs = slices.get(a)!; return (Math.min(...bs) + Math.max(...bs)) / 2 + 0.5; });
+    const mid = raw.map((_, n) => { const r = Math.min(2, n, raw.length - 1 - n); let t = 0; for (let q = n - r; q <= n + r; q++) t += raw[q]; return t / (2 * r + 1); });
+    as.forEach((a, n) => {
+      // Where it crosses this slice's two edges: half way to the slice before, and to the one after.
+      const e0 = n > 0 && as[n - 1] === a - 1 ? (mid[n - 1] + mid[n]) / 2 : mid[n], e1 = n + 1 < as.length && as[n + 1] === a + 1 ? (mid[n] + mid[n + 1]) / 2 : mid[n];
+      // The street's own last slice each way, a bit each: where its run can end. A cell of a jog with no road on from it is not that.
+      const last = (n === 0 ? 1 : 0) | (n === as.length - 1 ? 2 : 0);
+      for (const b of slices.get(a)!) across.set(ax === "u" ? idx(g, a, b) : idx(g, b, a), { ax, k, c: round3(b - (mid[n] - k / 2)), dq: round3(e1 - e0), last });
+    });
   }
   const regionAt = (x: number, y: number) => { const i = at(x, y); return i < 0 ? null : region[i] < 0 ? null : regions[region[i]]; };
   // A ROUNDABOUT where four roads two cells wide or more meet, as the lanes have it. @see agents/lanes/graph kindOf
@@ -445,7 +458,8 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
       const short = wide.k >= HIGHWAY && along.length === 2 && toJunction(along[0]) + toJunction(along[1]) - 1 <= SHORT_RUN;
       if (wide.k >= HIGHWAY) for (const sd of along) {
         const [dx, dy] = STEP[sd];
-        if (!has(o, sd) || (regionAt(x + dx, y + dy) && !bendOf(regionAt(x + dx, y + dy))) || zebraAt(x + 2 * dx, y + 2 * dy)) ends |= sd & 1 ? 2 : 1;
+        const terminal = (wide.last & (sd & 1 ? 2 : 1)) !== 0;
+        if ((terminal && !bendOf(regionAt(x + dx, y + dy))) || zebraAt(x + 2 * dx, y + 2 * dy)) ends |= sd & 1 ? 2 : 1;
         // ARROWS a cell back from the junction, in the lanes going to it; and plain ones every few cells of a long run.
         const J = regionAt(x + 2 * dx, y + 2 * dy);
         if (!short && J && !regionAt(x + dx, y + dy) && J.arms.size >= 3 && !roundabout(J)) {
@@ -460,7 +474,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
       if (wide.k >= HIGHWAY && !L.hw && !L.spd && !warn && !near && (wide.ax === "u" ? x : y) % ARROW_EVERY === 2) L.hw = along.map((sd) => `${sd}P`).join("");
       // Its own lanes' arrows, not the one a two-cell road's whole cell had.
       if (L.hw) L.arrow = "";
-      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${short && ends ? "n" : ""}${warn ? "!" : ""}${wide.k}.${wide.c}`;
+      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${short && ends ? "n" : ""}${warn ? "!" : ""}${wide.k}.${wide.c}${wide.dq ? "~" + wide.dq : ""}`;
     }
     else if (lane >= 0) L.ctr = (warn ? "H" : "h") + opposite(lane as Side);
     else if (r === "thick-curve") { L.ctr = "b"; L.yl = true; }

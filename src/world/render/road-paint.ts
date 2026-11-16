@@ -430,9 +430,18 @@ function centreLine(ctx: Ctx, L: Look) {
 const LANE_DASH: [number, number][] = [[0.4, 0.6]];
 
 /** A WIDE ROAD's own Look.ln, read: the way it runs, where its run ends (1 its low end, 2 its high, 3 both), warned of a junction, through one, how wide, and which cell across. */
-function wideOf(ln: string): { ax: "u" | "v"; ends: number; plain: boolean; warn: boolean; thru: boolean; k: number; c: number } | null {
-  const m = /^([uv])([abc]?)(n?)(!?)(x?)(\d+)\.(\d+)$/.exec(ln);
-  return m ? { ax: m[1] as "u" | "v", ends: m[2] ? "abc".indexOf(m[2]) + 1 : 0, plain: !!m[3], warn: !!m[4], thru: !!m[5], k: Number(m[6]), c: Number(m[7]) } : null;
+type Wide = { ax: "u" | "v"; ends: number; plain: boolean; warn: boolean; thru: boolean; k: number; c: number; dq: number };
+function wideOf(ln: string): Wide | null {
+  const m = /^([uv])([abc]?)(n?)(!?)(x?)(\d+)\.(-?\d+(?:\.\d+)?)(?:~(-?[\d.]+))?$/.exec(ln);
+  return m ? { ax: m[1] as "u" | "v", ends: m[2] ? "abc".indexOf(m[2]) + 1 : 0, plain: !!m[3], warn: !!m[4], thru: !!m[5], k: Number(m[6]), c: Number(m[7]), dq: Number(m[8] ?? 0) } : null;
+}
+/** How far across a road's middle has slanted, `a` along this cell from its low edge: nothing on a straight road; through a jog, a little a cell. */
+const slantAt = (W: Wide, a: number) => W.dq * (a - 0.5);
+/** A point of a wide road: `a` along the cell, `q` across where the road stands at the cell's middle, slanting with it. */
+const widePt = (W: Wide, a: number, q: number): [number, number] => runPt(W.ax, a, q + slantAt(W, a));
+/** A strip of a wide road, from `a0` to `a1` along and `q0` to `q1` across, slanting with the road through a jog. */
+function wideRect(ctx: Ctx, W: Wide, a0: number, a1: number, q0: number, q1: number) {
+  poly(ctx, [widePt(W, a0, q0), widePt(W, a1, q0), widePt(W, a1, q1), widePt(W, a0, q1)]);
 }
 
 /** A rectangle of a road running along `ax`: from `a0` to `a1` along it, `q0` to `q1` across. */
@@ -472,13 +481,13 @@ function wideLines(ctx: Ctx, L: Look) {
     const q = W.k / 2 + off - W.c;
     if (q < -0.1 || q > 1.1) continue;
     if (off !== 0) {
-      for (const [a0, a1] of LANE_DASH) { runRect(ctx, W.ax, a0, a1, q - w, q + w); ctx.fill(); }
+      for (const [a0, a1] of LANE_DASH) { wideRect(ctx, W, a0, a1, q - w, q + w); ctx.fill(); }
       // STUDS between the dashes, close up.
-      if (highway && DETAIL > 0) for (const a of [0, 1]) { ctx.beginPath(); ctx.arc(...runPt(W.ax, a, q), 0.009, 0, Math.PI * 2); ctx.fill(); }
+      if (highway && DETAIL > 0) for (const a of [0, 1]) { ctx.beginPath(); ctx.arc(...widePt(W, a, q), 0.009, 0, Math.PI * 2); ctx.fill(); }
       continue;
     }
     if (!highway) {
-      for (const [a0, a1] of W.warn ? WARNING : CENTRE) { runRect(ctx, W.ax, a0, a1, q - w, q + w); ctx.fill(); }
+      for (const [a0, a1] of W.warn ? WARNING : CENTRE) { wideRect(ctx, W, a0, a1, q - w, q + w); ctx.fill(); }
       continue;
     }
     // THROUGH A JUNCTION the middle is open: traffic turns across it.
@@ -489,22 +498,22 @@ function wideLines(ctx: Ctx, L: Look) {
     if (W.plain && W.ends === 3) continue;
     if (W.k < MEDIAN_FROM) {
       // A DOUBLE LINE, the two directions never crossing it.
-      for (const o of [-0.022, 0.022]) { runRect(ctx, W.ax, m0, m1, q + o - w, q + o + w); ctx.fill(); }
+      for (const o of [-0.022, 0.022]) { wideRect(ctx, W, m0, m1, q + o - w, q + o + w); ctx.fill(); }
     }
     // HATCHED where it ends: a taper from the nose to a point, barred across.
     for (const [end, nose, tip] of [[1, m0, 0.06], [2, m1, 0.94]] as const) {
       if (!(W.ends & end) || crossed || W.plain) continue;
       const half = W.k < MEDIAN_FROM ? 0.033 : MEDIAN + 0.012;
       ctx.save();
-      poly(ctx, [runPt(W.ax, nose, q - half), runPt(W.ax, nose, q + half), runPt(W.ax, tip, q)]);
+      poly(ctx, [widePt(W, nose, q - half), widePt(W, nose, q + half), widePt(W, tip, q)]);
       ctx.clip();
       for (let a = Math.min(nose, tip) - 0.1; a < Math.max(nose, tip) + 0.1; a += 0.055) {
-        poly(ctx, [runPt(W.ax, a, q - half), runPt(W.ax, a + 0.022, q - half), runPt(W.ax, a + 0.022 + half, q + half), runPt(W.ax, a + half, q + half)]);
+        poly(ctx, [widePt(W, a, q - half), widePt(W, a + 0.022, q - half), widePt(W, a + 0.022 + half, q + half), widePt(W, a + half, q + half)]);
         ctx.fill();
       }
       ctx.restore();
       // Its edges, a line each side to the point.
-      for (const sg of [-1, 1]) { poly(ctx, [runPt(W.ax, nose, q + sg * half), runPt(W.ax, nose, q + sg * (half - 0.014)), runPt(W.ax, tip, q - sg * 0.007), runPt(W.ax, tip, q + sg * 0.007)]); ctx.fill(); }
+      for (const sg of [-1, 1]) { poly(ctx, [widePt(W, nose, q + sg * half), widePt(W, nose, q + sg * (half - 0.014)), widePt(W, tip, q - sg * 0.007), widePt(W, tip, q + sg * 0.007)]); ctx.fill(); }
     }
   }
   if (!highway) return;
@@ -514,8 +523,8 @@ function wideLines(ctx: Ctx, L: Look) {
     const q = W.k / 2 + sg * span - W.c;
     if (q < 0 || q > 1) continue;
     const mouth = W.thru && has(L.open, W.ax === "u" ? (sg < 0 ? 2 : 3) : (sg < 0 ? 0 : 1));
-    if (!mouth) { runRect(ctx, W.ax, -0.05, 1.05, q - w, q + w); ctx.fill(); continue; }
-    for (const [a0, a1] of dashes(0.02, 1, 0.09, 0.07)) { runRect(ctx, W.ax, a0, a1, q - 2 * w, q + 2 * w); ctx.fill(); }
+    if (!mouth) { wideRect(ctx, W, -0.05, 1.05, q - w, q + w); ctx.fill(); continue; }
+    for (const [a0, a1] of dashes(0.02, 1, 0.09, 0.07)) { wideRect(ctx, W, a0, a1, q - 2 * w, q + 2 * w); ctx.fill(); }
   }
 }
 
@@ -534,19 +543,19 @@ function medianFoot(ctx: Ctx, L: Look) {
   if (W.plain && W.ends === 3) return;
   const [m0, m1] = medianSpan(W.ends, !!L.xing || /b/.test(L.hs), W.plain);
   ctx.fillStyle = css(0x000000, 0.16);
-  medianShape(ctx, W.ax, m0, m1, q + 0.012, MEDIAN + 0.014, W.ends); ctx.fill();
+  medianShape(ctx, W, m0, m1, q + 0.012, MEDIAN + 0.014, W.ends); ctx.fill();
   ctx.fillStyle = css(tone(KERB_OF[L.lvl], 0.55));
-  medianShape(ctx, W.ax, m0, m1, q, MEDIAN, W.ends); ctx.fill();
+  medianShape(ctx, W, m0, m1, q, MEDIAN, W.ends); ctx.fill();
 }
 
 /** A median's outline: a strip `half` either side of `q`, its ends rounded where its run ends. */
-function medianShape(ctx: Ctx, ax: "u" | "v", m0: number, m1: number, q: number, half: number, ends: number) {
+function medianShape(ctx: Ctx, W: Wide, m0: number, m1: number, q: number, half: number, ends: number) {
   ctx.beginPath();
   const N = 8, pts: [number, number][] = [];
-  if (ends & 1) for (let k = 0; k <= N; k++) { const t = Math.PI / 2 + (k / N) * Math.PI; pts.push(runPt(ax, m0 + half + Math.cos(t) * half, q + Math.sin(t) * half)); }
-  else pts.push(runPt(ax, m0, q + half), runPt(ax, m0, q - half));
-  if (ends & 2) for (let k = 0; k <= N; k++) { const t = -Math.PI / 2 + (k / N) * Math.PI; pts.push(runPt(ax, m1 - half + Math.cos(t) * half, q + Math.sin(t) * half)); }
-  else pts.push(runPt(ax, m1, q - half), runPt(ax, m1, q + half));
+  if (ends & 1) for (let k = 0; k <= N; k++) { const t = Math.PI / 2 + (k / N) * Math.PI; pts.push(widePt(W, m0 + half + Math.cos(t) * half, q + Math.sin(t) * half)); }
+  else pts.push(widePt(W, m0, q + half), widePt(W, m0, q - half));
+  if (ends & 2) for (let k = 0; k <= N; k++) { const t = -Math.PI / 2 + (k / N) * Math.PI; pts.push(widePt(W, m1 - half + Math.cos(t) * half, q + Math.sin(t) * half)); }
+  else pts.push(widePt(W, m1, q - half), widePt(W, m1, q + half));
   pts.forEach(([u, v], k) => (k ? ctx.lineTo(u, v) : ctx.moveTo(u, v)));
   ctx.closePath();
 }
@@ -563,21 +572,21 @@ function median(ctx: Ctx, L: Look) {
   if (W.plain && W.ends === 3) return;
   const [m0, m1] = medianSpan(W.ends, !!L.xing || /b/.test(L.hs), W.plain), kc = KERB_OF[L.lvl];
   ctx.fillStyle = css(kc);
-  medianShape(ctx, W.ax, m0, m1, q, MEDIAN, W.ends); ctx.fill();
+  medianShape(ctx, W, m0, m1, q, MEDIAN, W.ends); ctx.fill();
   ctx.fillStyle = css(tone(kc, 0.86));
-  medianShape(ctx, W.ax, m0, m1, q, MEDIAN - 0.016, W.ends); ctx.fill();
+  medianShape(ctx, W, m0, m1, q, MEDIAN - 0.016, W.ends); ctx.fill();
   // THE BARRIER: two rails either side of its posts, their shade beside them, short of a rounded end.
   const b0 = m0 + (W.ends & 1 ? MEDIAN : 0), b1 = m1 - (W.ends & 2 ? MEDIAN : 0);
   ctx.fillStyle = css(0x000000, 0.22);
-  runRect(ctx, W.ax, b0, b1, q + 0.012, q + 0.03); ctx.fill();
+  wideRect(ctx, W, b0, b1, q + 0.012, q + 0.03); ctx.fill();
   ctx.fillStyle = css(0x8d959d);
-  runRect(ctx, W.ax, b0, b1, q - 0.016, q + 0.016); ctx.fill();
+  wideRect(ctx, W, b0, b1, q - 0.016, q + 0.016); ctx.fill();
   ctx.fillStyle = css(0xc9d0d6);
-  for (const o of [-0.013, 0.007]) { runRect(ctx, W.ax, b0, b1, q + o, q + o + 0.006); ctx.fill(); }
+  for (const o of [-0.013, 0.007]) { wideRect(ctx, W, b0, b1, q + o, q + o + 0.006); ctx.fill(); }
   for (let a = Math.ceil(b0 / 0.25) * 0.25; a <= b1 + 1e-6; a += 0.25) {
     ctx.fillStyle = css(0x4a5057);
-    runRect(ctx, W.ax, a - 0.012, a + 0.012, q - 0.02, q + 0.02); ctx.fill();
-    if (DETAIL > 0) { ctx.fillStyle = css(0xf2a531); for (const o of [-0.024, 0.024]) { ctx.beginPath(); ctx.arc(...runPt(W.ax, a, q + o), 0.006, 0, Math.PI * 2); ctx.fill(); } }
+    wideRect(ctx, W, a - 0.012, a + 0.012, q - 0.02, q + 0.02); ctx.fill();
+    if (DETAIL > 0) { ctx.fillStyle = css(0xf2a531); for (const o of [-0.024, 0.024]) { ctx.beginPath(); ctx.arc(...widePt(W, a, q + o), 0.006, 0, Math.PI * 2); ctx.fill(); } }
   }
 }
 
