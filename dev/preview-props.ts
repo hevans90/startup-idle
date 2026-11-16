@@ -7,13 +7,16 @@
 import { writeFileSync } from "node:fs";
 import { encodePng } from "./png-min.ts";
 import { bakeTris } from "../src/world/agents/cars/raster.ts";
-import { PROPS, PROP_LAYERS, propLayerOf } from "../src/world/props/models.ts";
+import { PROPS as STREET, PROP_LAYERS, propLayerOf } from "../src/world/props/models.ts";
+import { BRIDGE } from "../src/world/props/bridges.ts";
+
+const PROPS = [...STREET, ...BRIDGE];
 import { PROP_TINT } from "../src/world/props/props-format.ts";
 
 const RES = Number(process.argv[3] ?? 3);
 const only = process.argv[4]?.split(",");
 const SHOWN = only ? PROPS.filter((p) => only.includes(p.id)) : PROPS;
-const bakes = SHOWN.map((p) => [0, 1, 2, 3].map((k) => bakeTris(p.tris(), (k / 4) * Math.PI * 2, RES, { layers: PROP_LAYERS, layerOf: propLayerOf, shadow: p.shadow })));
+const bakes = SHOWN.map((p) => [0, 1, 2, 3].map((k) => bakeTris(p.tris(), (k / 4) * Math.PI * 2, RES, { layers: PROP_LAYERS, layerOf: propLayerOf, shadow: p.shadow, flat: p.flat })));
 const CW = Math.max(...bakes.flat().map((b) => b.layers[0].w)) + 8, CH = Math.max(...bakes.flat().map((b) => b.layers[0].h)) + 8;
 const W = CW * 4, H = CH * SHOWN.length;
 const px = new Uint8Array(W * H * 4);

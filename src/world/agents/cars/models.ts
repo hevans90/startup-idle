@@ -23,7 +23,11 @@ export type Mat =
   | "seam" | "arch" | "rim" | "spoke"
   | "skin" | "top" | "bottom" | "hair" | "shoe" | "bag" | "hivis" | "hardhat"
   | "leaf" | "canvas" | "bark" | "birchBark" | "wood" | "iron" | "stone" | "water" | "linen" | "spray"
-  | "wall" | "rooftile" | "slate" | "roofing" | "pane" | "hedge" | "pave";
+  | "wall" | "rooftile" | "slate" | "roofing" | "pane" | "hedge" | "pave"
+  // A bridge's: dressed stone in three tones, its mortar and its lighter dressings; concrete and its joints; painted
+  // steel, two colours, each with its shade; timber, three; a stay's cable; a pylon's white.
+  | "stoneA" | "stoneB" | "stoneC" | "mortar" | "ashlar" | "concrete" | "joint"
+  | "steelBlue" | "steelBlueDark" | "steelRed" | "steelRedDark" | "timber" | "timberDark" | "timberLight" | "cable" | "pylon" | "pylonShade";
 
 export type Faces = { side?: Mat; top?: Mat; front?: Mat; back?: Mat };
 

@@ -60,6 +60,11 @@ const COLOUR: Record<Mat, [number, number, number]> = {
   // The houses': walls white to tint, roofs, window panes, hedges, paving. @see houses/models
   wall: [1, 1, 1], rooftile: [0.7, 0.36, 0.27], slate: [0.38, 0.42, 0.48], roofing: [0.6, 0.6, 0.58],
   pane: [0.42, 0.6, 0.74], hedge: [0.3, 0.48, 0.24], pave: [0.8, 0.78, 0.73],
+  stoneA: [0.71, 0.66, 0.57], stoneB: [0.63, 0.58, 0.5], stoneC: [0.78, 0.73, 0.63], mortar: [0.47, 0.44, 0.39], ashlar: [0.85, 0.81, 0.72],
+  concrete: [0.74, 0.73, 0.7], joint: [0.56, 0.55, 0.53],
+  steelBlue: [0.33, 0.43, 0.53], steelBlueDark: [0.22, 0.3, 0.38], steelRed: [0.62, 0.22, 0.17], steelRedDark: [0.42, 0.14, 0.11],
+  timber: [0.56, 0.4, 0.25], timberDark: [0.38, 0.27, 0.17], timberLight: [0.68, 0.52, 0.34], cable: [0.17, 0.18, 0.2],
+  pylon: [0.93, 0.93, 0.91], pylonShade: [0.76, 0.78, 0.8],
 };
 /** How glossy: the highlight's strength and tightness. Paint and glass shine; tyres and plastic don't. */
 const GLOSS: Partial<Record<Mat, [number, number]>> = {
@@ -298,6 +303,8 @@ export type BakeOpts = {
    * the road — its nose up, its roof back — and its shadow laid on the slope under it. @see models pitchAngle
    */
   pitch?: number;
+  /** No darkening toward the ground: for what hangs below its own origin — a bridge's pier — where "low down" means nothing. */
+  flat?: boolean;
 };
 
 /**
@@ -385,7 +392,7 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
         const mat = t.paint ? t.paint(at()) : t.mat;
         if (mark) mark[i] = opt.marks!.of(mat, at());
         // Darker low down, toward the shade under the car.
-        const ao = mat !== "glass" && !GLOWS.has(mat) ? 0.78 + 0.22 * Math.min(1, zAt / 0.9) : 1;
+        const ao = opt.flat ? 0.92 : mat !== "glass" && !GLOWS.has(mat) ? 0.78 + 0.22 * Math.min(1, zAt / 0.9) : 1;
         const c = flat ?? shade(t.ns ? norm([
           w0 * t.ns[0][0] + w1 * t.ns[1][0] + w2 * t.ns[2][0],
           w0 * t.ns[0][1] + w1 * t.ns[1][1] + w2 * t.ns[2][1],

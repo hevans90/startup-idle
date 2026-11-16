@@ -13,7 +13,7 @@ import { face, type Tri, type V3 } from "../agents/cars/raster";
 import { ball, limb, quad } from "../agents/people/figures";
 
 export type PropShadow = { hl: number; hw: number; edge: number; soft: number; strength: number; reach: number };
-export type Prop = { id: string; tris: () => Tri[]; shadow: PropShadow };
+export type Prop = { id: string; tris: () => Tri[]; shadow: PropShadow; /** Lit evenly top to bottom, not darkened toward its foot. */ flat?: boolean };
 
 /** The tinted layer: leaves and cloth. */
 export const PROP_LAYERS = 2;
@@ -252,4 +252,5 @@ export const FURNITURE: readonly Prop[] = [
   { id: "fountain", tris: fountainTris, shadow: { hl: 1.5, hw: 1.5, edge: 0.15, soft: 0.25, strength: 0.25, reach: 0.4 } },
 ];
 
+/** The street's and the parks' props. A bridge's pieces are baked with them, from `./bridges`. */
 export const PROPS: readonly Prop[] = [...TREES, ...FURNITURE];

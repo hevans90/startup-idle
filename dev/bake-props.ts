@@ -12,7 +12,10 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { bakeTris } from "../src/world/agents/cars/raster.ts";
-import { PROPS, PROP_LAYERS, propLayerOf } from "../src/world/props/models.ts";
+import { PROPS as STREET, PROP_LAYERS, propLayerOf } from "../src/world/props/models.ts";
+import { BRIDGE } from "../src/world/props/bridges.ts";
+
+const PROPS = [...STREET, ...BRIDGE];
 import { PROP_GAP, PROP_RES, PROP_TURNS, type PropFrame, type PropsSheet } from "../src/world/props/props-format.ts";
 import { encodePng, type Image } from "./png-min.ts";
 
@@ -50,7 +53,7 @@ const baked: Baked[] = [];
 for (const p of PROPS) {
   const tris = p.tris();
   for (let k = 0; k < PROP_TURNS; k++) {
-    const b = bakeTris(tris, (k / PROP_TURNS) * Math.PI * 2, PROP_RES, { layers: PROP_LAYERS, layerOf: propLayerOf, shadow: p.shadow });
+    const b = bakeTris(tris, (k / PROP_TURNS) * Math.PI * 2, PROP_RES, { layers: PROP_LAYERS, layerOf: propLayerOf, shadow: p.shadow, flat: p.flat });
     baked.push({ id: p.id, k, layers: b.layers.map((img) => crop(img, b.ox, b.oy)) });
   }
 }
