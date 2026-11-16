@@ -259,6 +259,26 @@ describe("laying roads", () => {
     expect(drag("paintRoad", 22, 5, 22, 40)).toBe(OPEN_WATER);
   });
 
+  test("two lanes over a river that runs aslant, one bank a step lower: the lanes stay joined cell for cell — no ramp beside a deck — whichever is laid first", () => {
+    for (const order of [[10, 11], [11, 10]]) for (const low of ["right", "left"]) {
+      s().resize(48, 48);
+      const g = s().grid;
+      for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+        const x0 = y <= 10 ? 20 : 21;
+        if (x >= x0 && x <= x0 + 4) { setHeight(g, x, y, -4); g.pool[idx(g, x, y)] = 3; } else setHeight(g, x, y, (x < x0) === (low === "left") ? 0 : 1);
+      }
+      s().loadGrid(g);
+      const G = s().grid;
+      for (const y of order) expect(drag("paintRoad", 12, y, 32, y)).toBe("");
+      expect(sound(G)).toEqual([]);
+      for (let x = 12; x <= 32; x++) {
+        expect({ order, low, x, joined: connects(G, x, 10, "W") }).toEqual({ order, low, x, joined: true });
+        // A ramp has a ramp beside it across the road, climbing the same way.
+        expect({ order, low, x, ramp: G.ramp[idx(G, x, 10)] }).toEqual({ order, low, x, ramp: G.ramp[idx(G, x, 11)] });
+      }
+    }
+  });
+
   test("open water: the road stops at it and says so; a bridge already there is joined", () => {
     s().resize(64, 64);
     const g = s().grid;

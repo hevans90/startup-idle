@@ -267,6 +267,27 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
     }
     return out;
   };
+  // A DECK IS LEVEL, SO WHAT IS BESIDE IT IS: a lane already laid that climbs beside a cell this stroke spans has
+  // its ramp levelled to the deck, and climbs a tile further from the water — where this stroke's own bank is.
+  for (let k = 0; k < n; k++) {
+    if (span[k] === undefined) continue;
+    for (const { nx, ny, j } of outside(k)) {
+      if (!upOf(g, j)) continue;
+      const first = levelRamp(g, nx, ny, was);
+      const L = first && first.z !== span[k] ? levelRamp(g, nx, ny, was, first.z > span[k]! ? "lower" : "raise") : first;
+      if (!L || L.z !== span[k]) { refused.add(k); why = ON_A_SLOPE; continue; }
+      for (const [q, z] of L.writes) levelled.set(q, z);
+    }
+  }
+  /** The level of a deck beside path cell `k`, off the path; undefined if there is none. */
+  const deckBeside = (k: number): number | undefined => {
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = path[k].x + dx, ny = path[k].y + dy;
+      // To the side of the stroke only: the path runs on past this cell the other way.
+      if (inBounds(g, nx, ny) && g.deck[idx(g, nx, ny)] !== 0 && !on.has(idx(g, nx, ny)) && (beside(k, dy, dx) || beside(k, -dy, -dx))) return g.deckZ[idx(g, nx, ny)];
+    }
+    return undefined;
+  };
   // ROUND THE OUTSIDE OF A TURN, the lane laid before runs both ways from this corner: the corner stands with
   // it — a ramp of it there levelled, nothing turns beside a ramp's side — and so do the cells either side of
   // the corner, the lane outside them brought level with it where it climbs.
@@ -318,6 +339,9 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
       if (up && (beside(k, up[1], up[0]) || beside(k, -up[1], -up[0]))) h[k] = level(x, y, k);
       continue;
     }
+    // BESIDE A DECK laid before, on the bank: level with it — the lane's own climb is a tile further from the water.
+    const dz = deckBeside(k);
+    if (dz !== undefined) { h[k] = dz; pin[k] = true; continue; }
     const end = k === 0 || k === n - 1;
     // BESIDE A ROAD: an end joins it; a cell along the way takes the height of one laid alongside.
     // The neighbour the stroke would run straight on into first, then the rest.
