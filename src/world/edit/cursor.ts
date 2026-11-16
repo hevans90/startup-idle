@@ -10,7 +10,7 @@
  */
 import { Container, Graphics, MeshSimple, Texture } from "pixi.js";
 
-import { HH, HW, cellToWorld, type Cell } from "../iso";
+import { HEIGHT_UNIT, HH, HW, cellToWorld, type Cell } from "../iso";
 import { VOID, idx, inBounds, surfaceHeightAt, type Grid } from "../grid";
 import { cellDiamond, drawDeckPiers } from "../render/overlays";
 import type { ToolId } from "./tools";
@@ -57,11 +57,14 @@ const EDGES = [
   { dx: -1, dy: 0, a: 3, b: 0 },  // W→N faces (x-1, y)
 ] as const;
 
-/** The same diamond as the tile layers, as [N, E, S, W] vertex pairs. */
-function vertices(x: number, y: number, h: number, scale: number) {
-  const p = cellDiamond(x, y, h, scale);
-  return [[p[0], p[1]], [p[2], p[3]], [p[4], p[5]], [p[6], p[7]]] as const;
+/** The same diamond as the tile layers, as [N, E, S, W] vertex pairs; tilted, where its corners are given heights of their own. */
+function vertices(x: number, y: number, h: number, scale: number, tilt?: Tilt) {
+  const p = cellDiamond(x, y, tilt ? 0 : h, scale), up = (k: number) => (tilt ? tilt[k] * HEIGHT_UNIT * scale : 0);
+  return [[p[0], p[1] - up(0)], [p[2], p[3] - up(1)], [p[4], p[5] - up(2)], [p[6], p[7] - up(3)]] as const;
 }
+
+/** A cell's four corners' heights, in half steps: the top of its diamond, then round to the right, the bottom, the left. */
+export type Tilt = readonly [number, number, number, number];
 
 /** The level a cell's cursor is drawn at: its surface, or its standing water's when `wet`. */
 function levelAt(grid: Grid, x: number, y: number, wet = false): number {
@@ -83,6 +86,7 @@ export function footprintPerimeter(
   scale: number,
   wet = false,
   level?: (x: number, y: number) => number | undefined,
+  tilt?: (x: number, y: number) => Tilt | undefined,
 ): [number, number, number, number][] {
   // A MASK OVER THE GRID, not a set of "x,y" strings: a pour dragged over a
   // 128 tile map is sixteen thousand cells, and this ran on every pointer
@@ -102,7 +106,7 @@ export function footprintPerimeter(
     // AN INTERIOR CELL HAS NO EDGE TO DRAW, and is most of a big footprint:
     // asked first, so only the rim works out its corners.
     if (EDGES.every((e) => has(c.x + e.dx, c.y + e.dy))) continue;
-    const v = vertices(c.x, c.y, level?.(c.x, c.y) ?? levelAt(grid, c.x, c.y, wet), scale);
+    const v = vertices(c.x, c.y, level?.(c.x, c.y) ?? levelAt(grid, c.x, c.y, wet), scale, tilt?.(c.x, c.y));
     for (const e of EDGES) {
       if (has(c.x + e.dx, c.y + e.dy)) continue;
       out.push([v[e.a][0], v[e.a][1], v[e.b][0], v[e.b][1]]);
@@ -131,6 +135,8 @@ export type CursorInput = {
    * a road graded over a hill is shown as it will lie. @see gradeRoad
    */
   level?: (x: number, y: number) => number | undefined;
+  /** And how it will tilt: a ramp of that road, by its corners. Must change only when `level` does. @see Tilt */
+  tilt?: (x: number, y: number) => Tilt | undefined;
 };
 
 /**
@@ -157,6 +163,8 @@ export function cursorSignature(grid: Grid, input: CursorInput, valid: Validator
     // the ground would call that the same picture and skip the redraw.
     const on = inBounds(grid, c.x, c.y);
     const h = on ? input.level?.(c.x, c.y) ?? levelAt(grid, c.x, c.y, input.wet) : 0;
+    const t = on ? input.tilt?.(c.x, c.y) : undefined;
+    if (t) for (const z of t) mix(Math.round(z * 64));
     const d = on ? grid.deck[idx(grid, c.x, c.y)] : 0;
     mix(c.x); mix(c.y); mix(Math.round(h * 64)); mix(d);
     mix(valid(grid, c.x, c.y).ok ? 1 : 0);
@@ -285,19 +293,21 @@ export function createBuildCursor(overlay: Container): BuildCursor {
       for (let n = 0; n < input.cells.length; n++) {
         if (oks[n] !== want) continue;
         const c = input.cells[n];
-        // cellDiamond's four corners, written straight into the array.
-        const { wx, wy } = cellToWorld(c.x, c.y, heights[n], input.scale);
+        // cellDiamond's four corners, written straight into the array; each at its own height on a ramp to be.
+        const t = input.tilt?.(c.x, c.y);
+        const { wx, wy } = cellToWorld(c.x, c.y, t ? 0 : heights[n], input.scale);
+        const up = (k: number) => (t ? t[k] * HEIGHT_UNIT * input.scale : 0);
         const o = q * 8;
-        corners[o] = wx; corners[o + 1] = wy - hh;
-        corners[o + 2] = wx + hw; corners[o + 3] = wy;
-        corners[o + 4] = wx; corners[o + 5] = wy + hh;
-        corners[o + 6] = wx - hw; corners[o + 7] = wy;
+        corners[o] = wx; corners[o + 1] = wy - hh - up(0);
+        corners[o + 2] = wx + hw; corners[o + 3] = wy - up(1);
+        corners[o + 4] = wx; corners[o + 5] = wy + hh - up(2);
+        corners[o + 6] = wx - hw; corners[o + 7] = wy - up(3);
         q++;
       }
       setTint(want === 1 ? 0 : 1, corners, q, want === 1 ? CURSOR_OK : CURSOR_BLOCKED);
     }
     // perimeter last and bolder, so the footprint reads as one shape
-    for (const [x0, y0, x1, y1] of footprintPerimeter(grid, input.cells, input.scale, input.wet, input.level)) {
+    for (const [x0, y0, x1, y1] of footprintPerimeter(grid, input.cells, input.scale, input.wet, input.level, input.tilt)) {
       outline.moveTo(x0, y0).lineTo(x1, y1);
     }
     outline.stroke({

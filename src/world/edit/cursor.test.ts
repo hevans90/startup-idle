@@ -160,3 +160,17 @@ describe("a footprint over a deck", () => {
     expect(off - on).toBeCloseTo(22 * HEIGHT_UNIT, 6);
   });
 });
+
+describe("a cursor shown as the ground will lie", () => {
+  test("a cell given corners of its own is drawn tilted: its high edge up-screen of where it stood level", () => {
+    const g = createGrid(4, 4);
+    const cell = [{ x: 1, y: 1 }];
+    const flat = footprintPerimeter(g, cell, 1);
+    // Rising toward x + 1: the right and bottom corners two half steps up.
+    const tilted = footprintPerimeter(g, cell, 1, false, () => 0, () => [0, 2, 2, 0]);
+    const ys = (segs: number[][]) => [...new Set(segs.flatMap((s) => [s[1], s[3]]))].sort((a, b) => a - b);
+    expect(tilted).toHaveLength(flat.length);
+    expect(Math.min(...ys(tilted))).toBe(Math.min(...ys(flat)));
+    expect(Math.max(...ys(tilted))).toBeLessThan(Math.max(...ys(flat)));
+  });
+});

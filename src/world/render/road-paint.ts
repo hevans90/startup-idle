@@ -32,7 +32,7 @@ import { CanvasSource, Container, Rectangle, RenderTexture, Sprite, Texture, typ
 import { HEIGHT_UNIT, rampDir, rampRise, RAMP } from "../iso";
 import { hash } from "../structures/projects/model";
 import { mix, tone } from "../structures/projects/pen";
-import { HIGHWAY, KEEP, MEDIAN_FROM, opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
+import { HIGHWAY, KEEP, MEDIAN_FROM, WORN, opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
 import { CROSS_HOLD, LAYBY, laneLines, laneOffset, lanesFor, PARK_STRIP } from "../agents/lanes/graph";
 
 /** How far in from the tile's edge the pavement runs, its kerb, and both. */
@@ -767,10 +767,10 @@ function wear(ctx: Ctx, L: Look, v: number) {
     }
   } else {
     // A STRIP RELAID down one lane, newer and darker, a seam along each side.
-    const lo = q0 + (q1 - q0) * 0.12, hi = q0 + (q1 - q0) * 0.44;
-    ctx.fillStyle = css(0x4a4c50, 0.8);
+    const lo = q0 + (q1 - q0) * 0.14, hi = q0 + (q1 - q0) * 0.4;
+    ctx.fillStyle = css(0x4a4c50, 0.45);
     runRect(ctx, ax, 0.12, 0.9, lo, hi); ctx.fill();
-    ctx.strokeStyle = css(0x1e1f22, 0.4); ctx.lineWidth = 0.006; ctx.stroke();
+    ctx.strokeStyle = css(0x1e1f22, 0.28); ctx.lineWidth = 0.005; ctx.stroke();
   }
 }
 
@@ -778,7 +778,7 @@ function wear(ctx: Ctx, L: Look, v: number) {
 function fittings(ctx: Ctx, L: Look, S: Shape) {
   if (L.open === 0 || L.box || L.zeb || L.xing || L.rb) return;
   const v = L.vr;
-  if (v > 6) return; // half of a road is just road
+  if (v >= WORN) return; // most of a road is just road
   if (v >= 4) { wear(ctx, L, v); return; }
   const gutter = S.bands.length ? S.bands.find((B) => B.s === S.bands[0].s && B.a0 <= 0.42 && B.a1 >= 0.56) : undefined;
   if (v === 0 && S.bands.length) {
@@ -880,8 +880,8 @@ function busCages(ctx: Ctx, L: Look) {
     ctx.font = "900 10px Arial, Helvetica, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (const [word, t] of [["BUS", -0.17], ["STOP", 0.13]] as const) {
-      const sx = 0.14 / ctx.measureText(word).width, sy = 0.22 / 7.2;
+    for (const [word, t] of [["BUS", -0.13], ["STOP", 0.1]] as const) {
+      const sx = 0.15 / ctx.measureText(word).width, sy = 0.15 / 7.2;
       ctx.save();
       ctx.transform(kx * sx, ky * sx, -hx * sy, -hy * sy, cu + hx * t, cv + hy * t);
       ctx.fillText(word, 0, 0);
@@ -892,22 +892,26 @@ function busCages(ctx: Ctx, L: Look) {
 }
 
 /**
- * SPEED ROUNDELS: the limit in a ring, long down the lane as road lettering
- * is, in every lane going toward each side its look lists. @see Look.spd
+ * SPEED ROUNDELS: the limit in a ring, its top toward where the lane's
+ * traffic is going, in every lane going toward each side its look lists.
+ * @see Look.spd
  */
+/** How far along its lane a roundel sits from the cell's middle: the inside lane's back, the next lane's on, turn about. */
+const ROUNDEL_STAGGER = 0.24;
 function roundels(ctx: Ctx, L: Look) {
   if (!L.spd) return;
   const W = wideOf(L.ln);
   for (const m of L.spd.matchAll(/([0-3])(\d\d)/g)) {
     const s = Number(m[1]) as Side, [hx, hy] = STEP[s], [rx, ry] = rightOf(hx, hy);
-    // Each lane's middle, right of the road's: one on a one-cell street.
+    // Each lane's middle, right of the road's: one on a one-cell street. On a
+    // wider road STAGGERED, one lane's ahead of the next's, never side by side.
     const mids: [number, number][] = [];
     if (!W) { const off = (0.5 - WALK) / 2; mids.push([0.5 + rx * off, 0.5 + ry * off]); }
     else for (let i = 0; i < lanesFor(W.k); i++) {
-      const off = laneOffset(W.k, i), mid = W.k / 2 - W.c;
+      const off = laneOffset(W.k, i), mid = W.k / 2 - W.c, on = i % 2 ? ROUNDEL_STAGGER : -ROUNDEL_STAGGER;
       const cu = W.ax === "u" ? 0.5 : mid + rx * off, cv = W.ax === "u" ? mid + ry * off : 0.5;
       const q = W.ax === "u" ? cv : cu;
-      if (q > 0.08 && q < 0.92) mids.push([cu, cv]);
+      if (q > 0.08 && q < 0.92) mids.push([cu + hx * on, cv + hy * on]);
     }
     for (const [cu, cv] of mids) {
       ctx.save();
@@ -915,12 +919,13 @@ function roundels(ctx: Ctx, L: Look) {
       ctx.transform(rx, ry, -hx, -hy, cu, cv);
       ctx.strokeStyle = css(WHITE, 0.9);
       ctx.lineWidth = 0.014;
-      ctx.beginPath(); ctx.ellipse(0, 0, 0.078, 0.17, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(0, 0, 0.098, 0.118, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = css(WHITE, 0.92);
       ctx.font = "900 10px Arial, Helvetica, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const sx = 0.095 / ctx.measureText(m[2]).width, sy = 0.2 / 7.2;
+      // As tall as it is wide on the ground: stretched down the lane as real lettering is, seen from above it reads as nothing.
+      const sx = 0.13 / ctx.measureText(m[2]).width, sy = 0.13 / 7.2;
       ctx.scale(sx, sy);
       ctx.fillText(m[2], 0, 0.3);
       ctx.restore();

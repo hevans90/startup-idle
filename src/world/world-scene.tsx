@@ -134,7 +134,7 @@ const CPU_SOLVE_MS = 8;
  * without their glows. @see damage, conditionsOf
  */
 const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a080, closed: 0xa4a8ae, fire: 0x6a5c55, power: 0x707888, quake: 0xb8a690 };
-import { createBuildCursor, type BuildCursor, type Validator } from "./edit/cursor";
+import { createBuildCursor, type BuildCursor, type Tilt, type Validator } from "./edit/cursor";
 import { gradeStroke } from "./roads/grade";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
 import { createTownLayer, type TownLayer } from "./agents/town-render";
@@ -2684,11 +2684,25 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // A ROAD OVER A HILL, as it will lie: its cells at the heights it grades
       // them to, and red where the climb is too steep for the run. @see gradeRoad
       let level: ((x: number, y: number) => number | undefined) | undefined;
+      let tilt: ((x: number, y: number) => Tilt | undefined) | undefined;
       const grade = gradeStroke(grid, s0, brushRadius);
       if (grade) {
         const to = new Map(cells.map((c, k) => [`${c.x},${c.y}`, grade.heights[k]]));
         const no = new Set(grade.blocked.map((c) => `${c.x},${c.y}`));
         level = (x, y) => to.get(`${x},${y}`);
+        // Tilted where it will ramp: up to whichever cell of the stroke beside it stands higher. Refused, as the ground lies.
+        if (!no.size) tilt = (x, y) => {
+          const z = to.get(`${x},${y}`);
+          if (z === undefined) return undefined;
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const n = to.get(`${x + dx},${y + dy}`);
+            if (n === undefined || n <= z) continue;
+            // Corners: top (x−, y−), right (x+, y−), bottom (x+, y+), left (x−, y+).
+            const hi = (cx: number, cy: number) => (dx ? cx === dx : cy === dy) ? n : z;
+            return [hi(-1, -1), hi(1, -1), hi(1, 1), hi(-1, 1)];
+          }
+          return [z, z, z, z];
+        };
         if (no.size) valid = (_g, x, y) => (no.has(`${x},${y}`) ? { ok: false, reason: grade.why } : { ok: true });
       }
 
@@ -2719,6 +2733,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         scale,
         wet: s0.tool === "dredge",
         level,
+        tilt,
       });
     };
     draw();

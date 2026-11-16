@@ -30,8 +30,17 @@ const RING_LANE = 0.22;
 export const KEEP = 1;
 
 export type Side = 0 | 1 | 2 | 3;
-/** How many variants a road tile has; seven of them carry a fitting or some wear, the rest are plain road. */
-export const VARIANTS = 14;
+/** How many variants a road tile has; seven of them carry a fitting or some wear, the rest — most of a road — are plain. */
+export const VARIANTS = 24;
+/** How many of them carry a fitting or wear: the first so many. @see render/road-paint fittings */
+export const WORN = 7;
+/**
+ * A draw of VARIANTS as the look keeps it: a fitting or wear as itself; a
+ * plain one as one of four — the pavement's four patterns — from `PLAIN` up,
+ * so plain road is a handful of textures and not one for every draw.
+ */
+export const PLAIN = 8;
+export const variantOf = (draw: number) => (draw < WORN ? draw : PLAIN + (draw & 3));
 /** A road this many cells wide or more is a HIGHWAY — two lanes or more each way: its directions kept apart, edge lines, arrows in its lanes. */
 export const HIGHWAY = 2;
 /** From this many cells wide what keeps a highway's directions apart is a raised median with a barrier; narrower, a double line. */
@@ -67,7 +76,7 @@ export type Look = {
   ramp: number;
   /** The street's level, 0–3: tarmac, concrete flags, block paving, York stone. */
   lvl: number;
-  /** Which of VARIANTS: the pavement's pattern (its low two bits) and, for 0–3 only, a gully, manhole, patch or crack. */
+  /** Its variant: the pavement's pattern (its low two bits) and, below `WORN`, a gully, manhole, patch, cracks or wear along its run. @see variantOf */
   vr: number;
   /**
    * THE CENTRE LINE. `u`/`v`: dashed down the middle along that axis; upper
@@ -273,7 +282,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
     const lvl = dress ? dress[i] & 3 : 0;
     const L: Look = {
       open: o, diag: diagOf(mask[i]), ramp: g.ramp[i], lvl,
-      vr: Math.floor(hash(x * 31.7 + y * 57.3 + 0.5) * VARIANTS),
+      vr: variantOf(Math.floor(hash(x * 31.7 + y * 57.3 + 0.5) * VARIANTS)),
       ctr: "", ln: "", hw: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", xing: "", slow: "", rb: "", bay: "", spd: "",
     };
     out[i] = L;

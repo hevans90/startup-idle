@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { createGrid, fillTerrain, idx, type Grid } from "../grid";
-import { dressOf, keyOf, lookAt, looksOf } from "./looks";
+import { PLAIN, VARIANTS, WORN, dressOf, keyOf, lookAt, looksOf, variantOf } from "./looks";
 
 function grid(w: number, h: number, cells: [number, number][]): Grid {
   const g = createGrid(w, h);
@@ -205,5 +205,14 @@ describe("a highway", () => {
     expect(look(g, 22, 9).hw).toBe("0L");
     expect(look(g, 8, 9).hw).toBe("0P1P");
     expect(look(g, 9, 9).hw).toBe("");
+  });
+});
+
+describe("a road tile's variant", () => {
+  test("a fitting or wear keeps its own; plain road is one of four, so most of a road shares a handful of textures", () => {
+    for (let d = 0; d < WORN; d++) expect(variantOf(d)).toBe(d);
+    const plain = new Set(Array.from({ length: VARIANTS - WORN }, (_, k) => variantOf(WORN + k)));
+    expect(plain.size).toBe(4);
+    for (const v of plain) expect(v).toBeGreaterThanOrEqual(PLAIN);
   });
 });
