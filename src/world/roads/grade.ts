@@ -28,6 +28,7 @@ import { NEIGHBOUR } from "../../iso/dir";
 import { MAX_RISE, RAMP, rampDir, rampRise } from "../iso";
 import { idx, inBounds, structureAt, type Grid } from "../grid";
 import { strokeCells, type Stroke } from "../edit/tools";
+import { rampNeed } from "./ramp-derive";
 
 export type GradeCell = { x: number; y: number };
 
@@ -224,15 +225,28 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
     for (let k = a; k <= b + 1; k++) if (path[k].x - path[k - 1].x !== dx || path[k].y - path[k - 1].y !== dy) return stopped(OPEN_WATER, path.slice(a, wetTo + 1));
     // As high as the higher bank and clear of the water; level with a deck already alongside, which was laid so.
     let z = Math.max(need, surface(g, idx(g, path[a - 1].x, path[a - 1].y)), surface(g, idx(g, path[b + 1].x, path[b + 1].y)));
-    // A BANK THAT CANNOT CLIMB TO IT SETS ITS LEVEL: a bridge already there, or a road with another joining it from
-    // the side — a junction, a bend, a lane of a wider road — is level and stays so, and the deck meets it where it
-    // stands: over the water still, if by less. Two such banks at two levels, and there is no bridge between them.
-    const fixed = [a - 1, b + 1].map((j) => {
-      const c = path[j], i = idx(g, c.x, c.y);
+    // A ROAD ALREADY AT A BANK SETS ITS LEVEL: it never climbs to the new one — the road behind it may climb
+    // already, or join it from the side, and a ramp tilts one way. The deck meets it where it stands: over the
+    // water still, if by less. A bridge already there the same. On a ramp, the edge it shows the water — and a ramp
+    // side on to the water shows it none. Two such banks at two levels, and there is no bridge between them.
+    let askew = false;
+    const levelAt = (x: number, y: number, toward: number): number | undefined => {
+      if (!inBounds(g, x, y)) return undefined;
+      const i = idx(g, x, y);
       if (g.deck[i] !== 0) return g.deckZ[i];
-      if (g.paved[i] === 0 || g.ramp[i] !== RAMP.NONE) return undefined;
-      return [1, -1].some((sg) => paved(g, c.x + sg * dy, c.y + sg * dx)) ? g.height[i] : undefined;
+      if (g.paved[i] === 0) return undefined;
+      const up = upOf(g, i);
+      if (!up) return g.height[i];
+      if (up[0] === toward * dx && up[1] === toward * dy) return g.height[i] + rampRise(g.ramp[i]);
+      if (up[0] === -toward * dx && up[1] === -toward * dy) return g.height[i];
+      askew = true;
+      return undefined;
+    };
+    const fixed = [[a - 1, 1], [b + 1, -1]].flatMap(([j, toward]) => {
+      const c = path[j], own = levelAt(c.x, c.y, toward);
+      return [own];
     }).filter((v): v is number => v !== undefined);
+    if (askew) return stopped(ON_A_SLOPE, path.slice(a, wetTo + 1));
     if (fixed.length) {
       if (fixed.some((v) => v !== fixed[0]) || fixed[0] < need - DECK_CLEAR + 1) return stopped(ON_A_SLOPE, path.slice(a, wetTo + 1));
       z = fixed[0];
@@ -436,6 +450,33 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
   // REFUSED: nothing moves, and the cursor shows the ground as it is.
   if (refused.size) {
     return { heights: path.map((c) => surface(g, idx(g, c.x, c.y))), moved: [], decks: [], blocked: [...refused].sort((a, b) => a - b).map((k) => ({ x: path[k].x, y: path[k].y })), short, why, brief: briefly(short, why) };
+  }
+
+  // NOTHING IS LAID THAT A RAMP CANNOT SERVE. Whatever the rules above let through, the road as it would stand is
+  // looked at: its cells and the road beside them, at the heights worked out. A cell left with a neighbour it can
+  // neither stand level with nor climb to — a dip at a ramp's foot, a lane a step off the lane beside it — and the
+  // stroke is refused there, whole. (A cell that was so before the stroke is not this stroke's to answer for.)
+  {
+    const staged = new Map<number, number>(levelled);
+    for (let k = 0; k < n; k++) { const i = idx(g, path[k].x, path[k].y); if (!staged.has(i) || span[k] !== undefined) staged.set(i, out[k]); }
+    for (let k = 0; k < n; k++) { const i = idx(g, path[k].x, path[k].y); if (g.deck[i] !== 0) staged.set(i, g.deckZ[i]); }
+    const now = { inBounds: (x: number, y: number) => inBounds(g, x, y), paved: (x: number, y: number) => inBounds(g, x, y) && g.paved[idx(g, x, y)] !== 0, height: (x: number, y: number) => surface(g, idx(g, x, y)) };
+    const then = { inBounds: now.inBounds, paved: (x: number, y: number) => inBounds(g, x, y) && (g.paved[idx(g, x, y)] !== 0 || on.has(idx(g, x, y))), height: (x: number, y: number) => staged.get(idx(g, x, y)) ?? surface(g, idx(g, x, y)) };
+    const seen = new Set<number>(), bad = new Set<number>(), decking = new Set<number>();
+    for (let k = 0; k < n; k++) if (span[k] !== undefined) decking.add(idx(g, path[k].x, path[k].y));
+    for (let k = 0; k < n; k++) for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = path[k].x + dx, y = path[k].y + dy;
+      if (!then.paved(x, y) || seen.has(idx(g, x, y))) continue;
+      seen.add(idx(g, x, y));
+      const need = rampNeed(then, x, y).kind, was = now.paved(x, y) ? rampNeed(now, x, y).kind : "none";
+      // (A deck is level: it climbs to nothing. One asked to is a bank standing over it.)
+      const decked = g.deck[idx(g, x, y)] !== 0 || decking.has(idx(g, x, y));
+      if ((need === "unbridgeable" && was !== "unbridgeable") || (decked && need !== "none" && was === "none")) bad.add(k);
+    }
+    if (bad.size) {
+      const at = [...bad].sort((p, q) => p - q).map((k) => ({ x: path[k].x, y: path[k].y }));
+      return { heights: path.map((c) => surface(g, idx(g, c.x, c.y))), moved: [], decks: [], blocked: at, short: 0, why: ON_A_SLOPE, brief: briefly(0, ON_A_SLOPE) };
+    }
   }
 
   const moved: Grade["moved"] = [], decks: Grade["decks"] = [];

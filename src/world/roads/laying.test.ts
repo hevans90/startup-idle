@@ -308,6 +308,50 @@ describe("laying roads", () => {
     }
   });
 
+  test("bridges on any ground: banks that climb, fall and step at random, roads already on them or not, one lane or two — a bridge is laid whole and sound, or refused whole", () => {
+    let seed = Number(process.env.BRIDGE_SEED ?? 12345);
+    const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    const pick = (n: number) => Math.floor(rnd() * n);
+    let laid = 0;
+    for (let run = 0; run < 400; run++) {
+      // Across the map one way, or the other.
+      const swap = run % 2 === 1, at2 = (x: number, y: number): [number, number] => (swap ? [y, x] : [x, y]);
+      const I = (q: Grid, x: number, y: number) => idx(q, ...at2(x, y)), lay = (st: Stroke) => drag("paintRoad", ...at2(st[0], st[1]), ...at2(st[2], st[3]));
+      const along = swap ? "W" : "S", across = swap ? "S" : "W";
+      s().resize(48, 48);
+      const g = s().grid, x0 = 18 + pick(4), wide = 2 + pick(6), bed = -3 - pick(4), water = 1 + pick(3);
+      // Each bank its own profile: a level, and a slope of 0, ±1 a tile or ±1 every other tile, from the water out.
+      const prof = () => { const base = pick(6), slope = [0, 0, 1, -1, 0.5, -0.5][pick(6)]; return (d: number) => Math.max(bed + water + 1, Math.round(base + slope * d)); };
+      const L = prof(), R = prof(), shore = pick(3);
+      for (let y = 0; y < 48; y++) for (let x = 0; x < 48; x++) {
+        if (x >= x0 && x < x0 + wide) { setHeight(g, ...at2(x, y), bed); g.pool[I(g, x, y)] = water; }
+        else { const d = x < x0 ? x0 - 1 - x : x - x0 - wide; setHeight(g, ...at2(x, y), d < shore && rnd() < 2 ? Math.min(bed + water + 1 + d, (x < x0 ? L : R)(d)) : (x < x0 ? L : R)(d)); }
+      }
+      s().loadGrid(g);
+      const G = s().grid, before = pick(4), lanes = 1 + pick(2), said: string[] = [], strokes: Stroke[] = [];
+      // Roads there first, some of the time: down a bank to the water's edge, or along it, on one side or both.
+      if (before & 1) strokes.push([4, 10, x0 - 1 - pick(3), 10]);
+      if (before & 2) strokes.push(rnd() < 0.5 ? [x0 + wide + pick(3), 10, 44, 10] : [x0 + wide + pick(2), 3, x0 + wide + pick(2), 20]);
+      for (const st of strokes) lay(st);
+      for (let k = 0; k < lanes; k++) said.push(lay([4 + pick(8), 10 + k, 44 - pick(8), 10 + k]));
+      const at = { run, swap, x0, wide, bed, water, before, lanes };
+      const problems = sound(G, s().netComponents);
+      for (let k = 0; k < lanes; k++) if (G.deck[I(G, x0, 10 + k)] !== 0) for (let x = x0 - 1; x < x0 + wide; x++) if (!connects(G, ...at2(x, 10 + k), along)) problems.push(`not joined along ${x},${10 + k}`);
+      if (problems.length && process.env.BRIDGE_DEBUG) for (const yy of [9, 10, 11, 12]) { let o = `${yy}: `; for (let x = 4; x < 44; x++) { const i = I(G, x, yy); o += (G.deck[i] ? "D" + G.deckZ[i] : G.paved[i] ? "P" + G.height[i] + (G.ramp[i] ? "r" : "") : "." + G.height[i] + (G.pool[i] ? "~" : "")) + " "; } console.log(o, said, strokes); }
+      expect({ ...at, problems }).toEqual({ ...at, problems: [] });
+      // Laid, it joined what was there into one; refused, nothing of it is there.
+      for (let k = 0; k < lanes; k++) {
+        const decked = G.deck[I(G, x0, 10 + k)] !== 0;
+        expect({ ...at, k, decked, said: said[k] }).toEqual({ ...at, k, decked: said[k] === "", said: said[k] });
+        if (decked) { laid++; for (let x = x0 - 1; x < x0 + wide; x++) expect({ ...at, x, joined: connects(G, ...at2(x, 10 + k), along) }).toEqual({ ...at, x, joined: true }); }
+      }
+      // Two lanes laid: joined to each other all the way.
+      if (lanes === 2 && said.every((t) => t === "")) for (let x = 14; x <= 34; x++) if (isPaved(G, ...at2(x, 10)) && isPaved(G, ...at2(x, 11))) expect({ ...at, x, side: connects(G, ...at2(x, 10), across) }).toEqual({ ...at, x, side: true });
+    }
+    // Most of them are laid: refusing is for what cannot be built, not a way round building it.
+    expect(laid).toBeGreaterThan(250);
+  }, 120_000);
+
   test("open water: the road stops at it and says so; a bridge already there is joined", () => {
     s().resize(64, 64);
     const g = s().grid;
