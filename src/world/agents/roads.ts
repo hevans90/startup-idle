@@ -10,11 +10,11 @@
  * the autotiler draws with, so a car takes the road you can see and never a
  * step a road cannot climb. Dijkstra rather than breadth first, because a step
  * is not always the same price: on a road two cells wide, travelling with more
- * road on your right costs more, so traffic keeps to the right-hand lane and
+ * road on your nearside costs more, so traffic keeps to the nearside lane — the left, see lanes/geometry KEEP — and
  * only crosses over to turn. @see WRONG_SIDE
  *
  * LANES. A route is cells; a car is somewhere in each. On a road one cell wide
- * it keeps right of the middle, so two cars passing do not meet. On a wider
+ * it keeps to its side of the middle, so two cars passing do not meet. On a wider
  * road the cell it is in is its lane, and it keeps to the middle of it. At a
  * corner it is right of the way in and of the way out at once, which puts it
  * on the inside of a right turn and swings it wide of a left one. People walk

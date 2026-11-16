@@ -50,8 +50,6 @@ export const MEDIAN_FROM = 3;
 const SHORT_RUN = 4;
 /** A street shorter than this many cells has no speed roundels. */
 const ROUNDEL_MIN = 6;
-/** How often a highway's lanes are arrowed along a run, cells. */
-const ARROW_EVERY = 6;
 /** A junction of more cells than this is a square: the widest crossroads, of two 2-wide roads, is four. */
 const PLAZA = 4;
 export const SIDES: readonly Side[] = [0, 1, 2, 3];
@@ -421,10 +419,11 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
       const code = (k: number) => (J.arms.size >= 3 ? String.fromCharCode(97 + k) : String(k));
       // A ROAD THREE CELLS WIDE OR MORE says it across its whole way in, median to kerb: every cell of its width the same.
       if (wide && wide.k >= MEDIAN_FROM) {
-        const lit = lights(J), box = J.arms.size >= 4 && boxAt(x + dx, y + dy);
-        const gives = roundabout(J) || (!lit && !box && (J.major === "" || J.major !== (sd < 2 ? "u" : "v")));
+        const lit = lights(J);
+        // A STOP LINE at lights and nowhere else; off the lights, the minor road gives way and the major runs through.
+        const gives = roundabout(J) || (!lit && (J.major === "" || J.major !== (sd < 2 ? "u" : "v")));
         if (lit && J.arms.size >= 3 && !L.zeb) L.xing = sd < 2 ? "u" : "v";
-        if (lit || box || gives) L.hs += `${sd}${gives ? "G" : "S"}${J.arms.size >= 3 ? "b" : ""}`;
+        if (lit || gives) L.hs += `${sd}${gives ? "G" : "S"}${J.arms.size >= 3 ? "b" : ""}`;
         continue;
       }
       if (roundabout(J)) {
@@ -481,14 +480,13 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
         const J = regionAt(x + 2 * dx, y + 2 * dy);
         if (!short && J && !regionAt(x + dx, y + dy) && J.arms.size >= 3 && !roundabout(J)) {
           const [rx, ry] = rightOf(dx, dy), sides = new Set([...J.arms.values()].flat());
-          L.hw += `${sd}${sides.has(sideOf(-rx, -ry)) ? "L" : ""}${sides.has(sideOf(rx, ry)) ? "R" : ""}`;
+          // (`N`: no way straight on — the head of a T — and every lane's arrow is a turn.)
+          L.hw += `${sd}${sides.has(sideOf(-rx, -ry)) ? "L" : ""}${sides.has(sideOf(rx, ry)) ? "R" : ""}${sides.has(sideOf(dx, dy)) ? "" : "N"}`;
         }
       }
-      // Arrows before a junction take the place of a roundel that would lie under them; a roundel, of the plain arrows of a run.
+      // Arrows before a junction take the place of a roundel that would lie under them. (Along a run there are none:
+      // an arrow is painted where there is a choice of lane to make, coming up to a junction.)
       if (L.hw) L.spd = "";
-      // (Not within a few cells of a junction, which has arrows of its own.)
-      const near = along.some((sd) => [1, 2, 3, 4].some((d) => regionAt(x + d * STEP[sd][0], y + d * STEP[sd][1])));
-      if (wide.k >= HIGHWAY && !L.hw && !L.spd && !warn && !near && (wide.ax === "u" ? x : y) % ARROW_EVERY === 2) L.hw = along.map((sd) => `${sd}P`).join("");
       // Its own lanes' arrows, not the one a two-cell road's whole cell had.
       if (L.hw) L.arrow = "";
       L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${short && ends ? "n" : ""}${wide.jog ? "j" : ""}${warn ? "!" : ""}${wide.k}.${wide.c}${wide.d0 || wide.d1 ? `~${wide.d0},${wide.d1}` : ""}${wide.r0 !== -wide.c || wide.r1 !== -wide.c ? `^${wide.r0},${wide.r1}` : ""}`;

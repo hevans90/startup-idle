@@ -4,7 +4,7 @@
  * Nobody wanders aimlessly. Everyone is on a TRIP, from one place to another
  * on the same road network — a door of a building, or a gateway where a road
  * leaves the map — along the cheapest route there. A car drives it in the
- * right-hand lane; a person walks it along the kerb. On arrival they go in,
+ * nearside lane; a person walks it along the kerb. On arrival they go in,
  * or off the map, and somebody else sets out. @see placesOf, routeBetween
  *
  * HOW MANY is the town's size: more buildings, more trips. A road with

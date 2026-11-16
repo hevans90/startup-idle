@@ -5,7 +5,7 @@ import { generateMap } from "../../gen/generate-map";
 import { FIXTURE_IDS, FIXTURE_SIZE, applyFixture } from "../../debug/fixtures";
 import { WALK as PAINT_WALK } from "../../render/road-paint";
 import { isPaved } from "../../roads/mask";
-import { buildLaneGraph, laneOffset, WALK, type LaneGraph } from "./graph";
+import { buildLaneGraph, LANE_MAX, MEDIAN_HALF, PARK_STRIP, laneEdge, laneOffset, lanesFor, WALK, type LaneGraph } from "./graph";
 import { pointAt } from "./geometry";
 
 const pave = (g: Grid, x: number, y: number) => { g.paved[idx(g, x, y)] = 1; };
@@ -52,6 +52,35 @@ const onRoad = (g: Grid, G: LaneGraph) => {
   const c = (v: number, n: number) => Math.min(n - 1, Math.max(0, Math.round(v)));
   return G.lanes.every((l) => l.pts.every((p) => isPaved(g, c(p.x, g.w), c(p.y, g.h))));
 };
+
+describe("a road's lanes, measured as a British road's", () => {
+  test("no lane wider than a motorway's 3.65 m, on any road; none narrower than 2.6 m", () => {
+    for (const k of [1, 2, 3, 4]) {
+      const w = (laneOffset(k, 1) - laneOffset(k, 0)) || 2 * laneOffset(k, 0);
+      expect(w).toBeLessThanOrEqual(LANE_MAX + 1e-9);
+      expect(w / 0.09).toBeGreaterThan(2.6);
+    }
+  });
+
+  test("a road with a central reservation: its lanes clear of it, and a hard strip beyond them — wider on the widest", () => {
+    for (const k of [3, 4]) {
+      const lane = laneOffset(k, 1) - laneOffset(k, 0);
+      expect(laneOffset(k, 0) - lane / 2).toBeGreaterThan(MEDIAN_HALF);
+      expect(k / 2 - WALK - laneEdge(k)).toBeGreaterThanOrEqual(PARK_STRIP - 1e-9);
+      expect(lanesFor(k)).toBe(k);
+    }
+    // Four cells: a hard shoulder of 3.3 m or more.
+    expect((2 - WALK - laneEdge(4)) / 0.09).toBeGreaterThan(3.3);
+  });
+
+  test("no bays at its kerbs: a road with a barrier down its middle is not parked on", () => {
+    for (const k of [3, 4]) {
+      const g = blank(30, 12);
+      for (let x = 0; x < 30; x++) for (let j = 0; j < k; j++) pave(g, x, 3 + j);
+      expect(buildLaneGraph(g).bays.length).toBe(0);
+    }
+  });
+});
 
 describe("the lane graph", () => {
   test("puts the pavement where the paint does", () => {

@@ -33,7 +33,7 @@ import { HEIGHT_UNIT, rampDir, rampRise, RAMP } from "../iso";
 import { hash } from "../structures/projects/model";
 import { mix, tone } from "../structures/projects/pen";
 import { HIGHWAY, KEEP, MEDIAN_FROM, WORN, opposite, rightOf, STEP, type Look, type Side } from "../roads/looks";
-import { CROSS_HOLD, LAYBY, laneLines, laneOffset, lanesFor, PARK_STRIP } from "../agents/lanes/graph";
+import { CROSS_HOLD, LAYBY, MEDIAN_HALF, laneEdge, laneInner, laneLines, laneOffset, laneSpan, lanesFor, PARK_STRIP } from "../agents/lanes/graph";
 
 /** How far in from the tile's edge the pavement runs, its kerb, and both. */
 export const PAVE = 0.22, KERB = 0.04, WALK = PAVE + KERB;
@@ -427,8 +427,16 @@ function dashes(a0: number, a1: number, dash: number, gap: number): [number, num
 const CENTRE: [number, number][] = [[0.34, 0.66]];
 const WARNING: [number, number][] = [[0.04, 0.42], [0.58, 0.96]];
 
+/**
+ * HALF A LINE'S WIDTH, tiles: a lane or centre line 150 mm across, an edge line 200 mm — as they are painted, a
+ * tile being 11 m. @see cars/models TILES_PER_M
+ */
+const LINE = 0.007, EDGE = 0.009;
+/** A stud's colours: red along the nearside edge, amber by the central reservation, green across a slip road's mouth. */
+const STUD_RED = 0xd8432f, STUD_AMBER = 0xf2a31c, STUD_GREEN = 0x44c065;
+
 function centreLine(ctx: Ctx, L: Look) {
-  const w = 0.011;
+  const w = LINE;
   ctx.fillStyle = css(WHITE, 0.92);
   const c = L.ctr;
   if (c === "u" || c === "U" || c === "v" || c === "V") {
@@ -482,7 +490,7 @@ function runRect(ctx: Ctx, ax: "u" | "v", a0: number, a1: number, q0: number, q1
 const runPt = (ax: "u" | "v", a: number, q: number): [number, number] => (ax === "u" ? [a, q] : [q, a]);
 
 /** A highway's median: half its width, and how far short of a cell's end its nose stops where its run ends. */
-const MEDIAN = 0.06, NOSE = 0.42;
+const MEDIAN = MEDIAN_HALF, NOSE = 0.42;
 /** Where a highway's median runs along a cell, given which ends of its run are here. */
 const medianSpan = (ends: number, crossed = false, plain = false): [number, number] => {
   // Behind a crossing and the line cars wait at, it stops well back: there is no room for a taper.
@@ -504,7 +512,7 @@ const CROSSED_NOSE = 0.86, PLAIN_NOSE = 0.22;
 function wideLines(ctx: Ctx, L: Look) {
   const W = wideOf(L.ln);
   if (!W) return;
-  const w = 0.011, highway = W.k >= HIGHWAY;
+  const w = LINE, highway = W.k >= HIGHWAY;
   ctx.fillStyle = css(WHITE, 0.92);
   for (const off of laneLines(W.k)) {
     // Across this cell, from its low side.
@@ -528,7 +536,7 @@ function wideLines(ctx: Ctx, L: Look) {
     if (W.plain && W.ends === 3) continue;
     if (W.k < MEDIAN_FROM) {
       // A DOUBLE LINE, the two directions never crossing it.
-      for (const o of [-0.022, 0.022]) { wideRect(ctx, W, m0, m1, q + o - w, q + o + w); ctx.fill(); }
+      for (const o of [-0.016, 0.016]) { wideRect(ctx, W, m0, m1, q + o - w, q + o + w); ctx.fill(); }
     }
     // HATCHED where it ends: a taper from the nose to a point, barred across.
     for (const [end, nose, tip] of [[1, m0, 0.06], [2, m1, 0.94]] as const) {
@@ -546,7 +554,16 @@ function wideLines(ctx: Ctx, L: Look) {
       for (const sg of [-1, 1]) { poly(ctx, [widePt(W, nose, q + sg * half), widePt(W, nose, q + sg * (half - 0.014)), widePt(W, tip, q - sg * 0.007), widePt(W, tip, q + sg * 0.007)]); ctx.fill(); }
     }
   }
-  if (!highway) return;
+  // (A road with bays along its kerbs has no edge line: the bays' own line is its edge. One with a central
+  // reservation has no bays, and a solid edge line with a hard strip beyond it.)
+  if (W.k < MEDIAN_FROM) return;
+  const stud = (p: [number, number], colour: number) => { ctx.fillStyle = css(colour, 0.95); ctx.beginPath(); ctx.arc(p[0], p[1], 0.008, 0, Math.PI * 2); ctx.fill(); };
+  // AMBER STUDS along the central reservation's edge, each way.
+  if (DETAIL > 0 && !W.thru) for (const sg of [-1, 1]) for (const a of [0, 0.5]) {
+    const q = W.k / 2 - W.c + sg * (MEDIAN_HALF + 0.012);
+    if (q > -0.02 && q < 1.02) stud(widePt(W, a, q), STUD_AMBER);
+  }
+  ctx.fillStyle = css(WHITE, 0.92);
   // THE SHOULDER LINES, where the lanes end and the strip begins: solid, and at a side road's mouth an exit's
   // dashes. They keep to the KERB, a strip's width in from it — through a jog straight across with it, where
   // the lanes' own lines slant over a few cells.
@@ -556,13 +573,20 @@ function wideLines(ctx: Ctx, L: Look) {
     if (Math.max(q0, q1) < 0 || Math.min(q0, q1) > 1) continue;
     const at = (a: number, o: number) => runPt(W.ax, a, q0 + (q1 - q0) * a + o);
     const mouth = W.thru && has(L.open, W.ax === "u" ? (sg < 0 ? 2 : 3) : (sg < 0 ? 0 : 1));
-    if (!mouth) { poly(ctx, [at(-0.05, -w), at(1.05, -w), at(1.05, w), at(-0.05, w)]); ctx.fill(); continue; }
-    for (const [a0, a1] of dashes(0.02, 1, 0.09, 0.07)) { poly(ctx, [at(a0, -2 * w), at(a1, -2 * w), at(a1, 2 * w), at(a0, 2 * w)]); ctx.fill(); }
+    if (!mouth) {
+      poly(ctx, [at(-0.05, -EDGE), at(1.05, -EDGE), at(1.05, EDGE), at(-0.05, EDGE)]); ctx.fill();
+      // RED STUDS outside it, on the strip's side.
+      if (DETAIL > 0) { for (const a of [0, 0.5]) stud(at(a, sg * 0.022), STUD_RED); ctx.fillStyle = css(WHITE, 0.92); }
+      continue;
+    }
+    // A SLIP ROAD'S MOUTH: a metre of line, a metre of gap, and green studs.
+    for (const [a0, a1] of dashes(0.02, 1, 0.09, 0.09)) { poly(ctx, [at(a0, -EDGE), at(a1, -EDGE), at(a1, EDGE), at(a0, EDGE)]); ctx.fill(); }
+    if (DETAIL > 0) { for (const a of [0.155, 0.515, 0.875]) stud(at(a, 0), STUD_GREEN); ctx.fillStyle = css(WHITE, 0.92); }
   }
 }
 
 /** How wide a wide road's lanes are together, each way: where its shoulder line runs from its middle. */
-const laneSpanOf = (k: number) => laneOffset(k, lanesFor(k) - 1) + laneOffset(k, 0);
+const laneSpanOf = (k: number) => laneEdge(k);
 
 /**
  * A HIGHWAY'S MEDIAN (three cells or more), on the road: its kerb's face and
@@ -673,12 +697,12 @@ function ring(ctx: Ctx, B: { pu: number; pv: number }, r: number, w: number, col
 function bendLines(ctx: Ctx, L: Look) {
   const B = bendOf(L.bd);
   if (!B) return;
-  const w = 0.022, white = css(WHITE, 0.92), n = lanesFor(B.k), span = laneSpanOf(B.k), mid = B.k / 2;
+  const w = 2 * LINE, white = css(WHITE, 0.92), n = lanesFor(B.k), span = laneSpanOf(B.k), mid = B.k / 2;
   for (const sg of [-1, 1]) {
-    ring(ctx, B, mid + sg * span, w, white);
-    for (let i = 1; i < n; i++) ring(ctx, B, mid + (sg * i * span) / n, w, white, [0.2, 0.8]);
+    if (B.k >= MEDIAN_FROM) ring(ctx, B, mid + sg * span, 2 * EDGE, white);
+    for (let i = 1; i < n; i++) ring(ctx, B, mid + sg * (laneInner(B.k) + (i * laneSpan(B.k)) / n), w, white, [0.2, 0.8]);
   }
-  if (B.k < MEDIAN_FROM) { for (const o of [-0.022, 0.022]) ring(ctx, B, mid + o, w, white); return; }
+  if (B.k < MEDIAN_FROM) { for (const o of [-0.016, 0.016]) ring(ctx, B, mid + o, w, white); return; }
   ring(ctx, B, mid + 0.012, 2 * (MEDIAN + 0.014), css(0x000000, 0.16));
   ring(ctx, B, mid, 2 * MEDIAN, css(tone(KERB_OF[L.lvl], 0.55)));
 }
@@ -707,7 +731,7 @@ function highwayArrows(ctx: Ctx, L: Look) {
   if (!W || !L.hw) return;
   ctx.fillStyle = css(WHITE, 0.92);
   const n = lanesFor(W.k);
-  for (const m of L.hw.matchAll(/(\d)([LRP]*)/g)) {
+  for (const m of L.hw.matchAll(/(\d)([LRPN]*)/g)) {
     const s = Number(m[1]) as Side, [hx, hy] = STEP[s], [rx, ry] = rightOf(hx, hy);
     for (let i = 0; i < n; i++) {
       // The lane's middle across this cell: right of the road's middle, as its traffic sees it.
@@ -718,10 +742,14 @@ function highwayArrows(ctx: Ctx, L: Look) {
       if (q < -0.2 || q > 1.2) continue;
       // `t` on toward where it is going, `c` to its right.
       const pt = (t: number, c: number): [number, number] => [cu + t * hx + c * rx, cv + t * hy + c * ry];
-      poly(ctx, [pt(-0.3, -0.018), pt(0.13, -0.018), pt(0.13, 0.018), pt(-0.3, 0.018)]); ctx.fill();
-      poly(ctx, [pt(0.3, 0), pt(0.12, -0.058), pt(0.12, 0.058)]); ctx.fill();
+      // NO WAY STRAIGHT ON: a turn in every lane — the kerb lane toward the kerb, the rest across the road, as the
+      // lanes go; or all the one way there is. @see agents/lanes/graph throughJunction
+      const only = m[2].includes("N"), hasL = m[2].includes("L"), hasR = m[2].includes("R");
+      const mine = !only ? null : hasL && hasR ? (i === n - 1 ? "R" : "L") : hasL ? "L" : hasR ? "R" : null;
+      poly(ctx, only ? [pt(-0.3, -0.018), pt(-0.06, -0.018), pt(-0.06, 0.018), pt(-0.3, 0.018)] : [pt(-0.3, -0.018), pt(0.13, -0.018), pt(0.13, 0.018), pt(-0.3, 0.018)]); ctx.fill();
+      if (!only) { poly(ctx, [pt(0.3, 0), pt(0.12, -0.058), pt(0.12, 0.058)]); ctx.fill(); }
       for (const [turn, sg, lane] of [["L", -1, 0], ["R", 1, n - 1]] as const) {
-        if (!m[2].includes(turn) || i !== lane) continue;
+        if (only ? mine !== turn : !m[2].includes(turn) || i !== lane) continue;
         const [x0, y0] = pt(-0.1, 0), [x1, y1] = pt(0.05, sg * 0.085);
         const len = Math.hypot(x1 - x0, y1 - y0), dx = (x1 - x0) / len, dy = (y1 - y0) / len, px = -dy, py = dx, hw = 0.017;
         poly(ctx, [[x0 + px * hw, y0 + py * hw], [x1 + px * hw, y1 + py * hw], [x1 - px * hw, y1 - py * hw], [x0 - px * hw, y0 - py * hw]]); ctx.fill();
@@ -1046,13 +1074,15 @@ function roundels(ctx: Ctx, L: Look) {
     ctx.transform(rx, ry, -hx, -hy, cu - hx * ROUNDEL_BACK, cv - hy * ROUNDEL_BACK);
     ctx.strokeStyle = css(WHITE, 0.9);
     ctx.lineWidth = 0.014;
-    ctx.beginPath(); ctx.ellipse(0, 0, 0.098, 0.118, 0, 0, Math.PI * 2); ctx.stroke();
+    // LONGER DOWN THE LANE than across it, as it is painted — but half again, not the real thing's near three
+    // times, which is drawn to read round from a driver's seat and from above reads as nothing.
+    ctx.beginPath(); ctx.ellipse(0, 0, 0.085, 0.135, 0, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = css(WHITE, 0.92);
     ctx.font = "900 10px Arial, Helvetica, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    // As tall as it is wide on the ground: stretched down the lane as real lettering is, seen from above it reads as nothing.
-    const sx = 0.13 / ctx.measureText(m[2]).width, sy = 0.13 / 7.2;
+    // Its figures stretched down the lane with it.
+    const sx = 0.115 / ctx.measureText(m[2]).width, sy = 0.165 / 7.2;
     ctx.scale(sx, sy);
     ctx.fillText(m[2], 0, 0.3);
     ctx.restore();

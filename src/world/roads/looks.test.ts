@@ -200,12 +200,13 @@ describe("a highway", () => {
     expect(look(g, 40, 9).ln).toBe("");
   });
 
-  test("its lanes are arrowed a cell back from a junction with the turns there are, and plainly along a run", () => {
+  test("its lanes are arrowed a cell back from a junction with the turns there are, and not at all along a run", () => {
     // Going toward +x (side 1) the side road is across the oncoming lanes; going back toward it, at the kerb.
     // (L is the turn across the road and R the one at the kerb, as the lanes have them: the paint mirrors both.)
     expect(look(g, 18, 9).hw).toBe("1L");
     expect(look(g, 22, 9).hw).toBe("0R");
-    expect(look(g, 8, 9).hw).toBe("0P1P");
+    // Along a run, none: an arrow is where there is a lane to choose.
+    for (let x = 2; x < 12; x++) expect(look(g, x, 9).hw).toBe("");
     expect(look(g, 9, 9).hw).toBe("");
   });
 });
@@ -290,6 +291,19 @@ describe("the paint and the traffic agree", () => {
         expect(Math.sign(off)).toBe(axis === "x" ? ry : rx);
       }
     }
+  });
+});
+
+describe("a wide road ending at another: the head of a T", () => {
+  // Three cells wide along y 10-12, into a two-cell road down x 30-31.
+  const cells: [number, number][] = [...col(30, 0, 23), ...col(31, 0, 23)];
+  for (let x = 0; x < 30; x++) for (const y of [10, 11, 12]) cells.push([x, y]);
+  const g = grid(40, 24, cells);
+
+  test("its arrows a cell back are turns, both ways, and none straight on: there is no road ahead", () => {
+    for (const y of [10, 11, 12]) expect(look(g, 28, y).hw).toBe("1LRN");
+    // Along it, no arrows at all.
+    for (let x = 4; x < 24; x++) expect(look(g, x, 11).hw).toBe("");
   });
 });
 

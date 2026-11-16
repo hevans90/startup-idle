@@ -197,13 +197,23 @@ export type LaneGraph = {
 const UTURN_BULGE = 0.675, UTURN_ROOM = 0.16;
 export const PARK_STRIP = 0.2;
 /** From this many cells wide a road has a hard shoulder where a narrower one has parking bays. */
-export const SHOULDERED = 4;
+export const SHOULDERED = 3;
 export const lanesFor = (k: number) => (k <= 1 ? 1 : Math.min(4, k));
-export const laneSpan = (k: number) => k / 2 - WALK - (k > 1 ? PARK_STRIP : 0);
-export const laneOffset = (k: number, i: number) => ((i + 0.5) * laneSpan(k)) / lanesFor(k);
+/**
+ * A LANE AT ITS WIDEST, tiles: 3.65 m, a motorway's — a wider road has a wider shoulder, not wider lanes. And HALF
+ * THE CENTRAL RESERVATION of a road with one (three cells wide or more): 1.8 m across; its lanes begin a marginal
+ * strip clear of it. @see cars/models TILES_PER_M, roads/looks MEDIAN_FROM
+ */
+export const LANE_MAX = 3.65 * 0.09, MEDIAN_HALF = 0.081, MEDIAN_CLEAR = 0.025;
+/** Where a road's lanes begin, out from its middle: past its central reservation, where it has one. */
+export const laneInner = (k: number) => (k >= 3 ? MEDIAN_HALF + MEDIAN_CLEAR : 0);
+export const laneSpan = (k: number) => Math.min(lanesFor(k) * LANE_MAX, k / 2 - WALK - laneInner(k) - (k > 1 ? PARK_STRIP : 0));
+/** Where its lanes end, out from its middle: its shoulder line, or its bays'. */
+export const laneEdge = (k: number) => laneInner(k) + laneSpan(k);
+export const laneOffset = (k: number, i: number) => laneInner(k) + ((i + 0.5) * laneSpan(k)) / lanesFor(k);
 export const laneLines = (k: number): number[] => {
   const n = lanesFor(k), out = [0];
-  for (let i = 1; i < n; i++) out.push((i * laneSpan(k)) / n, (-i * laneSpan(k)) / n);
+  for (let i = 1; i < n; i++) { const q = laneInner(k) + (i * laneSpan(k)) / n; out.push(q, -q); }
   return out;
 };
 
