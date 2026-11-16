@@ -430,9 +430,9 @@ function centreLine(ctx: Ctx, L: Look) {
 const LANE_DASH: [number, number][] = [[0.4, 0.6]];
 
 /** A WIDE ROAD's own Look.ln, read: the way it runs, where its run ends (1 its low end, 2 its high, 3 both), warned of a junction, through one, how wide, and which cell across. */
-function wideOf(ln: string): { ax: "u" | "v"; ends: number; warn: boolean; thru: boolean; k: number; c: number } | null {
-  const m = /^([uv])([abc]?)(!?)(x?)(\d+)\.(\d+)$/.exec(ln);
-  return m ? { ax: m[1] as "u" | "v", ends: m[2] ? "abc".indexOf(m[2]) + 1 : 0, warn: !!m[3], thru: !!m[4], k: Number(m[5]), c: Number(m[6]) } : null;
+function wideOf(ln: string): { ax: "u" | "v"; ends: number; plain: boolean; warn: boolean; thru: boolean; k: number; c: number } | null {
+  const m = /^([uv])([abc]?)(n?)(!?)(x?)(\d+)\.(\d+)$/.exec(ln);
+  return m ? { ax: m[1] as "u" | "v", ends: m[2] ? "abc".indexOf(m[2]) + 1 : 0, plain: !!m[3], warn: !!m[4], thru: !!m[5], k: Number(m[6]), c: Number(m[7]) } : null;
 }
 
 /** A rectangle of a road running along `ax`: from `a0` to `a1` along it, `q0` to `q1` across. */
@@ -445,12 +445,13 @@ const runPt = (ax: "u" | "v", a: number, q: number): [number, number] => (ax ===
 /** A highway's median: half its width, and how far short of a cell's end its nose stops where its run ends. */
 const MEDIAN = 0.06, NOSE = 0.42;
 /** Where a highway's median runs along a cell, given which ends of its run are here. */
-const medianSpan = (ends: number, crossed = false): [number, number] => {
+const medianSpan = (ends: number, crossed = false, plain = false): [number, number] => {
   // Behind a crossing and the line cars wait at, it stops well back: there is no room for a taper.
-  const nose = crossed ? CROSSED_NOSE : NOSE;
+  // Between two junctions close together it ends plainly, a little short of each.
+  const nose = crossed ? CROSSED_NOSE : plain ? PLAIN_NOSE : NOSE;
   return [ends & 1 ? nose : -0.05, ends & 2 ? 1 - nose : 1.05];
 };
-const CROSSED_NOSE = 0.86;
+const CROSSED_NOSE = 0.86, PLAIN_NOSE = 0.22;
 
 /**
  * THE LINES OF A WIDE ROAD where they cross this cell: the centre line down
@@ -483,14 +484,16 @@ function wideLines(ctx: Ctx, L: Look) {
     // THROUGH A JUNCTION the middle is open: traffic turns across it.
     if (W.thru) continue;
     const crossed = !!L.xing || /b/.test(L.hs) || /[a-h]/.test(L.stop + L.gw);
-    const [m0, m1] = medianSpan(W.ends, crossed);
+    const [m0, m1] = medianSpan(W.ends, crossed, W.plain);
+    // One cell between two junctions: nothing down its middle at all.
+    if (W.plain && W.ends === 3) continue;
     if (W.k < MEDIAN_FROM) {
       // A DOUBLE LINE, the two directions never crossing it.
       for (const o of [-0.022, 0.022]) { runRect(ctx, W.ax, m0, m1, q + o - w, q + o + w); ctx.fill(); }
     }
     // HATCHED where it ends: a taper from the nose to a point, barred across.
     for (const [end, nose, tip] of [[1, m0, 0.06], [2, m1, 0.94]] as const) {
-      if (!(W.ends & end) || crossed) continue;
+      if (!(W.ends & end) || crossed || W.plain) continue;
       const half = W.k < MEDIAN_FROM ? 0.033 : MEDIAN + 0.012;
       ctx.save();
       poly(ctx, [runPt(W.ax, nose, q - half), runPt(W.ax, nose, q + half), runPt(W.ax, tip, q)]);
@@ -528,7 +531,8 @@ function medianFoot(ctx: Ctx, L: Look) {
   if (!W || W.k < MEDIAN_FROM || W.thru) return;
   const q = W.k / 2 - W.c;
   if (q < -0.1 || q > 1.1) return;
-  const [m0, m1] = medianSpan(W.ends, !!L.xing || /b/.test(L.hs));
+  if (W.plain && W.ends === 3) return;
+  const [m0, m1] = medianSpan(W.ends, !!L.xing || /b/.test(L.hs), W.plain);
   ctx.fillStyle = css(0x000000, 0.16);
   medianShape(ctx, W.ax, m0, m1, q + 0.012, MEDIAN + 0.014, W.ends); ctx.fill();
   ctx.fillStyle = css(tone(KERB_OF[L.lvl], 0.55));
@@ -556,7 +560,8 @@ function median(ctx: Ctx, L: Look) {
   if (!W || W.k < MEDIAN_FROM || W.thru) return;
   const q = W.k / 2 - W.c;
   if (q < -0.1 || q > 1.1) return;
-  const [m0, m1] = medianSpan(W.ends, !!L.xing || /b/.test(L.hs)), kc = KERB_OF[L.lvl];
+  if (W.plain && W.ends === 3) return;
+  const [m0, m1] = medianSpan(W.ends, !!L.xing || /b/.test(L.hs), W.plain), kc = KERB_OF[L.lvl];
   ctx.fillStyle = css(kc);
   medianShape(ctx, W.ax, m0, m1, q, MEDIAN, W.ends); ctx.fill();
   ctx.fillStyle = css(tone(kc, 0.86));

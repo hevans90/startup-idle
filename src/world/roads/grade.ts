@@ -81,25 +81,69 @@ function levelRamp(g: Grid, x: number, y: number, was: (i: number) => number): {
     }
   }
   const inRow = (cx: number, cy: number, dx: number, dy: number) => row.some(([rx, ry]) => rx + dx === cx && ry + dy === cy);
-  /** Whether the row a step `s` along the climb is plain road: level, at `z`, with nothing joining it from the side. */
-  const plain = (s: number, z: number) => row.every(([rx, ry]) => {
-    const cx = rx + s * ux, cy = ry + s * uy;
-    if (!paved(g, cx, cy)) return false;
-    const j = idx(g, cx, cy);
-    if (g.ramp[j] !== 0 || g.height[j] !== z) return false;
-    return [1, -1].every((sg) => { const nx = cx + sg * uy, ny = cy + sg * ux; return !paved(g, nx, ny) || inRow(nx, ny, s * ux, s * uy); });
-  });
-  const writes = new Map<number, number>();
-  // RAISED to the top of its climb: the row below, plain road, climbs to it instead.
-  if (plain(-1, h)) {
+  /** The row a step `s` along the climb, if every cell of it is road — and, `alone`, with nothing joining it from the side; else null. */
+  const rowAt = (s: number, alone = true): number[] | null => {
+    const out: number[] = [];
+    for (const [rx, ry] of row) {
+      const cx = rx + s * ux, cy = ry + s * uy;
+      if (!paved(g, cx, cy)) return null;
+      if (alone && ![1, -1].every((sg) => { const nx = cx + sg * uy, ny = cy + sg * ux; return !paved(g, nx, ny) || inRow(nx, ny, s * ux, s * uy); })) return null;
+      out.push(idx(g, cx, cy));
+    }
+    return out;
+  };
+  /** A row's one height, if its cells agree and none ramps another way; else null. */
+  const levelOf = (cells: number[] | null): number | null =>
+    cells && cells.every((j) => g.height[j] === g.height[cells[0]] && (g.ramp[j] === 0 || rampDir(g.ramp[j]) === rampDir(g.ramp[i0]))) ? g.height[cells[0]] : null;
+  /** How many rows a levelling may reach along the road before it is given up. */
+  const REACH = 8;
+
+  // RAISED to the top of its climb, the rows below it brought up behind — each no more than a step under the
+  // next — for as far as that takes: a flight of ramps moved a tile down the hill. Every row that then climbs
+  // differently must be road alone, nothing joining it from the side.
+  const ends = (k: number) => !row.some(([rx, ry]) => paved(g, rx + k * ux, ry + k * uy));
+  const raise = (): Map<number, number> | null => {
+    const writes = new Map<number, number>();
     for (const [rx, ry] of row) writes.set(idx(g, rx, ry), h + r);
-    return { writes, z: h + r };
-  }
-  // Or the row above brought down to climb in its place: plain road, and road beyond it to climb to.
-  if (plain(1, h + r) && row.every(([rx, ry]) => paved(g, rx + 2 * ux, ry + 2 * uy) && g.height[idx(g, rx + 2 * ux, ry + 2 * uy)] === h + r)) {
-    for (const [rx, ry] of row) writes.set(idx(g, rx + ux, ry + uy), h);
-    return { writes, z: h };
-  }
+    let next = h + r;
+    for (let k = -1; k >= -REACH; k--) {
+      // The road ends here, below: nothing more to bring up.
+      if (ends(k)) return writes;
+      const was = levelOf(rowAt(k, false));
+      if (was === null || was > next) return null;
+      const to = Math.max(was, next - MAX_RISE);
+      // The row just below climbs to it anew, and any row brought up is climbed to anew: road alone, each.
+      if ((k === -1 || to !== was) && !rowAt(k)) return null;
+      if (to === was) return writes;
+      for (const j of rowAt(k)!) writes.set(j, to);
+      next = to;
+    }
+    return null;
+  };
+  // Or left where it is and the rows above brought down to climb in its place, the same way.
+  const lower = (): Map<number, number> | null => {
+    const writes = new Map<number, number>();
+    let prev = h;
+    for (let k = 1; k <= REACH; k++) {
+      // The road ends here, above: the row brought down is its level end.
+      if (ends(k)) return k > 1 ? writes : null;
+      const was = levelOf(rowAt(k, false));
+      if (was === null || (k === 1 && was !== h + r)) return null;
+      // The row above the ramp comes down to its foot; each beyond it, to within a step of the one before.
+      const to = k === 1 ? h : Math.min(was, prev + MAX_RISE);
+      if (to === was) return writes;
+      // A row brought down climbs anew to the next: road alone.
+      const cells = rowAt(k);
+      if (!cells) return null;
+      for (const j of cells) writes.set(j, to);
+      prev = to;
+    }
+    return null;
+  };
+  const raised = raise();
+  if (raised) return { writes: raised, z: h + r };
+  const lowered = lower();
+  if (lowered) return { writes: lowered, z: h };
   return null;
 }
 

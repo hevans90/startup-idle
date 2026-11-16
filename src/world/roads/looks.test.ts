@@ -5,7 +5,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { createGrid, fillTerrain, idx, type Grid } from "../grid";
-import { PLAIN, VARIANTS, WORN, dressOf, keyOf, lookAt, looksOf, variantOf } from "./looks";
+import { buildLaneGraph } from "../agents/lanes/graph";
+import { PLAIN, VARIANTS, WORN, dressOf, keyOf, lookAt, looksOf, rightOf, variantOf } from "./looks";
 
 function grid(w: number, h: number, cells: [number, number][]): Grid {
   const g = createGrid(w, h);
@@ -250,5 +251,43 @@ describe("a wide road at a junction", () => {
     expect(look(g, 22, 10).bd).toBe("3,-2,1");
     expect(look(g, 19, 9).ln).toBe("u!3.1");
     expect(look(g, 19, 9).hs).toBe("");
+  });
+});
+
+describe("between two junctions close together", () => {
+  test("a wide road has no arrows there and its middle ends plainly; a long run keeps both", () => {
+    // Side roads at x = 10 and x = 13 off a two-cell road: two cells between them.
+    const g = grid(40, 20, [...row(8, 0, 39), ...row(9, 0, 39), ...col(10, 10, 19), ...col(13, 10, 19)]);
+    for (const x of [11, 12]) { expect(look(g, x, 8).hw).toBe(""); expect(look(g, x, 8).ln).toMatch(/^u[ab]n!2\.0$/); }
+    // Out past them the road runs on: arrows a cell back from the junction, a tapered end.
+    expect(look(g, 15, 8).hw).not.toBe("");
+    expect(look(g, 14, 8).ln).toBe("ua!2.0");
+  });
+});
+
+describe("a wide road meeting a wide road", () => {
+  test("at a T the one that runs through is marked on through it, and the one that ends gives way across its whole width", () => {
+    const g = grid(40, 40, [...[10, 11, 12].flatMap((y) => row(y, 0, 39)), ...[18, 19, 20].flatMap((x) => col(x, 13, 39))]);
+    for (const x of [18, 19, 20]) for (const y of [10, 11, 12]) expect(look(g, x, y).ln).toBe(`ux3.${y - 10}`);
+    for (const x of [18, 19, 20]) expect(look(g, x, 13).hs).toBe("2Gb");
+  });
+});
+
+describe("the paint and the traffic agree", () => {
+  test("a lane's arrows are painted on the side of the road its traffic drives on, whichever way the road runs", () => {
+    for (const k of [2, 3, 4]) for (const axis of ["x", "y"] as const) {
+      const cells = axis === "x" ? Array.from({ length: k }, (_, c) => row(10 + c, 0, 29)).flat() : Array.from({ length: k }, (_, c) => col(10 + c, 0, 29)).flat();
+      const g = grid(30, 30, cells), G = buildLaneGraph(g), mid = 10 + (k - 1) / 2;
+      const street = G.lanes.filter((l) => l.kind === "street");
+      expect(street.length).toBe(2 * Math.min(4, k));
+      for (const l of street) {
+        const a = l.pts[0], b = l.pts[l.pts.length - 1];
+        const h: [number, number] = axis === "x" ? [Math.sign(b.x - a.x), 0] : [0, Math.sign(b.y - a.y)];
+        const [rx, ry] = rightOf(h[0], h[1]);
+        // Where the painter puts that way's lanes: right of the road's middle. Where the lane is: the same side.
+        const off = axis === "x" ? a.y - mid : a.x - mid;
+        expect(Math.sign(off)).toBe(axis === "x" ? ry : rx);
+      }
+    }
   });
 });

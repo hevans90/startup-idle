@@ -123,6 +123,18 @@ describe("the road tool on a hill", () => {
     expect(s().netComponents).toBe(1);
   });
 
+  test("a road joins partway up a flight of ramps: wherever it is laid along the climb, it ends up one road", () => {
+    for (let at = 5; at <= 12; at++) {
+      s().resize(18, 14);
+      const g = s().grid;
+      cliff(g, 9, 6);
+      lay(2, 5, 15, 5);
+      lay(at, 11, at, 5);
+      expect({ at, comps: s().netComponents, said: s().notice?.text ?? "" }).toEqual({ at, comps: 1, said: "" });
+      s().dismissNotice?.();
+    }
+  });
+
   test("a road begun beside another joins it at its height, whatever the ground there", () => {
     s().resize(16, 12);
     const g = s().grid;

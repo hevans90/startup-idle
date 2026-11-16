@@ -45,6 +45,8 @@ export const variantOf = (draw: number) => (draw < WORN ? draw : PLAIN + (draw &
 export const HIGHWAY = 2;
 /** From this many cells wide what keeps a highway's directions apart is a raised median with a barrier; narrower, a double line. */
 export const MEDIAN_FROM = 3;
+/** A run of highway this many cells or fewer between two junctions is too short for arrows or a tapered middle. */
+const SHORT_RUN = 4;
 /** A street shorter than this many cells has no speed roundels. */
 const ROUNDEL_MIN = 6;
 /** How often a highway's lanes are arrowed along a run, cells. */
@@ -89,7 +91,8 @@ export type Look = {
    * THE LANE LINES of a road two cells wide or more: `u`/`v`, the way it
    * runs; on a highway (two cells or more), `a`/`b`/`c` where the run ends
    * at this cell's low end, its high end, or both — a junction, a crossing,
-   * the end of the road — so its median ends there; `!` before a junction
+   * the end of the road — so its median ends there, and `n` where it ends
+   * plainly, no taper, between two junctions close together; `!` before a junction
    * (the centre line its warning line); `x` in a junction a highway runs
    * through, its lines carried on past a side road's mouth; then its width in
    * cells and which this is across it, from the low side: `ub!3.1`.
@@ -437,12 +440,15 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
     else if (wide) {
       // A HIGHWAY: where its run ends, for its median; and its arrows.
       let ends = 0;
+      // BETWEEN TWO JUNCTIONS CLOSE TOGETHER there is no room to say anything twice: no arrows, and its middle ends plainly.
+      const toJunction = (sd: Side) => { const [dx, dy] = STEP[sd]; for (let d = 1; d <= SHORT_RUN; d++) { const J = regionAt(x + d * dx, y + d * dy); if (J) return bendOf(J) ? Infinity : d; } return Infinity; };
+      const short = wide.k >= HIGHWAY && along.length === 2 && toJunction(along[0]) + toJunction(along[1]) - 1 <= SHORT_RUN;
       if (wide.k >= HIGHWAY) for (const sd of along) {
         const [dx, dy] = STEP[sd];
         if (!has(o, sd) || (regionAt(x + dx, y + dy) && !bendOf(regionAt(x + dx, y + dy))) || zebraAt(x + 2 * dx, y + 2 * dy)) ends |= sd & 1 ? 2 : 1;
         // ARROWS a cell back from the junction, in the lanes going to it; and plain ones every few cells of a long run.
         const J = regionAt(x + 2 * dx, y + 2 * dy);
-        if (J && !regionAt(x + dx, y + dy) && J.arms.size >= 3 && !roundabout(J)) {
+        if (!short && J && !regionAt(x + dx, y + dy) && J.arms.size >= 3 && !roundabout(J)) {
           const [rx, ry] = rightOf(dx, dy), sides = new Set([...J.arms.values()].flat());
           L.hw += `${sd}${sides.has(sideOf(-rx, -ry)) ? "L" : ""}${sides.has(sideOf(rx, ry)) ? "R" : ""}`;
         }
@@ -454,7 +460,7 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
       if (wide.k >= HIGHWAY && !L.hw && !L.spd && !warn && !near && (wide.ax === "u" ? x : y) % ARROW_EVERY === 2) L.hw = along.map((sd) => `${sd}P`).join("");
       // Its own lanes' arrows, not the one a two-cell road's whole cell had.
       if (L.hw) L.arrow = "";
-      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${warn ? "!" : ""}${wide.k}.${wide.c}`;
+      L.ln = `${wide.ax}${ends ? "abc"[ends - 1] : ""}${short && ends ? "n" : ""}${warn ? "!" : ""}${wide.k}.${wide.c}`;
     }
     else if (lane >= 0) L.ctr = (warn ? "H" : "h") + opposite(lane as Side);
     else if (r === "thick-curve") { L.ctr = "b"; L.yl = true; }
