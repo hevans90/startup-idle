@@ -3,9 +3,9 @@
  * channel ordered in the game is a JOB along its cells: worked from its first
  * to its last by trades that follow one another — the trench cut, the pipe
  * laid, the ground made good — its materials brought a load at a time and
- * paid for as each is sent. Nothing of it is on the map until the last of it
- * is done; then all of it is, laid as the stroke that ordered it would have
- * laid it. @see plans/built-not-bought.md, roads/jobs (a road is the same
+ * paid for as each is sent. A PIPE IS REAL AS IT GOES IN: each length of it
+ * on the map as it is laid, the run capped where it has got to. A sewer's
+ * trunk and a channel are on the map when the last of them is done. @see plans/built-not-bought.md, roads/jobs (a road is the same
  * idea, opened a length at a time)
  *
  * Pure: what paying means and what "laid" means are its caller's.
@@ -28,6 +28,8 @@ export type LineJob = {
   coming: number[];
   /** Seconds it has been worked. */
   t: number;
+  /** How many of its cells are ON THE MAP already: a pipe is real as each length of it goes in, capped where it has got to. (A sewer's trunk and a channel are all or nothing: nought till they are done.) */
+  laid?: number;
   /** Seconds it has stood for want of a load it could not pay for; nought while it works. */
   stalled: number;
   /** When it was last worked, ms since the epoch — for the time away. */

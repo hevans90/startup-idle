@@ -87,14 +87,15 @@ describe("a main dragged in the game", () => {
   /** The player's own drag of the Pipe tool along the route. (The AI's hand lays at once: not this.) */
   const layPipePath = (cells: typeof route) => { S().setTool("pipe"); S().setBrush("line"); useWorldStore.setState({ notice: null }); S().beginStroke(cells[0]); S().updateStroke(cells[cells.length - 1]); S().endStroke(); };
 
-  test("is ordered, not laid: nothing on the map and nothing paid; then laid, all of it, and paid for by then — a load at a time", () => {
-    // What it costs, from laying the same thing where it is laid at once.
+  test("is ordered, not laid: nothing paid and nothing on the map; then it goes in A LENGTH AT A TIME, real pipe as far as it has got — and when it is done it is the very main the tool lays at once, paid for by then", () => {
+    // What the tool lays where it lays at once, and what that costs.
     let g = game(false);
     let before = useMoneyStore.getState().money;
     layPipePath(route);
     expect(laid(g)).toBe(route.length);
     const price = before.minus(useMoneyStore.getState().money).toNumber();
     expect(price).toBeGreaterThan(0);
+    const whole = { main: [...g.main], ends: [...g.mainEnd] };
 
     g = game(true);
     before = useMoneyStore.getState().money;
@@ -104,9 +105,21 @@ describe("a main dragged in the game", () => {
     expect(g.lineJobs[0]).toMatchObject({ kind: "main", delivered: 0, t: 0 });
     expect(g.lineJobs[0].cost).toBeCloseTo(price, 6);
     expect(useMoneyStore.getState().money.eq(before)).toBe(true);
-    for (let t = 0; t < 400 && g.lineJobs.length; t += 0.25) { S().stepLineWorks(0.25); if (g.lineJobs.length) expect(laid(g)).toBe(0); }
+    let last = 0, steps = 0;
+    for (let t = 0; t < 400 && g.lineJobs.length; t += 0.25) {
+      S().stepLineWorks(0.25);
+      const now = laid(g);
+      // Never less than there was; from its first end, with no gaps; and more than once on the way.
+      expect(now).toBeGreaterThanOrEqual(last);
+      expect(route.slice(0, now).every((c) => hasMain(g, idx(g, c.x, c.y)))).toBe(true);
+      if (now > last) steps++;
+      last = now;
+    }
     expect(g.lineJobs.length).toBe(0);
+    expect(steps).toBeGreaterThan(3);
     expect(laid(g)).toBe(route.length);
+    expect([...g.main]).toEqual(whole.main);
+    expect([...g.mainEnd]).toEqual(whole.ends);
     expect(before.minus(useMoneyStore.getState().money).toNumber()).toBeCloseTo(price, 4);
   });
 
@@ -117,6 +130,7 @@ describe("a main dragged in the game", () => {
     S().setTool("demolish"); S().setBrush("line");
     S().beginStroke({ x: 8, y: 12 }); S().updateStroke({ x: 8, y: 12 }); S().endStroke();
     expect(g.lineJobs.length).toBe(0);
+    // (Nothing had gone in yet; and nothing more does.)
     for (let t = 0; t < 60; t += 0.25) S().stepLineWorks(0.25);
     expect(laid(g)).toBe(0);
   });

@@ -78,7 +78,7 @@ import {
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import { GANGS, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
 import { stepRoadLoads } from "../world/roads/job-loads";
-import { lineDone, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
+import { lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
 import { payForLoad } from "../world/projects/economy";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
@@ -895,16 +895,39 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       j.at = now;
       if (j.stalled > 0 && !j.told && get().playing) { j.told = true; report(`${LINE_NAME[j.kind]} has stopped: ${formatCurrency(lineLoadPrice(j))} for the next load.`, { title: "Works" }); }
       else if (!j.stalled && j.told) j.told = false;
+      const ordered = j.stroke as Stroke;
+      /** Lay a stroke as the tool lays it, paid for already; whether anything was laid. */
+      const relay = (stroke: Stroke): boolean => {
+        const st = get(), before = st.revision, was = { tool: st.tool, brush: st.brush, stroke: st.stroke, notice: st.notice };
+        relaying = true;
+        try { set({ tool: stroke.tool, brush: stroke.brush, stroke }); get().endStroke(); } finally { relaying = false; }
+        const laid = get().revision !== before;
+        set({ tool: was.tool, brush: was.brush, stroke: was.stroke, notice: laid ? was.notice : get().notice });
+        return laid;
+      };
+      if (isPipeTool(ordered.tool)) {
+        // A PIPE GOES IN A LENGTH AT A TIME: every cell the pipe's trade has passed is laid, on from where the run
+        // is capped — the same stroke, as far as it has got. Its pump, if it has one, with its first length.
+        const n = j.cells.length, laid = j.laid ?? 0, upTo = lineDone(j) ? n : Math.floor(lineFront(j, 1));
+        if (upTo > laid && (upTo >= 2 || lineDone(j))) {
+          const seg = j.cells.slice(Math.max(0, laid - 1), upTo);
+          const ok = relay({ ...ordered, path: seg, anchor: seg[0], head: seg[seg.length - 1], pins: undefined, pump: laid === 0 && !!ordered.pump, noPump: true });
+          if (ok) j.laid = upTo;
+          else {
+            // (What it was to be laid on has changed under it, and it cannot go on: what is left of its loads is given back.)
+            g.lineJobs = g.lineJobs.filter((q) => q !== j);
+            if (get().playing) useMoneyStore.getState().increaseMoney(lineLoadPrice(j) * j.delivered * (1 - laid / n));
+          }
+          changed = true;
+        }
+        if (lineDone(j)) { g.lineJobs = g.lineJobs.filter((q) => q !== j); changed = true; }
+        continue;
+      }
       if (!lineDone(j)) continue;
       // DONE: laid, all of it, as the stroke that ordered it lays it — on the map as it is now. Paid for already.
       g.lineJobs = g.lineJobs.filter((q) => q !== j);
-      const st = get(), stroke = j.stroke as Stroke, before = st.revision, was = { tool: st.tool, brush: st.brush, stroke: st.stroke, notice: st.notice };
-      relaying = true;
-      try { set({ tool: stroke.tool, brush: stroke.brush, stroke }); get().endStroke(); } finally { relaying = false; }
-      const laid = get().revision !== before;
-      set({ tool: was.tool, brush: was.brush, stroke: was.stroke, notice: laid ? was.notice : get().notice });
       // (What it was to be laid on has changed under it, and it cannot be: its loads are given back.)
-      if (!laid && get().playing) useMoneyStore.getState().increaseMoney(lineLoadPrice(j) * j.delivered);
+      if (!relay(ordered) && get().playing) useMoneyStore.getState().increaseMoney(lineLoadPrice(j) * j.delivered);
       changed = true;
     }
     if (changed) set({ lineRev: get().lineRev + 1 });
@@ -1405,9 +1428,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
      * these cells, nothing paid now — and laid by this same stroke, again, when the job is done. Not the AI's, which
      * lays at once; nor that second laying itself. @see lines/jobs, stepLineWorks
      */
-    const orderLine = (kind: LineKind, along: readonly { x: number; y: number }[], price: number): boolean => {
+    const orderLine = (kind: LineKind, along: readonly { x: number; y: number }[], price: number, as: Stroke = s0): boolean => {
       if (!st.playing || !st.roadWorks || aiActing() || relaying || !along.length || !(price > 0)) return false;
-      st.grid.lineJobs.push(newLine(st.grid.nextLineJob++, kind, along, { ...s0 }, price, Date.now()));
+      st.grid.lineJobs.push(newLine(st.grid.nextLineJob++, kind, along, { ...as }, price, Date.now()));
       set({ stroke: null, lineRev: get().lineRev + 1 });
       return true;
     };
@@ -1561,7 +1584,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if ("refused" in plan) { set({ stroke: null, notice: { text: plan.refused, at: Date.now() } }); return; }
       const fresh = m ? m.fresh : previewSewer(st.grid, plan.cells).fresh;
       const price = pipeCost(fresh).plus(m ? m.price.pump : 0);
-      if (orderLine(sewer ? "sewer" : "main", plan.cells, price.toNumber())) return;
+      // (Ordered as it was worked out: with its pump or without, its route as given.)
+      if (orderLine(sewer ? "sewer" : "main", route, price.toNumber(), { ...s0, pump: m ? m.pump : s0.pump, noPump: m ? !m.pump : s0.noPump })) return;
       if (st.playing && !relaying && price.gt(0) && !spendForBuild(price)) {
         set({ stroke: null, notice: { text: `Not enough money for ${fresh} tiles of ${what}${m?.pump ? " and its pump" : ""}: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
         return;

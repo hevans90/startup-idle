@@ -11,8 +11,9 @@ short of the plan:
 - A HOUSE has no baked build stages: a lot is serviced by stages, and a house
   that grows a floor or a tier stands in scaffold for a while; the floors
   themselves still appear whole.
-- A LINE (main, sewer, channel) is on the map only when ALL of it is done, not
-  a length at a time; and one cannot be joined to another still being laid.
+- A MAIN goes in a length at a time, real pipe as far as it has got. A sewer's
+  TRUNK and a CHANNEL are still on the map only when all of them is done, and
+  a sewer is still a trench drawn on the ground.
 - A PORT's upgrade to the next tier is still at once; its cranes are not seen
   being erected.
 - The AI's own mains and sewers are laid at once (its buildings are sites).
