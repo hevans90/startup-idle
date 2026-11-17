@@ -21,12 +21,13 @@
  */
 import { Container, Graphics, Sprite } from "pixi.js";
 
-import { bakedCars, headingIndex, loadCarSprites, pitchMatrix, poseOf, type CarSprites } from "../agents/cars/car-sheet";
+import { baseCorners, bakedCars, headingIndex, loadCarSprites, pitchMatrix, poseOf, type CarSprites } from "../agents/cars/car-sheet";
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { ARRIVE, GANGS, GAP, PACE, frontAt, type RoadJob } from "../roads/jobs";
 import type { BandLayer } from "./bands";
+import { POUR, createPour, type Pour, type PourState } from "./pour";
 
 /** The contractor's yellow; the lorries' blue; the lining truck's white. */
 const YELLOW = 0xe9a71b, BLUE = 0x3f6fb0, WHITE = 0xf1f1ee;
@@ -34,7 +35,11 @@ const VESTS = [0xf47b20, 0xc8dc32, 0xf47b20, 0xe8e23a, 0xc8dc32, 0xf47b20], HAT 
 /** Metres to half steps, for what is drawn above the ground; tiles a metre. */
 const M = 1 / 2.268, T = 0.09;
 
-type Unit = { c: Container; under: Graphics; parts: Sprite[]; over: Graphics; keys: string[]; band: number };
+type Unit = { c: Container; under: Graphics; parts: Sprite[]; over: Graphics; keys: string[]; band: number; pours: Pour[]; poured: number };
+/** What pours, lit and in shade: spoil, stone, blacktop. */
+const EARTH = { kind: POUR.earth, lit: 0x9a7650, shade: 0x4d3722 }, STONE = { kind: POUR.stone, lit: 0xb5b0a6, shade: 0x6b6862 }, TAR = { kind: POUR.tar, lit: 0x35353a, shade: 0x09090b };
+/** A person's footprint, for which tile they are drawn with. */
+const FEET = [{ u: 0.05, v: 0.05 }];
 type Hand = { c: Container; parts: Sprite[]; key: string; band: number };
 type At = { x: number; y: number; z: number; heading: number; pitch: number };
 
@@ -97,9 +102,17 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
   const clocks = new Map<number, number>();
   let cars: CarSprites | null = null, asked = false, last = -1;
   const drop = (c: Container) => { c.parent?.removeChild(c); c.destroy({ children: true }); };
-  const into = (c: Container, was: number, x: number, y: number, zi = 0.3): number => {
-    const band = Math.max(0, Math.min(bands.dynamicOf.length - 1, bandOf(Math.round(x), Math.round(y))));
-    if (band !== was || !c.parent) { c.zIndex = zi; bands.dynamicOf[band]?.addChild(c); }
+  /**
+   * FILED AS THE TOWN FILES A VEHICLE: with the tile its foremost corner is over — a lorry half on the next tile is
+   * drawn with that one, after its road, not under it — and within that tile by how near the camera it is.
+   */
+  const into = (c: Container, was: number, x: number, y: number, base: readonly { u: number; v: number }[]): number => {
+    let band = -Infinity;
+    for (const p of base) band = Math.max(band, bandOf(Math.round(x + p.u), Math.round(y + p.v)));
+    band = Math.max(0, Math.min(bands.dynamicOf.length - 1, band));
+    const z = x + y - band;
+    if (band !== was || !c.parent) { c.zIndex = z; bands.dynamicOf[band]?.addChild(c); }
+    else if (Math.abs(c.zIndex - z) > 0.04) c.zIndex = z;
     return band;
   };
   return {
@@ -122,7 +135,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             return [(du - dv) * HW * scale, (du + dv) * HH * scale - m * M * HEIGHT_UNIT * scale];
           };
           /** A machine at a place: its sprites — one, or tracks and a house — each a look at a heading. What is drawn under and over it is the caller's. */
-          const place = (name: string, at: At, looks: { look: string; tint: number; heading?: number }[], zi = 0.3): Unit | null => {
+          const place = (name: string, at: At, looks: { look: string; tint: number; heading?: number }[]): Unit | null => {
             const id = `${j.id}:${name}`;
             let u = units.get(id);
             if (!u) {
@@ -133,14 +146,18 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               const parts: Sprite[] = [];
               for (let k = 0; k < looks.length * 2; k++) { const sp = new Sprite(); parts.push(sp); c.addChild(sp); }
               c.addChild(over);
-              u = { c, under, parts, over, keys: looks.map(() => ""), band: -1 };
+              u = { c, under, parts, over, keys: looks.map(() => ""), band: -1, pours: [], poured: 0 };
               units.set(id, u);
             }
             seenU.add(id);
             let lean: { heading: number; shear: number } | null = null;
+            // Its footprint: every part's, a house slewed off its tracks reaching further than they do.
+            const base: { u: number; v: number }[] = [];
+            u.poured = 0;
             looks.forEach((l, k) => {
               const L = cars!.looks.get(l.look);
               if (!L) return;
+              base.push(...baseCorners(L, l.heading ?? at.heading));
               const h = headingIndex(l.heading ?? at.heading, cars!.headings), pose = poseOf(cars!, L, h, k === 0 ? at.pitch : 0), F = pose.from, q = pose.k;
               if (k === 0) lean = { heading: pose.heading, shear: pose.shear };
               const key = `${l.look}|${pose.key}|${scale}`, paint = u!.parts[k * 2], trim = u!.parts[k * 2 + 1];
@@ -154,18 +171,20 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             const x = (at.x - at.y) * HW * scale, y = (at.x + at.y) * HH * scale - at.z * HEIGHT_UNIT * scale;
             const tilt = lean ? pitchMatrix((lean as { heading: number; shear: number }).heading, (lean as { heading: number; shear: number }).shear) : null;
             if (tilt) { tilt.tx = x; tilt.ty = y; u.c.setFromMatrix(tilt); } else { u.c.scale.set(1); u.c.skew.set(0, 0); u.c.rotation = 0; u.c.position.set(x, y); }
-            u.band = into(u.c, u.band, at.x, at.y, zi);
+            u.band = into(u.c, u.band, at.x, at.y, base);
             u.under.clear(); u.over.clear();
             return u;
           };
-          /** Bits of something falling from one point by a machine to another: spoil, stone, blacktop. */
-          const fall = (gfx: Graphics, h: number, from: [number, number, number], to: [number, number, number], colour: number, bits: number, speed: number, size: number) => {
-            for (let q = 0; q < bits; q++) {
-              const ph = (w * speed + q / bits + ((q * 0.618) % 1) * 0.3) % 1, wob = ((q * 0.37) % 1 - 0.5) * 0.06;
-              const [x, y] = off(h, from[0] + (to[0] - from[0]) * ph, from[1] + (to[1] - from[1]) * ph + wob, from[2] + (to[2] - from[2]) * ph * ph);
-              gfx.rect(x - size * scale, y - size * scale, 2 * size * scale, 2 * size * scale).fill({ color: colour, alpha: 0.95 });
-            }
+          /**
+           * SOMETHING POURING off a machine: from one point by it to another — tiles along its heading and across,
+           * metres up — a stream so wide at its lip, in metres. Drawn by the pour's own shader, over the machine.
+           */
+          const pour = (u: Unit, h: number, from: [number, number, number], to: [number, number, number], width: number, taper: number, st: Omit<PourState, "time">) => {
+            const k = u.poured++;
+            if (!u.pours[k]) { u.pours[k] = createPour(); u.c.addChild(u.pours[k].mesh); }
+            u.pours[k].set(off(h, from[0], from[1], from[2]), off(h, to[0], to[1], to[2]), width * T * HW * scale, taper, { ...st, time: w });
           };
+          const done = (u: Unit | null) => { if (u) for (let k = u.poured; k < u.pours.length; k++) u.pours[k].hide(); };
           /** Puffs that rise from a point and thin: steam, dust. */
           const puffs = (gfx: Graphics, h: number, al: number, ac: number, m: number, colour: number, count: number, spread: number, rise: number, alpha: number) => {
             for (let q = 0; q < count; q++) {
@@ -192,20 +211,37 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             const turn = Math.PI * (slew * slew * (3 - 2 * slew)), hh = at.heading + turn;
             const u = place("digger", at, [{ look: "exTracks", tint: YELLOW }, { look: pose, tint: YELLOW, heading: hh }]);
             if (u && !still) {
-              // Dust where the bucket bites; the bucketful falling into the lorry.
-              if (q < DIG.dig) puffs(u.over, hh, 4.4 * T, -0.02, 0.3, 0xa98660, 3, 0.1, 14, 0.4);
-              if (tip) fall(u.over, hh, [4.4 * T, -0.02, 2.0], [4.5 * T, -0.02, 0.9], 0x7a5a3c, 7, 1.4, 1.6);
+              // Dust where the bucket bites, and earth thrown up off its teeth as it crowds in.
+              if (q < DIG.dig) {
+                puffs(u.over, hh, 4.5 * T, -0.02, 0.3, 0xa98660, 4, 0.12, 16, 0.4);
+                const bite = (q % 1.6) / 1.6;
+                pour(u, hh, [4.75 * T, -0.02, 0.15], [4.1 * T, -0.02, 0.55 + 0.3 * bite], 0.55, 1.5, { ...EARTH, head: Math.min(1, bite * 2.2), tail: Math.max(0, bite * 2.2 - 1.1), pile: 0 });
+              } else if (q < DIG.dig + DIG.lift + DIG.out) {
+                // A full bucket sheds as it is lifted and swung: a thin fall off its lip.
+                pour(u, hh, [3.0 * T, -0.02, 1.5], [3.0 * T, -0.02, 0.1], 0.2, 1.4, { ...EARTH, head: 1, tail: 0, pile: 0 });
+              }
+              // TIPPED: the bucketful down into the lorry's body, heaping there — higher each bucket till the lorry is full.
+              if (tip) {
+                const into = (q - DIG.dig - DIG.lift - DIG.out) / DIG.tip, load = (Math.floor(w / DIG_ALL) % 4 + into) / 4;
+                pour(u, hh, [4.45 * T, -0.02, 2.0], [4.45 * T, -0.02, 1.15], 1.1, 0.9, { ...EARTH, head: Math.min(1, into * 4), tail: Math.max(0, into * 3 - 2), pile: 0.35 + 0.65 * load });
+              }
             }
+            done(u);
             // The lorry it loads, stood on what is already dug behind it.
             if (digAt > 1.5) place("spoil", alongJob(g, j, digAt - 1.02), [{ look: "tipper", tint: BLUE }]);
           }
 
           // ── STONE: a lorry tipping as it creeps, a roller over it behind ───────────────────
           const basing = j.tm > ARRIVE + GAP * PACE && f[1] < n && f[1] > 0.05;
-          if (basing && f[1] + 0.75 < f[0] - 0.9) {
-            const at = alongJob(g, j, f[1] + 0.62), up = tipping(4) && !still;
+          if (basing && f[1] + 0.75 < f[0] - 1.9) {
+            const at = alongJob(g, j, f[1] + 0.42), up = tipping(4) && !still;
             const u = place("stone", at, [{ look: up ? "tipperUp" : "tipper", tint: BLUE }]);
-            if (u && up) { fall(u.over, at.heading, [-3.4 * T, 0, 1.4], [-4.6 * T, 0, 0.1], 0x8f8b84, 9, 1.1, 1.5); puffs(u.over, at.heading, -4.6 * T, 0, 0.2, 0xb9b4aa, 2, 0.2, 10, 0.3); }
+            if (u && !still) {
+              // STONE sliding off the body's tail to the ground behind, a windrow heaping under it; dust off where it lands.
+              const q = ((w + 4) % TIP_ALL + TIP_ALL) % TIP_ALL, on = (q - TIP.in) / TIP.up;
+              if (up) { pour(u, at.heading, [-3.35 * T, 0, 1.45], [-4.5 * T, 0, 0.05], 1.5, 1.3, { ...STONE, head: Math.min(1, on * 10), tail: Math.max(0, on * 10 - 9), pile: Math.min(1, 0.25 + on) }); puffs(u.over, at.heading, -4.6 * T, 0, 0.25, 0xc4bfb5, 3, 0.25, 14, 0.3); }
+            }
+            done(u);
           }
           if (basing && f[1] > 1.1) place("packer", alongJob(g, j, f[1] - 0.75 + (still ? 0 : 0.35 * Math.sin(w * 0.9))), [{ look: "roller", tint: YELLOW }]);
 
@@ -229,7 +265,13 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               const up = tipping(0) && !still, la = alongJob(g, j, f[2] + 1.02);
               const l = place("feed", la, [{ look: up ? "tipperUp" : "tipper", tint: BLUE }]);
               // BLACKTOP off its tail into the hopper, and the heat off it.
-              if (l && up) { fall(l.over, la.heading, [-3.4 * T, 0, 1.5], [-4.9 * T, 0, 0.8], 0x141416, 11, 1.3, 1.7); puffs(l.over, la.heading, -4.8 * T, 0, 0.9, 0xffffff, 3, 0.25, 18, 0.2); }
+              if (l && up) {
+                // BLACKTOP off its tail into the hopper: one thick wet rope of it, folding where it lands, and the heat off it.
+                const q = ((w % TIP_ALL) + TIP_ALL) % TIP_ALL, on = (q - TIP.in) / TIP.up;
+                pour(l, la.heading, [-3.35 * T, 0, 1.5], [-4.85 * T, 0, 0.75], 1.3, 0.6, { ...TAR, head: Math.min(1, on * 10), tail: Math.max(0, on * 10 - 9), pile: Math.min(1, 0.3 + on * 0.7) });
+                puffs(l.over, la.heading, -4.8 * T, 0, 0.9, 0xffffff, 4, 0.3, 20, 0.22);
+              }
+              done(l);
             }
           }
           if (j.tm > ARRIVE + 2 * GAP * PACE && f[3] < n && f[2] > 1.4) {
@@ -263,7 +305,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               hnd.key = posePerson(hnd.parts, P, "builder", still && r.pose !== "stand" ? "stand" : r.pose, at.heading + r.face, r.pose === "walk" ? w * 7.5 + k : r.pose === "work" ? w * 4.5 + k * 1.7 : 0, scale, 0.93 + 0.03 * (k % 4), hnd.key);
               const x = (px - py) * HW * scale, y = (px + py) * HH * scale - at.z * HEIGHT_UNIT * scale;
               for (const sp of hnd.parts) sp.position.set(x, y);
-              hnd.band = into(hnd.c, hnd.band, px, py);
+              hnd.band = into(hnd.c, hnd.band, px, py, FEET);
             });
           }
         });

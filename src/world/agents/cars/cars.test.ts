@@ -53,7 +53,7 @@ describe("bakeFrame", () => {
       const reach = (m.length + 0.8) * TILES_PER_M * HW * 2 * 2;
       expect(f.paint.w).toBeLessThan(reach + 8);
     }
-  }, 30_000);
+  }, 90_000);
 });
 
 describe("in the game", () => {

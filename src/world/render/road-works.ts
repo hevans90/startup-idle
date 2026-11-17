@@ -195,7 +195,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             if (!P || n >= GANGS) continue;
             // WHAT STANDS ROUND IT, where a gang is at work: a cone each side of every other cell till it is lined; a
             // barrier across where the open road stops.
-            const stand = (id: string, turn: number, x: number, y: number) => { const sp = propSprite(P, id, turn, x, y, h, scale); const dyn = bands.dynamicOf[band]; if (sp && dyn) { sp.zIndex = 0.2; dyn.addChild(sp); drawn.push(sp); } };
+            const stand = (id: string, turn: number, x: number, y: number) => { const sp = propSprite(P, id, turn, x, y, h, scale); const dyn = bands.dynamicOf[band]; if (sp && dyn) { sp.zIndex = x + y - band; dyn.addChild(sp); drawn.push(sp); } };
             if (stage >= 1 && c % 2 === 0 && (w.ax !== 0 || w.ay !== 0)) for (const sg of [-1, 1]) stand("cone", 0, cell.x - w.ay * sg * 0.44, cell.y + w.ax * sg * 0.44);
             if (c === j.opened && j.opened > 0) stand("barrier", w.ix !== 0 ? 1 : 0, cell.x - w.ix * 0.42, cell.y - w.iy * 0.42);
           }
