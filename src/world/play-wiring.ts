@@ -107,6 +107,7 @@ export function foundPlayedProjects(): void {
   if (opened.length) announceOpened(opened);
   // And the roads being built. @see roads/jobs
   useWorldStore.getState().catchUpRoadWorks(Date.now());
+  useWorldStore.getState().catchUpLineWorks(Date.now());
   // WHAT THE BUILDINGS STANDING HAVE OPENED, had: a save from before projects opened them. @see grantFeatures
   for (const id of builtProjects(useWorldStore.getState().grid)) useInnovationStore.getState().grantFeatures(projectDef(id)?.grants);
 }

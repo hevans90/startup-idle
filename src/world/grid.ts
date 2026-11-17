@@ -243,6 +243,9 @@ export type Grid = {
   /** Roads ordered and not yet all open, oldest first: none of a job's cells is road until its length opens. @see roads/jobs */
   roadJobs: import("./roads/jobs").RoadJob[];
   nextRoadJob: number;
+  /** MAINS, SEWERS AND DREDGING BEING DONE: ordered, and not on the map until each is finished. @see lines/jobs */
+  lineJobs: import("./lines/jobs").LineJob[];
+  nextLineJob: number;
   /** Cached bounds of `height`, kept current by {@link setHeight}. */
   minHeight: number;
   maxHeight: number;
@@ -303,6 +306,8 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     nextStructureId: 1,
     roadJobs: [],
     nextRoadJob: 1,
+    lineJobs: [],
+    nextLineJob: 1,
     minHeight: 0,
     maxHeight: 0,
     rev: 0,

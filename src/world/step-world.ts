@@ -166,6 +166,8 @@ export function stepSites(g: Grid, net: Network, seen: WorksSeen, dt: number, pl
   });
   // THE ROADS BEING BUILT, a frame further on — before the sites, which clear the town's arrivals. @see roads/jobs
   if (g.roadJobs.length) useWorldStore.getState().stepRoadWorks(dt, { net, town });
+  // AND THE LINES BEING LAID: mains, sewers, channels. @see lines/jobs
+  if (g.lineJobs.length) useWorldStore.getState().stepLineWorks(dt);
   stepWorks(works, g, net, town, ownedNow(), playing ? payForLoad : () => true, dt, Date.now());
   if (works.opened.length) announceOpened(works.opened.splice(0));
 

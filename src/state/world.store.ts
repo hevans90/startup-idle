@@ -78,6 +78,7 @@ import {
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import { GANGS, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
 import { stepRoadLoads } from "../world/roads/job-loads";
+import { lineDone, lineLoadPrice, newLine, stepLine, type LineKind } from "../world/lines/jobs";
 import { payForLoad } from "../world/projects/economy";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
@@ -452,6 +453,11 @@ type WorldState = {
   setRoadWorks: (on: boolean) => void;
   /** Bumped when a road job is ordered, a trade passes a cell, a length opens, a job is cancelled. */
   roadRev: number;
+  /** Bumped when a line being laid changes to look at: ordered, a trade further on, stood, done. @see lines/jobs */
+  lineRev: number;
+  /** A frame of every main, sewer and channel being laid; and the time away, caught up. */
+  stepLineWorks: (dt: number, now?: number) => void;
+  catchUpLineWorks: (now: number, maxSeconds?: number) => void;
   /**
    * A frame of the road works: loads sent for and paid, the trades moved on, lengths opened. `haul`, the roads and
    * the town its lorries drive through; without them every load arrives at once. @see stepRoadJobs, stepRoadLoads
@@ -826,6 +832,11 @@ if (START_FIXTURE) applyFixtureTo(INITIAL_GRID, START_FIXTURE, GRASS);
 network = createNetwork(INITIAL_GRID);
 water = createWaterField(INITIAL_GRID);
 
+/** Whether a stroke is being laid a second time, for a job that is done: it is paid for, and is not ordered again. @see stepLineWorks */
+let relaying = false;
+/** What a line job is called when it has something to say. */
+const LINE_NAME: Record<LineKind, string> = { main: "Laying the main", sewer: "Laying the sewer", dredge: "Dredging" };
+
 export const useWorldStore = create<WorldState>()((set, get) => ({
   grid: INITIAL_GRID,
   scale: 1,
@@ -860,6 +871,38 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     }
     applyRoadWrites(writes);
     if (changed || loads) set({ roadRev: get().roadRev + 1 });
+  },
+  lineRev: 0,
+  stepLineWorks: (dt, now = Date.now()) => {
+    const g = get().grid;
+    if (!g.lineJobs.length) return;
+    let changed = false;
+    for (const j of [...g.lineJobs]) {
+      if (stepLine(j, dt, get().playing ? payForLoad : () => true)) changed = true;
+      j.at = now;
+      if (j.stalled > 0 && !j.told && get().playing) { j.told = true; report(`${LINE_NAME[j.kind]} has stopped: ${formatCurrency(lineLoadPrice(j))} for the next load.`, { title: "Works" }); }
+      else if (!j.stalled && j.told) j.told = false;
+      if (!lineDone(j)) continue;
+      // DONE: laid, all of it, as the stroke that ordered it lays it — on the map as it is now. Paid for already.
+      g.lineJobs = g.lineJobs.filter((q) => q !== j);
+      const st = get(), stroke = j.stroke as Stroke, before = st.revision, was = { tool: st.tool, brush: st.brush, stroke: st.stroke, notice: st.notice };
+      relaying = true;
+      try { set({ tool: stroke.tool, brush: stroke.brush, stroke }); get().endStroke(); } finally { relaying = false; }
+      const laid = get().revision !== before;
+      set({ tool: was.tool, brush: was.brush, stroke: was.stroke, notice: laid ? was.notice : get().notice });
+      // (What it was to be laid on has changed under it, and it cannot be: its loads are given back.)
+      if (!laid && get().playing) useMoneyStore.getState().increaseMoney(lineLoadPrice(j) * j.delivered);
+      changed = true;
+    }
+    if (changed) set({ lineRev: get().lineRev + 1 });
+  },
+  catchUpLineWorks: (now, maxSeconds = 2 * 24 * 3600) => {
+    const g = get().grid;
+    let away = Math.min(maxSeconds, Math.max(0, ...g.lineJobs.map((j) => (now - j.at) / 1000)));
+    for (; away > 0 && g.lineJobs.length; away--) {
+      get().stepLineWorks(Math.min(1, away), now);
+      if (g.lineJobs.every((j) => j.stalled > 0)) break;
+    }
   },
   catchUpRoadWorks: (now, maxSeconds = 2 * 24 * 3600) => {
     const g = get().grid;
@@ -1341,6 +1384,23 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // In the editor a pipe only: Demolish there has never taken up a road.
     // A ROAD STILL BEING BUILT, under Demolish or the road's eraser: its job is cancelled and what is not open of it
     // taken up. The loads it has had are spent. @see cancelRoadJobs
+    /**
+     * BUILT, NOT BOUGHT, in the game: a main, a sewer or a channel dragged by the player is ORDERED — a job along
+     * these cells, nothing paid now — and laid by this same stroke, again, when the job is done. Not the AI's, which
+     * lays at once; nor that second laying itself. @see lines/jobs, stepLineWorks
+     */
+    const orderLine = (kind: LineKind, along: readonly { x: number; y: number }[], price: number): boolean => {
+      if (!st.playing || !st.roadWorks || aiActing() || relaying || !along.length || !(price > 0)) return false;
+      st.grid.lineJobs.push(newLine(st.grid.nextLineJob++, kind, along, { ...s0 }, price, Date.now()));
+      set({ stroke: null, lineRev: get().lineRev + 1 });
+      return true;
+    };
+    // A LINE STILL BEING LAID, under Demolish or the eraser: its job is called off. The loads it has had are spent.
+    if ((s0.tool === "demolish" || s0.tool === "eraseRoad") && st.grid.lineJobs.length) {
+      const hit = new Set(strokeCells(st.grid, { ...s0, brush: "line" }).map((c) => c.y * st.grid.w + c.x));
+      const left = st.grid.lineJobs.filter((j) => !j.cells.some((c) => hit.has(c.y * st.grid.w + c.x)));
+      if (left.length !== st.grid.lineJobs.length) { st.grid.lineJobs = left; set({ stroke: null, lineRev: get().lineRev + 1 }); return; }
+    }
     if ((s0.tool === "demolish" || s0.tool === "eraseRoad") && st.grid.roadJobs.length) {
       const hit = new Set(strokeCells(st.grid, { ...s0, brush: "line" }).map((c) => c.y * st.grid.w + c.x));
       const { writes, cancelled } = cancelRoadJobs(st.grid, hit);
@@ -1426,7 +1486,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         const lat = lateralStrokePlan(g, s0, mainWet(g))?.plan ?? { refused: "Drag from a workplace's slop port to a manhole" };
         if ("refused" in lat) { refuse(lat.refused); return; }
         const price = pipeCost(lat.fresh);
-        if (st.playing && price.gt(0) && !spendForBuild(price)) {
+        if (orderLine("sewer", lat.cells, price.toNumber())) return;
+        if (st.playing && !relaying && price.gt(0) && !spendForBuild(price)) {
           refuse(`Not enough money for ${lat.fresh} tiles of connection: ${formatCurrency(price.toNumber())}`);
           return;
         }
@@ -1456,7 +1517,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       } else {
         const refused = "refused" in plan ? plan.refused : plan.problem?.reason;
         if (refused || "refused" in plan) { refuse(refused ?? ""); return; }
-        if (st.playing && plan.price > 0 && !spendForBuild(new Decimal(plan.price))) {
+        if (orderLine("sewer", plan.cells, plan.price)) return;
+        if (st.playing && !relaying && plan.price > 0 && !spendForBuild(new Decimal(plan.price))) {
           refuse(`Not enough money for ${plan.fresh} tiles of sewer: ${formatCurrency(plan.price)}`);
           return;
         }
@@ -1483,7 +1545,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if ("refused" in plan) { set({ stroke: null, notice: { text: plan.refused, at: Date.now() } }); return; }
       const fresh = m ? m.fresh : previewSewer(st.grid, plan.cells).fresh;
       const price = pipeCost(fresh).plus(m ? m.price.pump : 0);
-      if (st.playing && price.gt(0) && !spendForBuild(price)) {
+      if (orderLine(sewer ? "sewer" : "main", plan.cells, price.toNumber())) return;
+      if (st.playing && !relaying && price.gt(0) && !spendForBuild(price)) {
         set({ stroke: null, notice: { text: `Not enough money for ${fresh} tiles of ${what}${m?.pump ? " and its pump" : ""}: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
         return;
       }
@@ -1539,7 +1602,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if (!dredged.length) { set({ stroke: null, ...(st.playing ? { notice: { text: "Dredge a river bed", at: Date.now() } } : {}) }); return; }
       if (st.playing) {
         const price = dredgeCost(dredged.length);
-        if (!spendForBuild(price)) {
+        if (orderLine("dredge", dredged, price.toNumber())) return;
+        if (!relaying && !spendForBuild(price)) {
           set({ stroke: null, notice: { text: `Not enough money to dredge ${dredged.length} tiles: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
           return;
         }

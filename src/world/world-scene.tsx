@@ -254,6 +254,7 @@ import { createStreetProps, type StreetProps } from "./render/street-props";
 import { createBridgeProps, type BridgeKind, type BridgeProps } from "./render/bridge-props";
 import { createRoadWorks, type RoadWorks } from "./render/road-works";
 import { createRoadPlant, type RoadPlant } from "./render/road-plant";
+import { createLineWorks, type LineWorks } from "./render/line-works";
 import { depthAt } from "./water/field";
 import { createWoods, type Woods } from "./render/woods";
 import { createSignals, type Signals } from "./render/signals";
@@ -457,6 +458,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const bridgePropsRef = useRef<BridgeProps | null>(null);
   /** The roads being built, as far as each has got. @see createRoadWorks */
   const roadWorksRef = useRef<RoadWorks | null>(null);
+  const lineWorksRef = useRef<LineWorks | null>(null);
   /** The gang and its plant on each. @see createRoadPlant */
   const roadPlantRef = useRef<RoadPlant | null>(null);
   /** The woods' trees, stood on shaded grass. @see createWoods */
@@ -1713,6 +1715,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         streetPropsRef.current = createStreetProps(bl);
         bridgePropsRef.current = createBridgeProps(bl);
         roadWorksRef.current = createRoadWorks(bl);
+        lineWorksRef.current = createLineWorks(bl);
         roadPlantRef.current = createRoadPlant(bl);
         woodsRef.current = createWoods(bl);
         signalsRef.current = createSignals(bl);
@@ -1768,6 +1771,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       bridgePropsRef.current?.destroy();
       roadWorksRef.current?.destroy();
       roadWorksRef.current = null;
+      lineWorksRef.current?.destroy();
+      lineWorksRef.current = null;
       roadPlantRef.current?.destroy();
       roadPlantRef.current = null;
       streetPropsRef.current = null;
@@ -3862,6 +3867,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // A BRIDGE'S PIERS AND SIDES, again when the map changes. @see bridge-props
       if (roadWorksRef.current) { const st = useWorldStore.getState(); roadWorksRef.current.sync(st.grid, st.revision, st.roadRev, scale, plRef.current); }
       if (roadPlantRef.current) roadPlantRef.current.sync(useWorldStore.getState().grid, scale, performance.now() / 1000);
+      // MAINS, SEWERS AND CHANNELS being laid. @see line-works
+      if (lineWorksRef.current) { const st = useWorldStore.getState(), field = st.getWaterField(); lineWorksRef.current.sync(st.grid, st.lineRev + st.revision, scale, performance.now() / 1000, field ? (x, y) => depthAt(field, x, y) : undefined); }
       if (bridgePropsRef.current) {
         const st = useWorldStore.getState(), field = st.getWaterField();
         // (`?bridge=arch|trestle|girder|truss|stay`: every bridge that kind, for looking at one. @see bridge-props kindOf)
