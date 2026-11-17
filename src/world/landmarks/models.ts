@@ -199,7 +199,8 @@ function bay(o: Out, x0: number, x1: number, y0: number, y1: number, z: number, 
  * THE YARD: the two tiles beside the building, the plot's whole depth. Hardstanding at the building's own level and
  * a ramp down to the road in front; fenced, a gate standing open; a shed at the back with the lorries nose out
  * under it; pipe, blocks and stone stacked along the fence; a cabin, a fuel tank and a lamp. It grows with the
- * company: a tin lean-to and a gravel patch behind a garage, a logistics hall under a tower.
+ * company: a tin lean-to and a gravel patch behind a garage, a logistics hall under a tower. Its crane, and the
+ * lorry it loads, are the game's own: they move.
  */
 function yard(o: Out, tier: number, level: number) {
   const x0 = X(HOUSE_PLOT.w) + 0.4, x1 = X(YARD_PLOT.w) - 0.5, y0 = Y(0) + 0.5, y1 = Y(YARD_PLOT.h) - 0.5, z = level, mid = (x0 + x1) / 2;
@@ -274,14 +275,7 @@ function yard(o: Out, tier: number, level: number) {
     for (const [a0, a1, b0, b1] of [[-1.5, 1.5, -0.9, -0.8], [-1.5, 1.5, 0.8, 0.9], [-1.5, -1.4, -0.9, 0.9], [1.4, 1.5, -0.9, 0.9]]) cb(o, sx + a0, sx + a1, sy + b0, sy + b1, z + 0.3, z + 1.25, YELLOW, "livery");
     cb(o, sx - 1.4, sx + 1.4, sy - 0.8, sy + 0.8, z + 0.3, z + 0.95, 0x6f5338, "gravel");
   }
-  // A GANTRY over the yard of a company on the market: two rails on legs, a beam across them and its hoist.
-  if (tier >= 3) {
-    const gy0 = sy1 + 1.6, gy1 = y1 - 1.4, gz = z + 7.2;
-    for (const gx of [x0 + 1.2, sx0 - 1.0]) { for (const y of [gy0, gy1]) cb(o, gx - 0.15, gx + 0.15, y - 0.15, y + 0.15, z, gz, YELLOW, "livery"); cb(o, gx - 0.18, gx + 0.18, gy0 - 0.3, gy1 + 0.3, gz, gz + 0.35, YELLOW, "livery"); }
-    cb(o, x0 + 0.9, sx0 - 0.7, (gy0 + gy1) / 2 - 0.3, (gy0 + gy1) / 2 + 0.3, gz + 0.35, gz + 0.95, YELLOW, "livery");
-    cb(o, (x0 + sx0) / 2 - 0.4, (x0 + sx0) / 2 + 0.4, (gy0 + gy1) / 2 - 0.45, (gy0 + gy1) / 2 + 0.45, gz - 0.25, gz + 0.35, 0x3a3f45, "iron");
-    cb(o, (x0 + sx0) / 2 - 0.03, (x0 + sx0) / 2 + 0.03, (gy0 + gy1) / 2 - 0.03, (gy0 + gy1) / 2 + 0.03, gz - 2.6, gz - 0.25, 0x1f2226, "iron");
-  }
+  // (Between the stacks and the gate the ground is kept clear: the yard's CRANE stands there, and the lorry it is loading. @see line-works)
 }
 
 // ─── WHAT IS ON EACH BUILDING ────────────────────────────────────────────────

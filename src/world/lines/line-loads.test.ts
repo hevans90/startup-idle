@@ -7,7 +7,7 @@ import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { lineDone, newLine, stepLine } from "./jobs";
-import { lineHead, lineLorriesOut, sendLineLoad, takeLineLoads } from "./line-loads";
+import { lineHead, lineLorriesOut, sendLineLoad, stepLineHaul } from "./line-loads";
 
 /** A road along row 5 edge to edge, the Garage on its north side; a line ordered south of it. */
 function yardAndLine(far = false) {
@@ -21,19 +21,23 @@ function yardAndLine(far = false) {
 }
 
 describe("a line's pipe, by road", () => {
-  test("a load leaves the yard on a lorry, is counted in when it gets to the road by the line, and the lorry drives home", () => {
+  test("a load is put on a lorry in the yard, driven to the road by the line and up its track, counted in there, and the lorry drives home", () => {
     const { g, j, net, town } = yardAndLine();
     const haul = { net, town };
     expect(lineHead(g, net, j)).toMatchObject({ x: 20, y: 5 });
-    let sent = 0, back = false;
-    for (let t = 0; t < 120 && !lineDone(j); t += 1 / 30) {
-      takeLineLoads(g, haul);
-      const out = lineLorriesOut(town).get(j.id) ?? 0;
+    let sent = 0, back = false, yard = false, up = false;
+    for (let t = 0; t < 400 && !lineDone(j); t += 1 / 30) {
+      stepLineHaul(g, haul, 1 / 30);
+      const out = lineLorriesOut(town, g).get(j.id) ?? 0;
       stepLine(j, 1 / 30, () => true, { out, send: () => { const ok = sendLineLoad(g, haul, j); if (ok) sent++; return ok; } });
+      yard ||= !!j.yard?.length;
+      up ||= !!j.drive?.length;
       back ||= town.movers.some((m) => m.job?.role === "haul-back");
       town.arrived.length = 0;
       stepTown(town, g, net, 0, 1 / 30);
     }
+    // Loaded in the yard, driven up the job's track.
+    expect(yard && up).toBe(true);
     // Every load by lorry, none on the clock; each lorry seen driving home.
     expect(sent).toBe(j.deliveries);
     expect(j.coming.length).toBe(0);

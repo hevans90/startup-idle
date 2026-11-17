@@ -78,7 +78,7 @@ import {
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import { GANGS, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
 import { stepRoadLoads } from "../world/roads/job-loads";
-import { lineLorriesOut, sendLineLoad, takeLineLoads } from "../world/lines/line-loads";
+import { lineLorriesOut, sendLineLoad, stepLineHaul } from "../world/lines/line-loads";
 import { LINE_LAYS, lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
 import { payForLoad } from "../world/projects/economy";
 import {
@@ -892,8 +892,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       set({ tool: was.tool, stroke: was.stroke, notice: was.notice });
     }
     // (Their loads by road, where there is a town to drive them through: those that have got there, counted in.)
-    if (haul && takeLineLoads(g, haul)) changed = true;
-    const out = haul && lineLorriesOut(haul.town);
+    if (haul && stepLineHaul(g, haul, dt)) changed = true;
+    const out = haul && lineLorriesOut(haul.town, g);
     for (const j of [...g.lineJobs]) {
       if (stepLine(j, dt, get().playing ? payForLoad : () => true, haul && { out: out?.get(j.id) ?? 0, send: () => sendLineLoad(g, haul, j) })) changed = true;
       j.at = now;

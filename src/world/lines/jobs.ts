@@ -38,6 +38,17 @@ export type LineJob = {
   /** When it was last worked, ms since the epoch — for the time away. */
   at: number;
   told?: boolean;
+  /**
+   * BY ROAD, FROM THE YARD (@see line-loads): the road tile its lorries come to, and the yard's building; the
+   * loads being put on lorries in the yard, seconds each has left; the lorries driving up its haul track from the
+   * road, and those driving back down it, empty — seconds left and seconds in all; and how many have been sent back.
+   */
+  head?: { x: number; y: number };
+  depot?: number;
+  yard?: number[];
+  drive?: { left: number; of: number }[];
+  back?: { left: number; of: number }[];
+  gone?: number;
 };
 
 /**
@@ -63,8 +74,13 @@ export const LINE_STAGES: Readonly<Record<LineKind, number>> = { main: 6, drain:
 export const LINE_GAPS: Readonly<Record<LineKind, number>> = { main: 1.6, drain: 1.6, sewer: 1.5, dredge: 1.2 };
 /** Which trade lays the thing itself: the one its loads are for, and the one the map waits on. */
 export const LINE_LAYS: Readonly<Record<LineKind, number>> = { main: MAIN.set, drain: MAIN.set, sewer: SEWER.set, dredge: 1 };
-/** Tiles a load of pipe lays; seconds a load takes to come; how many may be on their way at once. */
-export const LINE_LOAD = 6, LINE_HAUL = 6, LINE_COMING = 2;
+/**
+ * Tiles a load of pipe lays — A LORRY'S: three pieces, a tile and a half; seconds a load takes to come where no
+ * road brings it; how many may be on their way at once, and how many loads ahead of the pipe they are sent for.
+ */
+export const LINE_LOAD = 1.5, LINE_HAUL = 6, LINE_COMING = 4, LINE_AHEAD = 3;
+/** Seconds the yard's crane takes to load a lorry; tiles a second a lorry makes on a job's haul track. */
+export const YARD_LOADING = 7, TRACK_SPEED = 1.5;
 
 /** How many loads a line of so many tiles takes. */
 export const lineLoads = (tiles: number) => Math.max(1, Math.ceil(tiles / LINE_LOAD));
@@ -99,7 +115,7 @@ export function stepLine(j: LineJob, dt: number, spend: (amount: number) => bool
   }
   // THE NEXT LOAD sent for while what is on hand and coming is less than a load ahead of the pipe.
   const onWay = j.coming.length + out, ahead = (j.delivered + onWay) * LINE_LOAD - lineFront(j, LINE_LAYS[j.kind]);
-  if (j.delivered + onWay < j.deliveries && onWay < LINE_COMING && ahead < LINE_LOAD) {
+  if (j.delivered + onWay < j.deliveries && onWay < LINE_COMING && ahead < LINE_LOAD * LINE_AHEAD) {
     if (spend(lineLoadPrice(j))) { if (!road?.send()) j.coming.push(LINE_HAUL); j.stalled = 0; changed = true; }
   }
   const allowed = lineAllowed(j);

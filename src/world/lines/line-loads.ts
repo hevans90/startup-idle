@@ -8,7 +8,7 @@ import { idx, inBounds, type Grid } from "../grid";
 import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, type Mover, type Town } from "../agents/town";
 import { find, type Network } from "../roads/network";
-import type { LineJob } from "./jobs";
+import { LINE_HAUL, LINE_LAYS, TRACK_SPEED, YARD_LOADING, lineFront, type LineJob } from "./jobs";
 
 /** The Garage and what it grows into: the yard a load comes from. @see works depotFor */
 export const YARDS: readonly string[] = ["garage", "hq", "boardroom", "ipo"];
@@ -55,18 +55,27 @@ export function sendHome(town: Town, g: Grid, places: readonly Place[], m: Mover
   return true;
 }
 
-/** Loads on their way to each line by road. */
-export function lineLorriesOut(town: Town): Map<number, number> {
+/** Loads on their way to each line: on a lorry in the yard, on the road, or on its haul track. */
+export function lineLorriesOut(town: Town, g?: Grid): Map<number, number> {
   const out = new Map<number, number>();
   for (const m of town.movers) if (m.job?.role === "line-load" && !town.arrived.includes(m)) out.set(m.job.site, (out.get(m.job.site) ?? 0) + 1);
+  for (const j of g?.lineJobs ?? []) { const n = (j.yard?.length ?? 0) + (j.drive?.length ?? 0); if (n) out.set(j.id, (out.get(j.id) ?? 0) + n); }
   return out;
 }
 
+/** How far a lorry drives on a job's haul track between the road and the crane, tiles: the road to the line, and the line as far as the pipe has got. */
+const trackRun = (j: LineJob, head: { x: number; y: number }) =>
+  Math.abs(head.x - j.cells[0].x) + Math.abs(head.y - j.cells[0].y) + 1 + lineFront(j, LINE_LAYS[j.kind]);
+/** How many lorries have been unloaded and are done with: three halves of a tile each. @see line-works (the same count) */
+export const lineTripsDone = (j: LineJob) => Math.max(0, Math.floor((lineFront(j, LINE_LAYS[j.kind]) * 2 - 1) / 3));
+
 /**
- * THE LORRIES THAT HAVE GOT THERE: each one's load counted in to its job, and the lorry sent home. Taken off the
- * town's list of arrivals, which the sites read next. Whether any came.
+ * A FRAME OF A LINE'S HAULAGE, with a town to drive through. Its lorries that have reached the road by the line
+ * turn up its haul track; those that have driven up it are there — their load counted in; those the crane has
+ * emptied drive back down, and from the road, home; and the loads on lorries under the yard's crane are loaded,
+ * and set off. Arrivals are taken off the town's list, which the sites read next. Whether anything changed.
  */
-export function takeLineLoads(g: Grid, haul: { net: Network; town: Town }): boolean {
+export function stepLineHaul(g: Grid, haul: { net: Network; town: Town }, dt: number): boolean {
   let changed = false, places: Place[] | null = null;
   for (let k = haul.town.arrived.length - 1; k >= 0; k--) {
     const m = haul.town.arrived[k];
@@ -74,17 +83,57 @@ export function takeLineLoads(g: Grid, haul: { net: Network; town: Town }): bool
     haul.town.arrived.splice(k, 1);
     const j = g.lineJobs.find((q) => q.id === m.job!.site);
     if (!j) continue;
-    j.delivered = Math.min(j.deliveries, j.delivered + 1);
+    const of = trackRun(j, j.head ?? j.cells[0]) / TRACK_SPEED;
+    (j.drive ??= []).push({ left: of, of });
     changed = true;
-    const head = lineHead(g, haul.net, j);
-    if (head && !m.gone) sendHome(haul.town, g, places ??= placesOf(g, haul.net), m, head);
+  }
+  for (const j of g.lineJobs) {
+    // UP THE TRACK, and there.
+    for (let k = (j.drive?.length ?? 0) - 1; k >= 0; k--) {
+      const d = j.drive![k];
+      d.left -= dt;
+      if (d.left <= 0) { j.drive!.splice(k, 1); j.delivered = Math.min(j.deliveries, j.delivered + 1); changed = true; }
+    }
+    // EMPTIED, and back down it; at the road, home.
+    if (j.head && (j.gone ?? 0) < Math.min(lineTripsDone(j), j.delivered)) {
+      const of = trackRun(j, j.head) / TRACK_SPEED;
+      (j.back ??= []).push({ left: of, of });
+      j.gone = (j.gone ?? 0) + 1;
+    }
+    for (let k = (j.back?.length ?? 0) - 1; k >= 0; k--) {
+      const b = j.back![k];
+      b.left -= dt;
+      if (b.left > 0) continue;
+      j.back!.splice(k, 1);
+      const n = find(haul.net, idx(g, j.head!.x, j.head!.y));
+      const at: Place | null = n >= 0 ? { x: j.head!.x, y: j.head!.y, kind: "door", net: n } : null, home = at && yardFor(g, places ??= placesOf(g, haul.net), at);
+      if (at && home) sendOnJob(haul.town, g, "truck", at, home, { site: j.id, role: "haul-back" });
+    }
+    // UNDER THE YARD'S CRANE, and off.
+    for (let k = (j.yard?.length ?? 0) - 1; k >= 0; k--) {
+      j.yard![k] -= dt;
+      if (j.yard![k] > 0) continue;
+      j.yard!.splice(k, 1);
+      changed = true;
+      const head = lineHead(g, haul.net, j), from = head && yardFor(g, places ??= placesOf(g, haul.net), head);
+      // (Its road gone since it was loaded: it comes as a load does with none. @see LINE_HAUL)
+      if (!head || !from || !sendOnJob(haul.town, g, "truck", from, head, { site: j.id, role: "line-load" })) j.coming.push(LINE_HAUL);
+    }
   }
   return changed;
 }
 
-/** Send a line's next load from the yard to its head by road. False with no road near it or no way there. */
+/**
+ * Send for a line's next load by road: a lorry is put under the yard's crane, to set off when it is loaded. False
+ * with no road near the line or no way to it from a yard: it comes unseen, on the clock.
+ */
 export function sendLineLoad(g: Grid, haul: { net: Network; town: Town }, j: LineJob): boolean {
   const head = lineHead(g, haul.net, j);
   const from = head && yardFor(g, placesOf(g, haul.net), head);
-  return !!(head && from && (from.x !== head.x || from.y !== head.y) && sendOnJob(haul.town, g, "truck", from, head, { site: j.id, role: "line-load" }));
+  if (!head || !from || (from.x === head.x && from.y === head.y)) return false;
+  j.head = { x: head.x, y: head.y };
+  j.depot = from.structure;
+  // (One at a time under the crane: the next is loaded when this one is.)
+  (j.yard ??= []).push(YARD_LOADING + (j.yard.length ? Math.max(...j.yard) : 0));
+  return true;
 }
