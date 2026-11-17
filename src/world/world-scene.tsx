@@ -3860,7 +3860,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
       }
       // A BRIDGE'S PIERS AND SIDES, again when the map changes. @see bridge-props
-      if (roadWorksRef.current) { const st = useWorldStore.getState(); roadWorksRef.current.sync(st.grid, st.revision, st.roadRev, scale); }
+      if (roadWorksRef.current) { const st = useWorldStore.getState(); roadWorksRef.current.sync(st.grid, st.revision, st.roadRev, scale, plRef.current); }
       if (roadPlantRef.current) roadPlantRef.current.sync(useWorldStore.getState().grid, scale, performance.now() / 1000);
       if (bridgePropsRef.current) {
         const st = useWorldStore.getState(), field = st.getWaterField();

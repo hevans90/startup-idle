@@ -9,20 +9,25 @@
  * stops, a heap of stone; and a bridge's own pieces, stood as the work comes
  * to each. @see roads/jobs, render/road-plant (the gang), plans/road-building.md
  */
-import { Container, Graphics } from "pixi.js";
+import { Container, Graphics, Sprite } from "pixi.js";
 
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
 import { GANGS, GAP, TRADES, frontAt, frontOf, plannedGrid, stageOf, type JobCell, type RoadJob } from "../roads/jobs";
+import { looksOf, type Look } from "../roads/looks";
 import type { BandLayer } from "./bands";
 import { bridgePiecesOf } from "./bridge-props";
+import { plannedTile, unlinedLooks, type PavedLayer } from "./paved";
 
 const EARTH = 0x7a5a3c, RUT = 0x5c4330, STONE = 0x8f8b84, GRIT = [0xa7a39b, 0x76726c], BLACK = 0x2c2c2f, KERB = 0x9c9b97, LINE = 0xe9e7df;
 const TAPE = 0xf2c230, PEG = 0xc9972a, SLAB = 0xaeaca6, SLAB_SIDE = 0x7f7d78;
 const hash = (n: number) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
 
-export type RoadWorks = { sync(g: Grid, rev: number, roadRev: number, scale: number): void; destroy(): void };
+/** How much of the road shows through, once the sub-base is down and before it is surfaced: the road taking shape on the formation. */
+const FORMING = 0.5;
+
+export type RoadWorks = { sync(g: Grid, rev: number, roadRev: number, scale: number, pl?: PavedLayer | null): void; destroy(): void };
 
 /** Which way a job runs through one of its cells: a step along x or along y; neither on a corner. */
 function wayAt(j: RoadJob, c: number): { ax: number; ay: number; ix: number; iy: number } {
@@ -35,8 +40,14 @@ function wayAt(j: RoadJob, c: number): { ax: number; ay: number; ix: number; iy:
 
 export function createRoadWorks(bands: BandLayer): RoadWorks {
   let drawn: Container[] = [], key = "";
-  /** The moving edges: a Graphics a trade a job, in the band of the cell its front is in. */
-  const edges = new Map<string, { gfx: Graphics; band: number }>();
+  /** The moving edges: a Graphics a trade a job, in the band of the cell its front is in — and, for a trade that lays road, the road's own tile shown through it. */
+  const edges = new Map<string, { gfx: Graphics; tile: Sprite | null; band: number; at: number }>();
+  /**
+   * THE ROAD IT WILL BE: every cell's look on the map as it will be, whole and
+   * unlined — worked out again only when the jobs or the map change, not as
+   * the trades move. A job's cells are drawn with the very tiles they will be.
+   */
+  let plan: { key: string; grid: Grid; lined: (Look | null)[]; bare: (Look | null)[] } | null = null;
   const clear = () => { for (const c of drawn) { c.parent?.removeChild(c); c.destroy({ children: true }); } drawn = []; };
   /** Tile coordinates to the screen, at a height. */
   const pt = (scale: number, u: number, v: number, h: number) => [(u - v) * HW * scale, (u + v) * HH * scale - h * HEIGHT_UNIT * scale];
@@ -66,7 +77,23 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
     }
   }
   return {
-    sync(g, rev, roadRev, scale) {
+    sync(g, rev, roadRev, scale, pl) {
+      const planKey = `${rev}|${g.roadJobs.map((j) => `${j.id}.${j.opened}.${j.cells.length}`).join(",")}`;
+      if (pl?.painter && g.roadJobs.length && plan?.key !== planKey) {
+        const grid = plannedGrid(g), lined = looksOf(grid, pl.dress);
+        plan = { key: planKey, grid, lined, bare: unlinedLooks(lined) };
+      }
+      if (!g.roadJobs.length) plan = null;
+      /** A cell's own tile as a sprite: unlined, or with its lines. */
+      const tileOf = (x: number, y: number, lined: boolean): Sprite | null => {
+        const t = pl && plan ? plannedTile(pl, plan.grid, lined ? plan.lined : plan.bare, x, y) : null;
+        if (!t) return null;
+        const sp = new Sprite(t.tex);
+        sp.roundPixels = true; sp.eventMode = "none";
+        sp.anchor.set(t.tex.defaultAnchor?.x ?? 0.5, t.tex.defaultAnchor?.y ?? 1);
+        sp.position.set(t.x, t.y); sp.scale.set(pl!.scale);
+        return sp;
+      };
       const P = bakedProps() ? propsLoaded() : null;
       if (bakedProps() && !P && g.roadJobs.length) void propSprites();
       const k = `${rev}|${roadRev}|${scale}|${g.roadJobs.length}|${P ? 1 : 0}`;
@@ -74,6 +101,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
       if (rebuilt) {
         key = k;
         clear();
+        if (pl) pl.ghost = new Set();
         const of = new Map<number, Graphics>();
         // A BRIDGE GOES UP AS A BRIDGE: the pieces it will have, from the map as it will be, each stood as the work
         // comes to it — its piers and its bank's walls rising from the ground once the earthworks reach their tile,
@@ -109,6 +137,12 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
           }
         }
         g.roadJobs.forEach((j, n) => {
+          // WHERE THE OPEN ROAD STOPS for now it is not a road's end: the last open cell is drawn as the cell it will
+          // be, running on, over its own rounded end — once the road beyond it is laid.
+          if (n < GANGS && j.opened > 0 && j.opened < j.cells.length && stageOf(j, j.opened) >= 3) {
+            const last = j.cells[j.opened - 1], layer = bands.pavedOf[bandOf(last.x, last.y)], sp = layer ? tileOf(last.x, last.y, true) : null;
+            if (sp && layer) { layer.addChild(sp); drawn.push(sp); }
+          }
           for (let c = j.opened; c < j.cells.length; c++) {
             const cell = j.cells[c];
             if (!cell.fresh) continue;
@@ -125,9 +159,15 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
                 gfx.poly([...pt(scale, cell.x - 0.5, cell.y + 0.5, h), ...pt(scale, cell.x + 0.5, cell.y + 0.5, h), ...pt(scale, cell.x + 0.5, cell.y + 0.5, h - t), ...pt(scale, cell.x - 0.5, cell.y + 0.5, h - t)]).fill({ color: SLAB_SIDE });
                 gfx.poly([...pt(scale, cell.x + 0.5, cell.y - 0.5, h), ...pt(scale, cell.x + 0.5, cell.y + 0.5, h), ...pt(scale, cell.x + 0.5, cell.y + 0.5, h - t), ...pt(scale, cell.x + 0.5, cell.y - 0.5, h - t)]).fill({ color: 0x6f6d69 });
                 gfx.poly(rect(scale, cell.x - 0.5, cell.y - 0.5, cell.x + 0.5, cell.y + 0.5, h)).fill({ color: SLAB });
-                if (stage >= 3) ground(gfx, scale, cell, w, stage, h);
               }
-            } else ground(gfx, scale, cell, w, stage, h);
+            } else if (stage >= 1) ground(gfx, scale, cell, w, 1, h);
+            // THE ROAD ITSELF, from the sub-base on: the tile this cell will be — its kerbs, its pavements, its corners,
+            // its ramp — showing through the formation, then laid whole, then lined. Drawn plainly where there is no painter.
+            if (stage >= 2) {
+              const sp = tileOf(cell.x, cell.y, stage >= TRADES);
+              if (sp) { if (stage === 2) sp.alpha = FORMING; layer.addChild(sp); drawn.push(sp); }
+              else if (!cell.deck || stage >= 3) ground(gfx, scale, cell, w, stage, h);
+            }
             // STAKED till the blacktop is down: tape along each side of the line, a peg at each corner; a wash over a
             // cell nothing has been done to yet, so the line reads from far off.
             if (stage < 3) {
@@ -160,20 +200,35 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
           if (!layer) continue;
           live.add(id);
           let e = edges.get(id);
-          if (!e) { const gfx = new Graphics(); gfx.eventMode = "none"; gfx.context.batchMode = "batch"; e = { gfx, band: -1 }; edges.set(id, e); }
-          // (Over what is whole, which was just put back under it.)
-          if (rebuilt || e.band !== band || !e.gfx.parent) { layer.addChild(e.gfx); e.band = band; }
+          if (!e) { const gfx = new Graphics(); gfx.eventMode = "none"; gfx.context.batchMode = "batch"; e = { gfx, tile: null, band: -1, at: -1 }; edges.set(id, e); }
+          // A trade that lays road shows the cell's own tile, as far as it has got: the tile, cut off at its edge by a mask.
+          const lays = trade >= 1 && !!plan && !!pl?.painter;
+          if (rebuilt || e.band !== band || e.at !== c || !e.gfx.parent) {
+            e.at = c;
+            // (Over what is whole, which was just put back under it. And the tile again: its cell has changed, or what is planned has.)
+            if (e.tile) { e.tile.mask = null; e.tile.parent?.removeChild(e.tile); e.tile.destroy(); e.tile = null; }
+            if (lays) { e.tile = tileOf(cell.x, cell.y, trade >= 3); if (e.tile) { if (trade === 1) e.tile.alpha = FORMING; layer.addChild(e.tile); } }
+            layer.addChild(e.gfx);
+            e.band = band;
+          }
           const w = wayAt(j, c), h = cell.deck ? cell.z : g.height[idx(g, cell.x, cell.y)];
           // From the edge it came in by, as far as it has got.
           const u0 = w.ix > 0 ? cell.x - 0.5 : w.ix < 0 ? cell.x + 0.5 - f : cell.x - 0.5, u1 = w.ix > 0 ? cell.x - 0.5 + f : cell.x + 0.5;
           const v0 = w.iy > 0 ? cell.y - 0.5 : w.iy < 0 ? cell.y + 0.5 - f : cell.y - 0.5, v1 = w.iy > 0 ? cell.y - 0.5 + f : cell.y + 0.5;
           e.gfx.clear();
-          ground(e.gfx, scale, cell, w, trade + 1, h, u0, v0, u1, v1, false);
-          if (trade >= 2) for (const a of [-0.5, 0.44]) e.gfx.poly(w.ix !== 0 ? rect(scale, u0, cell.y + a, u1, cell.y + a + 0.06, h) : rect(scale, cell.x + a, v0, cell.x + a + 0.06, v1, h)).fill({ color: KERB });
+          if (e.tile) {
+            // The mask: this much of the cell, and everything above it on the screen that the tile's kerbs and its ramp stand up into.
+            e.gfx.poly(rect(scale, u0, v0, u1, v1, h)).fill({ color: 0xffffff });
+            e.gfx.poly(rect(scale, u0, v0, u1, v1, h + 2)).fill({ color: 0xffffff });
+            e.tile.mask = e.gfx;
+          } else {
+            ground(e.gfx, scale, cell, w, trade + 1, h, u0, v0, u1, v1, false);
+            if (trade >= 2) for (const a of [-0.5, 0.44]) e.gfx.poly(w.ix !== 0 ? rect(scale, u0, cell.y + a, u1, cell.y + a + 0.06, h) : rect(scale, cell.x + a, v0, cell.x + a + 0.06, v1, h)).fill({ color: KERB });
+          }
         }
       });
-      for (const [id, e] of edges) if (!live.has(id)) { e.gfx.parent?.removeChild(e.gfx); e.gfx.destroy(); edges.delete(id); }
+      for (const [id, e] of edges) if (!live.has(id)) { if (e.tile) { e.tile.mask = null; e.tile.parent?.removeChild(e.tile); e.tile.destroy(); } e.gfx.parent?.removeChild(e.gfx); e.gfx.destroy(); edges.delete(id); }
     },
-    destroy() { clear(); for (const e of edges.values()) { e.gfx.parent?.removeChild(e.gfx); e.gfx.destroy(); } edges.clear(); },
+    destroy() { clear(); for (const e of edges.values()) { if (e.tile) { e.tile.mask = null; e.tile.destroy(); } e.gfx.parent?.removeChild(e.gfx); e.gfx.destroy(); } edges.clear(); },
   };
 }

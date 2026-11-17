@@ -7,7 +7,7 @@
  * when the road is erased. Where there is no canvas to paint on (a test),
  * roads are not drawn.
  */
-import { Sprite, type RenderGroup, type Renderer } from "pixi.js";
+import { Sprite, type RenderGroup, type Renderer, type Texture } from "pixi.js";
 
 import { GROUND_FRAME_H, bandOf, cellToWorld, spriteY } from "../iso";
 import { keyOf, looksOf, type Look } from "../roads/looks";
@@ -37,6 +37,8 @@ export type PavedLayer = {
   lodView: View | null;
   /** Since when each closer level has had nothing drawing it, ms; undefined while it is drawn. @see evictUnused */
   lodIdle: (number | undefined)[];
+  /** Looks drawn by something other than a cell's own sprite — a road being built, shown as the road it will be — kept as a cell's are. @see plannedTile */
+  ghost?: Set<string>;
 };
 
 type View = { left: number; top: number; right: number; bottom: number };
@@ -88,9 +90,29 @@ export function dressPaved(pl: PavedLayer, bl: BandLayer, grid: Grid, dress: Uin
   for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) syncPaved(pl, bl, grid, x, y);
 }
 
+/** Looks with nothing painted on their surfaces: the road as it is laid, before it is lined. */
+export const unlinedLooks = (looks: readonly (Look | null)[]): (Look | null)[] =>
+  looks.map((l) => (l ? { ...l, ctr: "", mk: "", gw: "", stop: "", arrow: "", box: 0, yl: false, zz: "", zeb: "", xing: "", slow: "", bay: "", spd: "" } : l));
+
+/**
+ * THE TILE A CELL WILL BE, for a road still being built: its texture from the
+ * same painter as the roads that stand, off `looks` — those of the map as it
+ * will be, whole or with nothing yet painted on them ({@link unlinedLooks}) —
+ * and where its sprite goes. Null where there is no painter or no road planned there.
+ * @see roads/jobs plannedGrid, render/road-works
+ */
+export function plannedTile(pl: PavedLayer, planned: Grid, looks: readonly (Look | null)[], x: number, y: number): { tex: Texture; x: number; y: number } | null {
+  if (!pl.painter) return null;
+  const paint = paintOf(looks, planned, x, y);
+  if (!paint) return null;
+  (pl.ghost ??= new Set()).add(paint.key);
+  const { wx, wy } = cellToWorld(x, y, surfaceHeightAt(planned, x, y), pl.scale);
+  return { tex: pl.painter.textureFor(paint.key, paint.cells, paint.ramp, 0), x: wx, y: spriteY(wy, GROUND_FRAME_H, pl.scale) };
+}
+
 /** The cells a cell's texture paints, itself and the neighbours it joins, and their key. */
-function paintOf(pl: PavedLayer, grid: Grid, x: number, y: number): { key: string; cells: CellPaint[]; ramp: boolean } | null {
-  const L = pl.looks[idx(grid, x, y)];
+function paintOf(looks: readonly (Look | null)[], grid: Grid, x: number, y: number): { key: string; cells: CellPaint[]; ramp: boolean } | null {
+  const L = looks[idx(grid, x, y)];
   if (!L) return null;
   const z = surfaceHeightAt(grid, x, y);
   const cells: CellPaint[] = [];
@@ -98,7 +120,7 @@ function paintOf(pl: PavedLayer, grid: Grid, x: number, y: number): { key: strin
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     const nx = x + dx, ny = y + dy;
     if (!inBounds(grid, nx, ny)) continue;
-    const N = dx === 0 && dy === 0 ? L : pl.looks[idx(grid, nx, ny)];
+    const N = dx === 0 && dy === 0 ? L : looks[idx(grid, nx, ny)];
     if (!N) continue;
     if (dx || dy) {
       // Only what it joins: across an open side, or a corner level with it.
@@ -140,7 +162,7 @@ export function syncPaved(
 
   if (!pl.painter) return;
   if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
-  const paint = paintOf(pl, grid, x, y);
+  const paint = paintOf(pl.looks, grid, x, y);
   if (!paint) return;
   const { wx, wy } = cellToWorld(x, y, surfaceHeightAt(grid, x, y), pl.scale);
   const sy = spriteY(wy, GROUND_FRAME_H, pl.scale);
@@ -196,7 +218,7 @@ export function lodPaved(pl: PavedLayer, grid: Grid, want: number, view: View, b
     if (!tex) {
       // The map's own level is cheap and always wanted; a closer one waits its turn.
       if (lod > 0 && performance.now() - t0 > budgetMs) { done = false; continue; }
-      const paint = paintOf(pl, grid, i % grid.w, (i / grid.w) | 0);
+      const paint = paintOf(pl.looks, grid, i % grid.w, (i / grid.w) | 0);
       if (!paint) continue;
       tex = P.textureFor(paint.key, paint.cells, paint.ramp, lod);
     }
@@ -217,6 +239,8 @@ export function lodPaved(pl: PavedLayer, grid: Grid, want: number, view: View, b
       if (pl.lod[i] === 0) own.add(key);
       else if (pl.lod[i] === want) close.add(key);
     }
+    // (And what a road being built is shown as. @see plannedTile)
+    if (pl.ghost) for (const k of pl.ghost) own.add(k);
     P.keep(0, own);
     if (want > 0) P.keep(want, close);
     for (let l = 1; l < LOD_RES.length; l++) {
