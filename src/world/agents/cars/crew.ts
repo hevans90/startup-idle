@@ -38,7 +38,7 @@ const firefighter = (seat: number, who: number): Rider => ({ ...person(seat, who
 /** What a model is crewed by, when it is not just somebody's car. */
 const SERVICE: Readonly<Record<string, (seat: number, who: number) => Rider>> = { police: officer, ambulance: medic, fireEngine: firefighter };
 /** The models builders drive, whatever they are doing. */
-const WORKS = new Set(["pickup", "smallVan", "panelVan", "lutonVan", "flatbed", "boxLorry", "tipper"]);
+const WORKS = new Set(["pickup", "smallVan", "panelVan", "lutonVan", "flatbed", "boxLorry", "tipper", "pipeLorry", "pipeLorryLoaded"]);
 
 /**
  * WHO IS IN A VEHICLE, the driver first: by what it is and what it is doing. Never more than it has seats; none in

@@ -16,7 +16,7 @@
 import { HALF_STEPS_PER_M, TILES_PER_M, modelById, type Mat } from "../agents/cars/models";
 import { face, modelTris, type Tri, type V3 } from "../agents/cars/raster";
 import { box, lathe } from "../props/models";
-import { YARD_GATE } from "./yard";
+import { YARD_GATE, YARD_STACK, YARD_STACKS } from "./yard";
 import { lookOf } from "../structures/projects/looks";
 import { bays, floorsOf, type Building, type Facade, type Mass } from "../structures/projects/model";
 
@@ -47,17 +47,6 @@ function cb(o: Out, x0: number, x1: number, y0: number, y1: number, z0: number, 
 /** Whatever `make` adds, of one colour. */
 function tinted(o: Out, colour: number, make: () => void) { const k = o.length, c = rgb(colour); make(); for (let i = k; i < o.length; i++) o[i].c = c; }
 
-/** A length of pipe lying along `y`: a ten-sided tube, its near end a dark bore in a ring. */
-function tubeY(o: Out, x: number, z: number, y0: number, y1: number, r: number, colour: number) {
-  const N = 10, at = (k: number, y: number): V3 => { const a = (k / N) * Math.PI * 2; return [x + Math.cos(a) * r, y, z + Math.sin(a) * r]; };
-  tinted(o, colour, () => {
-    for (let k = 0; k < N; k++) face([at(k, y0), at(k + 1, y0), at(k + 1, y1), at(k, y1)], "iron", [x, (y0 + y1) / 2, z], o);
-    face(Array.from({ length: N }, (_, k) => at(k, y1)), "iron", [x, y0, z], o);
-  });
-  const k = o.length;
-  face(Array.from({ length: N }, (_, q): V3 => { const a = (q / N) * Math.PI * 2; return [x + Math.cos(a) * r * 0.78, y1 + 0.01, z + Math.sin(a) * r * 0.78]; }), "iron", [x, y0, z], o);
-  for (let i = k; i < o.length; i++) o[i].c = [0.08, 0.08, 0.09];
-}
 /** A tank lying along `x`. */
 function tubeX(o: Out, y: number, z: number, x0: number, x1: number, r: number, colour: number) {
   const N = 12, at = (k: number, x: number): V3 => { const a = (k / N) * Math.PI * 2; return [x, y + Math.cos(a) * r, z + Math.sin(a) * r]; };
@@ -159,7 +148,7 @@ function massTris(o: Out, m: Mass) {
 
 // ─── THE YARD ────────────────────────────────────────────────────────────────
 
-const STEEL = 0x6f7880, YELLOW = 0xe9a71b, PIPE = 0xa6a9aa, IRON_PIPE = 0x7d5c40, BLOCK = 0xbdb8ad, LORRY_BLUE = 0x2e63b8;
+const STEEL = 0x6f7880, YELLOW = 0xe9a71b, BLOCK = 0xbdb8ad, LORRY_BLUE = 0x2e63b8;
 
 /** A run of fence along `x` or `y`: posts and rails, or — a company that has made it — steel pales. */
 function fence(o: Out, on: "x" | "y", at: number, a0: number, a1: number, z: number, tier: number) {
@@ -176,11 +165,6 @@ function fence(o: Out, on: "x" | "y", at: number, a0: number, a1: number, z: num
   for (let a = a0; a <= a1 + 1e-6; a += (a1 - a0) / Math.max(1, Math.round((a1 - a0) / 2.8))) put(a - 0.06, a + 0.06, -0.06, 0.06, z, z + 2.3, colour);
 }
 
-/** A stack of pipe lying along `y`: `n` on the ground, fewer on each row up; chocked. */
-function pipeStack(o: Out, x: number, y0: number, y1: number, z: number, n: number, r: number, colour: number) {
-  for (let row = 0; row < 3 && n - row > 0; row++) for (let k = 0; k < n - row; k++) tubeY(o, x + (k - (n - row - 1) / 2) * r * 2.04, z + 0.12 + r + row * r * 1.76, y0, y1, r, colour);
-  for (const y of [y0 + 0.6, y1 - 0.6]) cb(o, x - n * r * 1.1, x + n * r * 1.1, y - 0.1, y + 0.1, z, z + 0.12, 0x8a6a44, "timber");
-}
 /** A pallet of blocks, or of bags: a timber base and what is stacked on it, wrapped. */
 function pallet(o: Out, x: number, y: number, z: number, h: number, colour: number) {
   cb(o, x - 0.6, x + 0.6, y - 0.5, y + 0.5, z, z + 0.14, 0x9a7a52, "timber");
@@ -249,8 +233,8 @@ function yard(o: Out, tier: number, level: number) {
 
   // ALONG THE FRONT, inside the fence: pipe for the mains and the sewers; blocks on pallets; stone in a bay.
   const fy = y1 - 1.2;
-  if (tier === 0) pipeStack(o, x0 + 5.0, fy - 6.2, fy - 0.3, z, 2, 0.5, PIPE);
-  else { pipeStack(o, x0 + 3.3, fy - 6.2, fy - 0.3, z, 3, 0.5, PIPE); pipeStack(o, x0 + 7.0, fy - 6.2, fy - 0.3, z, 3, 0.56, IRON_PIPE); }
+  // (THE PIPE ITSELF IS NOT BAKED: what is stacked on these chocks is the game's own pipe, the very lengths that are laid. @see yard YARD_STACKS, line-works)
+  for (const st of tier === 0 ? [YARD_STACK] : YARD_STACKS) for (const v of [st.v - 0.16, st.v + 0.16]) cb(o, X(st.u) - 1.9, X(st.u) + 1.9, Y(v) - 0.1, Y(v) + 0.1, z, z + 0.12, 0x8a6a44, "timber");
   for (let k = 0; k < 1 + tier; k++) pallet(o, x1 - 1.3, sy1 + (tier ? 7.4 : 3.0) + k * 1.25, z, 0.9 + (k % 3) * 0.2, k % 2 ? 0xa4543a : BLOCK);
   if (tier > 0) bay(o, x1 - 4.2, x1 - 0.5, sy1 + 2.4, sy1 + 6.2, z, 0x8f8a80);
   // A CABIN for the yard's foreman, a fuel tank in its bund, a lamp on a mast, a skip.

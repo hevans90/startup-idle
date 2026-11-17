@@ -13,7 +13,12 @@ export const YARD_WIDTH = 5;
  * road. Where its crane stands, the stack it loads from, and where the lorry it is loading draws up. @see place, line-works
  */
 export const YARD_GATE = { u: 4.5, tile: 4 } as const;
-export const YARD_CRANE = { u: 4.0, v: 2.38 }, YARD_STACK = { u: 3.49, v: 2.55 }, YARD_BAY = { u: 4.5, v: 2.38 };
+export const YARD_CRANE = { u: 3.98, v: 2.33 }, YARD_STACK = { u: 3.4, v: 2.62 }, YARD_BAY = { u: 4.5, v: 2.38 };
+/**
+ * ITS PIPE, stacked on chocks: the mains' steel, and — a company past its garage — the sewers' iron behind it,
+ * each clear of the other, of the crane and of the lorry's lane. A garage has the one stack, of steel, at `YARD_STACK`. The pipe on them is the game's own. @see line-works
+ */
+export const YARD_STACKS = [{ ...YARD_STACK, of: "main" }, { u: 3.4, v: 2.05, of: "drain" }] as const;
 
 /**
  * The road tile a yard's gate opens on: the one in front of its last tile — or, the yard turned to face the back

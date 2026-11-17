@@ -14,6 +14,8 @@ import { BUS_WEIGHTS, CAR_WEIGHTS, LORRY_WEIGHTS, MINIBUS_WEIGHTS, modelById, TI
 export const AI_TRUCK_COLOUR = 0xeef0f6;
 /** A port's lorries, taking what was landed out by the gate: box lorries, in the port's blue. @see boats/yard */
 export const PORT_LORRY_COLOUR = 0x2f6ea8;
+/** A lorry bringing a line its pipe from the yard, three lengths on its bed; and the same lorry going home, its bed bare. @see line-loads */
+export const PIPE_LORRY_COLOUR = 0x2e63b9, PIPE_EMPTY_COLOUR = 0x2e63b8;
 /** Hire to Fire's moving vans, white. */
 export const VAN_COLOUR = 0xe9e6dd;
 /** The interns' bus, yellow; Shuttle Bus's buses, blue. */
@@ -42,6 +44,8 @@ export function modelFor(m: Pick<Mover, "id" | "kind" | "colour" | "siren" | "bu
   if (m.kind === "truck") {
     if (m.colour === AI_TRUCK_COLOUR) return "machineLorry";
     if (m.colour === PORT_LORRY_COLOUR) return "boxLorry";
+    if (m.colour === PIPE_LORRY_COLOUR) return "pipeLorryLoaded";
+    if (m.colour === PIPE_EMPTY_COLOUR) return "pipeLorry";
     return ofId(m.id, 0x7a11, m.colour === VAN_COLOUR ? VAN_PICKS : LORRY_PICKS);
   }
   return null;

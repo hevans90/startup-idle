@@ -549,6 +549,37 @@ const flatbed = lorry("flatbed", 7.0, 2.4, 2.0, [
   { l0: -1.75, l1: -2.8, w: 0.5, z0: 1.32, z1: 1.7, mat: "brick" },
 ], [2.4, -1.8]);
 
+/**
+ * A PIPE LORRY: a bare bed behind a headboard, two timber bolsters across it and a stake at each end of them — what
+ * a line's pipe comes on. Bare, for the works to put the real lengths on; and LOADED for the road, three on it.
+ * @see line-works, line-loads
+ */
+const PIPE_BED: Slab[] = [
+  { l0: 1.45, l1: -3.5, w: 1.2, z0: 1.0, z1: 1.18, mat: "bed" },
+  { l0: 1.45, l1: 1.35, w: 1.15, z0: 1.18, z1: 2.4, mat: "trim" },
+  ...[0.75, -2.7].flatMap((l): Slab[] => [
+    { l0: l + 0.09, l1: l - 0.09, w: 1.15, z0: 1.18, z1: 1.27, mat: "load" },
+    ...[1, -1].map((sg): Slab => ({ l0: l + 0.05, l1: l - 0.05, w: 0.04, wc: sg * 1.14, z0: 1.18, z1: 1.75, mat: "chrome" })),
+  ]),
+];
+const pipeLorry = lorry("pipeLorry", 7.0, 2.4, 2.0, PIPE_BED, [2.4, -1.8]);
+const pipeLorryLoaded: Model = {
+  ...lorry("pipeLorryLoaded", 7.0, 2.4, 2.0, PIPE_BED, [2.4, -1.8]),
+  extra: () => {
+    const out: FreeTri[] = [], R = 0.7, N = 12;
+    for (const [y, z] of [[-0.72, 1.27 + R], [0.72, 1.27 + R], [0, 1.27 + R * 2.74]] as const) {
+      const at = (k: number, l: number, r = R): P3 => { const a = (k / N) * Math.PI * 2; return [l, y + Math.cos(a) * r, z + Math.sin(a) * r]; };
+      for (let k = 0; k < N; k++) freeFace([at(k, 1.25), at(k + 1, 1.25), at(k + 1, -3.75), at(k, -3.75)], "hub", [-1.2, y, z], out);
+      // (Its ends: a ring of steel, and the dark of its bore.)
+      for (const l of [1.25, -3.75]) {
+        freeFace(Array.from({ length: N }, (_, k) => at(k, l)), "hub", [-1.2, y, z], out);
+        freeFace(Array.from({ length: N }, (_, k) => at(k, l + (l > 0 ? 0.01 : -0.01), R * 0.86)), "arch", [-1.2, y, z], out);
+      }
+    }
+    return out;
+  },
+};
+
 /** A box lorry: a white box behind a cab in the firm's colour, a stripe of it down the box. */
 const boxLorry = lorry("boxLorry", 7.0, 2.45, 1.9, [
   { l0: 1.5, l1: -3.5, w: 1.22, z0: 1.0, z1: 3.5, mat: "liveryWhite" },
@@ -1204,7 +1235,7 @@ const craneUpper = (id: string, reach: number): Model => ({
 export const CRANE_LOOKS = ["crane0", "crane1", "crane2", "crane3", "crane4"] as const;
 const cranes = CRANE_LOOKS.map((id, k) => craneUpper(id, CRANE_REACH[k]));
 /** What builds a road. Never in the traffic. */
-export const PLANT = [paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp, ...spoils, rigUp, ...rigs, ...mixers, craneCarrier, ...cranes];
+export const PLANT = [pipeLorry, pipeLorryLoaded, paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp, ...spoils, rigUp, ...rigs, ...mixers, craneCarrier, ...cranes];
 
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];

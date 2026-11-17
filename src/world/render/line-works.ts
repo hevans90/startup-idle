@@ -22,7 +22,7 @@ import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { LINE_GAPS, LINE_LAYS, LINE_PACE, LINE_STAGES, MAIN, SEWER, YARD_LOADING, alongLine, lineFront, type LineJob } from "../lines/jobs";
 import { YARDS } from "../lines/line-loads";
-import { YARD_BAY, YARD_CRANE, YARD_STACK, inYard } from "../landmarks/yard";
+import { YARD_BAY, YARD_CRANE, YARD_STACKS, inYard } from "../landmarks/yard";
 import type { BandLayer } from "./bands";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
 import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
@@ -502,7 +502,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         }
         if (s < T_LEAVE) beds.set(trip, at);
       }
-      placeAt(`lorry${l}`, at.x, at.y, at.heading, cellH(at.x, at.y), [{ look: "flatbed", tint: BLUE }]);
+      placeAt(`lorry${l}`, at.x, at.y, at.heading, cellH(at.x, at.y), [{ look: "pipeLorry", tint: BLUE }]);
     }
     // ── THE LAYDOWN: what is left of the pipe, stacked; and the machine that loads it, turned to what it has hold of ──
     if (total && !byRoad) {
@@ -520,7 +520,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     if (byRoad && total) {
       const gone = j.gone ?? 0, backs = j.back ?? [], drives = j.drive ?? [], T_OFF = 0.8, T_FWD = 0.88, T_RND = 0.99;
       const lorry = (trip: number, at: { x: number; y: number; heading: number }, loaded: boolean) => {
-        placeAt(`lorry${trip % 12}`, at.x, at.y, at.heading, cellH(at.x, at.y), [{ look: "flatbed", tint: BLUE }]);
+        placeAt(`lorry${trip % 12}`, at.x, at.y, at.heading, cellH(at.x, at.y), [{ look: "pipeLorry", tint: BLUE }]);
         const list = PL.trips[trip] ?? [];
         if (loaded) list.forEach((m, q) => {
           if (ci >= 0 ? m > ci || (m === ci && lf < HOOKED) : turn < 0) { const bed = onBed(at, list.length - 1 - q); put(pieces[m], bed, cellH(at.x, at.y), bed.z, 0.4); }
@@ -843,10 +843,28 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         if (s.build || s.w < 5 || !YARDS.includes(s.def)) continue;
         const ox = s.x - 0.5, oy = s.y - 0.5, h = g.height[idx(g, s.x, s.y)] + (s.def === "garage" ? 0.15 : 0.3);
         // (A yard that faces the back of its plot is the same yard front to back: its lorry noses that way.)
-        const yc = inYard(YARD_CRANE, s), ys = inYard(YARD_STACK, s), yb = inYard(YARD_BAY, s), fwd = s.facing === "N" ? -1 : 1;
-        const cr = { x: ox + yc.u, y: oy + yc.v }, stack = { x: ox + ys.u, y: oy + ys.v };
+        const yc = inYard(YARD_CRANE, s), yb = inYard(YARD_BAY, s), fwd = s.facing === "N" ? -1 : 1;
+        const cr = { x: ox + yc.u, y: oy + yc.v };
         let job: LineJob | null = null, left = Infinity;
         for (const j of jobs) if (j.depot === s.id && j.yard?.length) { const m = Math.min(...j.yard); if (m < left) { left = m; job = j; } }
+        // ITS PIPE, on its chocks: THE VERY LENGTHS THAT ARE LAID — the mains' steel and, past a garage, the sewers'
+        // iron beside it — two and one on them. What the crane loads comes off the stack of its own kind.
+        const stacks = (s.def === "garage" ? YARD_STACKS.slice(0, 1) : YARD_STACKS).map((st) => ({ ...inYard(st, s), of: st.of }));
+        stacks.forEach((st, si) => {
+          const stuff = STUFF[st.of], R = stuff.r / ZT, key = `${scale}|${stuff.id}`;
+          for (let k = 0; k < 3; k++) {
+            const name = `yard${s.id}:k${si}_${k}`, px = ox + st.u + (k < 2 ? (k - 0.5) * stuff.r * 2.06 : 0), py = oy + st.v, z = 0.055 + R + (k < 2 ? 0 : R * 1.76);
+            let m = yardLoose.get(name);
+            if (m && m.key !== key) { destroyPipeDrawable(m.mesh); yardLoose.delete(name); m = undefined; }
+            if (!m) { m = { mesh: lengthMesh(false, scale, stuff), key, band: -1 }; yardLoose.set(name, m); }
+            seenY.add(name);
+            const [sx, sy] = pt(scale, px, py, h + z), band = Math.max(0, Math.min(bands.dynamicOf.length - 1, bandOf(Math.round(px), Math.round(py))));
+            m.mesh.position.set(sx, sy);
+            if (band !== m.band || !m.mesh.parent) { m.mesh.zIndex = px + py - band + 0.05 + k * 0.01; bands.dynamicOf[band]?.addChild(m.mesh); m.band = band; }
+          }
+        });
+        const mine = job ? stacks.find((st) => st.of === (job!.kind === "main" ? "main" : "drain")) ?? stacks[0] : stacks[0];
+        const stack = { x: ox + mine.u, y: oy + mine.v };
         const q = job ? 1 - Math.max(0, Math.min(1, left / YARD_LOADING)) : -1, ease = (v: number) => { const e = Math.max(0, Math.min(1, v)); return e * e * (3 - 2 * e); };
         const unit = (name: string, x: number, y: number, heading: number, looks: { look: string; tint: number; heading?: number }[]) => {
           const id = `yard${s.id}:${name}`;
@@ -863,7 +881,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           // (Out from the shed to the crane first: it does not appear beside it.)
           const inn = 1 - ease(q / 0.12);
           const lorry = { x: ox + yb.u - 0.5 * inn, y: oy + yb.v + fwd * (-1.15 * inn + 0.85 * ease((q - 0.88) / 0.12)) };
-          unit("lorry", lorry.x, lorry.y, (Math.PI / 2) * fwd, [{ look: "flatbed", tint: BLUE }]);
+          unit("lorry", lorry.x, lorry.y, (Math.PI / 2) * fwd, [{ look: "pipeLorry", tint: BLUE }]);
           for (let b = 0; b < 3; b++) {
             const t0 = 0.14 + b * 0.245, t1 = t0 + 0.215;
             if (q < t0) continue;

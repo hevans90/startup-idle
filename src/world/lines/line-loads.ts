@@ -8,6 +8,7 @@ import { idx, inBounds, type Grid } from "../grid";
 import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, type Mover, type Town } from "../agents/town";
 import { find, type Network } from "../roads/network";
+import { PIPE_EMPTY_COLOUR, PIPE_LORRY_COLOUR } from "../agents/cars/fleet";
 import { LINE_HAUL, LINE_LAYS, TRACK_SPEED, YARD_LOADING, lineFront, type LineJob } from "./jobs";
 
 /** The Garage and what it grows into: the yard a load comes from. @see works depotFor */
@@ -107,7 +108,8 @@ export function stepLineHaul(g: Grid, haul: { net: Network; town: Town }, dt: nu
       j.back!.splice(k, 1);
       const n = find(haul.net, idx(g, j.head!.x, j.head!.y));
       const at: Place | null = n >= 0 ? { x: j.head!.x, y: j.head!.y, kind: "door", net: n } : null, home = at && yardFor(g, places ??= placesOf(g, haul.net), at);
-      if (at && home) sendOnJob(haul.town, g, "truck", at, home, { site: j.id, role: "haul-back" });
+      const m = at && home ? sendOnJob(haul.town, g, "truck", at, home, { site: j.id, role: "haul-back" }) : null;
+      if (m) m.colour = PIPE_EMPTY_COLOUR;
     }
     // UNDER THE YARD'S CRANE, and off.
     for (let k = (j.yard?.length ?? 0) - 1; k >= 0; k--) {
@@ -117,7 +119,9 @@ export function stepLineHaul(g: Grid, haul: { net: Network; town: Town }, dt: nu
       changed = true;
       const head = lineHead(g, haul.net, j), from = head && yardFor(g, places ??= placesOf(g, haul.net), head);
       // (Its road gone since it was loaded: it comes as a load does with none. @see LINE_HAUL)
-      if (!head || !from || !sendOnJob(haul.town, g, "truck", from, head, { site: j.id, role: "line-load" })) j.coming.push(LINE_HAUL);
+      const m = head && from ? sendOnJob(haul.town, g, "truck", from, head, { site: j.id, role: "line-load" }) : null;
+      if (m) m.colour = PIPE_LORRY_COLOUR;
+      else j.coming.push(LINE_HAUL);
     }
   }
   return changed;
