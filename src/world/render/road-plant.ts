@@ -7,8 +7,9 @@
  *    heading it has swung to, in three poses of its arm.
  *  - STONE comes off a lorry with its body up, creeping ahead as it tips, and
  *    a roller runs over it behind.
- *  - THE PAVER creeps with a lorry backed up to its hopper, body up, blacktop
- *    pouring off its tail; the mat behind the screed steams; a roller works
+ *  - THE PAVER creeps with its own blacktop in its hopper, the wings folding up
+ *    as it empties; blacktop falls from the conveyor's mouth at its back, ahead
+ *    of the screed it tows; the mat behind the screed steams; a roller works
  *    it in passes, a lane over each time.
  *  - THE LINING TRUCK last, a puff of white at its tail.
  *  - BEFORE ANY OF IT, THE SETTING OUT: five on foot walk the line as it was
@@ -29,7 +30,7 @@ import { baseCorners, bakedCars, headingIndex, loadCarSprites, pitchMatrix, pose
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
-import { TIP_LOOKS } from "../agents/cars/models";
+import { PAVER_LOOKS, TIP_LOOKS } from "../agents/cars/models";
 import { ARRIVE, GANGS, GAP, PACE, frontAt, setOutAt, setOutSeconds, type RoadJob } from "../roads/jobs";
 import type { BandLayer } from "./bands";
 import { COLUMN, POURS, carry, createPourSim, eachColumn, eachGrain, stepPour, type PourKind, type PourRun, type PourSim } from "./pour-sim";
@@ -54,7 +55,7 @@ type Spill = { sim: PourSim; c: Container; gfx: Graphics; band: number; /** Wher
 const PPM = 6.5;
 /** A person's footprint, for which tile they are drawn with. */
 const FEET = [{ u: 0.05, v: 0.05 }];
-type Hand = { c: Container; parts: Sprite[]; key: string; band: number };
+type Hand = { c: Container; parts: Sprite[]; key: string; band: number } & Walker;
 type At = { x: number; y: number; z: number; heading: number; pitch: number };
 
 export type RoadPlant = { sync(g: Grid, scale: number, t: number): void; destroy(): void };
@@ -71,29 +72,43 @@ export function alongJob(g: Grid, j: RoadJob, p: number): At {
 
 /** A round somebody walks: places to be — tiles along the road from their machine and across it — what they do at each, how long, and which way they face doing it, from the road's own way. */
 type Stop = { al: number; ac: number; pose: "work" | "stand"; dwell: number; face: number };
-/** Tiles a second on foot: a walk, at this map's scale made a little brisk to be seen. */
-const WALK = 0.16;
-/** Where somebody on a round is at a time, and what they are doing. */
-export function onRound(round: readonly Stop[], time: number): { al: number; ac: number; pose: "work" | "stand" | "walk"; face: number } {
-  const legs = round.map((s, k) => { const n = round[(k + 1) % round.length]; return Math.hypot(n.al - s.al, n.ac - s.ac) / WALK; });
-  const whole = round.reduce((n, s, k) => n + s.dwell + legs[k], 0);
-  let left = ((time % whole) + whole) % whole;
-  for (let k = 0; k < round.length; k++) {
-    const s = round[k], n = round[(k + 1) % round.length];
-    if (left < s.dwell) return { al: s.al, ac: s.ac, pose: s.pose, face: s.face };
-    left -= s.dwell;
-    if (left < legs[k]) { const f = left / legs[k]; return { al: s.al + (n.al - s.al) * f, ac: s.ac + (n.ac - s.ac) * f, pose: "walk", face: Math.atan2(n.ac - s.ac, n.al - s.al) }; }
-    left -= legs[k];
+/** Somebody on a round: where they are on the ground — cells along the job, tiles across it — the stop they are at or walking to, whether they are there, and how long they have left there. */
+export type Walker = { p?: number; ac?: number; k?: number; there?: boolean; left?: number };
+/** Tiles a second somebody walks to keep up with a machine that has moved on, and how far it may get from them before they leave what they are doing and go after it. */
+export const STRIDE = 0.34, LEFT_BEHIND = 0.32;
+/**
+ * A STEP OF SOMEBODY'S ROUND, the machine now at `by` cells along the job.
+ * NOBODY RIDES ALONG WITH A MACHINE: at a stop they stand where they stopped,
+ * on the ground, while the machine creeps on; when their time there is up, or
+ * the machine has got away from them, they WALK to the next place — which is
+ * by the machine, wherever it has got to. Says what they are doing and which
+ * way they face, from the road's own way.
+ */
+export function walkRound(h: Walker, round: readonly Stop[], by: number, dt: number, first = 0): { pose: "work" | "stand" | "walk"; face: number } {
+  if (h.k === undefined || h.k >= round.length) h.k = first % round.length;
+  let stop = round[h.k], tp = by + stop.al;
+  if (h.p === undefined || h.ac === undefined) { h.p = tp; h.ac = stop.ac; h.there = true; h.left = stop.dwell; }
+  if (h.there) {
+    h.left = (h.left ?? 0) - dt;
+    const away = Math.hypot(tp - h.p, stop.ac - h.ac) > LEFT_BEHIND;
+    if (h.left > 0 && !away) return { pose: stop.pose, face: stop.face };
+    // (Either way they are done there: on to the next place.)
+    h.there = false;
+    h.k = (h.k + 1) % round.length;
   }
-  return { al: round[0].al, ac: round[0].ac, pose: round[0].pose, face: round[0].face };
+  stop = round[h.k]; tp = by + stop.al;
+  const dal = tp - h.p, dac = stop.ac - h.ac, far = Math.hypot(dal, dac), go = STRIDE * dt;
+  if (far <= go + 1e-4) { h.p = tp; h.ac = stop.ac; h.there = true; h.left = stop.dwell; return { pose: stop.pose, face: stop.face }; }
+  h.p += (dal / far) * go; h.ac += (dac / far) * go;
+  return { pose: dt > 0 ? "walk" : "stand", face: Math.atan2(dac, dal) };
 }
 const BACK = Math.PI, LEFT = Math.PI / 2, RIGHT = -Math.PI / 2;
-/** The rounds while the paver lays, from the paver: rakers behind the screed, a shoveller, the banksman at the lorry, one on the roller's edge, the foreman. */
+/** The rounds while the paver lays, from the paver: rakers behind the screed, a shoveller, one seeing its line ahead of the hopper, one on the roller's edge, the foreman. */
 const LAYING: Stop[][] = [
   [{ al: -0.6, ac: 0.24, pose: "work", dwell: 5, face: BACK }, { al: -0.66, ac: 0.08, pose: "work", dwell: 4, face: BACK }, { al: -0.78, ac: 0.3, pose: "stand", dwell: 1.5, face: BACK }],
   [{ al: -0.64, ac: -0.26, pose: "work", dwell: 6, face: BACK }, { al: -0.7, ac: -0.06, pose: "work", dwell: 3.5, face: BACK }, { al: -0.84, ac: -0.3, pose: "stand", dwell: 2, face: BACK }],
   [{ al: 0.42, ac: 0.42, pose: "work", dwell: 3, face: RIGHT }, { al: -0.55, ac: 0.42, pose: "work", dwell: 3.5, face: RIGHT }, { al: -0.1, ac: 0.44, pose: "stand", dwell: 1, face: RIGHT }],
-  [{ al: 1.75, ac: -0.42, pose: "stand", dwell: 6, face: BACK }, { al: 1.35, ac: -0.44, pose: "stand", dwell: 3, face: LEFT }],
+  [{ al: 0.62, ac: -0.45, pose: "stand", dwell: 6, face: BACK }, { al: 0.5, ac: 0.46, pose: "stand", dwell: 3, face: BACK }],
   [{ al: -1.3, ac: 0.43, pose: "stand", dwell: 3, face: RIGHT }, { al: -2.3, ac: 0.43, pose: "work", dwell: 3, face: RIGHT }, { al: -1.8, ac: 0.44, pose: "stand", dwell: 2, face: RIGHT }],
   [{ al: 0.1, ac: -0.45, pose: "stand", dwell: 8, face: LEFT }, { al: -1.1, ac: -0.45, pose: "stand", dwell: 5, face: LEFT }],
 ];
@@ -109,6 +124,10 @@ const DIGGING: Stop[][] = [
 const DIG = { dig: 3.2, lift: 0.8, out: 1.9, tip: 1.3, back: 1.9 }, DIG_ALL = DIG.dig + DIG.lift + DIG.out + DIG.tip + DIG.back;
 /** A lorry's turn at tipping, seconds: body down as it backs in, up while it tips, down as it pulls off. */
 const TIP = { in: 2.5, up: 10, off: 2 }, TIP_ALL = TIP.in + TIP.up + TIP.off;
+/** A paver's hopper through a turn, seconds: full and spread, its wings folding up as it empties, held up, and down again. */
+/** Where the paver stands, cells past the blacktop's front. */
+const PAVER_AT = -0.12;
+const FEED = { full: 9, fold: 5, up: 3, down: 2 }, FEED_ALL = FEED.full + FEED.fold + FEED.up + FEED.down;
 
 export function createRoadPlant(bands: BandLayer): RoadPlant {
   const units = new Map<string, Unit>(), hands = new Map<string, Hand>(), spills = new Map<string, Spill>();
@@ -194,7 +213,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
            * heaped and slumped by the pour's own simulation, a step a frame whether it pours or not — so the last of
            * it falls and the heap goes on being taken away. Drawn in a layer of its own, with the tile it LANDS on.
            */
-          const spill = (name: string, at: At, h: number, from: [number, number, number], to: [number, number, number], stuff: Stuff, width: number, on: boolean, run: PourRun, wall = Infinity): void => {
+          const spill = (name: string, at: At, h: number, from: [number, number, number], to: [number, number, number], stuff: Stuff, width: number, on: boolean, run: PourRun, wall = Infinity, lift = 0.35): void => {
             const id = `${j.id}:${name}`;
             seenS.add(id);
             let sp = spills.get(id);
@@ -219,7 +238,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             stepPour(S, still ? 0 : dt, on && !still, width * PPM, run);
             // FILED WITH THE TILE IT LANDS ON, or its lip's if that is nearer the camera: over that tile's road, not under it.
             const band = Math.max(0, Math.min(bands.dynamicOf.length - 1, Math.max(bandOf(Math.round(land.x), Math.round(land.y)), bandOf(Math.round(lip.x), Math.round(lip.y)))));
-            const z = land.x + land.y - band + 0.35;
+            const z = land.x + land.y - band + lift;
             if (band !== sp.band || !sp.c.parent) { sp.c.zIndex = z; bands.dynamicOf[band]?.addChild(sp.c); sp.band = band; }
             else if (Math.abs(sp.c.zIndex - z) > 0.04) sp.c.zIndex = z;
             sp.c.position.set(a[0], a[1]);
@@ -280,13 +299,15 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             const pc = Math.min(n - 1, Math.floor(so[0])), pfr = so[0] - pc, driving = so[0] < n && pfr >= 0.6;
             const pegAt = so[0] >= n ? n - 0.5 : pc - 0.5 + Math.min(1, pfr / 0.6);
             // The can: a burst, a pace, a burst.
-            const spraying = so[2] > 0 && so[2] < n && (so[2] * 2) % 1 < 0.55;
+            const m2 = so[2] * 2, spraying = so[2] > 0 && so[2] < n && m2 % 1 < 0.3;
+            /** (Stood still to spray, then on half a cell: the can's place, not the front's.) */
+            const canAt = so[2] >= n ? n : (Math.floor(m2) + Math.max(0, (m2 % 1) - 0.3) / 0.7) / 2;
             const crew: { al: number; ac: number; pose: "work" | "stand" | "walk"; face: number }[] = [
               { al: pegAt, ac: 0.5, pose: driving ? "work" : so[0] < n && j.t > 0 ? "walk" : "stand", face: driving ? RIGHT : 0 },
               { al: pegAt, ac: -0.5, pose: driving ? "work" : so[0] < n && j.t > 0 ? "walk" : "stand", face: driving ? LEFT : 0 },
               { al: so[1] - 0.5, ac: 0.6, pose: so[1] > 0 && so[1] < n ? "walk" : "stand", face: 0 },
               { al: so[1] - 0.5, ac: -0.6, pose: so[1] > 0 && so[1] < n ? "walk" : "stand", face: 0 },
-              { al: so[2] - 0.5, ac: 0.06, pose: spraying ? "work" : so[2] > 0 && so[2] < n ? "walk" : "stand", face: 0 },
+              { al: canAt - 0.5, ac: 0.06, pose: spraying ? "work" : so[2] > 0 && so[2] < n ? "walk" : "stand", face: 0 },
             ];
             if (P) crew.forEach((r, k) => {
               const at = lineAt(r.al), id = `${j.id}:set${k}`;
@@ -353,22 +374,21 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
           // ── THE PAVER, the lorry at its hopper, the hot mat, the roller's passes ───────────
           const paving = j.tm > ARRIVE + 2 * GAP * PACE && f[2] < n && f[2] > 0.02;
           if (paving) {
-            const at = alongJob(g, j, f[2] + 0.1);
-            const u = place("paver", at, [{ look: "paver", tint: YELLOW }]);
-            if (u) {
-              // Steam off the mat behind the screed, the width of it. (The mat itself is the road's own, growing. @see road-grow)
-              if (!still) puffs(u.over, at.heading, -0.5, 0, 0.2, 0xffffff, 6, 0.5, 30, 0.24);
-            }
-            if (f[2] + 0.8 < n - 0.15) {
-              const up = tipping(0) && !still, la = alongJob(g, j, f[2] + 0.72);
-              const l = place("feed", la, [{ look: tipLook(0), tint: BLUE }]);
-              // BLACKTOP off its tail into the hopper, and the heat off it.
-              // BLACKTOP off its tail into the hopper: a thick wet fall of it, pooling there between the hopper's wings
-              // and going down as the screed takes it; and the heat off it.
-              // (Into what is in the hopper already: nothing heaps on it.)
-              spill("tar", la, la.heading, [-3.15 * T, 0, 1.15], [-4.2 * T, 0, 0.8], TAR, 1.5, up, { gain: 0 }, 8);
-              if (l && up) puffs(l.over, la.heading, -4.2 * T, 0, 1.0, 0xffffff, 4, 0.3, 20, 0.22);
-            }
+            // (A front is told from the first cell's near edge, a place on the line from its middle: half a cell between them.
+            // So stood that the mat comes out from under the screed's back edge.)
+            const at = alongJob(g, j, f[2] + PAVER_AT);
+            // ITS HOPPER THROUGH A TURN: full and spread, then its wings folding up as it empties, and down again filled.
+            const q = ((w % FEED_ALL) + FEED_ALL) % FEED_ALL, fold = still ? 0 : q < FEED.full ? 0 : q < FEED.full + FEED.fold ? (q - FEED.full) / FEED.fold : q < FEED.full + FEED.fold + FEED.up ? 1 : 1 - (q - FEED.full - FEED.fold - FEED.up) / FEED.down;
+            // THE SCREED towed behind it, on the line as the paver is: the blacktop falls between the two.
+            const sc = alongJob(g, j, f[2] + PAVER_AT - 3.75 * T);
+            const su = place("screed", sc, [{ look: "screed", tint: YELLOW }]);
+            place("paver", at, [{ look: PAVER_LOOKS[Math.max(0, Math.min(2, Math.round(fold * 2)))], tint: YELLOW }]);
+            // BLACKTOP out of the conveyor's mouth at its back, a thick wet fall of it the width of the mouth, into the
+            // head the screed pushes; and the heat off it. (Into what is there already: nothing heaps.) Filed between
+            // the paver and the screed, by where it lands.
+            spill("tar", at, at.heading, [-2.25 * T, 0, 1.35], [-2.8 * T, 0, 0.3], TAR, 1.8, !still, { gain: 0 }, Infinity, 0.02);
+            // Steam off the mat behind the screed, the width of it — not over the fall, which is to be seen. (The mat itself is the road's own, growing. @see road-grow)
+            if (su && !still) { puffs(su.over, sc.heading, -2.2 * T, 0, 0.2, 0xffffff, 5, 0.5, 30, 0.2); }
           }
           if (j.tm > ARRIVE + 2 * GAP * PACE && f[3] < n && f[2] > 1.4) {
             // A PASS up the mat and back, then over a lane: a triangle of travel, a step of offset each time round.
@@ -385,9 +405,12 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
 
           // ── THE GANG ──────────────────────────────────────────────────────────────────────
           if (P) {
-            const rounds = paving ? LAYING : DIGGING, by = paving ? f[2] + 0.1 : digAt;
+            const rounds = paving ? LAYING : DIGGING, by = paving ? f[2] + PAVER_AT : digAt;
+            // NOBODY RIDES ALONG WITH A MACHINE. Each stands where they stopped, on the ground, and does their work there
+            // while the machine creeps on; when it is done, or the machine has got away from them, they WALK to the next
+            // place of their round — which is by the machine, wherever it has got to.
             rounds.forEach((round, k) => {
-              const r = onRound(round, w + k * 2.3), at = alongJob(g, j, by + r.al), id = `${j.id}:${k}`;
+              const id = `${j.id}:${k}`;
               seenH.add(id);
               let hnd = hands.get(id);
               if (!hnd) {
@@ -397,8 +420,10 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
                 hnd = { c, parts, key: "", band: -1 };
                 hands.set(id, hnd);
               }
-              const px = at.x - Math.sin(at.heading) * r.ac, py = at.y + Math.cos(at.heading) * r.ac;
-              hnd.key = posePerson(hnd.parts, P, "builder", still && r.pose !== "stand" ? "stand" : r.pose, at.heading + r.face, r.pose === "walk" ? w * 7.5 + k : r.pose === "work" ? w * 4.5 + k * 1.7 : 0, scale, 0.93 + 0.03 * (k % 4), hnd.key);
+              const { pose, face } = walkRound(hnd, round, by, still ? 0 : dt, k * 2);
+              const at = alongJob(g, j, hnd.p!);
+              const px = at.x - Math.sin(at.heading) * hnd.ac!, py = at.y + Math.cos(at.heading) * hnd.ac!;
+              hnd.key = posePerson(hnd.parts, P, "builder", still && pose !== "stand" ? "stand" : pose, at.heading + face, pose === "walk" ? w * 7.5 + k : pose === "work" ? w * 4.5 + k * 1.7 : 0, scale, 0.93 + 0.03 * (k % 4), hnd.key);
               const x = (px - py) * HW * scale, y = (px + py) * HH * scale - at.z * HEIGHT_UNIT * scale;
               for (const sp of hnd.parts) sp.position.set(x, y);
               hnd.band = into(hnd.c, hnd.band, px, py, FEET);

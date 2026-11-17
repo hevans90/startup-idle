@@ -738,31 +738,6 @@ const VARIANTS: Model[] = [
 
 // ── road plant: what builds a road, not what drives on one. @see render/road-plant ──────────
 const post = (l: number, y: number, z0: number, z1: number): Slab => ({ l0: l + 0.05, l1: l - 0.05, w: 0.05, wc: y, z0, z1, mat: "trim" });
-/** An asphalt paver: tracks, a hopper of blacktop at the front, the engine and a seat under a canopy, the screed across the back. */
-const paver: Model = {
-  id: "paver", length: 6.2, width: 3.0, wheels: [],
-  slabs: [
-    ...[1, -1].map((sg): Slab => ({ l0: 1.6, l1: -1.9, w: 0.28, wc: sg * 1.0, z0: 0, z1: 0.72, inF: 0.2, inB: 0.2, mat: "tyre" })),
-    { l0: 1.5, l1: -2.0, w: 1.15, z0: 0.5, z1: 1.45, mat: "paint" },
-    // The hopper: its floor, its two wings, and what is in it.
-    { l0: 3.05, l1: 1.5, w: 1.3, z0: 0.45, z1: 0.68, mat: "trim" },
-    ...[1, -1].map((sg): Slab => ({ l0: 3.05, l1: 1.5, w: 0.06, wc: sg * 1.27, z0: 0.68, z1: 1.5, inF: 0.25, mat: "paint" })),
-    { l0: 2.9, l1: 1.55, w: 1.15, z0: 0.68, z1: 1.2, inF: 0.35, inB: 0.15, inS: 0.3, mat: "tyre" },
-    { l0: 1.0, l1: -1.1, w: 1.0, z0: 1.45, z1: 1.95, mat: "paint" },
-    { l0: 0.9, l1: 0.2, w: 0.5, z0: 1.95, z1: 2.02, mat: "grille" },
-    { l0: -1.1, l1: -1.95, w: 0.95, z0: 1.45, z1: 1.62, mat: "trim" },
-    { l0: -1.35, l1: -1.8, w: 0.3, wc: 0.45, z0: 1.62, z1: 2.25, mat: "seat" },
-    { l0: -1.05, l1: -1.2, w: 0.5, z0: 1.62, z1: 2.1, mat: "trim" },
-    ...[[0.5, 1.0], [0.5, -1.0], [-1.9, 1.0], [-1.9, -1.0]].map(([l, y]) => post(l, y, 1.95 - (l < 0 ? 0.33 : 0), 2.95)),
-    { l0: 0.65, l1: -2.05, w: 1.12, z0: 2.95, z1: 3.05, mat: "paint" },
-    // The screed and its walkway, wider than the machine; an auger's housing ahead of it.
-    { l0: -2.0, l1: -2.35, w: 1.4, z0: 0.15, z1: 0.75, mat: "trim" },
-    { l0: -2.35, l1: -3.05, w: 1.5, z0: 0.03, z1: 0.42, mat: "chrome" },
-    { l0: -2.4, l1: -3.0, w: 1.45, z0: 0.42, z1: 0.5, mat: "trim" },
-    ...[1, -1].map((sg): Slab => ({ l0: -2.95, l1: -3.0, w: 0.02, wc: sg * 1.4, z0: 0.5, z1: 1.4, mat: "trim" })),
-    { l0: -2.95, l1: -3.0, w: 1.4, z0: 1.36, z1: 1.4, mat: "trim" },
-  ],
-};
 /** A tandem roller: a steel drum the width of it at each end, the engine between, a seat under a canopy. */
 const roller: Model = {
   id: "roller", length: 4.6, width: 1.9,
@@ -780,6 +755,7 @@ const roller: Model = {
     { l0: 0.3, l1: 0.1, w: 0.1, z0: 2.84, z1: 3.0, mat: "indicator" },
   ],
 };
+const DEG = Math.PI / 180;
 // ── free geometry: what a slab cannot be ────────────────────────────────────────────────────
 type FreeTri = { p: [P3, P3, P3]; mat: Mat; n: P3 };
 /** A flat face, its normal turned away from `inside`. */
@@ -816,6 +792,107 @@ function ram(a: [number, number], b: [number, number], y: number, out: FreeTri[]
 /** A pin at a joint, across the arm: a short dark cylinder as a square. */
 const pin = (at: [number, number], y: number, w: number, out: FreeTri[], r = 0.13) =>
   prism([[at[0] - r, at[1] - r], [at[0] + r, at[1] - r], [at[0] + r, at[1] + r], [at[0] - r, at[1] + r]], y, w, "trim", out);
+
+/** A flat plate on four corners, `t` thick toward `inside`: a hopper's wing, a chute's floor. */
+function plate(q: [P3, P3, P3, P3], t: number, mat: Mat, inside: P3, out: FreeTri[]) {
+  const mid: P3 = [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2, (q[0][2] + q[2][2]) / 2];
+  const d = [inside[0] - mid[0], inside[1] - mid[1], inside[2] - mid[2]], len = Math.hypot(d[0], d[1], d[2]) || 1;
+  const o = q.map((c) => [c[0] + (d[0] / len) * t, c[1] + (d[1] / len) * t, c[2] + (d[2] / len) * t] as P3);
+  const core: P3 = [mid[0] + (d[0] / len) * t / 2, mid[1] + (d[1] / len) * t / 2, mid[2] + (d[2] / len) * t / 2];
+  freeFace(q, mat, core, out); freeFace(o, mat, core, out);
+  for (let k = 0; k < 4; k++) freeFace([q[k], q[(k + 1) % 4], o[(k + 1) % 4], o[k]], mat, core, out);
+}
+/**
+ * THE PAVER, which carries its own blacktop and lays it: tracks under an engine deck; ahead of it a deep hopper
+ * between two WINGS hinged along its floor, black to the brim; behind the engine the driver's deck under a canopy,
+ * a stack, a beacon; and out of its back, high, the mouth of the conveyor that brings the blacktop through the
+ * machine — what falls from it falls in the open, ahead of the screed, which is towed and is a model of its own.
+ * `fold` is how far its wings have come up, 0…1: spread wide and full as it travels, folding up and in as the hopper
+ * empties, to tip what is left of it onto the conveyor. The one machine in every look; only its wings and its load.
+ */
+function paverAt(id: string, fold: number): Model {
+  const open = (38 - 34 * fold) * DEG, left = 1 - 0.62 * fold, H = 1.2, Z = 0.66, L0 = 3.1, L1 = 1.5;
+  return {
+    id, length: 6.6, width: 4.0, wheels: [],
+    slabs: [
+      // Tracks, their frames, and the rollers that push whatever is ahead.
+      ...[1, -1].map((sg): Slab => ({ l0: 1.7, l1: -2.0, w: 0.3, wc: sg * 1.0, z0: 0, z1: 0.78, inF: 0.22, inB: 0.22, mat: "tyre" })),
+      ...[1, -1].map((sg): Slab => ({ l0: 1.5, l1: -1.8, w: 0.31, wc: sg * 1.0, z0: 0.3, z1: 0.48, mat: "trim" })),
+      { l0: 3.28, l1: 3.1, w: 1.05, z0: 0.22, z1: 0.5, mat: "chrome" },
+      // The hopper's floor, its apron, the bulkhead behind it with the conveyor's dark mouth.
+      { l0: L0, l1: L1, w: 1.3, z0: 0.45, z1: Z, mat: "trim" },
+      { l0: L0 + 0.06, l1: L0, w: 1.3, z0: Z, z1: Z + 0.3, mat: "paint" },
+      { l0: L1, l1: L1 - 0.1, w: 1.3, z0: Z, z1: 1.9, mat: "paint" },
+      { l0: L1 + 0.02, l1: L1, w: 0.5, z0: Z, z1: 1.15, mat: "tyre" },
+      // The engine deck: louvred down each side, a hood, the stack and its bright tip.
+      { l0: 1.4, l1: -1.3, w: 1.15, z0: 0.5, z1: 1.6, mat: "paint" },
+      ...[1, -1].map((sg): Slab => ({ l0: 1.1, l1: -0.4, w: 0.02, wc: sg * 1.16, z0: 0.85, z1: 1.45, mat: "grille" })),
+      { l0: 1.3, l1: -0.15, w: 0.95, z0: 1.6, z1: 2.05, inF: 0.15, mat: "paint" },
+      { l0: 1.0, l1: 0.1, w: 0.55, z0: 2.05, z1: 2.1, mat: "grille" },
+      { l0: 0.95, l1: 0.8, w: 0.075, wc: -0.62, z0: 2.05, z1: 3.2, mat: "trim" },
+      { l0: 0.97, l1: 0.78, w: 0.095, wc: -0.62, z0: 3.2, z1: 3.32, mat: "chrome" },
+      // The driver's deck: a console, two seats, a rail round it; four posts and the canopy; a beacon on it.
+      { l0: -0.15, l1: -2.05, w: 1.25, z0: 1.6, z1: 1.72, mat: "trim" },
+      { l0: -0.25, l1: -0.45, w: 0.8, z0: 1.72, z1: 2.3, mat: "trim" },
+      ...[1, -1].map((sg): Slab => ({ l0: -1.1, l1: -1.55, w: 0.26, wc: sg * 0.55, z0: 1.72, z1: 2.4, mat: "seat" })),
+      ...[1, -1].map((sg): Slab => ({ l0: -0.2, l1: -2.05, w: 0.03, wc: sg * 1.22, z0: 2.2, z1: 2.27, mat: "trim" })),
+      { l0: -2.0, l1: -2.05, w: 1.22, z0: 2.2, z1: 2.27, mat: "trim" },
+      ...[[-0.2, 1.2], [-0.2, -1.2], [-2.0, 1.2], [-2.0, -1.2]].map(([l, y]) => post(l, y, 1.72, 3.05)),
+      { l0: 0.05, l1: -2.25, w: 1.32, z0: 3.05, z1: 3.16, mat: "paint" },
+      { l0: -0.9, l1: -1.1, w: 0.1, z0: 3.16, z1: 3.34, mat: "indicator" },
+      // THE CONVEYOR'S MOUTH, out of the back and high: a trough between two cheeks, black inside.
+      { l0: -1.3, l1: -2.25, w: 1.0, z0: 1.2, z1: 1.3, mat: "trim" },
+      ...[1, -1].map((sg): Slab => ({ l0: -1.3, l1: -2.3, w: 0.04, wc: sg * 1.02, z0: 1.3, z1: 1.62, mat: "paint" })),
+      { l0: -1.3, l1: -2.2, w: 0.95, z0: 1.3, z1: 1.42, mat: "tyre" },
+      // The augers' shaft under it, across the machine.
+      { l0: -2.25, l1: -2.45, w: 1.35, z0: 0.22, z1: 0.42, mat: "chrome" },
+    ],
+    extra: () => {
+      const out: FreeTri[] = [], sn = Math.sin(open), cs = Math.cos(open);
+      for (const sg of [1, -1]) {
+        // A WING: hinged along the floor's edge, leaning out by how far it is open; a rib along its top.
+        const y0 = sg * 1.3, y1 = sg * (1.3 + H * sn), z1 = Z + H * cs;
+        plate([[L0, y0, Z], [L1, y0, Z], [L1, y1, z1], [L0 - 0.3, y1, z1]], 0.07, "paint", [2.3, 0, Z + 0.6], out);
+        plate([[L0 - 0.3, y1, z1], [L1, y1, z1], [L1, y1 + sg * 0.09 * cs, z1 - 0.09 * sn], [L0 - 0.3, y1 + sg * 0.09 * cs, z1 - 0.09 * sn]], 0.07, "trim", [2.3, y1 * 2, z1], out);
+        // The ram that folds it, from under the floor.
+        const m: P3 = [2.3, sg * (1.3 + 0.55 * H * sn), Z + 0.55 * H * cs], f: P3 = [2.3, sg * 1.75, 0.5];
+        plate([[f[0] - 0.07, f[1], f[2]], [f[0] + 0.07, f[1], f[2]], [m[0] + 0.07, m[1] + sg * 0.05, m[2]], [m[0] - 0.07, m[1] + sg * 0.05, m[2]]], 0.1, "chrome", [2.3, sg * 3, 0.6], out);
+      }
+      // WHAT IS IN IT: black, between the wings to the height there is left of it, a mound along its middle.
+      const h = 0.95 * left, yb = 1.24, yt = 1.24 + h * Math.tan(open) - 0.04, zt = Z + h, core: P3 = [2.3, 0, Z + h / 2];
+      freeFace([[L0 - 0.08, -yt, zt], [L0 - 0.08, yt, zt], [L1 + 0.05, yt, zt], [L1 + 0.05, -yt, zt]], "tyre", core, out);
+      freeFace([[L0 - 0.02, -yb, Z], [L0 - 0.02, yb, Z], [L0 - 0.08, yt, zt], [L0 - 0.08, -yt, zt]], "tyre", core, out);
+      for (const sg of [1, -1]) freeFace([[L0 - 0.02, sg * yb, Z], [L1 + 0.05, sg * yb, Z], [L1 + 0.05, sg * yt, zt], [L0 - 0.08, sg * yt, zt]], "tyre", core, out);
+      prism([[L0 - 0.4, zt], [L0 - 0.9, zt + 0.22 * left + 0.06], [L1 + 0.5, zt + 0.3 * left + 0.06], [L1 + 0.1, zt]], 0, Math.max(0.6, yt * 1.2), "tyre", out);
+      return out;
+    },
+  };
+}
+/** The paver as it travels, its hopper full and its wings spread; and with its wings half up, and up. */
+export const PAVER_LOOKS = ["paver", "paver1", "paver2"] as const;
+const paver = paverAt("paver", 0), paver1 = paverAt("paver1", 0.5), paver2 = paverAt("paver2", 1);
+/**
+ * THE SCREED, towed: two arms reaching forward to the paver's sides, the heated plate that strikes the blacktop off
+ * level and irons it, a gate at each end holding the blacktop in ahead of it, what it is pushing heaped against its
+ * front, and the walkway along its back with its rail and its two boxes of controls. About its plate's middle.
+ */
+const screed: Model = {
+  id: "screed", length: 5.8, width: 3.5, wheels: [],
+  slabs: [
+    ...[1, -1].map((sg): Slab => ({ l0: 2.85, l1: 0.2, w: 0.05, wc: sg * 1.52, z0: 0.42, z1: 0.62, mat: "paint" })),
+    ...[1, -1].map((sg): Slab => ({ l0: 2.9, l1: 2.7, w: 0.07, wc: sg * 1.5, z0: 0.36, z1: 0.68, mat: "trim" })),
+    // The head of blacktop it pushes, between the gates.
+    { l0: 1.0, l1: 0.3, w: 1.5, z0: 0, z1: 0.36, inF: 0.45, mat: "tyre" },
+    ...[1, -1].map((sg): Slab => ({ l0: 1.15, l1: -0.35, w: 0.04, wc: sg * 1.6, z0: 0.02, z1: 0.55, mat: "trim" })),
+    { l0: 0.35, l1: -0.35, w: 1.6, z0: 0.03, z1: 0.42, mat: "chrome" },
+    { l0: 0.3, l1: -0.3, w: 1.5, z0: 0.42, z1: 0.62, mat: "trim" },
+    ...[1, -1].map((sg): Slab => ({ l0: 0.25, l1: -0.2, w: 0.22, wc: sg * 1.1, z0: 0.62, z1: 1.05, mat: "paint" })),
+    { l0: -0.35, l1: -0.85, w: 1.55, z0: 0.34, z1: 0.42, mat: "trim" },
+    ...[-1.5, -0.5, 0.5, 1.5].map((y) => post(-0.82, y, 0.42, 1.4)),
+    { l0: -0.8, l1: -0.85, w: 1.52, z0: 1.36, z1: 1.42, mat: "trim" },
+    { l0: -0.8, l1: -0.85, w: 1.52, z0: 0.88, z1: 0.92, mat: "trim" },
+  ],
+};
 
 /**
  * AN EXCAVATOR, IN TWO: its tracks, which stand as the machine stands; and its house — engine, counterweight, cab,
@@ -878,7 +955,6 @@ const exHouse = (id: string, pose: () => FreeTri[]): Model => ({
   ],
   extra: pose,
 });
-const DEG = Math.PI / 180;
 /** Reached out, the bucket's teeth in the ground ahead: the start of a bite. */
 const exDig = exHouse("exDig", () => arm([4.5, 2.5], [5.6, 0.95], -115 * DEG, false));
 /** The bite: the dipper drawn in and the bucket curled through the ground, filling. */
@@ -934,7 +1010,7 @@ function tipped(id: string, deg: number): Model {
 export const TIP_LOOKS = ["tipper", "tipper1", "tipper2", "tipperUp"] as const;
 const tipper = tipped("tipper", 0), tipper1 = tipped("tipper1", 14), tipper2 = tipped("tipper2", 28), tipperUp = tipped("tipperUp", 42);
 /** What builds a road. Never in the traffic. */
-export const PLANT = [paver, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp];
+export const PLANT = [paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp];
 
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];

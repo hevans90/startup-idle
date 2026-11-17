@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 
 import { COLUMN, GRAVITY, POURS, carry, clearPour, createPourSim, eachColumn, groundAt, heaped, stepPour } from "./pour-sim";
 import { growSources } from "./road-grow";
-import { onRound } from "./road-plant";
+import { LEFT_BEHIND, STRIDE, walkRound, type Walker } from "./road-plant";
 
 describe("something poured", () => {
   const run = (s: ReturnType<typeof createPourSim>, seconds: number, pours: boolean, width = 8, o = {}) => { let landed = 0; for (let t = 0; t < seconds; t += 1 / 60) landed += stepPour(s, 1 / 60, pours, width, o); return landed; };
@@ -108,16 +108,32 @@ describe("somebody on a round", () => {
     { al: 0, ac: 0, pose: "work" as const, dwell: 4, face: 1 },
     { al: 1.6, ac: 0, pose: "stand" as const, dwell: 2, face: 2 },
   ];
-  test("works where they are, walks to the next place facing the way they go, and comes round again", () => {
-    expect(onRound(round, 1)).toMatchObject({ al: 0, pose: "work", face: 1 });
-    // 1.6 tiles at 0.16 a second: ten seconds on the way, half way after five.
-    const mid = onRound(round, 4 + 5);
-    expect(mid.pose).toBe("walk");
-    expect(mid.al).toBeCloseTo(0.8, 6);
-    expect(mid.face).toBeCloseTo(0, 6);
-    expect(onRound(round, 4 + 10 + 1)).toMatchObject({ al: 1.6, pose: "stand" });
-    // Back the other way, facing back; and the whole round again.
-    expect(onRound(round, 4 + 10 + 2 + 5).face).toBeCloseTo(Math.PI, 6);
-    expect(onRound(round, 26 + 1)).toMatchObject({ al: 0, pose: "work" });
+  test("nobody slides: whoever is not walking has not moved, and whoever has moved is walking, at a walk", () => {
+    const h: Walker = {};
+    // A machine creeping on at a tenth of a cell a second, for two minutes.
+    let seen = { work: 0, stand: 0, walk: 0 }, back = 0;
+    for (let f = 0, by = 3; f < 60 * 120; f++, by += 0.1 / 60) {
+      const was = { p: h.p, ac: h.ac }, r = walkRound(h, round, by, 1 / 60);
+      seen[r.pose]++;
+      if (was.p === undefined) continue;
+      const moved = Math.hypot(h.p! - was.p, h.ac! - was.ac!);
+      if (r.pose === "walk") expect(moved).toBeCloseTo(STRIDE / 60, 6);
+      // (Arriving, they take the last part of a step.)
+      else expect(moved).toBeLessThanOrEqual(STRIDE / 60 + 1e-6);
+      if (r.pose !== "walk" && moved > 0) back++;
+      // Never left far behind the machine: a stop's place, and what it creeps while they are there and on their way.
+      expect(Math.abs(h.p! - by)).toBeLessThan(1.6 + LEFT_BEHIND + 0.5);
+    }
+    expect(seen.work).toBeGreaterThan(600); expect(seen.stand).toBeGreaterThan(300); expect(seen.walk).toBeGreaterThan(600);
+    // Moved while not walking only on the step they arrive: once a stop.
+    expect(back).toBeLessThan(40);
+  });
+  test("a job that stands: nobody moves", () => {
+    const h: Walker = {};
+    walkRound(h, round, 3, 1 / 60);
+    for (let f = 0; f < 300; f++) walkRound(h, round, 3, 1 / 60);
+    const at = { ...h };
+    for (let f = 0; f < 600; f++) expect(walkRound(h, round, 3, 0).pose).not.toBe("walk");
+    expect(h.p).toBe(at.p); expect(h.ac).toBe(at.ac);
   });
 });
