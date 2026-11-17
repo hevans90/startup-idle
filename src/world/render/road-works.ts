@@ -14,7 +14,7 @@ import { Container, Graphics, Sprite } from "pixi.js";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { GANGS, GAP, TRADES, frontAt, frontOf, plannedGrid, setOutAt, stageOf, type JobCell, type RoadJob } from "../roads/jobs";
+import { CONCRETE_LAG, GANGS, GAP, PACE, TRADES, frontAt, frontOf, plannedGrid, setOutAt, stageOf, type JobCell, type RoadJob } from "../roads/jobs";
 import { looksOf, type Look } from "../roads/looks";
 import type { BandLayer } from "./bands";
 import { bridgePiecesOf } from "./bridge-props";
@@ -236,10 +236,10 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
       // to its shader — how far past the cell's near edge each has got. What grows there is the tile it will be.
       const alive = new Set<number>();
       if (grows) g.roadJobs.slice(0, GANGS).forEach((j) => {
-        const f = [0, 1, 2, 3].map((t) => frontAt(j, t)), now = performance.now() / 1000;
+        const f = [0, 1, 2, 3].map((t) => frontAt(j, t));
         // (Nothing grows on a job nobody digs yet.)
         if (f[0] <= 0) return;
-        const tf = f.map(told);
+        const tf = f.map(told), tc = told(frontAt(j, 1, CONCRETE_LAG * PACE));
         for (let c = j.opened; c < j.cells.length; c++) {
           const cell = j.cells[c];
           // (A ragged front reaches a little ahead of where its trade is: a cell is begun before the trade is on it.)
@@ -258,7 +258,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
           }
           // (Over what is drawn whole, which was just put back under it.)
           if (rebuilt || it.band !== band || !it.grow.mesh.parent) { layer.addChild(it.grow.mesh); it.band = band; }
-          it.grow.fronts(tf[0] - c, tf[1] - c, tf[2] - c, tf[3] - c, now);
+          it.grow.fronts(tf[0] - c, tf[1] - c, tf[2] - c, tf[3] - c, tc - c);
         }
       });
       for (const [i, it] of growing) if (!alive.has(i)) { it.grow.destroy(); growing.delete(i); }

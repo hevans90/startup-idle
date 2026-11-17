@@ -17,13 +17,11 @@ import type { Container } from "pixi.js";
 import type { CarSprites } from "../../agents/cars/car-sheet";
 import { RIG_LOOKS, SPOIL_LOOKS } from "../../agents/cars/models";
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
-import { ARM, BLUE, CONCRETE, DIG, DIG_ALL, EARTH, M, PPM, T, YELLOW, drawSpill, makeSpill, makeUnit, poseUnit, type Spill, type Stuff, type Unit } from "../../render/plant-kit";
+import { ARM, BLUE, CONCRETE, DIG, DIG_ALL, DRUM, EARTH, mixerLook, M, PPM, T, YELLOW, drawSpill, makeSpill, makeUnit, poseUnit, type Spill, type Stuff, type Unit } from "../../render/plant-kit";
 import { stepPour, type PourRun } from "../../render/pour-sim";
 import { RIG_HEADING, RIG_REACH, rigAt, type Ground } from "./groundworks";
 import type { Site } from "./schedule";
 
-/** The mixer's drum: off-white. */
-const DRUM = 0xe6e2d8;
 /** Seconds between a hammer's blows. */
 const BLOW = 0.85;
 
@@ -129,7 +127,7 @@ export function syncSitePlant(sp: SitePlant, site: Site | null, G: Ground, v: Si
 
   // ── THE POUR: the mixer in the gate, concrete down its chute ───────────────────────────
   if (site.fill > 0 && site.fill < 1 && G.lorry) {
-    place("mixer", G.lorry.u, G.lorry.v, [{ look: "mixer", tint: DRUM }], G.lorry.heading);
+    place("mixer", G.lorry.u, G.lorry.v, [{ look: mixerLook(t, !still), tint: DRUM }], G.lorry.heading);
     spill("concrete", G.lorry.u, G.lorry.v, G.lorry.heading, [-5.05 * T, 0, 1.05], [-5.5 * T, 0, 0.05], CONCRETE, 0.55, true, { gain: 0 });
   }
 

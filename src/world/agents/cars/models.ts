@@ -1062,25 +1062,38 @@ function rigAt(id: string, left: number | null): Model {
 export const RIG_LOOKS = ["rig0", "rig1", "rig2", "rig3"] as const;
 const rigUp = rigAt("rigUp", null), rigs = RIG_LOOKS.map((id, k) => rigAt(id, [5.2, 3.6, 2.0, 0.5][k]));
 /**
- * A CONCRETE MIXER: a lorry's cab and chassis; its drum, lying back and fat in the middle, banded; the hopper it is
- * charged by over its tail, and the chute swung down from under that — where the concrete comes out.
+ * A CONCRETE MIXER: a lorry's cab and chassis; its DRUM, a round barrel lying back toward its mouth — narrow at its
+ * head, fat in the middle — with two bands wound round it as a screw's thread is; the hopper it is charged by over
+ * its tail, and the chute swung down from under that, where the concrete comes out. `turn` is how far round the
+ * drum has gone, nought to one of the way from one band to the next: the one lorry in every look, its drum turned.
  */
-const mixer: Model = {
-  ...lorry("mixer", 7.6, 2.5, 2.0, [
+const mixerAt = (id: string, turn: number): Model => ({
+  ...lorry(id, 7.6, 2.5, 2.0, [
     { l0: 1.75, l1: -3.7, w: 0.55, z0: 0.72, z1: 1.05, mat: "trim" },
-    // The drum, in rings: narrow at its mouth and at its head, fat between.
-    { l0: 1.55, l1: 1.0, w: 0.72, z0: 1.3, z1: 2.75, inF: 0.2, mat: "paint" },
-    { l0: 1.0, l1: -0.2, w: 1.0, z0: 1.12, z1: 3.1, inF: 0.14, mat: "paint" },
-    { l0: -0.2, l1: -1.5, w: 1.12, z0: 1.1, z1: 3.3, mat: "paint" },
-    { l0: -1.5, l1: -2.5, w: 0.95, z0: 1.4, z1: 3.3, inB: 0.2, mat: "paint" },
-    { l0: -2.5, l1: -3.1, w: 0.62, z0: 2.0, z1: 3.25, inB: 0.2, mat: "paint" },
-    { l0: 0.35, l1: 0.15, w: 1.02, z0: 1.12, z1: 3.12, mat: "liveryRed" },
-    { l0: -1.2, l1: -1.4, w: 1.14, z0: 1.1, z1: 3.32, mat: "liveryRed" },
     // The frame that carries its mouth, the hopper on it, a ladder up one side.
     ...[1, -1].map((sg): Slab => ({ l0: -3.05, l1: -3.2, w: 0.05, wc: sg * 0.75, z0: 1.05, z1: 3.3, mat: "trim" })),
     { l0: -3.0, l1: -3.75, w: 0.5, z0: 3.0, z1: 3.55, inF: 0.2, inB: 0.05, mat: "trim" },
     { l0: -3.3, l1: -3.4, w: 0.25, wc: 0.95, z0: 1.05, z1: 3.0, mat: "chrome" },
-  ], [2.6, -1.7, -2.9]),
+  ], [2.6, -1.7, -2.9], {
+    // THE DRUM, round: narrow at its head behind the cab, fat in the middle, drawn in to its mouth and lying back toward it; banded.
+    hulls: [{
+      sections: [
+        { l: 1.6, w: 0.45, z0: 1.55, z1: 2.45, r: 0.45 },
+        { l: 1.0, w: 0.9, z0: 1.2, z1: 3.0, r: 0.88 },
+        { l: -0.2, w: 1.1, z0: 1.12, z1: 3.3, r: 1.05 },
+        { l: -1.5, w: 1.05, z0: 1.3, z1: 3.4, r: 1.0 },
+        { l: -2.5, w: 0.78, z0: 1.75, z1: 3.3, r: 0.75 },
+        { l: -3.1, w: 0.48, z0: 2.25, z1: 3.2, r: 0.46 },
+      ],
+      side: "paint", top: "paint",
+      decals: [
+        // THE BANDS: two, wound round it and along it — so that as it turns they run down it, toward its mouth.
+        { mat: "liveryRed", at: (l, y, z) => { const a = Math.atan2(z - (2.2 - 0.13 * l), y) / Math.PI, q = (((a + l * 0.42 + turn) % 1) + 1) % 1; return l < 1.45 && l > -2.95 && q < 0.2; } },
+        // A dark ring where it rides on its rollers, and the lip of its mouth.
+        { mat: "trim", at: (l) => Math.abs(l + 2.05) < 0.05 || l < -3.0 },
+      ],
+    }],
+  }),
   extra: () => {
     const out: FreeTri[] = [];
     // THE CHUTE: a trough from under the drum's mouth down and out behind, its two cheeks standing over its floor.
@@ -1088,9 +1101,12 @@ const mixer: Model = {
     for (const sy of [-0.3, 0.3]) beam([-3.2, 2.14], [-5.1, 1.09], 0.3, 0.22, 0.05, sy, "chrome", out);
     return out;
   },
-};
+});
+/** The mixer with its drum turning: a quarter of the way from one band to the next, each look on from the last. */
+export const MIXER_LOOKS = ["mixer", "mixer1", "mixer2", "mixer3"] as const;
+const mixers = MIXER_LOOKS.map((id, k) => mixerAt(id, k / MIXER_LOOKS.length));
 /** What builds a road. Never in the traffic. */
-export const PLANT = [paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp, ...spoils, rigUp, ...rigs, mixer];
+export const PLANT = [paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp, ...spoils, rigUp, ...rigs, ...mixers];
 
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];

@@ -77,6 +77,8 @@ export const setOutSeconds = (j: Pick<RoadJob, "cells">) => SET_IN + (j.cells.le
 export const PACE = 10;
 /** A tile of bridge takes this many times a tile of road; and each half step of ground cut or filled adds this share. */
 export const DECK_PACE = 2, DIG_PACE = 0.3;
+/** Tiles the concrete follows the stone by: poured over it by a mixer, part of the sub-base's trade and on its clock. */
+export const CONCRETE_LAG = 1.7;
 /** Tiles each trade follows the one ahead by. */
 export const GAP = 3;
 /** How many tiles of a job open at once, about. */
@@ -105,8 +107,9 @@ export function frontOf(j: RoadJob, trade: number): number {
   return k;
 }
 /** Where a trade is along a job, to a part of a cell: for whatever is drawn working there. */
-export function frontAt(j: RoadJob, trade: number): number {
-  let left = clockOf(j, trade) - ARRIVE - trade * GAP * PACE;
+export function frontAt(j: RoadJob, trade: number, behind = 0): number {
+  // (`behind`, seconds after the trade itself: for what follows it at a set distance — the concrete poured over the stone.)
+  let left = clockOf(j, trade) - ARRIVE - trade * GAP * PACE - behind;
   if (left <= 0) return 0;
   for (let k = 0; k < j.cells.length; k++) { const need = cellTime(j.cells[k]); if (left < need) return k + (need ? left / need : 0); left -= need; }
   return j.cells.length;

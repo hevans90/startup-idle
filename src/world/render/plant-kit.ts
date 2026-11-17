@@ -9,17 +9,22 @@
 import { Container, Graphics, Sprite } from "pixi.js";
 
 import { baseCorners, headingIndex, pitchMatrix, poseOf, type CarSprites } from "../agents/cars/car-sheet";
+import { MIXER_LOOKS } from "../agents/cars/models";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { COLUMN, POURS, createPourSim, eachColumn, eachGrain, type PourKind, type PourSim } from "./pour-sim";
 
-/** The contractor's yellow; the lorries' blue. */
-export const YELLOW = 0xe9a71b, BLUE = 0x3f6fb0;
+/** The contractor's yellow; the lorries' blue; a mixer's drum, off-white. */
+export const YELLOW = 0xe9a71b, BLUE = 0x3f6fb0, DRUM = 0xe6e2d8;
 /** Metres to half steps, for what is drawn above the ground; tiles a metre. */
 export const M = 1 / 2.268, T = 0.09;
 /** How far to the side of its middle an excavator's arm is, tiles: across, to its left. @see models ARM_Y */
 export const ARM = -0.3 * T;
 /** Pixels a metre at the map's own scale, about: for a lip's width. */
 export const PPM = 6.5;
+/** How many looks a second a mixer's drum goes through as it turns: brisk enough to be seen turning, slow enough to read. */
+export const DRUM_RATE = 7;
+/** The mixer as it is `t` seconds into its work: its drum turning while it pours, at rest when it does not. */
+export const mixerLook = (t: number, turning: boolean) => MIXER_LOOKS[turning ? ((Math.floor(t * DRUM_RATE) % MIXER_LOOKS.length) + MIXER_LOOKS.length) % MIXER_LOOKS.length : 0];
 /** A digger's turn of work, seconds: dig, lift, slew round, tip, slew back. */
 export const DIG = { dig: 3.2, lift: 0.8, out: 1.9, tip: 1.3, back: 1.9 }, DIG_ALL = DIG.dig + DIG.lift + DIG.out + DIG.tip + DIG.back;
 

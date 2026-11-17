@@ -31,9 +31,9 @@ import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { PAVER_LOOKS, SPOIL_LOOKS, TIP_LOOKS } from "../agents/cars/models";
-import { ARRIVE, GANGS, GAP, PACE, frontAt, setOutAt, setOutSeconds, type RoadJob } from "../roads/jobs";
+import { ARRIVE, CONCRETE_LAG, GANGS, GAP, PACE, frontAt, setOutAt, setOutSeconds, type RoadJob } from "../roads/jobs";
 import type { BandLayer } from "./bands";
-import { ARM, BLUE, DIG, DIG_ALL, EARTH, M, PPM, STONE, T, TAR, YELLOW, drawSpill, makeSpill, makeUnit, poseUnit, type Spill, type Stuff, type Unit } from "./plant-kit";
+import { ARM, BLUE, CONCRETE, DIG, DIG_ALL, DRUM, EARTH, mixerLook, M, PPM, STONE, T, TAR, YELLOW, drawSpill, makeSpill, makeUnit, poseUnit, type Spill, type Stuff, type Unit } from "./plant-kit";
 import { COLUMN, carry, stepPour, type PourRun } from "./pour-sim";
 
 /** The lining truck's white. (The contractor's yellow and the lorries' blue are every site's. @see plant-kit) */
@@ -311,6 +311,15 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             if (u && up) puffs(u.over, at.heading, -4.1 * T, 0, 0.25, 0xc4bfb5, 3, 0.25, 14, 0.3);
           }
           if (basing && f[1] > 1.1) place("packer", alongJob(g, j, f[1] - 0.75 + (still ? 0 : 0.35 * Math.sin(w * 0.9))), [{ look: "roller", tint: YELLOW }]);
+
+          // ── CONCRETE over the stone: a mixer creeping ahead of what it pours, its chute behind it ─────
+          const fc = frontAt(j, 1, CONCRETE_LAG * PACE);
+          if (fc > 0.05 && fc < n && !j.cells[Math.min(n - 1, Math.floor(fc))].deck) {
+            // (Stood so that its chute's end is over the concrete's front. @see PAVER_AT)
+            const at = alongJob(g, j, fc - 0.18);
+            place("mixer", at, [{ look: mixerLook(w, !still), tint: DRUM }]);
+            spill("concrete", at, at.heading, [-5.05 * T, 0, 1.05], [-5.5 * T, 0, 0.05], CONCRETE, 0.55, !still, { gain: 0 });
+          }
 
           // ── THE PAVER, the lorry at its hopper, the hot mat, the roller's passes ───────────
           const paving = j.tm > ARRIVE + 2 * GAP * PACE && f[2] < n && f[2] > 0.02;

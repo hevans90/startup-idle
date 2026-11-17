@@ -63,6 +63,17 @@ const BODY = (LET: string, VAR: string, LET2: string, LET3: string, VAR3: string
   col = col * (1.0 - r1) + stone * r1;
   alpha = alpha * (1.0 - r1) + r1;
 
+  // ── CONCRETE: poured over the stone from a mixer's chute — wet and dark where it has just come, in slow lobes from
+  // its middle, paler as it sets ──
+  ${LET} fedC = 1.0 - across * across * 2.6;
+  ${LET} dC = vMisc.x - along - 0.22 + fedC * 0.22 + (nA - 0.5) * 0.3 + (nB - 0.5) * 0.1;
+  ${LET} rC = smoothstep(0.0, 0.03, dC) * bare.a * (1.0 - deck);
+  ${LET} wetC = 1.0 - smoothstep(0.08, 1.5, dC);
+  ${VAR3} conc = mix(${V3}(0.68, 0.69, 0.69), ${V3}(0.46, 0.48, 0.5), wetC) * (0.95 + 0.1 * nD);
+  conc = mix(conc, ${V3}(0.3, 0.32, 0.34), (1.0 - smoothstep(0.0, 0.07, dC)) * 0.7);
+  col = col * (1.0 - rC) + conc * rC;
+  alpha = alpha * (1.0 - rC) + rC;
+
   // ── BLACKTOP: the tile itself, pushed out in tongues from where it is fed; wet and black new, the road's grey behind ──
   ${LET} fed = 1.0 - across * across * 3.2;
   ${LET} d2 = vFront.z - along - 0.34 + fed * 0.34 + (nA - 0.5) * 0.42 + (nB - 0.5) * 0.14;
@@ -266,8 +277,8 @@ export type GrowCell = {
 };
 export type Grow = {
   mesh: Mesh<Geometry, Shader>;
-  /** The four trades' fronts, cells past this cell's near edge: nought there, one at its far edge. */
-  fronts(f0: number, f1: number, f2: number, f3: number, time: number): void;
+  /** The four trades' fronts, cells past this cell's near edge: nought there, one at its far edge; and the concrete's, which follows the stone. */
+  fronts(f0: number, f1: number, f2: number, f3: number, concrete: number): void;
   destroy(): void;
 };
 
@@ -315,12 +326,12 @@ export function createGrow(c: GrowCell): Grow {
   let was = "";
   return {
     mesh,
-    fronts(f0, f1, f2, f3, time) {
+    fronts(f0, f1, f2, f3, concrete) {
       // Written only when a front has moved: a cell long finished, or not yet begun, costs nothing.
-      const key = `${f0.toFixed(3)},${f1.toFixed(3)},${f2.toFixed(3)},${f3.toFixed(3)}`;
+      const key = `${f0.toFixed(3)},${f1.toFixed(3)},${f2.toFixed(3)},${f3.toFixed(3)},${concrete.toFixed(3)}`;
       if (key === was) return;
       was = key;
-      for (let k = 0; k < 4; k++) { const o = k * WORDS; data[o + 8] = f0; data[o + 9] = f1; data[o + 10] = f2; data[o + 11] = f3; data[o + 16] = time; }
+      for (let k = 0; k < 4; k++) { const o = k * WORDS; data[o + 8] = f0; data[o + 9] = f1; data[o + 10] = f2; data[o + 11] = f3; data[o + 16] = concrete; }
       vertices.update();
     },
     destroy() { mesh.parent?.removeChild(mesh); mesh.destroy(); geometry.destroy(true); },
