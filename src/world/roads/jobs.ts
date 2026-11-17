@@ -35,8 +35,20 @@ export type RoadJob = {
   opened: number;
   /** Where a length may end: cell counts, rising, the last its whole length. @see lengthsOf */
   lengths: number[];
-  /** What was paid for it, a tile: given back for what is cancelled unbuilt. */
-  paidATile: number;
+  /**
+   * ITS MATERIALS, as a project's: loads arrived and loads needed, and what
+   * they cost in all — each paid for as it is sent, none of it at the order.
+   * The work runs only as far as the loads on site allow. @see TILES_PER_LOAD
+   */
+  delivered: number;
+  deliveries: number;
+  cost: number;
+  /** Loads on their way that no lorry carries: seconds each has left. A job no road reaches is supplied so. @see OVERLAND */
+  overland: number[];
+  /** Seconds it has stood for want of a load it could not pay for; nought while it works. */
+  stalled: number;
+  /** When it was last worked, ms since the epoch — for the time away. */
+  at: number;
 };
 
 /** Seconds before a gang is on a job it has been given. */
@@ -49,6 +61,10 @@ export const DECK_PACE = 3, DIG_PACE = 0.5;
 export const GAP = 2;
 /** How many tiles of a job open at once, about. */
 export const LENGTH = 4;
+/** Tiles of road a load of materials makes. */
+export const TILES_PER_LOAD = 4;
+/** Seconds a load takes to a job no road reaches: brought across country, unseen. */
+export const OVERLAND = 12;
 /** How many jobs are worked at once: the rest wait their turn, staked out. */
 export const GANGS = 3;
 /** The trades, in the order they pass. A cell's stage is how many have: 0 staked, 4 lined and ready to open. */
@@ -69,6 +85,27 @@ export function frontOf(j: RoadJob, trade: number): number {
 }
 /** How many trades have passed a cell of a job. */
 export const stageOf = (j: RoadJob, k: number) => { let s = 0; while (s < TRADES && frontOf(j, s) > k) s++; return s; };
+/** New tiles in a job, of its first `upTo` cells. */
+export const freshIn = (j: Pick<RoadJob, "cells">, upTo = j.cells.length) => { let n = 0; for (let k = 0; k < upTo; k++) if (j.cells[k].fresh) n++; return n; };
+/** How many loads a job of so many new tiles needs. */
+export const loadsFor = (tiles: number) => Math.ceil(tiles / TILES_PER_LOAD);
+/** What one of a job's loads costs. */
+export const loadPrice = (j: Pick<RoadJob, "cost" | "deliveries">) => (j.deliveries ? j.cost / j.deliveries : 0);
+/**
+ * HOW LONG A JOB MAY BE WORKED on the materials it has: the moment the
+ * sub-base — the first trade that lays anything — comes to the first tile
+ * there is no load for. Without end once every load is in.
+ */
+export function materialTime(j: RoadJob): number {
+  if (j.delivered >= j.deliveries) return Infinity;
+  let t = ARRIVE + GAP * PACE, have = j.delivered * TILES_PER_LOAD;
+  for (const c of j.cells) { if (c.fresh && have-- <= 0) break; t += cellTime(c); }
+  return t;
+}
+/** Tiles' worth of materials on site that the sub-base has not come to yet. */
+export const onHand = (j: RoadJob) => j.delivered * TILES_PER_LOAD - freshIn(j, frontOf(j, 1));
+/** Whether a job should send for its next load: one not yet in, less than a load on hand, and none on its way — `onWay`, by road or across country. */
+export const wantsLoad = (j: RoadJob, onWay: number) => j.delivered + onWay < j.deliveries && onWay === 0 && onHand(j) < TILES_PER_LOAD;
 /** How long a job takes in all, seconds. */
 export const jobSeconds = (j: Pick<RoadJob, "cells">) => ARRIVE + (TRADES - 1) * GAP * PACE + j.cells.reduce((n, c) => n + cellTime(c), 0);
 
@@ -170,7 +207,9 @@ export function orderRoad(g: Grid, path: readonly GradeCell[]): Ordered {
     levelled.push({ x: m.x, y: m.y, to: m.to, from: g.height[i], at });
   }
   if (!cells.some((c) => c.fresh) && !levelled.length && !cells.some((c) => !c.deck && c.z !== g.height[idx(g, c.x, c.y)])) return { nothing: true };
-  return { job: { id: g.nextRoadJob, cells, levelled, t: 0, dug: 0, opened: 0, lengths: lengthsOf(cells), paidATile: 0 }, retarget };
+  const job: RoadJob = { id: g.nextRoadJob, cells, levelled, t: 0, dug: 0, opened: 0, lengths: lengthsOf(cells), delivered: 0, deliveries: 0, cost: 0, overland: [], stalled: 0, at: 0 };
+  job.deliveries = loadsFor(freshIn(job));
+  return { job, retarget };
 }
 
 /** What a step of the works writes to the map. */
@@ -193,7 +232,10 @@ export function stepRoadJobs(g: Grid, dt: number): { writes: RoadWrites; changed
   let changed = false;
   for (const j of g.roadJobs.slice(0, GANGS)) {
     const before = [0, 1, 2, 3].map((s) => frontOf(j, s));
-    j.t += dt;
+    // LOADS ACROSS COUNTRY, arriving.
+    for (let k = j.overland.length - 1; k >= 0; k--) if ((j.overland[k] -= dt) <= 0) { j.overland.splice(k, 1); j.delivered = Math.min(j.deliveries, j.delivered + 1); changed = true; }
+    // As far as the materials on site allow, and no further.
+    j.t = Math.max(j.t, Math.min(j.t + dt, materialTime(j)));
     const after = [0, 1, 2, 3].map((s) => frontOf(j, s));
     if (after.some((v, s) => v !== before[s])) changed = true;
     // EARTHWORKS: the ground under a cell goes to its level as they pass it.
@@ -233,7 +275,7 @@ export function stepRoadJobs(g: Grid, dt: number): { writes: RoadWrites; changed
  * stays road; what is not is taken up, its ground put back as it was. The
  * jobs ordered after it are graded again on the map without it, and one that
  * no longer can be built is cancelled with it. What to write, and how many
- * tiles were cancelled unbuilt, job by job, for whoever paid for them.
+ * tiles were cancelled unbuilt, job by job. Loads already paid for are not given back.
  */
 export function cancelRoadJobs(g: Grid, hit: ReadonlySet<number>): { writes: RoadWrites; cancelled: { job: RoadJob; tiles: number }[] } {
   const writes = noWrites(), cancelled: { job: RoadJob; tiles: number }[] = [];

@@ -105,6 +105,8 @@ export function foundPlayedProjects(): void {
   useWorldStore.getState().settleHousing(owned, useSessionStore.getState().remoteBeds ?? {});
   const opened = catchUpWorks(useWorldStore.getState().grid, owned, payForLoad, Date.now());
   if (opened.length) announceOpened(opened);
+  // And the roads being built. @see roads/jobs
+  useWorldStore.getState().catchUpRoadWorks(Date.now());
   // WHAT THE BUILDINGS STANDING HAVE OPENED, had: a save from before projects opened them. @see grantFeatures
   for (const id of builtProjects(useWorldStore.getState().grid)) useInnovationStore.getState().grantFeatures(projectDef(id)?.grants);
 }

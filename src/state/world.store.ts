@@ -75,7 +75,9 @@ import {
   type BrushId, type Stroke, type ToolId,
 } from "../world/edit/tools";
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
-import { cancelRoadJobs, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
+import { GANGS, cancelRoadJobs, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
+import { stepRoadLoads } from "../world/roads/job-loads";
+import { payForLoad } from "../world/projects/economy";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
@@ -449,8 +451,13 @@ type WorldState = {
   setRoadWorks: (on: boolean) => void;
   /** Bumped when a road job is ordered, a trade passes a cell, a length opens, a job is cancelled. */
   roadRev: number;
-  /** A frame of the road works. @see stepRoadJobs */
-  stepRoadWorks: (dt: number) => void;
+  /**
+   * A frame of the road works: loads sent for and paid, the trades moved on, lengths opened. `haul`, the roads and
+   * the town its lorries drive through; without them every load arrives at once. @see stepRoadJobs, stepRoadLoads
+   */
+  stepRoadWorks: (dt: number, haul?: { net: Network; town: Town }, now?: number) => void;
+  /** The road works caught up on the time the game was shut, as far as the money ran. @see catchUpWorks */
+  catchUpRoadWorks: (now: number, maxSeconds?: number) => void;
   /** Terrain palette index the paint tool writes. */
   material: number;
   /**
@@ -839,12 +846,24 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   roadWorks: false,
   setRoadWorks: (roadWorks) => set({ roadWorks }),
   roadRev: 0,
-  stepRoadWorks: (dt) => {
+  stepRoadWorks: (dt, haul, now = Date.now()) => {
     const g = get().grid;
     if (!g.roadJobs.length) return;
+    const loads = stepRoadLoads(g, get().playing ? payForLoad : () => true, dt, haul);
     const { writes, changed } = stepRoadJobs(g, dt);
+    for (const j of g.roadJobs) j.at = now;
     applyRoadWrites(writes);
-    if (changed) set({ roadRev: get().roadRev + 1 });
+    if (changed || loads) set({ roadRev: get().roadRev + 1 });
+  },
+  catchUpRoadWorks: (now, maxSeconds = 2 * 24 * 3600) => {
+    const g = get().grid;
+    // As if worked throughout: a second at a time, every load arriving as it is paid for, until the time away
+    // is used or nothing is left to build. A job that cannot pay stands, as it would have.
+    let away = Math.min(maxSeconds, Math.max(0, ...g.roadJobs.map((j) => (now - j.at) / 1000)));
+    for (; away > 0 && g.roadJobs.length; away--) {
+      get().stepRoadWorks(Math.min(1, away), undefined, now);
+      if (g.roadJobs.slice(0, GANGS).every((j) => j.stalled > 0)) break;
+    }
   },
   playing: false,
   setPlaying: (playing) => {
@@ -1314,15 +1333,13 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     let dredged: { x: number; y: number }[] = [];
     // DEMOLISH ON A PIPE OR A ROAD lifts it. @see demolishLifts
     // In the editor a pipe only: Demolish there has never taken up a road.
-    // A ROAD STILL BEING BUILT, under Demolish or the road's eraser: its job is cancelled, what is not open of it
-    // taken up, and what was paid for that given back. @see cancelRoadJobs
+    // A ROAD STILL BEING BUILT, under Demolish or the road's eraser: its job is cancelled and what is not open of it
+    // taken up. The loads it has had are spent. @see cancelRoadJobs
     if ((s0.tool === "demolish" || s0.tool === "eraseRoad") && st.grid.roadJobs.length) {
       const hit = new Set(strokeCells(st.grid, { ...s0, brush: "line" }).map((c) => c.y * st.grid.w + c.x));
       const { writes, cancelled } = cancelRoadJobs(st.grid, hit);
       if (cancelled.length) {
         applyRoadWrites(writes);
-        const back = cancelled.reduce((n, c) => n + c.tiles * c.job.paidATile, 0);
-        if (back > 0) useMoneyStore.getState().increaseMoney(back);
         set({ stroke: null, roadRev: get().roadRev + 1 });
         return;
       }
@@ -1548,15 +1565,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         if ("refused" in got) { set({ stroke: null, notice: { text: got.refused.why, at: Date.now() } }); return; }
         if ("nothing" in got) { set({ stroke: null }); return; }
         const fresh = got.job.cells.filter((c) => c.fresh);
-        // Paid as a road has been: in one sum, new tiles only, the partnership its share. @see roadCost
+        // NOTHING IS PAID AT THE ORDER: its materials are, a load at a time as each is sent — what a road of its
+        // tiles has always cost, in all. The partnership's share of a road in its district comes from its wallet now.
         const share = playerShare(st.grid, fresh.map((c) => ({ x: c.x, y: c.y, w: 1, h: 1 })));
-        const price = roadCost(fresh.length).times(share);
-        if (fresh.length > 0 && !spendForBuild(price)) {
-          set({ stroke: null, notice: { text: `Not enough money for ${fresh.length} tiles of road: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
-          return;
-        }
+        got.job.cost = roadCost(fresh.length).times(share).toNumber();
         if (fresh.length > 0 && share < 1) spendWallet(roadCost(fresh.length).toNumber() * (1 - share));
-        got.job.paidATile = fresh.length ? price.toNumber() / fresh.length : 0;
+        got.job.at = Date.now();
         takeOn(st.grid, got);
         set({ stroke: null, roadRev: get().roadRev + 1 });
         return;

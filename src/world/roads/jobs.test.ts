@@ -9,7 +9,8 @@ import { useMoneyStore } from "../../state/money.store";
 import { useWorldStore } from "../../state/world.store";
 import { generateMap } from "../gen/generate-map";
 import { idx, setHeight, type Grid } from "../grid";
-import { ARRIVE, GANGS, PACE, frontOf, jobSeconds, lengthsOf, plannedGrid, stageOf } from "./jobs";
+import { roadCost } from "../../game/build-cost";
+import { ARRIVE, GANGS, PACE, TILES_PER_LOAD, frontOf, jobSeconds, lengthsOf, loadPrice, plannedGrid, stageOf } from "./jobs";
 import { connects, isPaved } from "./mask";
 import { rampNeed } from "./ramp-derive";
 
@@ -133,16 +134,72 @@ describe("a road ordered in the game", () => {
     } finally { done(); }
   });
 
-  test("cancelled under Delete: what is open of it stays, what is not is taken up, its ground put back, and what was paid for the unbuilt tiles returned", () => {
+  test("is paid for a load at a time: nothing at the order; each load as it is sent, the sum of them what the road has always cost; and the work goes no further than the loads on site", () => {
+    const G = game();
+    try {
+      const money0 = useMoneyStore.getState().money;
+      expect(drag("paintRoad", 10, 20, 29, 20)).toBe("");
+      expect(useMoneyStore.getState().money.eq(money0)).toBe(true);
+      const j = G.roadJobs[0];
+      expect(j.deliveries).toBe(Math.ceil(20 / TILES_PER_LOAD));
+      expect(j.cost).toBeCloseTo(roadCost(20).toNumber(), 6);
+      // A load is sent for at once, and paid for then.
+      s().stepRoadWorks(0.25);
+      expect(money0.minus(useMoneyStore.getState().money).toNumber()).toBeCloseTo(loadPrice(j), 6);
+      run(200);
+      expect(G.roadJobs.length).toBe(0);
+      expect(money0.minus(useMoneyStore.getState().money).toNumber()).toBeCloseTo(roadCost(20).toNumber(), 4);
+    } finally { done(); }
+  });
+
+  test("with no money for the next load it stands, as far as its materials took it, and goes on when there is", () => {
+    const G = game();
+    try {
+      expect(drag("paintRoad", 10, 20, 29, 20)).toBe("");
+      const j = G.roadJobs[0];
+      // Money for two loads and no more.
+      const m = useMoneyStore.getState();
+      m.spendMoney(m.money.minus(loadPrice(j) * 2.5));
+      run(300);
+      expect(G.roadJobs.length).toBe(1);
+      expect(j.delivered).toBe(2);
+      expect(j.stalled).toBeGreaterThan(0);
+      // The sub-base has come to the end of two loads' tiles and stopped; what lined up behind it is open.
+      expect(frontOf(j, 1)).toBe(2 * TILES_PER_LOAD);
+      expect(pavedCount(G)).toBeLessThanOrEqual(2 * TILES_PER_LOAD);
+      expect(pavedCount(G)).toBeGreaterThanOrEqual(TILES_PER_LOAD);
+      const at = pavedCount(G);
+      run(30);
+      expect(pavedCount(G)).toBe(at);
+      useMoneyStore.getState().increaseMoney(1e9);
+      run(200);
+      expect(G.roadJobs.length).toBe(0);
+      expect(pavedCount(G)).toBe(20);
+    } finally { done(); }
+  });
+
+  test("the time away is caught up as if it had been worked throughout: built as far as the money ran", () => {
+    const G = game();
+    try {
+      expect(drag("paintRoad", 10, 20, 29, 20)).toBe("");
+      const j = G.roadJobs[0];
+      s().catchUpRoadWorks(j.at + 10_000);
+      expect(G.roadJobs.length).toBe(1);
+      expect(frontOf(j, 0)).toBeGreaterThan(2);
+      s().catchUpRoadWorks(j.at + 3_600_000);
+      expect(G.roadJobs.length).toBe(0);
+      expect(pavedCount(G)).toBe(20);
+    } finally { done(); }
+  });
+
+  test("cancelled under Delete: what is open of it stays, what is not is taken up and its ground put back; the loads it has had are spent", () => {
     const G = game(48, 48, (g) => { for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) setHeight(g, x, y, x >= 20 && x <= 24 ? 4 : 0); });
     try {
-      const ground = Array.from(G.height), money0 = useMoneyStore.getState().money;
+      const ground = Array.from(G.height);
       expect(drag("paintRoad", 8, 12, 36, 12)).toBe("");
-      const paid = money0.minus(useMoneyStore.getState().money).toNumber();
-      expect(paid).toBeGreaterThan(0);
       const j = G.roadJobs[0];
       run(ARRIVE + PACE * 18);
-      const open = pavedCount(G);
+      const open = pavedCount(G), money = useMoneyStore.getState().money;
       expect(open).toBeGreaterThan(0);
       expect(open).toBeLessThan(29);
       expect(drag("demolish", 34, 12, 34, 12)).toBe("");
@@ -150,8 +207,7 @@ describe("a road ordered in the game", () => {
       expect(pavedCount(G)).toBe(open);
       // The ground under what was never opened is as it was.
       for (const c of j.cells.slice(open)) expect(G.height[idx(G, c.x, c.y)]).toBe(ground[idx(G, c.x, c.y)]);
-      const back = useMoneyStore.getState().money.minus(money0).toNumber() + paid;
-      expect(back).toBeCloseTo((paid * (29 - open)) / 29, 4);
+      expect(useMoneyStore.getState().money.eq(money)).toBe(true);
       expect([...faults(G)]).toEqual([]);
     } finally { done(); }
   });
