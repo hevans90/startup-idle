@@ -9,20 +9,24 @@ import { growSources } from "./road-grow";
 import { onRound } from "./road-plant";
 
 describe("a pour", () => {
-  test("its quad runs from the lip to past the landing, as wide as its heap, and carries what it is told on every corner", () => {
-    const v = new Float32Array(4 * 18);
-    pourVerts(v, [10, 20], [16, 80], 4, 1.2, { time: 3, kind: POUR.tar, head: 0.7, tail: 0.1, pile: 0.5, lit: 0xff8000, shade: 0x102030 });
-    // The lip: either side of where it leaves, at its height, the top of the fall.
-    expect([v[0], v[1], v[2], v[3]]).toEqual([10 - 4 * 2.6, 20, -1, 0].map(Math.fround));
-    expect(v[18 + 2]).toBe(1);
-    // The foot: past the landing along the same line, for the heap.
-    expect(v[2 * 18 + 3]).toBeGreaterThan(1);
-    expect(v[2 * 18 + 1]).toBeGreaterThan(80);
+  test("its quad is a box on the screen round the fall, its skirt and its heap, each corner knowing where it is from the lip and carrying what it is told", () => {
+    const v = new Float32Array(4 * 20);
+    pourVerts(v, [10, 20], [16, 80], 4, 1.2, 6, { time: 3, kind: POUR.tar, head: 0.7, tail: 0.1, pile: 0.5, lit: 0xff8000, shade: 0x102030 });
+    // Wide enough either side for what flies off it; from just over the lip to under the landing.
+    expect(v[0]).toBeLessThan(10 - 4 * 4);
+    expect(v[20]).toBeGreaterThan(16 + 4 * 4);
+    expect(v[1]).toBeLessThanOrEqual(20);
+    expect(v[2 * 20 + 1]).toBeGreaterThan(80);
     for (let k = 0; k < 4; k++) {
-      const o = k * 18;
-      expect([v[o + 4], v[o + 5], v[o + 6], v[o + 7], v[o + 9]]).toEqual([3, 2, 0.7, 0.1, 0.5].map(Math.fround));
-      expect(v[o + 12]).toBeCloseTo(1, 5);
-      expect(v[o + 17]).toBeCloseTo(0x30 / 255, 5);
+      const o = k * 20;
+      // From the lip, pixels: its place less the lip's.
+      expect(v[o + 2]).toBeCloseTo(v[o] - 10, 5);
+      expect(v[o + 3]).toBeCloseTo(v[o + 1] - 20, 5);
+      expect([v[o + 4], v[o + 5], v[o + 6], v[o + 7]]).toEqual([3, 2, 0.7, 0.1].map(Math.fround));
+      // Six across to where it lands, its heap, sixty down, four half across; its taper and a metre.
+      expect([v[o + 8], v[o + 9], v[o + 10], v[o + 11], v[o + 12], v[o + 13]]).toEqual([6, 0.5, 60, 4, 1.2, 6].map(Math.fround));
+      expect(v[o + 14]).toBeCloseTo(1, 5);
+      expect(v[o + 19]).toBeCloseTo(0x30 / 255, 5);
     }
   });
 

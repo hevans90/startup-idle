@@ -264,6 +264,8 @@ export function modelTris(m: Model): Tri[] {
   for (const s of m.slabs) slabTris(s, out);
   for (const d of m.discs ?? []) discTris(d, out);
   for (const wh of m.wheels) wheelTris(wh.l, wh.w, wh.r, wh.width, wh.rim ?? "spokes", out);
+  // What a model has that is not square to it: a tipped body, a jointed arm. @see Model.extra
+  if (m.extra) out.push(...m.extra());
   return out;
 }
 

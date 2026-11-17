@@ -89,7 +89,14 @@ export type Model = {
   wheels: Wheel[];
   hulls?: Hull[];
   discs?: Disc[];
+  /**
+   * WHAT OF IT IS NOT SQUARE TO IT, as triangles of its own, metres (along, to its left, up): a body tipped on its
+   * hinge, an arm of jointed lengths. Slabs lie along the vehicle; these lie as they are. @see plant below
+   */
+  extra?: () => { p: [P3, P3, P3]; mat: Mat; n: P3 }[];
 };
+/** A point of a model: along it, to its left, up — metres. */
+export type P3 = [number, number, number];
 
 /** Tiles to a metre: a 4.3 m car is 0.39 tiles, as the old box car was. */
 export const TILES_PER_M = 0.09;
@@ -780,10 +787,47 @@ const roller: Model = {
     { l0: 0.3, l1: 0.1, w: 0.1, z0: 2.84, z1: 3.0, mat: "indicator" },
   ],
 };
+// ── free geometry: what a slab cannot be ────────────────────────────────────────────────────
+type FreeTri = { p: [P3, P3, P3]; mat: Mat; n: P3 };
+/** A flat face, its normal turned away from `inside`. */
+function freeFace(pts: P3[], mat: Mat, inside: P3, out: FreeTri[]) {
+  const a = pts[0], b = pts[1], c = pts[2];
+  let n: P3 = [(b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]), (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]), (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])];
+  const len = Math.hypot(...n) || 1;
+  n = [n[0] / len, n[1] / len, n[2] / len];
+  const mid = pts.reduce((m, q) => [m[0] + q[0] / pts.length, m[1] + q[1] / pts.length, m[2] + q[2] / pts.length] as P3, [0, 0, 0] as P3);
+  if (n[0] * (mid[0] - inside[0]) + n[1] * (mid[1] - inside[1]) + n[2] * (mid[2] - inside[2]) < 0) n = [-n[0], -n[1], -n[2]];
+  for (let k = 1; k + 1 < pts.length; k++) out.push({ p: [pts[0], pts[k], pts[k + 1]], mat, n });
+}
+/** A shape drawn in the plane along the machine — points (along, up), in order round it — and as thick as `w` across, about `y`: its two sides and its rim. `open`, a stretch of its rim left out: a bucket's mouth. */
+function prism(profile: [number, number][], y: number, w: number, mat: Mat, out: FreeTri[], rim: Mat = mat, open = -1) {
+  const n = profile.length, mid: P3 = [profile.reduce((a, q) => a + q[0], 0) / n, y, profile.reduce((a, q) => a + q[1], 0) / n];
+  for (const sg of [-1, 1]) freeFace(profile.map(([l, z]) => [l, y + sg * w / 2, z] as P3), mat, mid, out);
+  for (let k = 0; k < n; k++) {
+    if (k === open) continue;
+    const [l0, z0] = profile[k], [l1, z1] = profile[(k + 1) % n];
+    freeFace([[l0, y - w / 2, z0], [l1, y - w / 2, z1], [l1, y + w / 2, z1], [l0, y + w / 2, z0]], rim, mid, out);
+  }
+}
+/** A straight length in that plane from one point to another, `t0` deep at its first end and `t1` at its second, `w` across: an arm, a ram. */
+function beam(a: [number, number], b: [number, number], t0: number, t1: number, w: number, y: number, mat: Mat, out: FreeTri[], rim: Mat = mat) {
+  const dl = b[0] - a[0], dz = b[1] - a[1], len = Math.hypot(dl, dz) || 1, nl = -dz / len, nz = dl / len;
+  prism([[a[0] + nl * t0 / 2, a[1] + nz * t0 / 2], [b[0] + nl * t1 / 2, b[1] + nz * t1 / 2], [b[0] - nl * t1 / 2, b[1] - nz * t1 / 2], [a[0] - nl * t0 / 2, a[1] - nz * t0 / 2]], y, w, mat, out, rim);
+}
+/** A hydraulic ram between two points: a dark barrel for the half nearer its first, a bright rod beyond. */
+function ram(a: [number, number], b: [number, number], y: number, out: FreeTri[], fat = 0.2) {
+  const m: [number, number] = [a[0] + (b[0] - a[0]) * 0.55, a[1] + (b[1] - a[1]) * 0.55];
+  beam(a, m, fat, fat, fat, y, "trim", out);
+  beam(m, b, fat * 0.5, fat * 0.5, fat * 0.5, y, "chrome", out);
+}
+/** A pin at a joint, across the arm: a short dark cylinder as a square. */
+const pin = (at: [number, number], y: number, w: number, out: FreeTri[], r = 0.13) =>
+  prism([[at[0] - r, at[1] - r], [at[0] + r, at[1] - r], [at[0] + r, at[1] + r], [at[0] - r, at[1] + r]], y, w, "trim", out);
+
 /**
  * AN EXCAVATOR, IN TWO: its tracks, which stand as the machine stands; and its house — engine, counterweight, cab,
  * boom, dipper and bucket — which slews on them, drawn over them at whatever heading it has swung to. The house in
- * three poses of its arm: reached out and down, digging; curled and lifted, carrying; lifted and thrown out, tipping.
+ * poses of its arm, each the same arm at other angles: jointed lengths, pinned, with their rams.
  */
 const exTracks: Model = {
   id: "exTracks", length: 3.9, width: 2.7, wheels: [],
@@ -793,48 +837,103 @@ const exTracks: Model = {
     { l0: 1.2, l1: -1.2, w: 0.75, z0: 0.35, z1: 0.92, mat: "trim" },
   ],
 };
-/** The house, about the slewing ring at its middle: `arm`, the boom and what hangs from it. */
-const exHouse = (id: string, arm: Slab[]): Model => ({
+/** Where the boom is pinned to the house, and how far to the cab's side of the middle the arm is. */
+const BOOM_FOOT: [number, number] = [0.95, 1.55], ARM_Y = -0.3;
+/**
+ * THE ARM, in a pose: the boom from its foot to `tip`, cranked upward at its knee; the dipper from past the
+ * boom's tip down to the bucket's pin at `pivot`; the bucket turned to `bite` — the way from its pin to its teeth,
+ * radians up from straight ahead — full of earth if `full`; and the three rams that hold it so.
+ */
+function arm(tip: [number, number], pivot: [number, number], bite: number, full: boolean): FreeTri[] {
+  const out: FreeTri[] = [], F = BOOM_FOOT, y = ARM_Y;
+  // THE BOOM: two lengths meeting at a knee set above the straight line, deepest there.
+  const bl = Math.hypot(tip[0] - F[0], tip[1] - F[1]), bn: [number, number] = [-(tip[1] - F[1]) / bl, (tip[0] - F[0]) / bl];
+  const knee: [number, number] = [F[0] + (tip[0] - F[0]) * 0.52 + bn[0] * 0.62, F[1] + (tip[1] - F[1]) * 0.52 + bn[1] * 0.62];
+  beam(F, knee, 0.42, 0.62, 0.4, y, "paint", out);
+  beam(knee, tip, 0.62, 0.34, 0.4, y, "paint", out);
+  // THE DIPPER: from a little past the boom's tip — where its ram pulls — to the bucket's pin.
+  const dl = Math.hypot(pivot[0] - tip[0], pivot[1] - tip[1]), du: [number, number] = [(pivot[0] - tip[0]) / dl, (pivot[1] - tip[1]) / dl];
+  const heel: [number, number] = [tip[0] - du[0] * 0.6, tip[1] - du[1] * 0.6];
+  beam(heel, pivot, 0.4, 0.26, 0.32, y, "paint", out);
+  // THE BUCKET: a scoop — its back, its belly, its lip to the teeth — open at the mouth; teeth along its lip.
+  const u: [number, number] = [Math.cos(bite), Math.sin(bite)], v: [number, number] = [-u[1], u[0]];
+  const at = (a: number, b: number): [number, number] => [pivot[0] + u[0] * a + v[0] * b, pivot[1] + u[1] * a + v[1] * b];
+  prism([at(0, 0), at(0.1, 0.5), at(0.5, 0.82), at(0.95, 0.62), at(1.2, 0.02)], y, 1.0, "trim", out, "trim", 4);
+  for (const ty of [-0.36, -0.12, 0.12, 0.36]) prism([at(1.12, 0.1), at(1.42, -0.04), at(1.16, -0.04)], y + ty, 0.1, "chrome", out);
+  if (full) prism([at(0.08, 0.06), at(0.3, -0.22), at(0.8, -0.26), at(1.1, 0.06), at(0.6, 0.35)], y, 0.9, "load", out);
+  // THE RAMS: under the boom from the house; along the boom's back to the dipper's heel; down the dipper to the bucket.
+  for (const sy of [-0.3, 0.3]) ram([1.75, 1.3], [F[0] + (knee[0] - F[0]) * 0.75, F[1] + (knee[1] - F[1]) * 0.75 - 0.2], y + sy, out, 0.18);
+  ram([knee[0] + bn[0] * 0.38, knee[1] + bn[1] * 0.38], heel, y, out, 0.2);
+  const mid: [number, number] = [heel[0] + du[0] * dl * 0.35 - du[1] * 0.3, heel[1] + du[1] * dl * 0.35 + du[0] * 0.3];
+  ram(mid, at(0.12, 0.3), y, out, 0.16);
+  pin(F, y, 0.6, out); pin(tip, y, 0.5, out); pin(pivot, y, 0.45, out);
+  return out;
+}
+/** The house, about the slewing ring at its middle, with its arm in a pose. */
+const exHouse = (id: string, pose: () => FreeTri[]): Model => ({
   id, length: 7.4, width: 2.7, wheels: [],
   slabs: [
     { l0: 1.0, l1: -1.9, w: 1.25, z0: 0.95, z1: 2.1, mat: "paint" },
     { l0: -1.9, l1: -2.4, w: 1.2, z0: 1.0, z1: 2.0, inB: 0.2, mat: "trim" },
     { l0: -0.6, l1: -1.7, w: 0.5, wc: -0.5, z0: 2.1, z1: 2.3, mat: "grille" },
+    { l0: -1.75, l1: -1.85, w: 0.08, wc: -0.95, z0: 2.1, z1: 2.75, mat: "trim" },
     { l0: 1.5, l1: 0.1, w: 0.48, wc: 0.72, z0: 0.95, z1: 2.75, mat: "glass" },
     { l0: 1.55, l1: 0.05, w: 0.52, wc: 0.72, z0: 2.75, z1: 2.85, mat: "paint" },
     { l0: 1.55, l1: 0.05, w: 0.52, wc: 0.72, z0: 0.95, z1: 1.45, mat: "paint" },
-    ...arm,
+    // Lugs for the boom's foot.
+    ...[1, -1].map((sg): Slab => ({ l0: 1.25, l1: 0.65, w: 0.06, wc: ARM_Y + sg * 0.27, z0: 0.95, z1: 1.8, mat: "paint" })),
   ],
+  extra: pose,
 });
-const B = (l0: number, l1: number, z0: number, z1: number, mat: Mat = "paint", w = 0.2, extra: Partial<Slab> = {}): Slab => ({ l0, l1, w, wc: -0.25, z0, z1, mat, ...extra });
-/** Digging: the boom out low, the dipper down ahead of it, the bucket in the ground. */
-const exDig = exHouse("exDig", [
-  B(2.0, 0.8, 1.6, 2.7, "paint", 0.2, { inF: 0.3 }), B(3.2, 1.8, 2.3, 3.2, "paint", 0.2, { inB: 0.3, inF: 0.3 }), B(4.3, 3.0, 2.4, 3.1, "paint", 0.2, { inB: 0.3 }),
-  B(4.75, 4.3, 0.9, 2.9, "paint", 0.16), B(4.25, 4.0, 1.8, 2.9, "chrome", 0.06),
-  B(5.0, 4.0, -0.1, 0.9, "trim", 0.5, { inB: 0.3 }),
-]);
-/** Carrying: the boom up, the dipper drawn in under it, the bucket curled full at the house's shoulder. */
-const exLift = exHouse("exLift", [
-  B(1.8, 0.8, 1.6, 3.2, "paint", 0.2, { inF: 0.3 }), B(2.6, 1.5, 3.0, 4.3, "paint", 0.2, { inB: 0.3, inF: 0.3 }), B(3.2, 2.3, 4.0, 4.8, "paint", 0.2, { inB: 0.3 }),
-  B(3.3, 2.85, 2.2, 4.5, "paint", 0.16), B(2.85, 2.6, 3.1, 4.4, "chrome", 0.06),
-  B(3.45, 2.5, 1.4, 2.3, "trim", 0.5, { inF: 0.2 }), B(3.35, 2.6, 2.3, 2.5, "load", 0.42),
-]);
-/** Tipping: the boom up, the dipper thrown out, the bucket open over what it tips onto. */
-const exDump = exHouse("exDump", [
-  B(1.8, 0.8, 1.6, 3.2, "paint", 0.2, { inF: 0.3 }), B(2.8, 1.5, 3.0, 4.2, "paint", 0.2, { inB: 0.3, inF: 0.3 }), B(3.9, 2.5, 3.8, 4.6, "paint", 0.2, { inB: 0.3 }),
-  B(4.5, 3.9, 2.6, 4.4, "paint", 0.16, { inF: 0.2 }), B(3.9, 3.65, 3.2, 4.3, "chrome", 0.06),
-  B(4.9, 4.0, 1.9, 2.7, "trim", 0.5, { inB: 0.35 }),
-]);
-/** A tipper with its body up, tipping: the body in steps rising to the cab, its tailgate swung open, the last of its load sliding out. */
-const tipperUp = lorry("tipperUp", 6.6, 2.4, 1.9, [
-  ...[0, 1, 2, 3].map((k): Slab => ({ l0: 1.3 - k * 1.15, l1: 1.3 - (k + 1) * 1.15, w: 1.18, z0: 2.5 - k * 0.42, z1: 3.7 - k * 0.42, mat: "paint", faces: { top: "gravel" } })),
-  { l0: 1.55, l1: 1.3, w: 1.1, z0: 3.7, z1: 3.85, mat: "paint" },
-  // The ram under it, and the tailgate hanging open.
-  { l0: 0.6, l1: 0.3, w: 0.12, z0: 1.05, z1: 2.5, mat: "chrome" },
-  { l0: -3.3, l1: -3.4, w: 1.15, z0: 0.6, z1: 1.3, mat: "paint" },
-], [2.25, -1.55, -2.65]);
+const DEG = Math.PI / 180;
+/** Reached out, the bucket's teeth in the ground ahead: the start of a bite. */
+const exDig = exHouse("exDig", () => arm([4.5, 2.5], [5.6, 0.95], -115 * DEG, false));
+/** The bite: the dipper drawn in and the bucket curled through the ground, filling. */
+const exDig2 = exHouse("exDig2", () => arm([4.2, 2.3], [4.3, 0.55], -165 * DEG, true));
+/** Carrying: the boom up, the dipper in, the bucket curled level and full. */
+const exLift = exHouse("exLift", () => arm([3.3, 4.2], [3.2, 2.2], 172 * DEG, true));
+/** Tipping: the boom up, the dipper thrown out, the bucket turned down and empty. */
+const exDump = exHouse("exDump", () => arm([3.9, 4.4], [5.2, 2.9], -95 * DEG, false));
+
+/**
+ * A TIPPER WITH ITS BODY UP by `deg`: the body one rigid box turned on the hinge at its tail — floor, sides,
+ * headboard and the lip over the cab — what is left of its load slid to the tail, its tailgate hung open from its
+ * top edge as gravity hangs it, and the ram under it pushing it up.
+ */
+function tipped(id: string, deg: number): Model {
+  const base = lorry(id, 6.6, 2.4, 1.9, [], [2.25, -1.55, -2.65]);
+  const a = deg * DEG, hinge: [number, number] = [-3.05, 1.08], ca = Math.cos(a), sa = Math.sin(a);
+  /** A point of the body — forward of its hinge, above its floor — on the lorry. */
+  const at = (x: number, z: number): [number, number] => [hinge[0] + x * ca - z * sa, hinge[1] + x * sa + z * ca];
+  const box = (x0: number, x1: number, z0: number, z1: number, y: number, w: number, mat: Mat, out: FreeTri[], rim: Mat = mat) =>
+    prism([at(x0, z0), at(x1, z0), at(x1, z1), at(x0, z1)], y, w, mat, out, rim);
+  return {
+    ...base,
+    extra: () => {
+      const out: FreeTri[] = [];
+      box(0, 4.4, 0, 0.1, 0, 2.36, "paint", out);
+      for (const sg of [-1, 1]) box(0, 4.4, 0.1, 1.25, sg * 1.14, 0.08, "paint", out);
+      box(4.32, 4.4, 0.1, 1.45, 0, 2.36, "paint", out);
+      box(4.4, 4.95, 1.33, 1.45, 0, 2.2, "paint", out);
+      // Ribs down its sides.
+      for (const sg of [-1, 1]) for (const x of [0.9, 1.9, 2.9, 3.9]) box(x - 0.05, x + 0.05, 0.1, 1.25, sg * 1.2, 0.05, "trim", out);
+      // WHAT IS LEFT OF THE LOAD, slid down to the tail: a wedge, deep at the tail, thinning up the floor.
+      prism([at(0.05, 0.1), at(3.0, 0.1), at(1.7, 0.75), at(0.05, 1.0)], 0, 2.2, "gravel", out);
+      // THE TAILGATE, hinged along its top edge and hanging straight down from it.
+      const top = at(0, 1.25);
+      prism([[top[0] - 0.05, top[1]], [top[0] + 0.03, top[1]], [top[0] + 0.03, top[1] - 1.15], [top[0] - 0.05, top[1] - 1.15]], 0, 2.3, "paint", out);
+      // THE RAM under it, from the chassis behind the cab up to the floor.
+      const foot: [number, number] = [0.75, 1.0], head = at(3.7, 0);
+      for (const sg of [-1, 1]) ram(foot, head, sg * 0.28, out, 0.2);
+      // The subframe it lies on when it is down.
+      out.push(...((): FreeTri[] => { const q: FreeTri[] = []; prism([[1.35, 0.95], [-3.1, 0.95], [-3.1, 1.08], [1.35, 1.08]], 0, 1.0, "trim", q); return q; })());
+      return out;
+    },
+  };
+}
+const tipperMid = tipped("tipperMid", 20), tipperUp = tipped("tipperUp", 42);
 /** What builds a road. Never in the traffic. */
-export const PLANT = [paver, roller, exTracks, exDig, exLift, exDump, tipperUp];
+export const PLANT = [paver, roller, exTracks, exDig, exDig2, exLift, exDump, tipperMid, tipperUp];
 
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];

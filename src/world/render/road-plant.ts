@@ -34,6 +34,8 @@ const YELLOW = 0xe9a71b, BLUE = 0x3f6fb0, WHITE = 0xf1f1ee;
 const VESTS = [0xf47b20, 0xc8dc32, 0xf47b20, 0xe8e23a, 0xc8dc32, 0xf47b20], HAT = 0xf5c224, SKIN = 0xd9a47a, LEGS = 0x3a4a63;
 /** Metres to half steps, for what is drawn above the ground; tiles a metre. */
 const M = 1 / 2.268, T = 0.09;
+/** How far to the side of its middle an excavator's arm is, tiles: across, to its left. @see models ARM_Y */
+const ARM = -0.3 * T;
 
 type Unit = { c: Container; under: Graphics; parts: Sprite[]; over: Graphics; keys: string[]; band: number; pours: Pour[]; poured: number };
 /** What pours, lit and in shade: spoil, stone, blacktop. */
@@ -182,7 +184,8 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
           const pour = (u: Unit, h: number, from: [number, number, number], to: [number, number, number], width: number, taper: number, st: Omit<PourState, "time">) => {
             const k = u.poured++;
             if (!u.pours[k]) { u.pours[k] = createPour(); u.c.addChild(u.pours[k].mesh); }
-            u.pours[k].set(off(h, from[0], from[1], from[2]), off(h, to[0], to[1], to[2]), width * T * HW * scale, taper, { ...st, time: w });
+            // (Half across, in pixels; and a metre in pixels, for the size of a grain.)
+            u.pours[k].set(off(h, from[0], from[1], from[2]), off(h, to[0], to[1], to[2]), width * 0.5 * T * HW * scale, taper, T * HW * scale, { ...st, time: w });
           };
           const done = (u: Unit | null) => { if (u) for (let k = u.poured; k < u.pours.length; k++) u.pours[k].hide(); };
           /** Puffs that rise from a point and thin: steam, dust. */
@@ -194,6 +197,12 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
           };
           /** A lorry's body through its turn at tipping: whether it is up, and so whether anything comes off it. */
           const tipping = (phase: number) => { const q = ((w + phase) % TIP_ALL + TIP_ALL) % TIP_ALL; return q > TIP.in && q < TIP.in + TIP.up; };
+          /** The lorry as it is then: body down, half up as it rises and as it comes down, right up between. */
+          const tipLook = (phase: number) => {
+            const q = ((w + phase) % TIP_ALL + TIP_ALL) % TIP_ALL, rise = 0.9;
+            if (still || q < TIP.in - rise || q > TIP.in + TIP.up + rise) return "tipper";
+            return q < TIP.in || q > TIP.in + TIP.up ? "tipperMid" : "tipperUp";
+          };
 
           // ── THE EXCAVATOR, and the lorry it loads ──────────────────────────────────────────
           const digAt = Math.max(0, f[0] - 0.62);
@@ -202,7 +211,8 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             const at = alongJob(g, j, digAt), q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL;
             // Where its turn has got to: what its arm is doing, and how far round its house has slewed.
             let pose = "exDig", slew = 0, tip = false;
-            if (q < DIG.dig) pose = "exDig";
+            // A bite: the bucket set in the ground ahead, then drawn in and curled through it.
+            if (q < DIG.dig) pose = q < DIG.dig * 0.45 ? "exDig" : "exDig2";
             else if (q < DIG.dig + DIG.lift) pose = "exLift";
             else if (q < DIG.dig + DIG.lift + DIG.out) { pose = "exLift"; slew = (q - DIG.dig - DIG.lift) / DIG.out; }
             else if (q < DIG.dig + DIG.lift + DIG.out + DIG.tip) { pose = "exDump"; slew = 1; tip = true; }
@@ -211,35 +221,36 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             const turn = Math.PI * (slew * slew * (3 - 2 * slew)), hh = at.heading + turn;
             const u = place("digger", at, [{ look: "exTracks", tint: YELLOW }, { look: pose, tint: YELLOW, heading: hh }]);
             if (u && !still) {
-              // Dust where the bucket bites, and earth thrown up off its teeth as it crowds in.
+              // Dust where the bucket bites, and earth breaking over its lip as it is drawn in.
               if (q < DIG.dig) {
-                puffs(u.over, hh, 4.5 * T, -0.02, 0.3, 0xa98660, 4, 0.12, 16, 0.4);
-                const bite = (q % 1.6) / 1.6;
-                pour(u, hh, [4.75 * T, -0.02, 0.15], [4.1 * T, -0.02, 0.55 + 0.3 * bite], 0.55, 1.5, { ...EARTH, head: Math.min(1, bite * 2.2), tail: Math.max(0, bite * 2.2 - 1.1), pile: 0 });
+                const in2 = q >= DIG.dig * 0.45;
+                puffs(u.over, hh, (in2 ? 4.6 : 5.6) * T, ARM, 0.3, 0xa98660, 4, 0.12, 16, 0.4);
+                if (in2) pour(u, hh, [4.4 * T, ARM, 0.85], [4.7 * T, ARM, 0.05], 0.8, 1.3, { ...EARTH, head: 1, tail: 0, pile: 0.3 });
               } else if (q < DIG.dig + DIG.lift + DIG.out) {
                 // A full bucket sheds as it is lifted and swung: a thin fall off its lip.
-                pour(u, hh, [3.0 * T, -0.02, 1.5], [3.0 * T, -0.02, 0.1], 0.2, 1.4, { ...EARTH, head: 1, tail: 0, pile: 0 });
+                pour(u, hh, [3.3 * T, ARM, 1.9], [3.3 * T, ARM, 0.1], 0.28, 1.3, { ...EARTH, head: 1, tail: 0, pile: 0 });
               }
               // TIPPED: the bucketful down into the lorry's body, heaping there — higher each bucket till the lorry is full.
               if (tip) {
                 const into = (q - DIG.dig - DIG.lift - DIG.out) / DIG.tip, load = (Math.floor(w / DIG_ALL) % 4 + into) / 4;
-                pour(u, hh, [4.45 * T, -0.02, 2.0], [4.45 * T, -0.02, 1.15], 1.1, 0.9, { ...EARTH, head: Math.min(1, into * 4), tail: Math.max(0, into * 3 - 2), pile: 0.35 + 0.65 * load });
+                pour(u, hh, [5.25 * T, ARM, 2.45], [5.25 * T, ARM, 1.35], 1.2, 0.9, { ...EARTH, head: Math.min(1, into * 4), tail: Math.max(0, into * 3 - 2), pile: 0.3 + 0.7 * load });
               }
             }
             done(u);
             // The lorry it loads, stood on what is already dug behind it.
-            if (digAt > 1.5) place("spoil", alongJob(g, j, digAt - 1.02), [{ look: "tipper", tint: BLUE }]);
+            // (Backed up to it, tail first: its body under where the bucket swings round to.)
+            if (digAt > 1.3) { const la = alongJob(g, j, digAt - 0.68); place("spoil", la, [{ look: "tipper", tint: BLUE, heading: la.heading + Math.PI }]); }
           }
 
           // ── STONE: a lorry tipping as it creeps, a roller over it behind ───────────────────
           const basing = j.tm > ARRIVE + GAP * PACE && f[1] < n && f[1] > 0.05;
           if (basing && f[1] + 0.75 < f[0] - 1.9) {
             const at = alongJob(g, j, f[1] + 0.42), up = tipping(4) && !still;
-            const u = place("stone", at, [{ look: up ? "tipperUp" : "tipper", tint: BLUE }]);
+            const u = place("stone", at, [{ look: tipLook(4), tint: BLUE }]);
             if (u && !still) {
               // STONE sliding off the body's tail to the ground behind, a windrow heaping under it; dust off where it lands.
               const q = ((w + 4) % TIP_ALL + TIP_ALL) % TIP_ALL, on = (q - TIP.in) / TIP.up;
-              if (up) { pour(u, at.heading, [-3.35 * T, 0, 1.45], [-4.5 * T, 0, 0.05], 1.5, 1.3, { ...STONE, head: Math.min(1, on * 10), tail: Math.max(0, on * 10 - 9), pile: Math.min(1, 0.25 + on) }); puffs(u.over, at.heading, -4.6 * T, 0, 0.25, 0xc4bfb5, 3, 0.25, 14, 0.3); }
+              if (up) { pour(u, at.heading, [-3.15 * T, 0, 1.1], [-4.0 * T, 0, 0.05], 1.7, 1.25, { ...STONE, head: Math.min(1, on * 10), tail: Math.max(0, on * 10 - 9), pile: Math.min(1, 0.25 + on) }); puffs(u.over, at.heading, -4.1 * T, 0, 0.25, 0xc4bfb5, 3, 0.25, 14, 0.3); }
             }
             done(u);
           }
@@ -254,15 +265,15 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               // Steam off the mat behind the screed, the width of it. (The mat itself is the road's own, growing. @see road-grow)
               if (!still) puffs(u.over, at.heading, -0.5, 0, 0.2, 0xffffff, 6, 0.5, 30, 0.24);
             }
-            if (f[2] + 1.05 < n - 0.15) {
-              const up = tipping(0) && !still, la = alongJob(g, j, f[2] + 1.02);
-              const l = place("feed", la, [{ look: up ? "tipperUp" : "tipper", tint: BLUE }]);
+            if (f[2] + 0.8 < n - 0.15) {
+              const up = tipping(0) && !still, la = alongJob(g, j, f[2] + 0.72);
+              const l = place("feed", la, [{ look: tipLook(0), tint: BLUE }]);
               // BLACKTOP off its tail into the hopper, and the heat off it.
               if (l && up) {
                 // BLACKTOP off its tail into the hopper: one thick wet rope of it, folding where it lands, and the heat off it.
                 const q = ((w % TIP_ALL) + TIP_ALL) % TIP_ALL, on = (q - TIP.in) / TIP.up;
-                pour(l, la.heading, [-3.35 * T, 0, 1.5], [-4.85 * T, 0, 0.75], 1.3, 0.6, { ...TAR, head: Math.min(1, on * 10), tail: Math.max(0, on * 10 - 9), pile: Math.min(1, 0.3 + on * 0.7) });
-                puffs(l.over, la.heading, -4.8 * T, 0, 0.9, 0xffffff, 4, 0.3, 20, 0.22);
+                pour(l, la.heading, [-3.15 * T, 0, 1.15], [-4.2 * T, 0, 0.8], 1.8, 0.8, { ...TAR, head: Math.min(1, on * 10), tail: Math.max(0, on * 10 - 9), pile: 0.3 + 0.2 * Math.sin(w * 1.3) * Math.sin(w * 1.3) });
+                puffs(l.over, la.heading, -4.2 * T, 0, 1.0, 0xffffff, 4, 0.3, 20, 0.22);
               }
               done(l);
             }
