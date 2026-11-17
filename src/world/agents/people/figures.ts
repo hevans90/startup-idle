@@ -21,7 +21,7 @@ export type Figure = {
   build: number;
   lower: "trousers" | "shorts" | "skirt";
   sleeves: "long" | "short";
-  hair: "short" | "long" | "bun" | "ponytail" | "curly" | "bald" | "hardhat";
+  hair: "short" | "long" | "bun" | "ponytail" | "curly" | "bald" | "hardhat" | "cap" | "helmet";
   carry?: "backpack" | "bag";
   /** A builder's hi-vis over the top. */
   hivis?: boolean;
@@ -44,6 +44,12 @@ export const FIGURES: readonly Figure[] = [
   { id: "skirtLong", build: 0.9, lower: "skirt", sleeves: "long", hair: "bun", fem: true },
   { id: "slim", build: 0.88, lower: "trousers", sleeves: "short", hair: "ponytail", carry: "bag", fem: true },
   { id: "builder", build: 1.1, lower: "trousers", sleeves: "long", hair: "hardhat", hivis: true },
+  // IN UNIFORM, each known by their hat and what is over their shirt — the hat in the hair's layer, so it takes the
+  // service's colour: an officer in a peaked cap and a hi-vis jacket; a paramedic bare-headed in greens; a
+  // firefighter in a helmet with a neck guard, hi-vis over a tunic. @see cars/crew
+  { id: "officer", build: 1.08, lower: "trousers", sleeves: "long", hair: "cap", hivis: true },
+  { id: "medic", build: 1, lower: "trousers", sleeves: "short", hair: "short" },
+  { id: "firefighter", build: 1.12, lower: "trousers", sleeves: "long", hair: "helmet", hivis: true },
   { id: "kid", build: 1.05, lower: "shorts", sleeves: "short", hair: "short", child: true },
   { id: "kidSkirt", build: 1, lower: "skirt", sleeves: "short", hair: "ponytail", child: true },
 ];
@@ -448,7 +454,7 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
     return dz > 0.035 - 0.1 * Math.max(0, -dl) + 0.02 * Math.max(0, dl);
   };
   const scalp: ((p: V3) => Mat) | undefined =
-    f.hair === "bald" || f.hair === "hardhat" ? undefined : (p) => (hairline(p) ? "hair" : "skin");
+    f.hair === "bald" || f.hair === "hardhat" || f.hair === "cap" || f.hair === "helmet" ? undefined : (p) => (hairline(p) ? "hair" : "skin");
   ball(head, [0.1, 0.085, 0.115], "skin", out, scalp);
   ball([hl + 0.095, 0, hz - 0.01], [0.025, 0.018, 0.025], "skin", out, undefined, 6, 4);
   if (f.hair === "long") ball([hl - 0.05, 0, hz - 0.1], [0.07, 0.095, 0.16], "hair", out);
@@ -461,6 +467,21 @@ export function figureTris(f: Figure, phase: number, pose: Pose, near: number): 
   if (f.hair === "hardhat") {
     ball([hl, 0, hz + 0.035], [0.12, 0.11, 0.1], "hardhat", out, (p) => (p[2] < hz + 0.03 ? "skin" : "hardhat"));
     ball([hl + 0.02, 0, hz + 0.035], [0.15, 0.13, 0.012], "hardhat", out, undefined, 12, 3);
+  }
+
+  if (f.hair === "cap") {
+    // A PEAKED CAP: a flat crown wider than its band, the peak out over the eyes.
+    ball([hl - 0.005, 0, hz + 0.06], [0.105, 0.1, 0.05], "hair", out, (p) => (p[2] < hz + 0.035 ? "skin" : "hair"));
+    ball([hl - 0.005, 0, hz + 0.1], [0.125, 0.12, 0.022], "hair", out, undefined, 12, 3);
+    ball([hl + 0.1, 0, hz + 0.05], [0.075, 0.085, 0.01], "shoe", out, undefined, 10, 3);
+    ball([hl + 0.085, 0, hz + 0.075], [0.02, 0.03, 0.02], "chrome", out, undefined, 6, 4);
+  }
+  if (f.hair === "helmet") {
+    // A FIRE HELMET: a deep shell with a ridge along it, a brim all round and longer behind, over the neck.
+    ball([hl, 0, hz + 0.04], [0.125, 0.115, 0.115], "hair", out, (p) => (p[2] < hz + 0.02 ? "skin" : "hair"));
+    ball([hl - 0.02, 0, hz + 0.03], [0.17, 0.135, 0.014], "hair", out, undefined, 12, 3);
+    ball([hl - 0.13, 0, hz - 0.03], [0.06, 0.1, 0.05], "hair", out, undefined, 8, 4);
+    ball([hl, 0, hz + 0.15], [0.1, 0.018, 0.02], "chrome", out, undefined, 8, 3);
   }
 
   // A CHILD'S HEAD larger, as children's are, for how small they are.

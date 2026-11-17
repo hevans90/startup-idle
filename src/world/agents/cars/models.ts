@@ -94,6 +94,21 @@ export type Model = {
    * hinge, an arm of jointed lengths. Slabs lie along the vehicle; these lie as they are. @see plant below
    */
   extra?: () => { p: [P3, P3, P3]; mat: Mat; n: P3 }[];
+  /**
+   * WHERE PEOPLE SIT IN IT, the driver first: each seat's middle along it and across it (left positive — the
+   * traffic keeps left, so the wheel is on the right) and how high its cushion is, metres. None: nobody is ever
+   * seen in it. The game seats people here; the bake keeps what of the vehicle is nearer the camera than they
+   * are, to draw over them. @see raster OVER, occupants
+   */
+  seats?: Seat[];
+};
+export type Seat = { l: number; y: number; z: number };
+/** Rows of seats two abreast from the driver's back, `gap` apart, no further back than `end`. */
+const rowsOf = (l: number, y: number, z: number, end: number, gap = 0.85, most = 6): Seat[] => {
+  const out: Seat[] = [];
+  // (The front row whatever the cabin's length: somebody drives it.)
+  for (let k = 0, at = l; k < most && (k === 0 || at >= end); k++, at -= gap) out.push({ l: at, y: -y, z }, { l: at, y, z });
+  return out;
 };
 /** A point of a model: along it, to its left, up — metres. */
 export type P3 = [number, number, number];
@@ -153,6 +168,8 @@ export type CarSpec = {
   /** Black plastic round the arches and along the sills: an SUV's. */
   cladding?: boolean;
   slabs?: Slab[]; decals?: Decal[];
+  /** How many rows of seats it has, where the cabin's length does not say (a van's one); or the seats themselves, where there is no cabin to say. */
+  rows?: number; seats?: Seat[];
   /** More hulls: a van's box. One with no sections only adds its decals to the cabin. */
   hulls?: Hull[];
 };
@@ -253,8 +270,11 @@ function car(id: string, c: CarSpec): Model {
     if (h.sections.length) hulls.push(h);
     else hulls[hulls.length - 1] = { ...hulls[hulls.length - 1], decals: [...(hulls[hulls.length - 1].decals ?? []), ...(h.decals ?? [])] };
   }
+  // WHO SITS IN IT: the driver behind the screen's top, on the right; one beside; rows behind as far as the cabin goes.
+  // So low that their head clears the roof and their shoulders show over the sill.
+  const seats = c.seats ?? (k ? rowsOf(Math.max(k.front - 0.3, k.back + 0.08), Math.max(0.3, (k.w - k.inS) * 0.5), Math.min(k.roof - 1.0, top(k.front) - 0.42), k.back + 0.35, 0.85, c.rows ?? 6) : undefined);
   return {
-    id, length: c.length, width: c.width, roof, hulls,
+    id, length: c.length, width: c.width, roof, hulls, seats,
     slabs: [...(k ? mirrors(k.foot - 0.1, k.w - 0.02, top(k.foot) + 0.03) : []), ...(c.slabs ?? [])],
     wheels: c.axles.map((l) => ({ l, w: W - c.tyre.width / 2 - 0.01, r: tr, width: c.tyre.width, rim: c.tyre.rim })),
   };
@@ -365,7 +385,7 @@ const coupe = car("coupe", {
 const convertible = car("convertible", {
   length: 4.2, width: 1.78, sill: 0.18,
   line: [[2.1, 0.5], [1.95, 0.66], [1.3, 0.76], [0.5, 0.78], [-1.0, 0.8], [-1.8, 0.82], [-2.1, 0.74]],
-  doors: [0.42, -0.95],
+  doors: [0.42, -0.95], seats: [{ l: -0.28, y: -0.4, z: 0.36 }, { l: -0.28, y: 0.4, z: 0.36 }],
   axles: [1.35, -1.3], tyre: { r: 0.33, width: 0.21 }, lampZ: 0.52, tailZ: 0.62,
   decals: [{ mat: "interior", at: (l, y, z) => l < 0.48 && l > -0.98 && Math.abs(y) < 0.76 && z > 0.72 }],
   slabs: [
@@ -383,7 +403,7 @@ const convertible = car("convertible", {
 const pickup = car("pickup", {
   length: 5.3, width: 1.88, sill: 0.34,
   line: [[2.65, 0.68], [2.5, 0.88], [2.0, 0.98], [1.0, 1.02], [-0.8, 1.04]],
-  cabin: { foot: 1.0, front: 0.28, back: -0.6, tail: -0.76, roof: 1.82, w: 0.88, inS: 0.12, r: 0.12 },
+  cabin: { foot: 1.0, front: 0.28, back: -0.6, tail: -0.76, roof: 1.82, w: 0.88, inS: 0.12, r: 0.12 }, rows: 1,
   windows: [[0.85, -0.02], [-0.1, -0.62]], doors: [0.92, -0.06, -0.72],
   axles: [1.65, -1.6], tyre: { r: 0.39, width: 0.25, rim: "steel" }, lampZ: 0.82, tailZ: 0.82,
   slabs: [
@@ -404,7 +424,7 @@ const pickup = car("pickup", {
 const smallVan = car("smallVan", {
   length: 4.55, width: 1.84, sill: 0.27,
   line: [[2.275, 0.6], [2.12, 0.8], [1.55, 0.94], [1.1, 0.98], [-2.0, 1.0], [-2.275, 0.98]],
-  cabin: { foot: 1.1, front: 0.3, back: -2.12, tail: -2.24, roof: 1.88, w: 0.88, inS: 0.05, r: 0.12 },
+  cabin: { foot: 1.1, front: 0.3, back: -2.12, tail: -2.24, roof: 1.88, w: 0.88, inS: 0.05, r: 0.12 }, rows: 1,
   windows: [[0.95, 0.05]], doors: [1.02, 0.0, -1.05],
   axles: [1.45, -1.4], tyre: { r: 0.32, width: 0.2, rim: "steel" }, lampZ: 0.76, tailZ: 0.92,
   decals: [{ mat: "seam", at: (l, _y, z) => l < -2.2 && Math.abs(_y) < 0.012 && z > 0.4 }],
@@ -414,7 +434,7 @@ const smallVan = car("smallVan", {
 const panelVan = car("panelVan", {
   length: 5.2, width: 2.0, sill: 0.3,
   line: [[2.6, 0.65], [2.45, 0.86], [1.95, 1.02], [1.6, 1.08], [-2.3, 1.12], [-2.6, 1.1]],
-  cabin: { foot: 1.62, front: 0.92, back: -2.5, tail: -2.58, roof: 2.45, w: 0.97, inS: 0.04, r: 0.14 },
+  cabin: { foot: 1.62, front: 0.92, back: -2.5, tail: -2.58, roof: 2.45, w: 0.97, inS: 0.04, r: 0.14 }, rows: 1,
   windows: [[1.4, 0.55]], doors: [1.52, 0.5, -0.75],
   axles: [1.7, -1.75], tyre: { r: 0.34, width: 0.22, rim: "steel" }, lampZ: 0.84, tailZ: 1.05,
   decals: [{ mat: "seam", at: (l, y, z) => Math.abs(y) > 0.95 && l < 0.5 && l > -0.75 && Math.abs(z - 1.2) < 0.01 }],
@@ -430,7 +450,7 @@ const LUTON_BOX: Section[] = [
 const lutonVan = car("lutonVan", {
   length: 6.3, width: 2.12, sill: 0.3,
   line: [[3.15, 0.66], [3.0, 0.86], [2.5, 1.04], [2.2, 1.1], [1.1, 1.12]],
-  cabin: { foot: 2.2, front: 1.55, back: 1.2, tail: 1.12, roof: 2.22, w: 0.98, inS: 0.05, r: 0.12 },
+  cabin: { foot: 2.2, front: 1.55, back: 1.2, tail: 1.12, roof: 2.22, w: 0.98, inS: 0.05, r: 0.12 }, rows: 1,
   windows: [[2.0, 1.3]], doors: [2.1, 1.18],
   axles: [2.1, -1.95], tyre: { r: 0.36, width: 0.24, rim: "steel" }, lampZ: 0.86, tailZ: 0.8,
   hulls: [
@@ -488,6 +508,8 @@ function lorry(id: string, length: number, width: number, cabDepth: number, load
   const r = 0.52, bw = w - 0.2;
   return {
     id, length, width, roof: { l0: L, l1: back, w, z: z1 },
+    // (A cab with no glass has nobody in it. A long one has a row behind: a crew cab.)
+    seats: opts.glass === false ? undefined : rowsOf(L - 0.75, w * 0.5, Math.min(z1 - 1.05, waist - 0.4), back + 0.5, 1.0, 2),
     hulls: [cab, ...(opts.hulls ?? [])],
     slabs: [
       // The bumper, a plate on it, a step under each door, a visor over the screen.
@@ -675,8 +697,11 @@ function bus(id: string, length: number, width: number, height: number, opts: { 
     { mat: "grille", at: (l, y, z) => back(l) && Math.abs(y) < w - 0.35 && z > 0.5 && z < 0.95 },
     { mat: "rearPlate", at: (l, y, z) => back(l) && Math.abs(y) < 0.26 && z > 1.05 && z < 1.17 },
   ];
+  // THE DRIVER at the front on the right; then passengers at the windows, a row a bay, on every deck.
+  const seats: Seat[] = [{ l: L - 0.85, y: -w * 0.5, z: decks[0][0] - 0.42 }];
+  for (const [a] of decks) for (let l = L - 2.3; l > -L + 0.9; l -= BAY) seats.push({ l, y: -(w - 0.42), z: a - 0.42 }, { l, y: w - 0.42, z: a - 0.42 });
   return {
-    id, length, width, roof: { l0: L - 0.3, l1: -L + 0.3, w: w - 0.1, z: H },
+    id, length, width, seats, roof: { l0: L - 0.3, l1: -L + 0.3, w: w - 0.1, z: H },
     hulls: [{
       sections: [
         { l: L, w: w - 0.06, z0: 0.3, z1: H - 0.08, inS: 0.04, r: 0.3 },
@@ -740,7 +765,7 @@ const VARIANTS: Model[] = [
 const post = (l: number, y: number, z0: number, z1: number): Slab => ({ l0: l + 0.05, l1: l - 0.05, w: 0.05, wc: y, z0, z1, mat: "trim" });
 /** A tandem roller: a steel drum the width of it at each end, the engine between, a seat under a canopy. */
 const roller: Model = {
-  id: "roller", length: 4.6, width: 1.9,
+  id: "roller", length: 4.6, width: 1.9, seats: [{ l: -0.36, y: 0, z: 1.72 }],
   wheels: [1.45, -1.45].map((l) => ({ l, w: 0.42, r: 0.62, width: 0.86, rim: "steel" as const })),
   slabs: [
     { l0: 0.75, l1: -0.75, w: 0.8, z0: 0.55, z1: 1.5, mat: "paint" },
@@ -813,7 +838,7 @@ function plate(q: [P3, P3, P3, P3], t: number, mat: Mat, inside: P3, out: FreeTr
 function paverAt(id: string, fold: number): Model {
   const open = (38 - 34 * fold) * DEG, left = 1 - 0.62 * fold, H = 1.2, Z = 0.66, L0 = 3.1, L1 = 1.5;
   return {
-    id, length: 6.6, width: 4.0, wheels: [],
+    id, length: 6.6, width: 4.0, wheels: [], seats: [{ l: -1.3, y: -0.55, z: 2.02 }],
     slabs: [
       // Tracks, their frames, and the rollers that push whatever is ahead.
       ...[1, -1].map((sg): Slab => ({ l0: 1.7, l1: -2.0, w: 0.3, wc: sg * 1.0, z0: 0, z1: 0.78, inF: 0.22, inB: 0.22, mat: "tyre" })),
@@ -941,7 +966,7 @@ function arm(tip: [number, number], pivot: [number, number], bite: number, full:
 }
 /** The house, about the slewing ring at its middle, with its arm in a pose. */
 const exHouse = (id: string, pose: () => FreeTri[]): Model => ({
-  id, length: 7.4, width: 2.7, wheels: [],
+  id, length: 7.4, width: 2.7, wheels: [], seats: [{ l: 0.7, y: 0.72, z: 1.5 }],
   slabs: [
     { l0: 1.0, l1: -1.9, w: 1.25, z0: 0.95, z1: 2.1, mat: "paint" },
     { l0: -1.9, l1: -2.4, w: 1.2, z0: 1.0, z1: 2.0, inB: 0.2, mat: "trim" },
@@ -1024,7 +1049,7 @@ const spoils = SPOIL_LOOKS.map((id, k) => tipped(id, 0, "load", k / (SPOIL_LOOKS
 function rigAt(id: string, left: number | null): Model {
   const TOP = 9.6, LEAD = 2.55, h = left ?? 5.6;
   return {
-    id, length: 6.4, width: 2.8, wheels: [],
+    id, length: 6.4, width: 2.8, wheels: [], seats: [{ l: 0.95, y: 0.74, z: 1.52 }],
     slabs: [
       ...[1, -1].map((sg): Slab => ({ l0: 1.9, l1: -1.9, w: 0.32, wc: sg * 1.02, z0: 0, z1: 0.8, inF: 0.25, inB: 0.25, mat: "tyre" })),
       ...[1, -1].map((sg): Slab => ({ l0: 1.7, l1: -1.7, w: 0.33, wc: sg * 1.02, z0: 0.3, z1: 0.5, mat: "trim" })),
@@ -1152,6 +1177,8 @@ export const MINIBUS_WEIGHTS: Readonly<Record<string, number>> = { minibus: 2, s
 export const BUS_WEIGHTS: Readonly<Record<string, number>> = { singleDecker: 2, doubleDecker: 2, coach: 1 };
 
 /** Where a model's light bar is, metres: along it, out to either end of it, and its top. Null for one with none. @see lightBar */
+/** Where people sit in a model, the driver first; none in one nobody is seen in. */
+export const seatsOf = (id: string): readonly Seat[] => modelById.get(id)?.seats ?? [];
 export function beaconsOf(id: string): { l: number; w: number; z: number } | null {
   const bar = modelById.get(id)?.slabs.find((sl) => sl.mat === "light");
   return bar ? { l: (bar.l0 + bar.l1) / 2, w: bar.w, z: bar.z1 } : null;

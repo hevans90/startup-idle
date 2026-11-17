@@ -24,6 +24,8 @@ export type CarPoses = {
   trimAnchor: { x: number; y: number }[];
   /** Each heading's lamps' masks, in `LAMPS` order, and their anchors; an empty texture where there is none. @see raster LAMPS */
   lamps: { tex: Texture; anchor: { x: number; y: number } }[][];
+  /** Each heading's layers that are drawn OVER whoever is in it — its paint's, then its trim's — and their anchors; empty textures where nobody could be seen. @see raster BakeOpts.over */
+  over: { tex: Texture; anchor: { x: number; y: number } }[][];
 };
 export type CarLook = CarPoses & {
   id: string;
@@ -48,13 +50,15 @@ export async function loadCarSprites(): Promise<CarSprites> {
   /** A run of frames cut from the pages: each layer's texture and anchor, and its lamps. */
   const cut = (frames: CarFrame[]): CarPoses => {
     const paint: Texture[] = [], trim: Texture[] = [], paintAnchor: { x: number; y: number }[] = [], trimAnchor: typeof paintAnchor = [];
-    const lamps: CarPoses["lamps"] = [];
+    const lamps: CarPoses["lamps"] = [], over: CarPoses["over"] = [], nOver = sheet.over ?? 0;
     for (const [page, x, y, pw, ph, pox, poy, tw, th, tox, toy, ...ls] of frames) {
       const mine: CarPoses["lamps"][number] = [];
       for (let k = 0; k + 6 < ls.length; k += 7) {
         const [lp, lx, ly, lw, lh, lox, loy] = ls.slice(k, k + 7);
         mine.push(lw ? { tex: new Texture({ source: pages[lp].source, frame: new Rectangle(lx, ly, lw, lh) }), anchor: { x: lox / lw, y: loy / lh } } : { tex: Texture.EMPTY, anchor: { x: 0, y: 0 } });
       }
+      // (The last of them are not lamps: the layers over its occupants.)
+      over.push(nOver ? mine.splice(mine.length - nOver, nOver) : []);
       lamps.push(mine);
       const source = pages[page].source;
       // A livery has no paint: an empty texture, so the paint sprite draws nothing.
@@ -63,7 +67,7 @@ export async function loadCarSprites(): Promise<CarSprites> {
       paintAnchor.push(pw ? { x: pox / pw, y: poy / ph } : { x: 0, y: 0 });
       trimAnchor.push({ x: tox / tw, y: toy / th });
     }
-    return { paint, trim, paintAnchor, trimAnchor, lamps };
+    return { paint, trim, paintAnchor, trimAnchor, lamps, over };
   };
   for (const [id, m] of Object.entries(sheet.models)) {
     looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, ...cut(m.frames), tilted: (m.tilted ?? []).map(cut) });

@@ -114,6 +114,9 @@ const TIP = { in: 2.5, up: 10, off: 2 }, TIP_ALL = TIP.in + TIP.up + TIP.off;
 const PAVER_AT = -0.12;
 const FEED = { full: 9, fold: 5, up: 3, down: 2 }, FEED_ALL = FEED.full + FEED.fold + FEED.up + FEED.down;
 
+/** A number for a machine's name: who drives it is a hash of it. */
+const hashName = (name: string) => { let h = 7; for (let k = 0; k < name.length; k++) h = (h * 31 + name.charCodeAt(k)) | 0; return Math.abs(h) % 100000; };
+
 export function createRoadPlant(bands: BandLayer): RoadPlant {
   const units = new Map<string, Unit>(), hands = new Map<string, Hand>(), spills = new Map<string, Spill>();
   /** Each job's own time at work, seconds: stopped while it stands. */
@@ -163,7 +166,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               units.set(id, u);
             }
             seenU.add(id);
-            const base = poseUnit(u, cars!, looks, at, scale);
+            const base = poseUnit(u, cars!, looks, at, scale, P ? { people: P, id: hashName(id) } : null);
             u.band = into(u.c, u.band, at.x, at.y, base);
             return u;
           };

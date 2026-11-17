@@ -305,7 +305,7 @@ function drawPlant(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numbe
   if (site.ground && !plantCars) { if (!plantAsked) { plantAsked = true; void loadCarSprites().then((c) => { plantCars = c; }); } return; }
   const f = { w: s.w, h: s.h };
   syncSitePlant(h.plant, site, groundPlan(h.model, f), {
-    cars: plantCars!, ox: s.x - 0.5, oy: s.y - 0.5, z: ground, scale: ctx.scale,
+    cars: plantCars!, people: bakedPeople() ? peopleLoaded() : null, id: s.id, ox: s.x - 0.5, oy: s.y - 0.5, z: ground, scale: ctx.scale,
     layer: (u, v) => ctx.bands.dynamicOf[bandOfTile(s, ctx, Math.max(0, Math.min(s.w - 1, Math.floor(u))), Math.max(0, Math.min(s.h - 1, Math.floor(v))))],
   }, h.t, dt);
 }

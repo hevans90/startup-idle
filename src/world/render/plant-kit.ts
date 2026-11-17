@@ -9,7 +9,10 @@
 import { Container, Graphics, Sprite } from "pixi.js";
 
 import { baseCorners, headingIndex, pitchMatrix, poseOf, type CarSprites } from "../agents/cars/car-sheet";
-import { MIXER_LOOKS } from "../agents/cars/models";
+import { MIXER_LOOKS, seatsOf } from "../agents/cars/models";
+import { plantCrew } from "../agents/cars/crew";
+import { makeRiders, poseRiders, type Riders } from "../agents/cars/occupants";
+import type { PeopleSprites } from "../agents/people/people-sheet";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { COLUMN, POURS, createPourSim, eachColumn, eachGrain, type PourKind, type PourSim } from "./pour-sim";
 
@@ -28,7 +31,7 @@ export const mixerLook = (t: number, turning: boolean) => MIXER_LOOKS[turning ? 
 /** A digger's turn of work, seconds: dig, lift, slew round, tip, slew back. */
 export const DIG = { dig: 3.2, lift: 0.8, out: 1.9, tip: 1.3, back: 1.9 }, DIG_ALL = DIG.dig + DIG.lift + DIG.out + DIG.tip + DIG.back;
 
-export type Unit = { c: Container; under: Graphics; parts: Sprite[]; over: Graphics; keys: string[]; band: number };
+export type Unit = { c: Container; under: Graphics; parts: Sprite[]; over: Graphics; keys: string[]; band: number; /** Who works each of its looks, once there is a sheet to draw them from; null, a look nobody sits in. @see cars/occupants */ riders: (Riders | null | undefined)[] };
 /** What pours: how it falls and heaps, and its tones from shade to lit. */
 export type Stuff = { kind: PourKind; tones: [number, number, number]; wet: boolean };
 export const EARTH: Stuff = { kind: POURS.earth, tones: [0x4d3722, 0x73553a, 0x9a7650], wet: false };
@@ -48,14 +51,14 @@ export function makeUnit(looks: number): Unit {
   const parts: Sprite[] = [];
   for (let k = 0; k < looks * 2; k++) { const sp = new Sprite(); parts.push(sp); c.addChild(sp); }
   c.addChild(over);
-  return { c, under, parts, over, keys: Array.from({ length: looks }, () => ""), band: -1 };
+  return { c, under, parts, over, keys: Array.from({ length: looks }, () => ""), band: -1, riders: Array.from({ length: looks }, () => undefined) };
 }
 /**
  * A unit AT A PLACE — tiles, half steps up, a heading and a pitch — as these looks, each at its own heading or the
  * place's: its sprites set, itself moved there and leant to the slope, its two drawings cleared for the caller.
  * Gives back its footprint, every part's: for whoever files it.
  */
-export function poseUnit(u: Unit, cars: CarSprites, looks: readonly { look: string; tint: number; heading?: number }[], at: { x: number; y: number; z: number; heading: number; pitch: number }, scale: number): { u: number; v: number }[] {
+export function poseUnit(u: Unit, cars: CarSprites, looks: readonly { look: string; tint: number; heading?: number }[], at: { x: number; y: number; z: number; heading: number; pitch: number }, scale: number, crew?: { people: PeopleSprites; id: number } | null): { u: number; v: number }[] {
   let lean: { heading: number; shear: number } | null = null;
   // Its footprint: every part's, a house slewed off its tracks reaching further than they do.
   const base: { u: number; v: number }[] = [];
@@ -66,6 +69,17 @@ export function poseUnit(u: Unit, cars: CarSprites, looks: readonly { look: stri
     const h = headingIndex(l.heading ?? at.heading, cars.headings), pose = poseOf(cars, L, h, k === 0 ? at.pitch : 0), F = pose.from, q = pose.k;
     if (k === 0) lean = { heading: pose.heading, shear: pose.shear };
     const key = `${l.look}|${pose.key}|${scale}`, paint = u.parts[k * 2], trim = u.parts[k * 2 + 1];
+    // WHO WORKS IT, sat in this part of it — a house slewed on its tracks takes its driver round with it: put in once,
+    // over this look's own sprites and under the next's.
+    if (crew) {
+      if (u.riders[k] === undefined) {
+        const who = plantCrew(l.look, crew.id * 4 + k);
+        u.riders[k] = who.length ? makeRiders(who) : null;
+        if (u.riders[k]) u.c.addChildAt(u.riders[k]!.c, u.c.getChildIndex(trim) + 1);
+      }
+      const R = u.riders[k];
+      if (R) poseRiders(R, crew.people, seatsOf(l.look), F, q, pose.heading, pose.lean, scale, cars.res, l.tint, key);
+    }
     if (u.keys[k] === key) return;
     u.keys[k] = key;
     paint.tint = l.tint;

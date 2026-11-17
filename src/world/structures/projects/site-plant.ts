@@ -15,6 +15,7 @@
 import type { Container } from "pixi.js";
 
 import type { CarSprites } from "../../agents/cars/car-sheet";
+import type { PeopleSprites } from "../../agents/people/people-sheet";
 import { RIG_LOOKS, SPOIL_LOOKS } from "../../agents/cars/models";
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
 import { ARM, BLUE, CONCRETE, DIG, DIG_ALL, DRUM, EARTH, mixerLook, M, PPM, T, YELLOW, drawSpill, makeSpill, makeUnit, poseUnit, type Spill, type Stuff, type Unit } from "../../render/plant-kit";
@@ -36,6 +37,8 @@ export function dropSitePlant(sp: SitePlant): void {
 
 export type SiteView = {
   cars: CarSprites;
+  /** The people's sheet, when it is in, and a number of the site's own: for who works its machines. */
+  people: PeopleSprites | null; id: number;
   /** The plot's back corner on the map, tiles; its ground, half steps; the map's scale. */
   ox: number; oy: number; z: number; scale: number;
   /** The layer of whatever stands at a place on the plot. */
@@ -54,7 +57,7 @@ export function syncSitePlant(sp: SitePlant, site: Site | null, G: Ground, v: Si
     let unit = sp.units.get(name);
     if (!unit) { unit = makeUnit(looks.length); sp.units.set(name, unit); }
     seenU.add(name);
-    poseUnit(unit, v.cars, looks, { x: v.ox + u, y: v.oy + w, z: v.z, heading, pitch: 0 }, scale);
+    poseUnit(unit, v.cars, looks, { x: v.ox + u, y: v.oy + w, z: v.z, heading, pitch: 0 }, scale, v.people ? { people: v.people, id: v.id * 16 + name.length } : null);
     const layer = v.layer(u, w), z = order(u, w);
     if (layer && unit.c.parent !== layer) { unit.c.zIndex = z; layer.addChild(unit.c); }
     else if (Math.abs(unit.c.zIndex - z) > 0.0004) unit.c.zIndex = z;

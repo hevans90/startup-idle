@@ -14,7 +14,9 @@ export const CAR_RES = 2;
  * paint, `GAP` on. Then each lamp's mask, packed apart: its page, where it
  * starts, and its size and origin — seven numbers. A livery's paint is
  * empty: 0 wide; so is a lamp a vehicle has none of, or none seen at that
- * heading.
+ * heading. And after the lamps, the same seven numbers for each of the
+ * `over` layers — the paint and the trim that are drawn over whoever is in
+ * the vehicle — as many as the sheet's `over` says.
  * @see raster LAMPS
  */
 export type CarFrame = [
@@ -39,6 +41,8 @@ export type CarSheet = {
   /** The pitches baked, and how many headings of each. */
   pitches?: number[];
   pitchHeadings?: number;
+  /** How many layers a frame carries after its lamps, to be drawn over its occupants: the paint's and the trim's. None in an old sheet. @see raster BakeOpts.over */
+  over?: number;
   pages: string[];
   /** `tilted[p][k]`: the frame at pitch `pitches[p]`, heading `k` of `pitchHeadings`. */
   models: Record<string, { length: number; width: number; frames: CarFrame[]; tilted?: CarFrame[][] }>;

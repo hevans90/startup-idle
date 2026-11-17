@@ -22,13 +22,15 @@ import { Container, Graphics, Matrix, Rectangle, RenderTexture, Sprite, Texture,
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import type { BandLayer } from "../render/bands";
 import { baseCorners, bakedCars, headingIndex, loadCarSprites, modelFor, pitchMatrix, poseOf, type CarSprites } from "./cars/car-sheet";
-import { beaconsOf, HALF_STEPS_PER_M, TILES_PER_M, pitchAngle } from "./cars/models";
+import { beaconsOf, HALF_STEPS_PER_M, seatsOf, TILES_PER_M, pitchAngle } from "./cars/models";
 import { flashing } from "./emergency";
 import { BIKE_LENGTH, BIKE_WIDTH, COLLAR, DOGS } from "./people/people-format";
 
 /** A bike's footprint, tiles: what decides its band. */
 const BIKE_BASE = { length: BIKE_LENGTH * TILES_PER_M, width: BIKE_WIDTH * TILES_PER_M };
-import { figureFor, heightOf, riderFor } from "./people/cast";
+import { figureFor, hairOf, heightOf, legsOf, riderFor, skinOf, whoOf } from "./people/cast";
+import { crewFor } from "./cars/crew";
+import { makeRiders, poseRiders, type Riders } from "./cars/occupants";
 import { bakedPeople, peopleSprites, posePerson, type PeopleSprites, type PoseSet } from "./people/people-sheet";
 import { AI_TRUCK_COLOUR, atWork, HALF_STEP_IN_TILES, LEG, SWING, type Mover, type Town } from "./town";
 
@@ -73,20 +75,16 @@ const LOAD_TOP = 0xc9a46c;
 const AI_LIGHT_BAR = 0xb44aff;
 const AI_LOAD = 0x2a2440;
 const AI_LOAD_TOP = 0x3b3358;
-const SKINS = [0xf1d0b0, 0xe0b48e, 0xc68c5d, 0x9c6a43, 0x6e4a2f];
-const HAIRS = [0x2b2118, 0x4a3324, 0x8a5a2b, 0xd9b26a, 0x1c1c1c, 0x9a9a9a];
-const TROUSERS = [0x3a3f4b, 0x2f4a6b, 0x5b4a3a, 0x2b2b2b, 0x6b6f75];
 
-/** One of a list, the same one for the same mover every frame. */
-const ofId = <T>(id: number, salt: number, list: readonly T[]) =>
-  list[Math.abs(Math.imul(id ^ salt, 0x9e3779b1) >>> 7) % list.length];
 
 /** Darker, by a share. */
 const shade = (c: number, k: number) =>
   (Math.round(((c >> 16) & 255) * k) << 16) | (Math.round(((c >> 8) & 255) * k) << 8) | Math.round((c & 255) * k);
 
 /** `night`, how dark it is, 0–1: the vehicles' head and tail lamps on. */
-export type TownLayer = { draw: (town: Town, scale: number, night?: number) => void; destroy: () => void };
+export type TownLayer = { draw: (town: Town, scale: number, night?: number, zoom?: number) => void; destroy: () => void };
+/** How large the map is on the screen — its scale by the view's zoom — before anybody is drawn in a vehicle: below it a head is a pixel or two, and not worth its sprites. */
+export const RIDERS_FROM = 0.75;
 
 /**
  * MOVERS AS SPRITES, from one atlas. Each look is drawn ONCE, by the drawing
@@ -249,6 +247,8 @@ type Shown = {
   c: Container; parts: Sprite[]; band: number; key: string; baked: boolean; tilted: boolean; flash?: Sprite[]; lead?: Graphics;
   /** A baked vehicle's lamps, in `LAMPS` order; and its speed when last drawn, for its brake lights. */
   lamps?: Sprite[]; was?: { speed: number; t: number; brakes: boolean };
+  /** A baked vehicle's people, once there is a sheet to draw them from; null, one nobody is seen in. @see cars/occupants */
+  riders?: Riders | null;
 };
 
 /** The lamps lit: headlamps warm white, tail lamps and brake lights red, indicators amber. @see raster LAMPS */
@@ -370,7 +370,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
     file(d, g.x, g.y, PERSON_BASE, 0);
     // THE LEAD: from the walker's left hand, sagging a little, to the collar.
     if (!owner.lead) { owner.lead = new Graphics(); owner.c.addChild(owner.lead); }
-    const k = heightOf(m.id);
+    const k = heightOf(whoOf(m));
     const hand = screenAt(m.x, m.y, m.z, m.heading, 0.04 * TILES_PER_M, -0.3 * TILES_PER_M, 0.82 * k, scale);
     const C = COLLAR[g.breed], col = screenAt(g.x, g.y, g.z, g.heading, C.l * TILES_PER_M, 0, C.z, scale);
     const hx = hand.x - ox, hy = hand.y - oy, cx = col.x - ox, cy = col.y - oy;
@@ -380,7 +380,8 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
   };
 
   let live = new Set<number>();
-  const draw = (town: Town, scale: number, night = 0) => {
+  const draw = (town: Town, scale: number, night = 0, zoom = 1) => {
+    const riding = !!people && scale * zoom >= RIDERS_FROM;
     // A new scale is every look baked again.
     if (scale !== atScale) {
       atlas.destroy(); atlas = createAtlas(renderer); looks.clear(); atScale = scale;
@@ -448,6 +449,19 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
             sp.texture = l.tex; sp.anchor.set(l.anchor.x, l.anchor.y); sp.scale.set(scale / sheet!.res);
           });
         }
+        // ITS PEOPLE, sat in it — not in one parked, and not from so far off that they could not be told. Put in once,
+        // between its trim and its lamps, and after that only shown and hidden.
+        if (riding && !m.park) {
+          if (d.riders === undefined) {
+            const crew = crewFor(m, car.id);
+            d.riders = crew.length ? makeRiders(crew) : null;
+            if (d.riders) d.c.addChildAt(d.riders.c, 2);
+          }
+          if (d.riders) {
+            if (!d.riders.c.visible) d.riders.c.visible = true;
+            poseRiders(d.riders, people!, seatsOf(car.id), P, f, pose.heading, pose.lean, scale, sheet!.res, m.colour, key);
+          }
+        } else if (d.riders?.c.visible) d.riders.c.visible = false;
         if (d.lamps) {
           // Braking: slowing hard, or stood; held a moment, so it does not flicker as it creeps up a queue.
           const w = d.was, dt = w ? town.t - w.t : 0;
@@ -486,7 +500,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         const pose = bike ? "ride" : walkerPose(m);
         // Stood, swaying slowly from foot to foot.
         const phase = pose === "stand" ? town.t * 0.9 + m.id : m.phase;
-        d.key = posePerson(d.parts, people!, figId!, pose, m.heading, phase, scale, heightOf(m.id), d.key);
+        d.key = posePerson(d.parts, people!, figId!, pose, m.heading, phase, scale, heightOf(whoOf(m)), d.key);
         d.c.position.set(x, y);
         front = bike ? baseCorners(BIKE_BASE, m.heading) : PERSON_BASE;
       } else {
@@ -662,9 +676,9 @@ const asIs: Paint = (_part, color) => ({ color });
 /** A person's skin, trousers and hair — a hard hat, at work — the same each frame. */
 export function outfitOf(m: Mover): { skin: number; legs: number; hair: number } {
   return {
-    skin: ofId(m.id, 0x51, SKINS), legs: ofId(m.id, 0x33, TROUSERS),
+    skin: skinOf(whoOf(m)), legs: legsOf(whoOf(m)),
     // A BUILDER wears a hard hat, so a crew can be told from a crowd. @see stepWorks
-    hair: m.job && m.job.role !== "moving-in" ? HARD_HAT : ofId(m.id, 0x7a, HAIRS),
+    hair: m.job && m.job.role !== "moving-in" ? HARD_HAT : hairOf(whoOf(m)),
   };
 }
 

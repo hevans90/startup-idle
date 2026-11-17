@@ -45,6 +45,7 @@ import {
   type Spot, type Traffic,
 } from "./lanes/drive";
 import { walkBetween, type Kerbside, type Walk } from "./lanes/walk";
+import { riderId, shirtOf, SHIRTS } from "./people/cast";
 import { aboard, bayNear, carNear, heldBays, kerbOf, PARK_CAP, refile, RESIDENT_SHARE, STAY } from "./parking";
 import type { LaneGraph } from "./lanes/graph";
 import { NEIGHBOUR } from "../../iso/dir";
@@ -132,6 +133,8 @@ export type Mover = {
   bayTo?: { bay: number; door: Place };
   /** Walking out to a parked car to go in it: the car. */
   toCar?: number;
+  /** WHO THEY ARE for how they look, where it is not themselves: one of a car's people, seen in it and seen on foot the same. @see cast whoOf */
+  as?: number;
   /** Just out of a bay, or a stop, still pulling out from the kerb. */
   leaving?: boolean;
   /** A ROUTE BUS on a leg of its route; somebody going by bus; and waiting at the stop for it. @see buses */
@@ -415,7 +418,6 @@ const CAR_COLOURS = ([
   [0x2e6fb5, 5], [0x1f3a66, 4], [0x7fa6c9, 1], [0xc0392b, 6], [0x7a1f24, 2], [0x3f8f4f, 1], [0x24452f, 1],
   [0xcdbb98, 2], [0x6b4a32, 1], [0xe8b931, 1], [0xe0702a, 1],
 ] as const).flatMap(([c, n]) => Array<number>(n).fill(c));
-const SHIRTS = [0xd35454, 0x4a7fc1, 0xe6c35c, 0x5aa36b, 0x9b6bc2, 0xe08a3c, 0xf0f0f0];
 
 /** A number in [0, 1), the next in the town's own sequence. */
 function rand(t: Town): number {
@@ -1491,6 +1493,8 @@ function walkers(t: Town, g: Grid, T: Traffic, c: Mover, door: Place, out: boole
     const w = out ? setOff(t, g, "person", door, kerb) : setOff(t, g, "person", kerb, door);
     if (!w) continue;
     if (out) w.toCar = c.id;
+    // THE ONE OF ITS PEOPLE THEY ARE: as they are seen sat in it, so they are seen on foot.
+    w.as = riderId(c.id, k); w.colour = shirtOf(w.as);
     // (Not all at once: one after the other, out of the car or the door.)
     w.wait = k * 0.6;
     t.movers.push(w);

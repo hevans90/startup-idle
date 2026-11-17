@@ -3679,7 +3679,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (bay >= 0 && a > bay - RTG_REACH && a < bay + 1 + RTG_REACH) lorry.wait = LORRY_LOADS;
         });
         sWorks();
-        { const e = section("tick: town draw"); townRef.current?.draw(getTown(), scale, nightNowRef.current); e(); }
+        { const e = section("tick: town draw"); townRef.current?.draw(getTown(), scale, nightNowRef.current, useWorldStore.getState().viewport?.scale.x ?? 1); e(); }
       }
       const t2 = performance.now();
       // THE DEVICE'S OWN TALLY when it is the one holding the water, and the

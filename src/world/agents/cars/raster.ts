@@ -22,7 +22,7 @@ import { HALF_STEPS_PER_M, TILES_PER_M, pitchAngle, type Disc, type Hull, type M
 
 export type Image = { w: number; h: number; px: Uint8Array };
 /** A baked frame: its paint and trim layers, and where the vehicle's middle at road level is in them. */
-export type Baked = { paint: Image; trim: Image; lamps: Image[]; ox: number; oy: number };
+export type Baked = { paint: Image; trim: Image; lamps: Image[]; /** What of it is drawn over whoever is in it: its paint and its trim again, where they are nearer than a seat. Empty with no seats. @see BakeOpts.over */ over: Image[]; ox: number; oy: number };
 
 /**
  * THE LAMPS, as masks the game lights: the headlamps, the tail lamps, and the
@@ -279,8 +279,9 @@ export function bakeFrame(m: Model, heading: number, res: number, pitch = 0): Ba
     layers: 2, layerOf: (mat) => (PAINTED.has(mat) ? 0 : 1),
     shadow: { hl: m.length / 2 - 0.25, hw: m.width / 2 - 0.25, edge: 0.08, soft: 0.4, strength: 0.42, reach: 0.35 },
     marks: { n: LAMPS.length, of: lampOf },
+    over: m.seats?.length ? { boxes: m.seats.map(seatBox), glass: OVER_GLASS } : undefined,
   });
-  return { paint: b.layers[0], trim: b.layers[1], lamps: b.marks, ox: b.ox, oy: b.oy };
+  return { paint: b.layers[0], trim: b.layers[1], lamps: b.marks, over: b.over, ox: b.ox, oy: b.oy };
 }
 
 /**
@@ -307,14 +308,25 @@ export type BakeOpts = {
   pitch?: number;
   /** No darkening toward the ground: for what hangs below its own origin — a bridge's pier — where "low down" means nothing. */
   flat?: boolean;
+  /**
+   * OVER WHOEVER IS IN IT: boxes, model metres [l0, l1, y0, y1, z0, z1], each the room somebody takes up. Baked as
+   * well as the layers, the same number again: every sample of the model that is NEARER THE CAMERA than a box it
+   * covers — the near door, a pillar, the roof's edge — as it is in its layer; and glass among them at `glass` of
+   * its strength, a tint to be seen through. Drawn over a person put in the vehicle, they are inside it. @see OVER
+   */
+  over?: { boxes: readonly (readonly number[])[]; glass: number };
 };
+/** How much of glass is drawn over whoever sits behind it: enough to be glass, little enough to know them by. */
+export const OVER_GLASS = 0.42;
+/** The room somebody sat on a seat takes up, about the seat's middle: from behind their back to their feet, their shoulders' width, the floor to over their head. */
+export const seatBox = (s: { l: number; y: number; z: number }): number[] => [s.l - 0.42, s.l + 0.78, s.y - 0.32, s.y + 0.32, s.z - 0.55, s.z + 1.02];
 
 /**
  * Bake triangles at `heading`, `res` texels to a world px, into layers. Each
  * layer is drawn over the one before; where a texel is shared, each layer's
  * alpha is set so the stack gives the texel's true coverage.
  */
-export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpts): { layers: Image[]; marks: Image[]; ox: number; oy: number } {
+export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpts): { layers: Image[]; marks: Image[]; over: Image[]; ox: number; oy: number } {
   const ch = Math.cos(heading), sh = Math.sin(heading);
   // Model metres → ground (u, v tiles; up half steps), as town-render's `at`.
   const pitch = opt.pitch ?? 0, th = pitchAngle(pitch), cp = Math.cos(th), sp = Math.sin(th);
@@ -343,6 +355,25 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
   const col = new Float32Array(n * 3);
   const layer = new Uint8Array(n);
   const mark = opt.marks ? new Uint8Array(n) : null;
+  // WHO IS IN IT: the depth of the nearest face of the room each takes up, where it covers; and which samples are glass.
+  const occ = opt.over ? new Float32Array(n).fill(-Infinity) : null, glassAt = opt.over ? new Uint8Array(n) : null;
+  for (const b of opt.over?.boxes ?? []) {
+    const c = [0, 1, 2, 3, 4, 5, 6, 7].map((k): V3 => [b[k & 1], b[2 + ((k >> 1) & 1)], b[4 + ((k >> 2) & 1)]]);
+    for (const [i0, i1, i2, i3] of [[0, 1, 3, 2], [4, 5, 7, 6], [0, 1, 5, 4], [2, 3, 7, 6], [0, 2, 6, 4], [1, 3, 7, 5]]) for (const tri of [[i0, i1, i2], [i0, i2, i3]]) {
+      const g = tri.map((k) => ground(c[k])), q = g.map((v) => screen(v.u, v.v, v.up)), d = g.map((v) => v.u + v.v + v.up / 4);
+      const ax = (q[0].x - x0) * SS, ay = (q[0].y - y0) * SS, bx = (q[1].x - x0) * SS, by = (q[1].y - y0) * SS, cx = (q[2].x - x0) * SS, cy = (q[2].y - y0) * SS;
+      const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      if (Math.abs(area) < 1e-9) continue;
+      const lo = (v: number, hi: number) => Math.max(0, Math.min(hi, v));
+      for (let y = Math.floor(lo(Math.min(ay, by, cy), SH)); y < Math.ceil(lo(Math.max(ay, by, cy), SH)); y++) for (let x = Math.floor(lo(Math.min(ax, bx, cx), SW)); x < Math.ceil(lo(Math.max(ax, bx, cx), SW)); x++) {
+        const px = x + 0.5, py = y + 0.5;
+        const w0 = ((bx - px) * (cy - py) - (by - py) * (cx - px)) / area, w1 = ((cx - px) * (ay - py) - (cy - py) * (ax - px)) / area, w2 = 1 - w0 - w1;
+        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+        const z = w0 * d[0] + w1 * d[1] + w2 * d[2], i = y * SW + x;
+        if (z > occ![i]) occ![i] = z;
+      }
+    }
+  }
 
   for (const t of tris) {
     const g = t.p.map(ground);
@@ -393,6 +424,7 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
         const at = (): V3 => [w0 * P[0][0] + w1 * P[1][0] + w2 * P[2][0], w0 * P[0][1] + w1 * P[1][1] + w2 * P[2][1], zAt];
         const mat = t.paint ? t.paint(at()) : t.mat;
         if (mark) mark[i] = opt.marks!.of(mat, at());
+        if (glassAt) glassAt[i] = mat === "glass" || mat === "pane" ? 1 : 0;
         // Darker low down, toward the shade under the car.
         const ao = opt.flat ? 0.92 : mat !== "glass" && !GLOWS.has(mat) ? 0.78 + 0.22 * Math.min(1, zAt / 0.9) : 1;
         const c = flat ?? shade(t.ns ? norm([
@@ -445,6 +477,30 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
       above += cnt[k];
     }
   }
+  // OVER WHOEVER IS IN IT: the layers again, of the samples nearer than they are — glass a part of itself.
+  const over: Image[] = opt.over ? Array.from({ length: NL }, () => ({ w: W, h: H, px: new Uint8Array(W * H * 4) })) : [];
+  if (opt.over) for (let ty = 0; ty < H; ty++) for (let tx = 0; tx < W; tx++) {
+    cnt.fill(0); r.fill(0); gr.fill(0); bl.fill(0);
+    let any = false;
+    for (let sy = 0; sy < SS; sy++) for (let sx = 0; sx < SS; sx++) {
+      const i = (ty * SS + sy) * SW + tx * SS + sx, k = layer[i] - 1;
+      if (k < 0 || occ![i] === -Infinity || depth[i] < occ![i]) continue;
+      const w = glassAt![i] ? opt.over.glass : 1;
+      any = true;
+      cnt[k] += w; r[k] += col[i * 3] * w; gr[k] += col[i * 3 + 1] * w; bl[k] += col[i * 3 + 2] * w;
+    }
+    if (!any) continue;
+    const o = (ty * W + tx) * 4;
+    let above = 0;
+    for (let k = NL - 1; k >= 0; k--) {
+      if (cnt[k] > 0) {
+        const px = over[k].px;
+        px[o] = to8(r[k] / cnt[k]); px[o + 1] = to8(gr[k] / cnt[k]); px[o + 2] = to8(bl[k] / cnt[k]);
+        px[o + 3] = to8(cnt[k] / Math.max(1e-6, N - above));
+      }
+      above += cnt[k];
+    }
+  }
   // THE MARKS: each its samples' share, and a halo of half that blurred round it.
   const marks: Image[] = [];
   for (let k = 0; k < (opt.marks?.n ?? 0); k++) {
@@ -471,7 +527,7 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
     }
     marks.push(img);
   }
-  return { layers, marks, ox: -x0, oy: -y0 };
+  return { layers, marks, over, ox: -x0, oy: -y0 };
 }
 
 /** How far a mark's halo reaches, texels. */
