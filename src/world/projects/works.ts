@@ -362,7 +362,8 @@ export function stepWorks(
         paid++;
         // With no garage or road out of the map in its network, a load comes
         // by means unseen — it still has to be paid for.
-        const m = door && from ? sendOnJob(town, g, "truck", from, door, { site: s.id, role: "truck" }) : null;
+        // (Nor does what a gang carries with it come by lorry. @see Contract.carried)
+        const m = door && from && !contract?.carried ? sendOnJob(town, g, "truck", from, door, { site: s.id, role: "truck" }) : null;
         if (m) { if (freight) m.colour = AI_TRUCK_COLOUR; sent++; }
         else b.delivered++;
       }

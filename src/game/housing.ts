@@ -111,8 +111,8 @@ export function housingCapacity(grid: Grid): Record<GeneratorId, number> {
   const out = { ...NO_HOUSING };
   for (const s of grid.structures.values()) {
     const h = housedBy(s.def);
-    // A Campus still going up is no beds yet.
-    if (h && !(CAMPUS_LINE.has(s.def) && s.build)) out[h.id] += h.slots;
+    // A site is no beds yet: a Campus going up, a lot still being serviced.
+    if (h && !s.build) out[h.id] += h.slots;
   }
   return out;
 }
@@ -124,7 +124,7 @@ export function housingCapacity(grid: Grid): Record<GeneratorId, number> {
 export function residentsIn(s: Structure): number {
   const h = housedBy(s.def);
   // A SITE houses nobody yet; nor does a Campus nobody has moved into.
-  if (!h || (CAMPUS_LINE.has(s.def) && s.build)) return 0;
+  if (!h || s.build) return 0;
   return Math.min(h.slots, s.residents ?? (Number.isFinite(h.slots) ? h.slots : 0));
 }
 
