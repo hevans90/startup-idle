@@ -8,6 +8,9 @@ import { describe, expect, test } from "bun:test";
 import { useMoneyStore } from "../../state/money.store";
 import { useWorldStore } from "../../state/world.store";
 import { generateMap } from "../gen/generate-map";
+import { paveRoad } from "../play/build-actions";
+import { structureDef } from "../structures/def";
+import { touchesRoad, validatePlacement } from "../structures/place";
 import { idx, setHeight, type Grid } from "../grid";
 import { roadCost } from "../../game/build-cost";
 import { ARRIVE, GANGS, PACE, TILES_PER_LOAD, frontOf, jobSeconds, lengthsOf, loadPrice, plannedGrid, stageOf } from "./jobs";
@@ -222,6 +225,26 @@ describe("a road ordered in the game", () => {
       run(200);
       expect(G.roadJobs.length).toBe(0);
       expect(pavedCount(G)).toBe(5 * 15);
+    } finally { done(); }
+  });
+
+  test("the AI orders its roads as the player does — its order counts as something done — and a building may front a road still being built", () => {
+    const G = game();
+    try {
+      const rev = G.rev;
+      expect(paveRoad({ x: 10, y: 20 }, { x: 24, y: 20 })).toBe(true);
+      expect(G.roadJobs.length).toBe(1);
+      expect(pavedCount(G)).toBe(0);
+      expect(G.rev).not.toBe(rev);
+      // The same again changes nothing, and says so.
+      expect(paveRoad({ x: 10, y: 20 }, { x: 24, y: 20 })).toBe(false);
+      // Beside the line: a road to front. On it: not.
+      expect(touchesRoad(G, 15, 21)).toBe(true);
+      expect(touchesRoad(G, 15, 23)).toBe(false);
+      const lot = structureDef("lot") ?? [...["house", "cafe", "garage"].map((d) => structureDef(d))].find((d) => d)!;
+      expect(validatePlacement(G, lot, 15, 20, {}).ok).toBe(false);
+      run(120);
+      expect(pavedCount(G)).toBe(15);
     } finally { done(); }
   });
 

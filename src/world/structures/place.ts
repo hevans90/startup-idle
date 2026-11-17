@@ -150,6 +150,8 @@ function cellVerdict(
  * reachability starts to matter, the component is what to ask. @see Network
  */
 export function touchesRoad(grid: Grid, x: number, y: number): boolean {
+  // A ROAD BEING BUILT is a road to front: what is put beside it waits for it to open, as it would for any load.
+  if (grid.roadJobs.length && (onRoadJob(grid, x + 1, y) || onRoadJob(grid, x - 1, y) || onRoadJob(grid, x, y + 1) || onRoadJob(grid, x, y - 1))) return true;
   return (
     (inBounds(grid, x + 1, y) && grid.paved[idx(grid, x + 1, y)] !== VOID)
     || (inBounds(grid, x - 1, y) && grid.paved[idx(grid, x - 1, y)] !== VOID)

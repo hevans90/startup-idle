@@ -1560,9 +1560,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       }
       // IN THE GAME A ROAD IS ORDERED, not laid: a job along the line, built over time and opened a length at a
       // time. Graded now, on the map as it will be, and refused now if it cannot be built. @see orderRoad
-      if (st.playing && st.roadWorks && !aiActing() && gradeStroke(st.grid, s0, st.brushRadius)) {
+      // The AI's roads as the player's: it orders them, and waits for them as anyone does.
+      if (st.playing && st.roadWorks && gradeStroke(st.grid, s0, st.brushRadius)) {
         const got = orderRoad(st.grid, strokeCells(st.grid, s0));
-        if ("refused" in got) { set({ stroke: null, notice: { text: got.refused.why, at: Date.now() } }); return; }
+        if ("refused" in got) { set({ stroke: null, ...(aiActing() ? {} : { notice: { text: got.refused.why, at: Date.now() } }) }); return; }
         if ("nothing" in got) { set({ stroke: null }); return; }
         const fresh = got.job.cells.filter((c) => c.fresh);
         // NOTHING IS PAID AT THE ORDER: its materials are, a load at a time as each is sent — what a road of its
@@ -1572,7 +1573,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         if (fresh.length > 0 && share < 1) spendWallet(roadCost(fresh.length).toNumber() * (1 - share));
         got.job.at = Date.now();
         takeOn(st.grid, got);
-        set({ stroke: null, roadRev: get().roadRev + 1 });
+        // The map has changed for whoever asks whether it did: an order is something done. @see build-actions withTool
+        edited(st.grid);
+        set({ stroke: null, roadRev: get().roadRev + 1, revision: get().revision + 1 });
         return;
       }
       // A ROAD GRADES ITS OWN GROUND: the hill cut and filled under it, in this command. @see gradeRoad
