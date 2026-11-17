@@ -7,7 +7,7 @@ sent, the road coming into being from one end to the other — and open to
 traffic a length at a time. Like a project, but quick: seconds a tile, not
 minutes a building.
 
-Status: step 1 of 6 BUILT (the job and its clock, plain painting, cancel). Still paid in one sum at the order; the AI, the editor and headless runs lay road at once (`roadWorks` off).
+Status: BUILT, all six steps. Left as planned: lifting a road is still instant; a bridge tile costs a road tile; headless runs and the editor lay road at once (`roadWorks` off).
 
 ## What exists to build on
 

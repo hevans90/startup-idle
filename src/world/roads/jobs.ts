@@ -51,6 +51,8 @@ export type RoadJob = {
   stalled: number;
   /** When it was last worked, ms since the epoch — for the time away. */
   at: number;
+  /** Whether its standing has been said: once a stall, not every frame of it. */
+  told?: boolean;
 };
 
 /** Seconds before a gang is on a job it has been given. */

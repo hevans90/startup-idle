@@ -16,6 +16,7 @@ import { useCellAnchorFollow } from "../anchors/use-cell-anchor";
 import { structureAt } from "../grid";
 import { structureDef } from "../structures/def";
 import { gradeStroke } from "../roads/grade";
+import { plannedGrid } from "../roads/jobs";
 import { planUpgrade, validatePlacement } from "../structures/place";
 
 /** Why a building cannot go here, as the player reads it. @see validatePlacement */
@@ -42,7 +43,7 @@ export function PlaceReadout({ className }: { className?: string }) {
   useTicking(250);
   const ref = useRef<HTMLDivElement>(null);
   useCellAnchorFollow(ref);
-  const { tool, structureDefId, hover, grid, playing, placingProject, stroke, brushRadius } = useWorldStore.getState();
+  const { tool, structureDefId, hover, grid, playing, placingProject, stroke, brushRadius, roadWorks } = useWorldStore.getState();
   const def = structureDef(structureDefId);
   let line: { text: string; price: string | null; tone: "ok" | "bad" } | null = null;
   if (tool === "placeStructure" && def && hover && playing && placingProject) {
@@ -67,7 +68,8 @@ export function PlaceReadout({ className }: { className?: string }) {
       : { text: what, price: price && formatCurrency(price), tone: "ok" };
   } else if (tool === "paintRoad" && stroke && playing) {
     // A ROAD THE HILL REFUSES, said while it is dragged and not only once it is let go. @see gradeRoad
-    const grade = gradeStroke(grid, stroke, brushRadius);
+    // (In the game, on the map as it will be: against the roads still being built too. @see plannedGrid)
+    const grade = gradeStroke(roadWorks ? plannedGrid(grid) : grid, stroke, brushRadius);
     if (grade?.blocked.length) line = { text: grade.brief, price: null, tone: "bad" };
   }
   return (

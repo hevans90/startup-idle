@@ -75,7 +75,7 @@ import {
   type BrushId, type Stroke, type ToolId,
 } from "../world/edit/tools";
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
-import { GANGS, cancelRoadJobs, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
+import { GANGS, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
 import { stepRoadLoads } from "../world/roads/job-loads";
 import { payForLoad } from "../world/projects/economy";
 import {
@@ -851,7 +851,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (!g.roadJobs.length) return;
     const loads = stepRoadLoads(g, get().playing ? payForLoad : () => true, dt, haul);
     const { writes, changed } = stepRoadJobs(g, dt);
-    for (const j of g.roadJobs) j.at = now;
+    for (const j of g.roadJobs) {
+      j.at = now;
+      // A JOB THAT HAS STOPPED for want of a load it cannot pay for is said, once.
+      if (j.stalled > 0 && !j.told && get().playing) { j.told = true; report(`Road works have stopped: ${formatCurrency(loadPrice(j))} for the next load.`, { title: "Road works" }); }
+      else if (!j.stalled && j.told) j.told = false;
+    }
     applyRoadWrites(writes);
     if (changed || loads) set({ roadRev: get().roadRev + 1 });
   },

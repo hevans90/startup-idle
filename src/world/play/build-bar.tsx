@@ -51,6 +51,7 @@ import { AGENTS_A_RACK, agentsOpen } from "../../game/agents";
 import { PUMP_HEAD } from "../../game/cooling";
 import { MainCard } from "./main-card";
 import { SewerCard } from "./sewer-card";
+import { RoadCard } from "./road-card";
 import { SuggestCard } from "./suggest-card";
 import { InfoPop } from "../../ui/InfoPop";
 import { INFINITY } from "../../utils/time-utils";
@@ -357,6 +358,7 @@ export function BuildBar({ className }: { className?: string }) {
     <div className={twMerge("flex flex-col items-center gap-1.5 text-fg", className)}>
       <MainCard />
       <SewerCard />
+      <RoadCard />
       <SuggestCard />
       {picking && !handsOff && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
