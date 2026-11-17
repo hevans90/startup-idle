@@ -654,7 +654,8 @@ export const SUN: readonly [number, number, number] = (() => {
 /** Concrete, for what a main rests on. */
 export const CONCRETE = 0xc9c4b8;
 /** A saddle's length along the tube; a frame's legs, square, and its beam's depth, tiles. */
-const SADDLE = 0.07, LEG = 0.04, BEAM = 0.04;
+export const SADDLE = 0.07;
+const LEG = 0.04, BEAM = 0.04;
 /**
  * STANDING ON THE GROUND. A support's FOOTING: a slab a little wider than
  * what stands on it, and so thick. And the CONTACT under it: a thin dark rim
@@ -667,7 +668,8 @@ export const FOOTING = 0.03, FOOTING_T = 0.022, CONTACT_OUT = 0.022;
 export const CONTACT = 0.3;
 const CONTACT_DARK = 0x16170f;
 /** A saddle's strap: steel, a little prouder than the tube, so long; and how far a saddle's cheeks stand out past the tube. */
-const STRAP = 0x4a5058, STRAP_R = 1.07, STRAP_T = 0.022, CHEEK = 1.22;
+const STRAP = 0x4a5058, STRAP_R = 1.07, STRAP_T = 0.022;
+export const CHEEK = 1.22;
 
 /** One flat face, its four corners in order round it, all facing `n`. */
 function quad(m: PipeMesh, s: number, q: readonly Pt[], nu: number, nv: number, nh: number, colour: number) {

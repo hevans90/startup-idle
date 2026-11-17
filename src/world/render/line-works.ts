@@ -26,7 +26,7 @@ import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props
 import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
 import { walkRound, type Walker } from "./road-plant";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
-import { MATERIAL, ZT, flange, made, pipeMesh, solid, tube as meshTube } from "./pipe-mesh";
+import { BEND_R, CHEEK, CONCRETE, MATERIAL, SADDLE, ZT, box as meshBox, flange, footing, made, pipeMesh, solid, tube as meshTube } from "./pipe-mesh";
 import { CRANE_LOOKS, CRANE_REACH, craneTip } from "../agents/cars/models";
 
 /** How high a main's middle lies off the ground, half steps. @see mains-layer LIFT */
@@ -45,6 +45,16 @@ function lengthMesh(alongU: boolean, scale: number, look: PipeStuff): Mesh<Geome
   const m = pipeMesh(), du = alongU ? 1 : 0, dv = alongU ? 0 : 1, h = LENGTH / 2;
   made(look.mat, () => meshTube(m, scale, -du * h, -dv * h, 0, du * h, dv * h, 0, look.r, solid(look.colour), 14));
   for (const e of [-h, h]) flange(m, scale, du * e, dv * e, 0, du, dv, look.r, look.colour, 14, true, false);
+  return pipeDrawable(m);
+}
+/**
+ * A MAIN'S SADDLE, before its main: the very footing and block the main will lie in (@see pipe-mesh `saddle`) —
+ * short along the tube, its cheeks out past it; square under a bend. About its own middle, on the ground.
+ */
+function saddleMesh(along: "u" | "v" | null, scale: number, r: number): Mesh<Geometry, Shader> {
+  const m = pipeMesh(), du = along === "u" ? SADDLE / 2 : r * CHEEK, dv = along === "v" ? SADDLE / 2 : r * CHEEK;
+  const top = footing(m, scale, -du, -dv, du, dv, 0);
+  made(MATERIAL.concrete, () => meshBox(m, scale, -du, -dv, top, du, dv, LIFT * ZT - r * 0.15, solid(CONCRETE)));
   return pipeDrawable(m);
 }
 /** What a run's lengths are: a main's steel; a drain's cast iron, a little fatter; a sewer's trunk, iron and fatter again. @see mains-layer */
@@ -111,6 +121,14 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     const FAR = -1, NEAR = 1, SKID = (under ? 0.52 : 0.3) * NEAR, CRANE_AT = SKID + 0.324 * NEAR, PLINTH = LIFT - 0.34;
     /** Where a length lies when it is set: on its plinths, the main's own height; or down in the trench. */
     const SET_Z = under ? -0.25 * R_HS : LIFT;
+    /** A cell's SADDLE: where it stands (a bend's, under the middle of its curve), which way its tube runs, its half sizes. */
+    const saddleOf = (c: number) => {
+      const k = j.cells[c], a = j.cells[Math.max(0, c - 1)], b = j.cells[Math.min(n - 1, c + 1)];
+      const ax = a.x - k.x, ay = a.y - k.y, bx = b.x - k.x, by2 = b.y - k.y;
+      const bent = c > 0 && c < n - 1 && (ax + bx !== 0 || ay + by2 !== 0), o = bent ? BEND_R * (1 - Math.SQRT1_2) : 0;
+      const along: "u" | "v" | null = bent ? null : (ax || bx) !== 0 ? "u" : "v";
+      return { x: k.x + (ax + bx) * o, y: k.y + (ay + by2) * o, along, hx: along === "u" ? SADDLE / 2 : stuff.r * CHEEK, hy: along === "v" ? SADDLE / 2 : stuff.r * CHEEK, i: idx(g, k.x, k.y) };
+    };
     /** A loose length at a place by the line, `z` half steps over the ground there: the real tube, kept by name. */
     const seenL = new Set<string>();
     const length = (name: string, p: number, across: number, z: number, lift = 0) => {
@@ -187,16 +205,23 @@ export function createLineWorks(bands: BandLayer): LineWorks {
             else box(at.x, at.y, 0.15, 0.15, -0.1, 0.14, h, 0xc9c4b8, 0xbdb8ac, 0x9d988d);
           }
         } else {
-        // The pit, growing; its spoil thrown up beside it.
-        const half = 0.07 + 0.09 * foot;
-        box(at.x, at.y, half, half, 0, 0.015, h, pour > 0.35 ? 0x8d9296 : 0x3a2a1c, 0x3a2a1c, 0x3a2a1c);
+        // NOTHING where the main will stand on none: on a road, where it rides a frame or lies on the paving.
+        const sd = saddleOf(c);
+        if (!g.paved[sd.i]) {
+        // The pit, growing, the shape of the footing to come; its spoil thrown up beside it.
+        box(sd.x, sd.y, (sd.hx + 0.07) * (0.5 + 0.5 * foot), (sd.hy + 0.07) * (0.5 + 0.5 * foot), 0, 0.015, h, pour > 0.35 ? 0x8d9296 : 0x3a2a1c, 0x3a2a1c, 0x3a2a1c);
         const sp = by(c + 0.5, 0.3 * NEAR);
         box(sp.x, sp.y, 0.07 * foot, 0.07 * foot, 0, 0.16 * foot, h, 0xa98660, 0x8b6a47, 0x6f5338);
-        if (pour > 0) {
-          // FORMWORK round it, ply; then the concrete rising in it to a plinth; struck when it is up, the plinth standing grey.
-          const up = Math.max(0, Math.min(1, (pour - 0.35) / 0.55)), struck = pour >= 1;
-          if (!struck) box(at.x, at.y, 0.12, 0.12, 0, PLINTH + 0.06, h, 0xb9a070, 0xd8c08f, 0xb39a68);
-          if (up > 0) box(at.x, at.y, 0.1, 0.1, 0, PLINTH * up, h, up < 1 ? 0x8d9296 : 0xc9c4b8, struck ? 0xbdb8ac : 0x8d9296, struck ? 0x9d988d : 0x7b8084);
+        if (pour > 0 && pour < 1) {
+          // FORMWORK round it, ply, the saddle's own shape; the concrete rising in it. Struck when it is up — and what
+          // stands then is the main's very saddle. @see below, saddleMesh
+          const up = Math.max(0, Math.min(1, (pour - 0.35) / 0.55));
+          if (up > 0) box(sd.x, sd.y, sd.hx, sd.hy, 0, (PLINTH + 0.04) * up, h, 0x8d9296, 0x8d9296, 0x7b8084);
+          box(sd.x - sd.hx - 0.012, sd.y, 0.012, sd.hy + 0.024, 0, PLINTH + 0.06, h, 0xb9a070, 0xd8c08f, 0xb39a68);
+          box(sd.x, sd.y - sd.hy - 0.012, sd.hx + 0.024, 0.012, 0, PLINTH + 0.06, h, 0xb9a070, 0xd8c08f, 0xb39a68);
+          box(sd.x + sd.hx + 0.012, sd.y, 0.012, sd.hy + 0.024, 0, PLINTH + 0.06, h, 0xb9a070, 0xd8c08f, 0xb39a68);
+          box(sd.x, sd.y + sd.hy + 0.012, sd.hx + 0.024, 0.012, 0, PLINTH + 0.06, h, 0xb9a070, 0xd8c08f, 0xb39a68);
+        }
         }
         }
         // SKIDS, two to a length, where each length lies from when the lorry has passed until the crane takes it.
@@ -339,6 +364,19 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     }
     if (!under && f[MAIN.inspect] > 0.3 && !done) hand("inspect", f[MAIN.inspect], 0.28 * NEAR, "stand", -Math.PI / 2, [SKIN, LEGS, 0xf2f2f2, 0xf2f2f2, 0xffffff], 1.4);
     for (const [name, hd] of m.hands) if (!seenH.has(name)) { drop(hd.c); m.hands.delete(name); }
+    // THE SADDLES, struck and standing till the main's own layer has them: the main's very footing and block.
+    if (!under) for (let c = laid; c < n && f[MAIN.pour] - c >= 1; c++) {
+      const sd = saddleOf(c);
+      if (g.paved[sd.i]) continue;
+      const name = `s${c}`, key = `saddle|${sd.along}|${scale}|${stuff.id}`;
+      let q = M_.loose.get(name);
+      if (q && q.key !== key) { destroyPipeDrawable(q.mesh); M_.loose.delete(name); q = undefined; }
+      if (!q) { q = { mesh: saddleMesh(sd.along, scale, stuff.r), key, band: -1 }; M_.loose.set(name, q); }
+      seenL.add(name);
+      const [x, y] = pt(scale, sd.x, sd.y, g.height[sd.i]), band = Math.max(0, Math.min(bands.dynamicOf.length - 1, bandOf(Math.round(sd.x), Math.round(sd.y))));
+      q.mesh.position.set(x, y);
+      if (band !== q.band || !q.mesh.parent) { q.mesh.zIndex = sd.x + sd.y - band + 0.05; bands.dynamicOf[band]?.addChild(q.mesh); q.band = band; }
+    }
     for (const [name, q] of m.loose) if (!seenL.has(name)) { destroyPipeDrawable(q.mesh); m.loose.delete(name); }
   };
   const clear = () => { for (const q of ground) drop(q); ground = []; of.clear(); };
