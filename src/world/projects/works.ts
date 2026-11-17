@@ -35,6 +35,7 @@ import type { Command } from "../edit/commands";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "../agents/roads";
 import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/town";
+import { sendHome as lorryHome } from "../lines/line-loads";
 import { notable } from "../../game/machine";
 import { cultureNow } from "../../game/culture-now";
 import { siteTrucks } from "../../game/site-trucks";
@@ -276,6 +277,9 @@ export function stepWorks(
     const crew = w.crews.get(job.site);
     if (job.role === "truck") {
       if (s?.build) { s.build.delivered = Math.min(s.build.deliveries, s.build.delivered + 1); w.rev++; }
+      // Unloaded, the lorry drives home to the yard: it does not vanish at the gate. @see line-loads sendHome
+      const here = s && !m.gone ? placesOf(g, net).find((pl) => pl.structure === s.id) : undefined;
+      if (here) lorryHome(town, g, placesOf(g, net), m, here);
     } else if (job.role === "builder" && crew) {
       crew.walking = Math.max(0, crew.walking - 1);
       // Arrived to a site that wants fewer now — paused, or lowered — and

@@ -78,6 +78,7 @@ import {
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import { GANGS, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
 import { stepRoadLoads } from "../world/roads/job-loads";
+import { lineLorriesOut, sendLineLoad, takeLineLoads } from "../world/lines/line-loads";
 import { LINE_LAYS, lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
 import { payForLoad } from "../world/projects/economy";
 import {
@@ -456,7 +457,7 @@ type WorldState = {
   /** Bumped when a line being laid changes to look at: ordered, a trade further on, stood, done. @see lines/jobs */
   lineRev: number;
   /** A frame of every main, sewer and channel being laid; and the time away, caught up. */
-  stepLineWorks: (dt: number, now?: number) => void;
+  stepLineWorks: (dt: number, now?: number, haul?: { net: Network; town: Town }) => void;
   catchUpLineWorks: (now: number, maxSeconds?: number) => void;
   /**
    * A frame of the road works: loads sent for and paid, the trades moved on, lengths opened. `haul`, the roads and
@@ -873,7 +874,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (changed || loads) set({ roadRev: get().roadRev + 1 });
   },
   lineRev: 0,
-  stepLineWorks: (dt, now = Date.now()) => {
+  stepLineWorks: (dt, now = Date.now(), haul) => {
     const g = get().grid;
     if (!g.lineJobs.length && !g.razeJobs.length) return;
     let changed = false;
@@ -890,8 +891,11 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       try { set({ tool: "demolish" }); get().commitStructure({ x: j.x, y: j.y }); } finally { relaying = false; }
       set({ tool: was.tool, stroke: was.stroke, notice: was.notice });
     }
+    // (Their loads by road, where there is a town to drive them through: those that have got there, counted in.)
+    if (haul && takeLineLoads(g, haul)) changed = true;
+    const out = haul && lineLorriesOut(haul.town);
     for (const j of [...g.lineJobs]) {
-      if (stepLine(j, dt, get().playing ? payForLoad : () => true)) changed = true;
+      if (stepLine(j, dt, get().playing ? payForLoad : () => true, haul && { out: out?.get(j.id) ?? 0, send: () => sendLineLoad(g, haul, j) })) changed = true;
       j.at = now;
       if (j.stalled > 0 && !j.told && get().playing) { j.told = true; report(`${LINE_NAME[j.kind]} has stopped: ${formatCurrency(lineLoadPrice(j))} for the next load.`, { title: "Works" }); }
       else if (!j.stalled && j.told) j.told = false;

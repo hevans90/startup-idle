@@ -20,7 +20,7 @@ import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-s
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
-import { LINE_STAGES, MAIN, SEWER, alongLine, lineFront, type LineJob } from "../lines/jobs";
+import { LINE_GAPS, LINE_LAYS, LINE_PACE, LINE_STAGES, MAIN, SEWER, alongLine, lineFront, type LineJob } from "../lines/jobs";
 import type { BandLayer } from "./bands";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
 import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
@@ -100,7 +100,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
    * its crew; and the pegs set out ahead of it.
    */
   type Hand = Walker & { c: Container; parts: Sprite[]; key: string; band: number };
-  type Laying = { g: Graphics; band: number; stood: Map<number, Graphics>; /** What of that stands NEARER than a length down in a trench: the near sheet of its shoring, drawn over the length. */ front: Map<number, Graphics>; stoodKey: string; hands: Map<string, Hand>; pegs: Container[]; pegged: string; /** Its loose lengths, each the real tube: on the lorry, on their skids, in the slings, set and waiting to be made one with the run. */ loose: Map<string, { mesh: Mesh<Geometry, Shader>; key: string; band: number }> };
+  type Laying = { /** The job's pieces in order and its haul track, worked out once. */ plan?: { key: string; pieces: unknown[]; pts: { x: number; y: number }[]; cum: number[]; uCell: number[]; turnAt: number; load: number }; g: Graphics; band: number; stood: Map<number, Graphics>; /** What of that stands NEARER than a length down in a trench: the near sheet of its shoring, drawn over the length. */ front: Map<number, Graphics>; stoodKey: string; hands: Map<string, Hand>; pegs: Container[]; pegged: string; /** Its loose lengths, each the real tube: on the lorry, on their skids, in the slings, set and waiting to be made one with the run. */ loose: Map<string, { mesh: Mesh<Geometry, Shader>; key: string; band: number }> };
   const mains = new Map<number, Laying>();
   const dropMain = (m: Laying) => { for (const q of m.loose.values()) destroyPipeDrawable(q.mesh); m.loose.clear(); drop(m.g); for (const q of m.stood.values()) drop(q); for (const q of m.front.values()) drop(q); for (const h of m.hands.values()) drop(h.c); for (const q of m.pegs) drop(q); };
   /**
@@ -119,6 +119,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     g: Grid, j: LineJob, w: number, dt: number, scale: number, P: ReturnType<typeof peopleLoaded>,
     place: (name: string, p: number, looks: { look: string; tint: number; heading?: number }[], turn?: number, across?: number) => Unit | null,
     seenM: Set<number>,
+    placeAt: (name: string, x: number, y: number, heading: number, h: number, looks: { look: string; tint: number; heading?: number }[]) => Unit | null,
   ) => {
     const n = j.cells.length, f = Array.from({ length: LINE_STAGES[j.kind] }, (_, q) => lineFront(j, q)), laid = j.laid ?? 0, still = j.stalled > 0;
     // UNDER THE GROUND, a sewer's trunk: the same lengths, the same crane — into a trench, and the trench filled over them.
@@ -132,7 +133,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     /** A place by the line: `p` tiles along it, `across` to its side. */
     const by = (p: number, across = 0) => { const a = alongLine(j.cells, p); return { x: a.x - Math.sin(a.heading) * across, y: a.y + Math.cos(a.heading) * across, heading: a.heading }; };
     /** The side the pipe comes from — its lorry, its skids — and the side it is worked from. */
-    const FAR = -1, NEAR = 1, CRANE_AT = 0.5 * NEAR, LORRY_AT = 0.92 * NEAR, PLINTH = LIFT - 0.34;
+    const FAR = -1, NEAR = 1, CRANE_AT = 0.45 * NEAR, PLINTH = LIFT - 0.34;
     /** Where a length lies when it is set: on its plinths, the main's own height; or down in the trench. */
     const SET_Z = under ? -0.25 * R_HS : LIFT;
     /** A cell's SADDLE: where it stands (a bend's, under the middle of its curve), which way its tube runs, its half sizes. */
@@ -318,7 +319,9 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     if (!under && f[MAIN.pour] > 0 && f[MAIN.pour] < n) {
       const c = Math.floor(f[MAIN.pour]), fr = f[MAIN.pour] - c, pit = by(c + 0.5), pouring = !still && fr > 0.35 && fr < 0.92;
       // (Its tail to the pit: it faces away from the line, its chute's end over the formwork.)
-      place("mixer", c + 0.5, [{ look: mixerLook(w, pouring), tint: DRUM }], Math.PI / 2 * FAR, 0.6 * FAR);
+      // From one pit to the next it pulls out, runs along the line and backs in: it is never lifted from one to the other.
+      const mv = c > 0 ? (() => { const q = Math.max(0, Math.min(1, fr / 0.3)); return q * q * (3 - 2 * q); })() : 1, sw = Math.sin(Math.PI * mv);
+      place("mixer", c - 0.5 + mv, [{ look: mixerLook(w, pouring), tint: DRUM }], (Math.PI / 2) * FAR * (1 - sw), (0.6 + 0.4 * sw) * FAR);
       if (pouring) {
         const from = by(c + 0.5, 0.14 * FAR), hp = hAt(c);
         for (let q = 0; q < 6; q++) {
@@ -329,70 +332,207 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       hand("form0", c + 0.28, 0.2 * NEAR, "work", -Math.PI / 2, VEST(0));
       hand("form1", c + 0.72, 0.2 * NEAR, "work", -Math.PI / 2, VEST(1));
     }
-    // ── THE PIPE GOES IN A PIECE AT A TIME, OFF A CONVOY ──
+    // ── THE PIPE GOES IN A PIECE AT A TIME, OFF LORRIES THAT NEVER LEAVE THE JOB ──
     // The pipe runs from the middle of its first tile to the middle of its last — as the main does — so its pieces
-    // are the halves of THAT, two to a tile, and a bend's ELBOW for the two that meet in its cell. Each comes on a
-    // lorry of its own: the lorries queue beside the laid pipe, the first of them drawn up outside the CRANE; the
-    // crane hooks the piece on its bed, lifts it, slews round with it over its own front, luffs out and lowers it
-    // onto the saddles; the lorry pulls away empty, the queue moves up, and the boom comes back for the next.
-    const lengths = Math.max(0, 2 * (n - 1)), turn = Math.floor(f[MAIN.set] * 2) - 1;
+    // are the halves of THAT, two to a tile, and a bend's ELBOW for the two that meet in its cell.
+    // A few lorries work the job from first to last, round a HAUL TRACK beside the line: each is loaded with three
+    // pieces off the stack at the LAYDOWN behind the line's start, drives up the track, waits its turn, draws up
+    // outside the CRANE and stands while the crane takes its pieces one at a time — hooked on the bed, lifted,
+    // slewed round over the crane's own front and lowered onto the saddles — then pulls on, turns, and drives back
+    // down the far side of the track for more. Where each is, is worked out from how far the pipe has got: nothing
+    // appears and nothing is taken away, and a job that stands, stands with them where they were.
+    const lengths = Math.max(0, 2 * (n - 1)), setRaw = j.t / LINE_PACE[j.kind] - LINE_LAYS[j.kind] * LINE_GAPS[j.kind];
     type Piece = { i: number; bd: ReturnType<typeof bendAt>; p: number; turns: number };
-    const win: Piece[] = [];
-    for (let i = Math.max(0, 2 * Math.floor(under ? f[SEWER.fill] : laid) - 5); i < lengths && i < turn + 12; i++) {
-      const k = Math.round((i + 0.5) / 2), bd = bendAt(k);
-      if (!bd) win.push({ i, bd: null, p: (i + 1.5) / 2, turns: 1 });
-      else if (i === 2 * k - 1) win.push({ i, bd, p: k + 0.5, turns: 2 });
-    }
-    const ci = turn < 0 ? -1 : win.findIndex((q) => turn >= q.i && turn < q.i + q.turns), cur = ci >= 0 ? win[ci] : null;
-    const lf = cur ? (f[MAIN.set] * 2 - 1 - cur.i) / cur.turns : 0;
     const ease = (v: number) => { const q = Math.max(0, Math.min(1, v)); return q * q * (3 - 2 * q); };
-    /** How far a lorry's bed is behind its middle, tiles; how high a piece rides on it, half steps; the gap from lorry to lorry. */
-    const BED_BACK = 0.12, BED = 1.25 * M + R_HS, GAP = 0.95, UNHOOK = 0.66;
+    /** Pieces a lorry brings; how far a lorry's bed is behind its middle; the gap in a queue; when the hook lets go. */
+    const PER = 3, BED_BACK = 0.12, GAP = 0.95, UNHOOK = 0.66, HOOKED = 0.1;
+    /** The haul track: its middle so far from the line, its lanes so far either side of that, lorries so close parked. */
+    const TRACK = 1.3, LANE = 0.36, ROW = 0.62;
+    const lorries = Math.max(3, Math.min(6, Math.ceil(2.8 + n / 9)));
+    let plan = M_.plan;
+    if (!plan || plan.key !== `${n}|${lorries}|${j.cells[0].x},${j.cells[0].y}|${j.cells[n - 1].x},${j.cells[n - 1].y}`) {
+      const pieces: Piece[] = [];
+      for (let i = 0; i < lengths; i++) {
+        const k = Math.round((i + 0.5) / 2), bd = bendAt(k);
+        if (!bd) pieces.push({ i, bd: null, p: (i + 1.5) / 2, turns: 1 });
+        else if (i === 2 * k - 1) pieces.push({ i, bd, p: k + 0.5, turns: 2 });
+      }
+      // THE TRACK'S MIDDLE: from the laydown, behind the line's start, up beside every tile of the line — round the
+      // outside or the inside of each bend — and on a little past its end; its corners rounded.
+      const way = (k: number) => { const a = j.cells[Math.max(0, k - 1)], b = j.cells[Math.min(n - 1, k + 1)], l = Math.hypot(b.x - a.x, b.y - a.y) || 1; return { x: (b.x - a.x) / l, y: (b.y - a.y) / l }; };
+      const d0 = way(0), dn = way(n - 1), turnAt = 0.5, load = turnAt + 0.5 + ROW * lorries, back = load + 0.6 + GAP + 0.4;
+      let pts: { x: number; y: number }[] = [];
+      const first = { x: j.cells[0].x - d0.y * TRACK * NEAR, y: j.cells[0].y + d0.x * TRACK * NEAR };
+      for (const q of [1, 0.66, 0.33]) pts.push({ x: first.x - d0.x * back * q, y: first.y - d0.y * back * q });
+      for (let k = 0; k < n; k++) {
+        const bd = bendAt(k), d = way(k);
+        pts.push(bd ? { x: bd.c.x + bd.mitre.x * TRACK * NEAR, y: bd.c.y + bd.mitre.y * TRACK * NEAR } : { x: j.cells[k].x - d.y * TRACK * NEAR, y: j.cells[k].y + d.x * TRACK * NEAR });
+      }
+      const last = pts[pts.length - 1];
+      pts.push({ x: last.x + dn.x * 1.2, y: last.y + dn.y * 1.2 }, { x: last.x + dn.x * 2.4, y: last.y + dn.y * 2.4 });
+      for (let it = 0; it < 2; it++) {
+        const o = [pts[0]];
+        for (let k = 0; k + 1 < pts.length; k++) { const a = pts[k], b = pts[k + 1]; o.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 }, { x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 }); }
+        o.push(pts[pts.length - 1]);
+        pts = o;
+      }
+      const cum = [0];
+      for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y));
+      // (Where along it each tile of the line is abreast: straight tiles by their own place, never going back.)
+      const uCell: number[] = [];
+      let from = 0;
+      for (let k = 0; k < n; k++) {
+        const bd = bendAt(k), d = way(k), cx = bd ? bd.c.x + bd.mitre.x * TRACK * NEAR : j.cells[k].x - d.y * TRACK * NEAR, cy = bd ? bd.c.y + bd.mitre.y * TRACK * NEAR : j.cells[k].y + d.x * TRACK * NEAR;
+        let best = from, bestD = Infinity;
+        for (let q = from; q < pts.length; q++) { const dd = (pts[q].x - cx) ** 2 + (pts[q].y - cy) ** 2; if (dd < bestD) { bestD = dd; best = q; } else if (dd > bestD + 4) break; }
+        uCell.push(cum[best]);
+        from = best;
+      }
+      plan = M_.plan = { key: `${n}|${lorries}|${j.cells[0].x},${j.cells[0].y}|${j.cells[n - 1].x},${j.cells[n - 1].y}`, pieces, pts, cum, uCell, turnAt, load };
+    }
+    const PL = plan, pieces = PL.pieces as Piece[], total = pieces.length, trips = Math.ceil(total / PER);
+    /** A place on the track: so far along its middle, so far to its side — towards the line, less than nought. */
+    const onTrack = (u: number, side: number) => {
+      const at = (v: number) => {
+        const q = Math.max(0, Math.min(PL.cum[PL.cum.length - 1], v));
+        let lo = 0, hi = PL.cum.length - 1;
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (PL.cum[mid] <= q) lo = mid; else hi = mid; }
+        const fr = (q - PL.cum[lo]) / Math.max(1e-6, PL.cum[hi] - PL.cum[lo]);
+        return { x: PL.pts[lo].x + (PL.pts[hi].x - PL.pts[lo].x) * fr, y: PL.pts[lo].y + (PL.pts[hi].y - PL.pts[lo].y) * fr };
+      };
+      const c = at(u), a = at(u - 0.3), b = at(u + 0.3), heading = Math.atan2(b.y - a.y, b.x - a.x);
+      return { x: c.x - Math.sin(heading) * side * NEAR, y: c.y + Math.cos(heading) * side * NEAR, heading };
+    };
+    /** How far along the track a place along the line is abreast of. */
+    const uOf = (p: number) => { const q = Math.max(0, Math.min(n - 1, p - 0.5)), k = Math.min(n - 2, Math.floor(q)); return n < 2 ? PL.uCell[0] : PL.uCell[k] + (PL.uCell[k + 1] - PL.uCell[k]) * (q - k); };
+    const cellH = (x: number, y: number) => { const cx = Math.max(0, Math.min(g.w - 1, Math.round(x))), cy = Math.max(0, Math.min(g.h - 1, Math.round(y))); return g.height[idx(g, cx, cy)]; };
+
+    // WHERE THE WORK IS: which piece is the crane's, and how far through its turn; the trip that piece came on.
+    const turnF = f[MAIN.set] * 2 - 1, turn = Math.floor(turnF);
+    let ci = -1;
+    if (turn >= 0 && total) { let lo = 0, hi = total - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (pieces[mid].i <= turn) lo = mid; else hi = mid - 1; } if (turn < pieces[lo].i + pieces[lo].turns) ci = lo; }
+    const cur = ci >= 0 ? pieces[ci] : null, lf = cur ? (turnF - cur.i) / cur.turns : 0;
+    /** How many pieces along the work is, and a fraction: before the first, how long till it; after the last, how long since. */
+    const sigma = cur ? ci + lf : turn < 0 ? Math.min(-1e-3, setRaw * 2 - 1) : total + Math.max(0, setRaw * 2 - 1 - lengths);
+    const tau = sigma / PER;
+    /** Where the crane stands for a trip's pieces: abreast of the middle of them. */
+    const craneP = (trip: number) => { const a = pieces[Math.max(0, Math.min(total - 1, trip * PER))], b = pieces[Math.max(0, Math.min(total - 1, trip * PER + PER - 1))]; return (a.p + b.p) / 2; };
+    const tripNow = Math.max(0, Math.min(trips - 1, Math.floor(Math.max(0, tau)))), sNow = tau - tripNow;
+    // (It moves up between trips, while one lorry pulls away and the next draws up.)
+    const MOVE0 = 0.9, MOVE1 = 0.995;
+    const craneU = total ? uOf(craneP(tripNow)) + (uOf(craneP(Math.min(trips - 1, tripNow + 1))) - uOf(craneP(tripNow))) * ease((sNow - MOVE0) / (MOVE1 - MOVE0)) : 0;
     const setShown = (q: Piece) => (under ? q.p > f[SEWER.fill] : q.p > laid - 0.5);
     const put = (q: Piece, at: { x: number; y: number; heading: number }, h: number, z: number, lift: number): Slung =>
       q.bd ? elbow(`l${q.i}`, q.bd, at.x, at.y, z, lift) : lengthAt(`l${q.i}`, at, h, z, lift);
     const setAt = (q: Piece) => (q.bd ? { x: q.bd.c.x, y: q.bd.c.y, heading: 0 } : by(q.p));
+    /** A piece's place on its lorry's bed: the `b`th of them — two side by side, and one on the two. */
+    const onBed = (lorry: { x: number; y: number; heading: number }, b: number) => {
+      const ch = Math.cos(lorry.heading), sh = Math.sin(lorry.heading), off = b < 2 ? (b - 0.5) * 0.13 : 0;
+      return { x: lorry.x - ch * BED_BACK - sh * off, y: lorry.y - sh * BED_BACK + ch * off, heading: lorry.heading, z: (b < 2 ? 1.25 : 1.95) * M + R_HS };
+    };
+    /** The laydown: where a lorry stands to be loaded, the stack it is loaded from, and the machine that loads it. */
+    const loadAt = onTrack(PL.load, -LANE), stackAt = onTrack(PL.load, -LANE - 0.46), loaderAt = onTrack(PL.load + 0.75, -LANE - 0.55);
+
+    // ── EVERY LORRY, where it is in its round ──
+    // A round, in trips (a trip is the time the crane takes over one lorry's pieces): loaded; up the track; a place
+    // back in the queue, then drawn up at the crane; stood while it is unloaded; on, round, and back; round again
+    // at the laydown and up to the stack.
+    const T_LOAD = 0.5, T_LEAVE = 0.8, T_ON = 0.88, T_ROUND = 1.04, T_HOME = T_ROUND + (lorries - 2.88) / 2, T_IN = T_HOME + 0.16, T_END = T_IN + 0.1;
+    const rowU = (slot: number) => PL.load - ROW * (slot + 1);
+    const slotU = (trip: number) => uOf(craneP(Math.max(0, Math.min(trips - 1, trip))));
+    const beds = new Map<number, { x: number; y: number; heading: number }>();
+    let loading: { x: number; y: number } | null = null;
+    for (let l = 0; l < lorries && total; l++) {
+      // (Its trip: the one it is on its way with, standing with, or coming back from.)
+      const trip = l + lorries * Math.ceil((tau - T_END - l) / lorries + 1e-9), s = tau - trip;
+      let at: { x: number; y: number; heading: number };
+      const parked = (slot: number) => onTrack(rowU(slot), -LANE);
+      const lastOf = (t: number) => t - Math.max(0, trips - lorries);
+      if (trip < 0) at = parked(l);
+      else if (trip >= trips) at = parked(trip - lorries < 0 ? l : lastOf(trip - lorries));
+      else if (s < 0) {
+        // LOADED, from where it was parked or had come round to; up the track; into the queue; up to the crane.
+        const s0 = T_END - lorries, fromU = trip < lorries ? rowU(l) : PL.load, here = slotU(trip), behind = slotU(trip - 1) - GAP;
+        if (s < s0 + 0.08) at = onTrack(fromU + (PL.load - fromU) * ease((s - s0) / 0.08), -LANE);
+        else if (s < s0 + 0.08 + T_LOAD) at = loadAt;
+        else if (s < -1) at = onTrack(PL.load + (Math.max(PL.load, behind) - PL.load) * ease((s - (s0 + 0.08 + T_LOAD)) / Math.max(1e-6, -1 - (s0 + 0.08 + T_LOAD))), -LANE);
+        else at = onTrack(Math.max(PL.load, behind) + (here - Math.max(PL.load, behind)) * ease((s + 1 - MOVE0 - 0.02) / (MOVE1 - MOVE0)), -LANE);
+        // ITS PIECES ON ITS BED, as they are put there. (The first loaded lies lowest; the crane takes the top one first.)
+        const count = Math.min(PER, total - trip * PER);
+        for (let q = 0; q < count; q++) {
+          const pc = pieces[trip * PER + q], b = count - 1 - q, t0 = s0 + 0.08 + T_LOAD * (b + 0.1) / PER, t1 = s0 + 0.08 + T_LOAD * (b + 0.75) / PER;
+          if (s < t0) continue;
+          const bed = onBed(at, b), go = ease((s - t0) / (t1 - t0));
+          if (go < 1) { const x = stackAt.x + (bed.x - stackAt.x) * go, y = stackAt.y + (bed.y - stackAt.y) * go; put(pc, { x, y, heading: bed.heading }, cellH(x, y), 0.5 + R_HS + (bed.z - 0.5 - R_HS) * go + 1.1 * Math.sin(Math.PI * go), 0.5); loading = { x, y }; }
+          else put(pc, bed, cellH(at.x, at.y), bed.z, 0.4);
+        }
+      } else {
+        const here = slotU(trip), end = trip + lorries >= trips, homeU = end ? rowU(lastOf(trip)) : PL.load;
+        if (s < T_LEAVE) at = onTrack(here, -LANE);
+        else if (s < T_ON) at = onTrack(here + 1.0 * ease((s - T_LEAVE) / (T_ON - T_LEAVE)), -LANE);
+        else if (s < T_ROUND) {
+          // ROUND, beyond the crane: out of the near lane, across the track and into the far one, facing back.
+          const c = onTrack(here + 1.0, 0), th = Math.PI * ease((s - T_ON) / (T_ROUND - T_ON)), nx = -Math.sin(c.heading) * NEAR, ny = Math.cos(c.heading) * NEAR;
+          at = { x: c.x + (-nx * Math.cos(th) + Math.cos(c.heading) * Math.sin(th)) * LANE, y: c.y + (-ny * Math.cos(th) + Math.sin(c.heading) * Math.sin(th)) * LANE, heading: c.heading + th * NEAR };
+        } else if (s < T_HOME) { const q = onTrack(here + 1.0 + (PL.turnAt - here - 1.0) * ease((s - T_ROUND) / (T_HOME - T_ROUND)), LANE); at = { ...q, heading: q.heading + Math.PI }; }
+        else if (s < T_IN) {
+          // ROUND AGAIN, at the laydown: back into the near lane, facing up the track.
+          const c = onTrack(PL.turnAt, 0), th = Math.PI * ease((s - T_HOME) / (T_IN - T_HOME)), nx = -Math.sin(c.heading) * NEAR, ny = Math.cos(c.heading) * NEAR;
+          at = { x: c.x + (nx * Math.cos(th) - Math.cos(c.heading) * Math.sin(th)) * LANE, y: c.y + (ny * Math.cos(th) - Math.sin(c.heading) * Math.sin(th)) * LANE, heading: c.heading + Math.PI + th * NEAR };
+        } else at = onTrack(PL.turnAt + (homeU - PL.turnAt) * ease((s - T_IN) / (T_END - T_IN)), -LANE);
+        // WHAT IS STILL ON ITS BED, at the crane: the pieces whose turn has not come, and the one not yet lifted.
+        const count = Math.min(PER, total - trip * PER);
+        for (let q = 0; q < count; q++) {
+          const m = trip * PER + q;
+          if (m > ci && ci >= 0 || (m === ci && lf < HOOKED)) put(pieces[m], onBed(at, count - 1 - q), cellH(at.x, at.y), onBed(at, count - 1 - q).z, 0.4);
+        }
+        if (s < T_LEAVE) beds.set(trip, at);
+      }
+      placeAt(`lorry${l}`, at.x, at.y, at.heading, cellH(at.x, at.y), [{ look: "flatbed", tint: BLUE }]);
+    }
+    // ── THE LAYDOWN: what is left of the pipe, stacked; and the machine that loads it, turned to what it has hold of ──
+    if (total) {
+      const left = Math.max(0, Math.min(5, total - Math.max(0, Math.floor(tau + lorries - T_END + 1)) * PER));
+      for (let q = 0; q < left; q++) {
+        const row = q < 3 ? 0 : 1, off = row ? (q - 3.5) * 0.14 : (q - 1) * 0.14;
+        lengthAt(`stk${q}`, { x: stackAt.x - Math.sin(stackAt.heading) * off, y: stackAt.y + Math.cos(stackAt.heading) * off, heading: stackAt.heading }, cellH(stackAt.x, stackAt.y), 0.07 + R_HS + row * R_HS * 1.75, 0.05 + row * 0.02);
+      }
+      const face = loading ? Math.atan2(loading.y - loaderAt.y, loading.x - loaderAt.x) : Math.atan2(stackAt.y - loaderAt.y, stackAt.x - loaderAt.x);
+      placeAt("loader", loaderAt.x, loaderAt.y, loaderAt.heading, cellH(loaderAt.x, loaderAt.y), [{ look: "exTracks", tint: YELLOW }, { look: "exLift", tint: YELLOW, heading: face }]);
+    }
+    // ── THE PIECES IN, and the one in the slings ──
     let load: Slung | null = null, boom = 0, far = CRANE_REACH[0] * T;
-    const cr = cur ? by(cur.p, CRANE_AT) : null;
+    const cr = total ? onTrack(craneU, -(TRACK - CRANE_AT * NEAR)) : null;
+    for (let q = Math.max(0, ci < 0 && turn >= 0 ? total - 40 : 0); q < total; q++) {
+      const pc = pieces[q];
+      if (pc.i < 2 * Math.floor(under ? f[SEWER.fill] : laid) - 5) continue;
+      if (ci >= 0 ? q > ci || (q === ci && lf < UNHOOK) : turn < 0) break;
+      // (Set, it shows until it is part of the run — or, in a trench, until the trench is filled over it.)
+      if (setShown(pc)) put(pc, setAt(pc), hAt(pc.p), SET_Z, under ? 0.1 : 0.3);
+    }
     if (cur && cr) {
-      // Where it is picked from — the bed of the lorry drawn up outside the crane — and where it is set; round the
-      // crane from one to the other, over its front.
-      const lorry = by(cur.p, LORRY_AT), from = { x: lorry.x - Math.cos(lorry.heading) * BED_BACK, y: lorry.y - Math.sin(lorry.heading) * BED_BACK }, to = setAt(cur);
+      // Where it is picked from — its place on the bed of the lorry drawn up outside the crane — and where it is
+      // set; round the crane from one to the other, over its front.
+      const trip = Math.floor(ci / PER), lorry = beds.get(trip) ?? onTrack(slotU(trip), -LANE), count = Math.min(PER, total - trip * PER);
+      const from = onBed(lorry, count - 1 - (ci - trip * PER)), to = setAt(cur);
       const a0 = Math.atan2(from.y - cr.y, from.x - cr.x), a1 = Math.atan2(to.y - cr.y, to.x - cr.x), r0 = Math.hypot(from.x - cr.x, from.y - cr.y), r1 = Math.hypot(to.x - cr.x, to.y - cr.y);
       let sweepBy = a1 - a0;
       while (sweepBy * NEAR > 0) sweepBy -= 2 * Math.PI * NEAR;
       while (sweepBy * NEAR <= -2 * Math.PI) sweepBy += 2 * Math.PI * NEAR;
       // (Hooked on; lifted, slewed and lowered; unhooked; and the boom back round, empty, for the next.)
-      const carry = ease((lf - 0.1) / 0.5), back = ease((lf - 0.72) / 0.26), on = lf < UNHOOK ? carry : 1 - back;
+      const carry = ease((lf - HOOKED) / 0.5), back = ease((lf - 0.72) / 0.26), on = lf < UNHOOK ? carry : 1 - back;
       boom = a0 + sweepBy * on;
       far = r0 + (r1 - r0) * on;
-      if (lf < UNHOOK) load = put(cur, { x: cr.x + Math.cos(boom) * far, y: cr.y + Math.sin(boom) * far, heading: to.heading }, hAt(cur.p), BED + (SET_Z - BED) * carry + 1.5 * Math.sin(Math.PI * carry), 0.5);
-    }
-    for (let q = 0; q < win.length; q++) {
-      const pc = win[q];
-      // (Set, it shows until it is part of the run — or, in a trench, until the trench is filled over it.)
-      if (ci < 0 ? pc.i < turn : q < ci || (q === ci && lf >= UNHOOK)) { if (setShown(pc)) put(pc, setAt(pc), hAt(pc.p), SET_Z, under ? 0.1 : 0.3); continue; }
-      if (ci < 0 || q - ci > 3) continue;
-      // ITS LORRY. The one being unloaded stands outside the crane till its piece is off it, then pulls out and away;
-      // those behind it move up a place as it goes, each with its piece on its bed.
-      const ahead = q - ci, next = win[ci + 1]?.p ?? cur!.p + 0.5;
-      let lp: number, across = LORRY_AT, veer = 0, alpha = 1;
-      if (ahead === 0) { const go = ease((lf - 0.34) / 0.62); lp = cur!.p + go * 2.4; across += NEAR * 1.5 * go * go; veer = NEAR * 0.5 * Math.sin(Math.PI * Math.min(1, go * 1.15)); alpha = 1 - Math.max(0, (go - 0.6) / 0.4); }
-      else { const up = ease((lf - 0.4) / 0.56), now = cur!.p - ahead * GAP; lp = now + (next - (ahead - 1) * GAP - now) * up; alpha = Math.max(0, Math.min(1, (lp - 0.55) / 0.4));
-        // (The last of the queue is the one arriving: in from out to the side, as the empty one went.)
-        if (ahead === 3) { across += NEAR * 1.5 * (1 - up) * (1 - up); veer = -NEAR * 0.5 * Math.sin(Math.PI * Math.min(1, (1 - up) * 1.15)); alpha *= Math.min(1, up * 3); } }
-      if (alpha <= 0.02) continue;
-      const u = place(`lorry${pc.i % 8}`, lp, [{ look: "flatbed", tint: BLUE }], veer, across);
-      if (u) u.c.alpha = alpha;
-      if (ahead > 0 && alpha > 0.5) { const b = by(lp - BED_BACK, across); put(pc, b, hAt(lp), BED, 0.4); }
-    }
-    // ── THE CRANE, parked on its outriggers beside the line, and a banksman to see each piece in ──
-    if (cur && cr) {
-      const p = cur.p;
+      if (lf >= HOOKED && lf < UNHOOK) load = put(cur, { x: cr.x + Math.cos(boom) * far, y: cr.y + Math.sin(boom) * far, heading: to.heading }, hAt(cur.p), from.z + (SET_Z - from.z) * carry + 1.5 * Math.sin(Math.PI * carry), 0.5);
+    } else if (cr) boom = cr.heading + (Math.PI / 2) * NEAR;
+    // ── THE CRANE, on its outriggers beside the line, and a banksman to see each piece in ──
+    if (cr) {
+      const p = cur ? cur.p : turn < 0 ? 0.5 : n - 0.5;
       const rk2 = CRANE_REACH.reduce((best, r0, q) => (Math.abs(r0 * T - far) < Math.abs(CRANE_REACH[best] * T - far) ? q : best), 0);
-      place("crane", p, [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[rk2], tint: YELLOW, heading: boom }], 0, CRANE_AT);
+      placeAt("crane", cr.x, cr.y, cr.heading, cellH(cr.x, cr.y), [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[rk2], tint: YELLOW, heading: boom }]);
       // THE ROPE from the boom's head down to the hook: over the load, slings from it to the piece's two ends; or empty.
-      const tip = pt(scale, cr.x + Math.cos(boom) * far, cr.y + Math.sin(boom) * far, hAt(p) + craneTip(CRANE_REACH[rk2]) * M);
+      const reach = Math.min(far, CRANE_REACH[CRANE_REACH.length - 1] * T);
+      const tip = pt(scale, cr.x + Math.cos(boom) * reach, cr.y + Math.sin(boom) * reach, cellH(cr.x, cr.y) + craneTip(CRANE_REACH[rk2]) * M);
       const lw = Math.max(0.6, 0.55 * scale);
       if (load) {
         const r = stuff.r * HW * Math.SQRT2 * scale, hook: [number, number] = [load.x, load.y - r - 9 * scale];
@@ -400,7 +540,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         G.rect(hook[0] - 1.6 * scale, hook[1] - 2 * scale, 3.2 * scale, 4 * scale).fill({ color: 0xe9a71b });
         for (const [ox, oy] of load.ends) { const ex = (ox - oy) * HW * scale, ey = (ox + oy) * HH * scale; G.moveTo(hook[0], hook[1] + 2 * scale).lineTo(load.x + ex, load.y + ey - r).stroke({ color: 0x1f2226, width: lw }); }
       } else {
-        const hook = pt(scale, cr.x + Math.cos(boom) * far, cr.y + Math.sin(boom) * far, hAt(p) + 2.6);
+        const hook = pt(scale, cr.x + Math.cos(boom) * reach, cr.y + Math.sin(boom) * reach, cellH(cr.x, cr.y) + 2.6);
         G.moveTo(tip[0], tip[1]).lineTo(hook[0], hook[1]).stroke({ color: 0x1f2226, width: lw });
         G.rect(hook[0] - 1.6 * scale, hook[1] - 2 * scale, 3.2 * scale, 4 * scale).fill({ color: 0xe9a71b });
       }
@@ -536,6 +676,16 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           u.band = into(u.c, u.band, at.x, at.y, base);
           return u;
         };
+        const placeAt = (name: string, x: number, y: number, heading: number, h: number, looks: { look: string; tint: number; heading?: number }[]): Unit | null => {
+          if (!cars) return null;
+          const id = `${j.id}:${name}`;
+          let u = units.get(id);
+          if (!u) { u = makeUnit(looks.length); units.set(id, u); }
+          seen.add(id);
+          const base = poseUnit(u, cars, looks, { x, y, z: h, heading, pitch: 0 }, scale, P ? { people: P, id: j.id * 8 + name.length } : null);
+          u.band = into(u.c, u.band, x, y, base);
+          return u;
+        };
         if (j.kind === "sewer" && f0 < n) {
           // THE DIGGER backs along the line ahead of its trench: a bite out of the end of it, round to the side, tipped on the ridge.
           const q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL, at = alongLine(j.cells, f0 + 0.62);
@@ -548,7 +698,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           const house = at.heading + Math.PI - 0.95 * (slew * slew * (3 - 2 * slew));
           place("digger", f0 + 0.62, [{ look: "exTracks", tint: YELLOW }, { look: j.stalled > 0 ? "exLift" : pose, tint: YELLOW, heading: house }]);
         }
-        if (j.kind !== "dredge") layMain(g, j, w, dt, scale, P, place, seenM);
+        if (j.kind !== "dredge") layMain(g, j, w, dt, scale, P, place, seenM, placeAt);
         if (j.kind === "dredge" && f0 < n) {
           // THE DREDGER: a barge on the water over where it is working, a jib over its bow and a grab on a rope; mud in the water round it.
           seenB.add(j.id);

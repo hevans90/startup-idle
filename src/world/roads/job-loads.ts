@@ -9,6 +9,7 @@ import { idx, inBounds, type Grid } from "../grid";
 import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, type Town } from "../agents/town";
 import { find, type Network } from "./network";
+import { sendHome } from "../lines/line-loads";
 import { GANGS, OVERLAND, loadPrice, materialTime, wantsLoad, type RoadJob } from "./jobs";
 
 /** The Garage and what it grows into: the yard a load comes from. @see works depotFor */
@@ -64,6 +65,9 @@ export function stepRoadLoads(
       haul.town.arrived.splice(k, 1);
       const j = g.roadJobs.find((q) => q.id === m.job!.site);
       if (j) { j.delivered = Math.min(j.deliveries, j.delivered + 1); changed = true; }
+      // Unloaded, the lorry drives home to the yard: it does not vanish at the works. @see line-loads sendHome
+      const head = j && !m.gone ? headOf(g, haul.net, j) : null;
+      if (head) sendHome(haul.town, g, placesOf(g, haul.net), m, head);
     }
   }
   const out = haul ? lorriesOut(haul.town) : new Map<number, number>();

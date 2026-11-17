@@ -40,8 +40,11 @@ export type LineJob = {
   told?: boolean;
 };
 
-/** Seconds a tile, the leading trade: a main laid on the ground is quick; a sewer is dug for; a dredger is slow. */
-export const LINE_PACE: Readonly<Record<LineKind, number>> = { main: 3, drain: 3, sewer: 4, dredge: 4 };
+/**
+ * Seconds a tile, the leading trade: a main is two crane lifts a tile, and a lift takes what a lift takes; a sewer
+ * is dug for as well; a dredger is slow.
+ */
+export const LINE_PACE: Readonly<Record<LineKind, number>> = { main: 6, drain: 6, sewer: 7, dredge: 4 };
 /**
  * THE TRADES THAT PASS ALONG A LINE, one after another, each `LINE_GAPS` tiles behind the one ahead.
  *
@@ -85,21 +88,24 @@ export const lineAllowed = (j: LineJob) =>
  * A step of a job: loads sent for — `spend` pays for one and says whether it could — and arriving; the work as far
  * as the loads allow. Says whether anything that shows has changed.
  */
-export function stepLine(j: LineJob, dt: number, spend: (amount: number) => boolean): boolean {
+export function stepLine(j: LineJob, dt: number, spend: (amount: number) => boolean, road?: { out: number; send: () => boolean }): boolean {
   let changed = false;
+  // (BY ROAD, where there is one: `road.out` lorries are on their way from the yard, and `road.send` sends another —
+  // their loads are counted in when they get there, by whoever drives them. @see line-loads)
+  const out = road?.out ?? 0;
   for (let k = j.coming.length - 1; k >= 0; k--) {
     j.coming[k] -= dt;
     if (j.coming[k] <= 0) { j.coming.splice(k, 1); j.delivered = Math.min(j.deliveries, j.delivered + 1); changed = true; }
   }
   // THE NEXT LOAD sent for while what is on hand and coming is less than a load ahead of the pipe.
-  const ahead = (j.delivered + j.coming.length) * LINE_LOAD - lineFront(j, LINE_LAYS[j.kind]);
-  if (j.delivered + j.coming.length < j.deliveries && j.coming.length < LINE_COMING && ahead < LINE_LOAD) {
-    if (spend(lineLoadPrice(j))) { j.coming.push(LINE_HAUL); j.stalled = 0; changed = true; }
+  const onWay = j.coming.length + out, ahead = (j.delivered + onWay) * LINE_LOAD - lineFront(j, LINE_LAYS[j.kind]);
+  if (j.delivered + onWay < j.deliveries && onWay < LINE_COMING && ahead < LINE_LOAD) {
+    if (spend(lineLoadPrice(j))) { if (!road?.send()) j.coming.push(LINE_HAUL); j.stalled = 0; changed = true; }
   }
   const allowed = lineAllowed(j);
   if (j.t < allowed) { j.t = Math.min(allowed, j.t + dt, lineSeconds(j)); if (j.stalled) { j.stalled = 0; changed = true; } }
   // STOOD: the work has run out and nothing is coming, because nothing could be paid for.
-  else if (!j.coming.length && !lineDone(j)) { if (!j.stalled) changed = true; j.stalled += dt; }
+  else if (!j.coming.length && !out && !lineDone(j)) { if (!j.stalled) changed = true; j.stalled += dt; }
   return changed;
 }
 
