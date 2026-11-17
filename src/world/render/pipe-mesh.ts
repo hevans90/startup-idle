@@ -325,7 +325,7 @@ const COLLAR_R = 1.14, COLLAR_FROM = 0.85, COLLAR_TO = 1.2;
 const DROP_COLLAR = COLLAR_R * 1.15, DROP_LIP = 0.6;
 
 /** `colour` darkened to `k` of itself. */
-const darker = (colour: number, k: number) =>
+export const darker = (colour: number, k: number) =>
   (Math.round(((colour >> 16) & 255) * k) << 16) | (Math.round(((colour >> 8) & 255) * k) << 8) | Math.round((colour & 255) * k);
 
 /**
@@ -672,7 +672,7 @@ const STRAP = 0x4a5058, STRAP_R = 1.07, STRAP_T = 0.022;
 export const CHEEK = 1.22;
 
 /** One flat face, its four corners in order round it, all facing `n`. */
-function quad(m: PipeMesh, s: number, q: readonly Pt[], nu: number, nv: number, nh: number, colour: number) {
+export function quad(m: PipeMesh, s: number, q: readonly Pt[], nu: number, nv: number, nh: number, colour: number) {
   room(m, 4, 6);
   // A WALL'S MARKS go by its height and its place along it; a top has none.
   const mark = (p: Pt): [number | undefined, number] => (material && nh === 0 ? [p[2], nu !== 0 ? p[1] : p[0]] : [undefined, 0]);

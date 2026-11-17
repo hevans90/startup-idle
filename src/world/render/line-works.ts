@@ -28,7 +28,7 @@ import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props
 import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
 import { walkRound, type Walker } from "./road-plant";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
-import { BEND_R, CHEEK, CONCRETE, FLANGE_R, MATERIAL, SADDLE, ZT, box as meshBox, disc, elbowPath, flange, footing, made, pipeMesh, solid, sweep, tube as meshTube } from "./pipe-mesh";
+import { BEND_R, CHEEK, CONCRETE, FLANGE_R, FLANGE_T, MATERIAL, SADDLE, ZT, box as meshBox, darker, disc, elbowPath, flange, quad as meshQuad, footing, made, pipeMesh, solid, sweep, tube as meshTube } from "./pipe-mesh";
 import { CRANE_LOOKS, CRANE_REACH, craneTip } from "../agents/cars/models";
 
 /** How high a main's middle lies off the ground, half steps. @see mains-layer LIFT */
@@ -38,8 +38,36 @@ const SKIN = 0xd9a47a, LEGS = 0x3a4a63;
 const TUBE_R = 0.09 / Math.SQRT2, STEEL = 0xa6a9aa;
 /** How long a length of pipe is as it comes off the lorry, tiles: two to a tile of main. */
 const LENGTH = 0.46;
-/** The inside of a loose length, seen in at its end. */
-const BORE = 0x15171a;
+/**
+ * THE INSIDE OF A LOOSE LENGTH, SEEN IN AT ITS END — what is really there. A length is a tube with a wall: at its
+ * near end, at (`cu`, `cv`) and running back along -u or -v, the END OF THE WALL, a ring of its own metal inside
+ * the flange; and through the hole, THE FAR SIDE OF ITS BORE — the inner wall, facing in, lit as the rest is — as
+ * far along it as can be seen past the near rim from where the camera stands, darker the deeper in. (The camera
+ * looks down a line (1, 1, 4·ZT): across a tube along u that is (0, 1, 4·ZT), and a point of the far wall is
+ * seen to a depth of twice its distance from that rim, over the slope of the line of sight.)
+ */
+function bore(m: ReturnType<typeof pipeMesh>, scale: number, cu: number, cv: number, alongU: boolean, look: PipeStuff) {
+  const WALL = 0.9, ri = look.r * WALL, face = FLANGE_T / 2 - 0.0008, N = 16, BANDS = [0, 0.3, 0.62, 1], TONE = [0.7, 0.48, 0.3];
+  // Across the tube: its other level axis, and up. The line of sight, across it; and its slope to the tube's axis.
+  const up = 4 * ZT, k = Math.hypot(1, up), cx = 1 / k, cz = up / k;
+  const at = (phi: number, t: number): [number, number, number] => {
+    const a = Math.cos(phi) * ri, z = Math.sin(phi) * ri;
+    return alongU ? [cu + face - t, cv + a, z] : [cu + a, cv + face - t, z];
+  };
+  made(look.mat, () => {
+    for (let q = 0; q < N; q++) {
+      // (Round the far half only: where the wall faces back at the camera.)
+      const p0 = Math.atan2(cz, cx) + Math.PI / 2 + (Math.PI * q) / N, p1 = p0 + Math.PI / N, pm = (p0 + p1) / 2;
+      const deep = (phi: number) => Math.max(0, (-2 * ri * (Math.cos(phi) * cx + Math.sin(phi) * cz)) / k);
+      const nx = -Math.cos(pm), nz = -Math.sin(pm);
+      for (let b = 0; b < 3; b++) {
+        const a0 = at(p0, deep(p0) * BANDS[b]), a1 = at(p1, deep(p1) * BANDS[b]), b1 = at(p1, deep(p1) * BANDS[b + 1]), b0 = at(p0, deep(p0) * BANDS[b + 1]);
+        meshQuad(m, scale, [a0, a1, b1, b0], alongU ? 0 : nx, alongU ? nx : 0, nz, solid(darker(look.colour, TONE[b])));
+      }
+    }
+  });
+  made(MATERIAL.plain, () => disc(m, scale, cu + (alongU ? face : 0), cv + (alongU ? 0 : face), 0, alongU ? 1 : 0, alongU ? 0 : 1, ri, look.r * 1.02, solid(darker(look.colour, 0.86)), 16));
+}
 /**
  * A LOOSE LENGTH OF MAIN, as the main itself is made: the very tube — its steel, its welds and seams, lit as it is —
  * a flange at each end, about its own middle and lying along u or along v. Moved by its place; made again only for
@@ -48,8 +76,7 @@ const BORE = 0x15171a;
 function lengthMesh(alongU: boolean, scale: number, look: PipeStuff): Mesh<Geometry, Shader> {
   const m = pipeMesh(), du = alongU ? 1 : 0, dv = alongU ? 0 : 1, h = LENGTH / 2;
   made(look.mat, () => meshTube(m, scale, -du * h, -dv * h, 0, du * h, dv * h, 0, look.r, solid(look.colour), 14));
-  // (THE DARK OF ITS BORE, in at its near end: a length is not seen through.)
-  made(MATERIAL.plain, () => disc(m, scale, du * (h - 0.012), dv * (h - 0.012), 0, du, dv, 0, look.r * 0.99, solid(BORE), 14));
+  bore(m, scale, du * h, dv * h, alongU, look);
   for (const e of [-h, h]) flange(m, scale, du * e, dv * e, 0, du, dv, look.r, look.colour, 14, true, false);
   return pipeDrawable(m);
 }
@@ -64,7 +91,8 @@ function elbowMesh(a: { dx: number; dy: number }, b: { dx: number; dy: number },
   const ends = [a, b].sort((p, q) => p.dx + p.dy - (q.dx + q.dy));
   flange(m, scale, ends[0].dx * 0.5, ends[0].dy * 0.5, 0, ends[0].dx, ends[0].dy, look.r, look.colour, 14, true, false);
   made(look.mat, () => sweep(m, scale, path, look.r, solid(look.colour), 14));
-  made(MATERIAL.plain, () => disc(m, scale, ends[1].dx * 0.488, ends[1].dy * 0.488, 0, ends[1].dx, ends[1].dy, 0, look.r * 0.99, solid(BORE), 14));
+  // (Seen into only where its near face looks out at the camera.)
+  if (ends[1].dx + ends[1].dy > 0) bore(m, scale, ends[1].dx * 0.5, ends[1].dy * 0.5, ends[1].dx !== 0, look);
   flange(m, scale, ends[1].dx * 0.5, ends[1].dy * 0.5, 0, ends[1].dx, ends[1].dy, look.r, look.colour, 14, true, false);
   return pipeDrawable(m);
 }
