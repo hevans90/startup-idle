@@ -969,7 +969,7 @@ const exDump = exHouse("exDump", () => arm([3.9, 4.4], [5.2, 2.9], -95 * DEG, fa
  * headboard and the lip over the cab — what is left of its load slid to the tail, its tailgate hung open from its
  * top edge as gravity hangs it, and the ram under it pushing it up.
  */
-function tipped(id: string, deg: number): Model {
+function tipped(id: string, deg: number, load: Mat = "gravel", fill = 1): Model {
   const base = lorry(id, 6.6, 2.4, 1.9, [], [2.25, -1.55, -2.65]);
   const a = deg * DEG, hinge: [number, number] = [-3.05, 1.08], ca = Math.cos(a), sa = Math.sin(a);
   /** A point of the body — forward of its hinge, above its floor — on the lorry. */
@@ -989,7 +989,8 @@ function tipped(id: string, deg: number): Model {
       // ITS LOAD: heaped the length of it while it lies level; tipped, what is left slid down to the tail — a wedge,
       // deep there and thinning up the floor, less of it the higher it is.
       const left = 1 - deg / 60;
-      if (deg < 5) prism([at(0.1, 0.1), at(4.3, 0.1), at(4.25, 1.15), at(3.2, 1.5), at(1.2, 1.5), at(0.15, 1.15)], 0, 2.2, "gravel", out);
+      // (Level, it holds as much as it has been given: nothing, a layer on its floor, on up to heaped over its sides.)
+      if (deg < 5) { if (fill > 0) prism([at(0.1, 0.1), at(4.3, 0.1), at(4.25, 0.1 + 1.05 * fill), at(3.2, 0.1 + 1.4 * fill), at(1.2, 0.1 + 1.4 * fill), at(0.15, 0.1 + 1.05 * fill)], 0, 2.2, load, out); }
       else prism([at(0.05, 0.1), at(0.6 + 3.4 * left, 0.1), at(0.4 + 2.0 * left, 0.35 + 0.6 * left), at(0.05, 0.55 + 0.6 * left)], 0, 2.2, "gravel", out);
       // THE TAILGATE, hinged along its top edge and hanging straight down from it.
       const top = at(0, 1.25);
@@ -1009,8 +1010,14 @@ function tipped(id: string, deg: number): Model {
  */
 export const TIP_LOOKS = ["tipper", "tipper1", "tipper2", "tipperUp"] as const;
 const tipper = tipped("tipper", 0), tipper1 = tipped("tipper1", 14), tipper2 = tipped("tipper2", 28), tipperUp = tipped("tipperUp", 42);
+/**
+ * THE LORRY THE DIGGER LOADS, the same lorry: come empty, and a bucketful more of earth in it each time the bucket
+ * is tipped, to heaped — then away, and an empty one in its place.
+ */
+export const SPOIL_LOOKS = ["spoil0", "spoil1", "spoil2", "spoil3", "spoil4"] as const;
+const spoils = SPOIL_LOOKS.map((id, k) => tipped(id, 0, "load", k / (SPOIL_LOOKS.length - 1)));
 /** What builds a road. Never in the traffic. */
-export const PLANT = [paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp];
+export const PLANT = [paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp, ...spoils];
 
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];

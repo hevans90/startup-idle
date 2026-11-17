@@ -30,7 +30,7 @@ import { baseCorners, bakedCars, headingIndex, loadCarSprites, pitchMatrix, pose
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
-import { PAVER_LOOKS, TIP_LOOKS } from "../agents/cars/models";
+import { PAVER_LOOKS, SPOIL_LOOKS, TIP_LOOKS } from "../agents/cars/models";
 import { ARRIVE, GANGS, GAP, PACE, frontAt, setOutAt, setOutSeconds, type RoadJob } from "../roads/jobs";
 import type { BandLayer } from "./bands";
 import { COLUMN, POURS, carry, createPourSim, eachColumn, eachGrain, stepPour, type PourKind, type PourRun, type PourSim } from "./pour-sim";
@@ -133,6 +133,8 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
   const units = new Map<string, Unit>(), hands = new Map<string, Hand>(), spills = new Map<string, Spill>();
   /** Each job's own time at work, seconds: stopped while it stands. */
   const clocks = new Map<number, number>();
+  /** Each job's digger's turns of work when the lorry it loads first stood by it: for how many bucketfuls that lorry has had. */
+  const since = new Map<number, number>();
   let cars: CarSprites | null = null, asked = false, last = -1;
   const drop = (c: Container) => { c.parent?.removeChild(c); c.destroy({ children: true }); };
   /**
@@ -357,7 +359,19 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             spill("shed", at, hh, [3.3 * T, ARM, 1.9], [3.3 * T, ARM, 0.1], EARTH, 0.3, carrying, { rate: 24, gain: 0 });
             spill("load", at, at.heading + Math.PI, [5.25 * T, -ARM, 2.4], [5.25 * T, -ARM, 1.45], EARTH, 1.0, tip, { rate: 190, gain: 0 }, 10);
             // (Backed up to it, tail first: its body under where the bucket swings round to.)
-            if (digAt > 1.3) { const la = alongJob(g, j, digAt - 0.68); place("spoil", la, [{ look: "tipper", tint: BLUE, heading: la.heading + Math.PI }]); }
+            // IT COMES EMPTY AND IS FILLED: a bucketful more in it each time the bucket is tipped; full, it pulls away up
+            // the cut while the digger takes its next bite, and an empty one backs in to where it stood.
+            if (digAt > 1.3) {
+              const cyc = Math.floor(w / DIG_ALL), tipEnd = DIG.dig + DIG.lift + DIG.out + DIG.tip * 0.7, CAP = SPOIL_LOOKS.length - 1;
+              if (!since.has(j.id)) since.set(j.id, q >= tipEnd ? cyc + 1 : cyc);
+              const done = Math.max(0, cyc - since.get(j.id)!), into2 = done % CAP, away = done > 0 && into2 === 0 && q < DIG.dig;
+              // (Half the bite for the full one to go, half for the empty one to come.)
+              const sw = away ? q / DIG.dig : 1, level = away && sw < 0.5 ? CAP : q >= tipEnd ? into2 + 1 : into2;
+              const gone = away ? (sw < 0.5 ? sw * 2 : 2 - sw * 2) : 0, eased = gone * gone * (3 - 2 * gone);
+              const la = alongJob(g, j, digAt - 0.68 - 1.5 * eased);
+              const u = place("spoil", la, [{ look: SPOIL_LOOKS[Math.min(CAP, level)], tint: BLUE, heading: la.heading + Math.PI }]);
+              if (u) u.c.alpha = 1 - eased;
+            } else since.delete(j.id);
           }
 
           // ── STONE: a lorry tipping as it creeps, a roller over it behind ───────────────────
@@ -434,7 +448,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
       for (const [id, u] of units) if (!seenU.has(id)) { drop(u.c); units.delete(id); }
       for (const [id, h] of hands) if (!seenH.has(id)) { drop(h.c); hands.delete(id); }
       for (const [id, sp] of spills) if (!seenS.has(id)) { drop(sp.c); spills.delete(id); }
-      for (const id of clocks.keys()) if (!g.roadJobs.some((j) => j.id === id)) clocks.delete(id);
+      for (const id of clocks.keys()) if (!g.roadJobs.some((j) => j.id === id)) { clocks.delete(id); since.delete(id); }
     },
     destroy() { for (const u of units.values()) drop(u.c); for (const h of hands.values()) drop(h.c); for (const sp of spills.values()) drop(sp.c); units.clear(); hands.clear(); spills.clear(); clocks.clear(); },
   };
