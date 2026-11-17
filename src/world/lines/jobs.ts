@@ -78,9 +78,9 @@ export const LINE_LAYS: Readonly<Record<LineKind, number>> = { main: MAIN.set, d
  * Tiles a load of pipe lays — A LORRY'S: three pieces, a tile and a half; seconds a load takes to come where no
  * road brings it; how many may be on their way at once, and how many loads ahead of the pipe they are sent for.
  */
-export const LINE_LOAD = 1.5, LINE_HAUL = 6, LINE_COMING = 4, LINE_AHEAD = 3;
+export const LINE_LOAD = 1.5, LINE_HAUL = 6, LINE_COMING = 5, LINE_AHEAD = 4;
 /** Seconds the yard's crane takes to load a lorry; tiles a second a lorry makes on a job's haul track. */
-export const YARD_LOADING = 7, TRACK_SPEED = 1.5;
+export const YARD_LOADING = 6, TRACK_SPEED = 1.5;
 
 /** How many loads a line of so many tiles takes. */
 export const lineLoads = (tiles: number) => Math.max(1, Math.ceil(tiles / LINE_LOAD));

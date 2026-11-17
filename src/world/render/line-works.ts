@@ -603,7 +603,8 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     // ── WELDING: the welders' truck on the near side; a screen stood by the joint; two at it, and the sparks ──
     if (!under && f[MAIN.weld] > 0.5 && f[MAIN.weld] < n) {
       const kw = Math.floor(f[MAIN.weld]), jp = Math.max(0.5, kw), jt = by(jp), hj = hAt(kw);
-      place("welder", Math.max(0.5, f[MAIN.weld] - 0.9), [{ look: "pickup", tint: YELLOW }], 0, 0.62 * NEAR);
+      // (On the far side: the near one is the lorries' track.)
+      place("welder", Math.max(0.5, f[MAIN.weld] - 0.9), [{ look: "pickup", tint: YELLOW }], 0, 0.82 * FAR);
       const w0 = hand("weld0", jp, 0.2 * NEAR, "work", -Math.PI / 2, VEST(0)), w1 = hand("weld1", jp, 0.2 * FAR, "work", Math.PI / 2, VEST(1));
       if (!still && w0?.there && w1?.there) {
         const [jx, jy] = pt(scale, jt.x, jt.y, hj + LIFT), fl = 0.5 + 0.5 * Math.sin(w * 47) * Math.sin(w * 31);
@@ -856,10 +857,12 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         if (job && q >= 0) {
           const stuff = STUFF[job.kind === "dredge" ? "main" : job.kind], R = stuff.r / ZT;
           // THE LORRY, drawn up nose to the gate; loaded, out through it.
-          const lorry = { x: ox + 4.02, y: oy + 2.38 + 0.8 * ease((q - 0.88) / 0.12) };
+          // (Out from the shed to the crane first: it does not appear beside it.)
+          const inn = 1 - ease(q / 0.12);
+          const lorry = { x: ox + 4.02 + 0.3 * inn, y: oy + 2.38 - 1.15 * inn + 0.8 * ease((q - 0.88) / 0.12) };
           unit("lorry", lorry.x, lorry.y, Math.PI / 2, [{ look: "flatbed", tint: BLUE }]);
           for (let b = 0; b < 3; b++) {
-            const t0 = 0.03 + b * 0.28, t1 = t0 + 0.24;
+            const t0 = 0.14 + b * 0.245, t1 = t0 + 0.215;
             if (q < t0) continue;
             const bed = { x: lorry.x - (b < 2 ? (b - 0.5) * 0.13 : 0), y: lorry.y - 0.12, z: (b < 2 ? 1.25 : 1.95) * M + R };
             let at = bed;
