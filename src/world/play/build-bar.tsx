@@ -30,7 +30,7 @@ import { addBeds, housedBy, housingCapacity } from "../../game/housing";
 import { useGeneratorStore, type GeneratorId } from "../../state/generators.store";
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
-import { UNDO_WINDOW_MS, getArrivals, getNetwork, useWorldStore } from "../../state/world.store";
+import { UNDO_WINDOW_MS, getArrivals, getNetwork, startFixture, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { VEHICLE } from "../agents/arrivals";
 import { DESKS, liveSeating, workplaceKind } from "../agents/commute";
@@ -296,7 +296,8 @@ export function BuildBar({ className }: { className?: string }) {
   const chosen = sale.flatMap((s) => s.items).find((d) => d.def.id === structureDefId);
   // PIPE once there is a Data Centre to cool; SEWER once the vibe coders
   // make slop. @see game/cooling, game/slop
-  const mainsOpen = agentsOpen();
+  // (In the `harbour` fixture, from the first: it is where the works are looked at, and it has no Data Centre to wait for.)
+  const mainsOpen = agentsOpen() || startFixture() === "harbour";
   const sewersOpen = (generators.find((g) => g.id === "vibe_coder")?.amount ?? 0) >= SLOP_FROM;
   // THE TOOLS ON OFFER, and their keys: 1 to 5, as shown on each. Not while typing in a field, nor with a modifier.
   // DREDGING opens with the first port big enough for a coaster. @see SHIP_CLASSES
