@@ -17,6 +17,7 @@ import { HALF_STEPS_PER_M, TILES_PER_M, modelById, type Mat } from "../agents/ca
 import { face, modelTris, type Tri, type V3 } from "../agents/cars/raster";
 import { box, lathe } from "../props/models";
 import { YARD_GATE, YARD_STACK, YARD_STACKS } from "./yard";
+import { garageBuilding, garageYard } from "./garage";
 import { lookOf } from "../structures/projects/looks";
 import { bays, floorsOf, type Building, type Facade, type Mass } from "../structures/projects/model";
 
@@ -29,26 +30,26 @@ export const LANDMARK_IDS = ["garage", "hq", "boardroom", "ipo"] as const;
 export type LandmarkId = (typeof LANDMARK_IDS)[number];
 
 const MT = 1 / TILES_PER_M, MH = 1 / HALF_STEPS_PER_M;
-const X = (u: number) => (u - YARD_PLOT.w / 2) * MT, Y = (v: number) => (v - YARD_PLOT.h / 2) * MT, Z = (z: number) => z * MH;
+export const X = (u: number) => (u - YARD_PLOT.w / 2) * MT, Y = (v: number) => (v - YARD_PLOT.h / 2) * MT, Z = (z: number) => z * MH;
 /**
  * A colour as the building's drawing gives it — the tone of its face in the light — made the tone this light gives
  * that face: the rasteriser's sun leaves the lit face at about three quarters of a material's own colour.
  */
 const GAIN = 1.27;
-const rgb = (hex: number, k = GAIN): V3 => [Math.min(1, (((hex >> 16) & 255) / 255) * k), Math.min(1, (((hex >> 8) & 255) / 255) * k), Math.min(1, ((hex & 255) / 255) * k)];
-type Out = Tri[];
+export const rgb = (hex: number, k = GAIN): V3 => [Math.min(1, (((hex >> 16) & 255) / 255) * k), Math.min(1, (((hex >> 8) & 255) / 255) * k), Math.min(1, ((hex & 255) / 255) * k)];
+export type Out = Tri[];
 /** A box of a colour of its own. */
-function cb(o: Out, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, colour: number, mat: Mat = "concrete") {
+export function cb(o: Out, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, colour: number, mat: Mat = "concrete") {
   if (x1 <= x0 || y1 <= y0 || z1 <= z0) return;
   const k = o.length, c = rgb(colour);
   box(x0, x1, y0, y1, z0, z1, mat, o);
   for (let i = k; i < o.length; i++) o[i].c = c;
 }
 /** Whatever `make` adds, of one colour. */
-function tinted(o: Out, colour: number, make: () => void) { const k = o.length, c = rgb(colour); make(); for (let i = k; i < o.length; i++) o[i].c = c; }
+export function tinted(o: Out, colour: number, make: () => void) { const k = o.length, c = rgb(colour); make(); for (let i = k; i < o.length; i++) o[i].c = c; }
 
 /** A tank lying along `x`. */
-function tubeX(o: Out, y: number, z: number, x0: number, x1: number, r: number, colour: number) {
+export function tubeX(o: Out, y: number, z: number, x0: number, x1: number, r: number, colour: number) {
   const N = 12, at = (k: number, x: number): V3 => { const a = (k / N) * Math.PI * 2; return [x, y + Math.cos(a) * r, z + Math.sin(a) * r]; };
   tinted(o, colour, () => {
     for (let k = 0; k < N; k++) face([at(k, x0), at(k + 1, x0), at(k + 1, x1), at(k, x1)], "paint", [(x0 + x1) / 2, y, z], o);
@@ -58,7 +59,7 @@ function tubeX(o: Out, y: number, z: number, x0: number, x1: number, r: number, 
 }
 
 /** A vehicle of the fleet, parked: at (`x`, `y`) on ground `z`, turned `turn`, its paint `colour`. */
-function parked(o: Out, id: string, x: number, y: number, z: number, turn: number, colour: number) {
+export function parked(o: Out, id: string, x: number, y: number, z: number, turn: number, colour: number) {
   const m = modelById.get(id);
   if (!m) return;
   const c = Math.cos(turn), s = Math.sin(turn), paint = rgb(colour, 1);
@@ -151,7 +152,7 @@ function massTris(o: Out, m: Mass) {
 const STEEL = 0x6f7880, YELLOW = 0xe9a71b, BLOCK = 0xbdb8ad, LORRY_BLUE = 0x2e63b8;
 
 /** A run of fence along `x` or `y`: posts and rails, or — a company that has made it — steel pales. */
-function fence(o: Out, on: "x" | "y", at: number, a0: number, a1: number, z: number, tier: number) {
+export function fence(o: Out, on: "x" | "y", at: number, a0: number, a1: number, z: number, tier: number) {
   const put = (a: number, b: number, d0: number, d1: number, zz0: number, zz1: number, colour: number, mat: Mat = "iron") =>
     on === "x" ? cb(o, a, b, at + d0, at + d1, zz0, zz1, colour, mat) : cb(o, at + d0, at + d1, a, b, zz0, zz1, colour, mat);
   if (tier === 0) {
@@ -166,7 +167,7 @@ function fence(o: Out, on: "x" | "y", at: number, a0: number, a1: number, z: num
 }
 
 /** A pallet of blocks, or of bags: a timber base and what is stacked on it, wrapped. */
-function pallet(o: Out, x: number, y: number, z: number, h: number, colour: number) {
+export function pallet(o: Out, x: number, y: number, z: number, h: number, colour: number) {
   cb(o, x - 0.6, x + 0.6, y - 0.5, y + 0.5, z, z + 0.14, 0x9a7a52, "timber");
   cb(o, x - 0.55, x + 0.55, y - 0.45, y + 0.45, z + 0.14, z + 0.14 + h, colour, "brick");
   cb(o, x - 0.57, x + 0.57, y - 0.47, y + 0.47, z + 0.14 + h * 0.45, z + 0.14 + h * 0.52, 0x2a2e33, "iron");
@@ -302,30 +303,7 @@ export function landmarkTris(id: LandmarkId, back = false): Tri[] {
   for (const m of [...b.masses].sort((p, q) => p.z0 - q.z0)) massTris(o, m);
   const m0 = b.masses[0], top = b.masses[b.masses.length - 1], mid = (X(m0.u0) + X(m0.u1)) / 2, front = Y(m0.v1), g = Z(m0.z0);
   if (id === "garage") {
-    // THE ROLLER DOOR, half up on the lit workshop: a bench, a monitor's glow; the slats of the door over it.
-    const dw = 9.5, dh = 3.6;
-    cb(o, mid - dw / 2 - 0.25, mid + dw / 2 + 0.25, front, front + 0.16, g, g + dh + 0.35, 0x8a9198, "chrome");
-    cb(o, mid - dw / 2, mid + dw / 2, front, front + 0.2, g, g + 2.1, 0x4a3f2c, "interior");
-    cb(o, mid - dw / 2 + 0.8, mid + dw / 2 - 0.8, front, front + 0.24, g + 0.75, g + 0.98, 0x8a6a44, "timber");
-    cb(o, mid - 1.6, mid + 0.3, front, front + 0.25, g + 1.1, g + 1.7, 0x9fd3ff, "light");
-    for (let z = g + 2.1; z < g + dh; z += 0.26) cb(o, mid - dw / 2, mid + dw / 2, front, front + 0.26, z, z + 0.2, 0xa3abb3, "chrome");
-    // The sign over it, painted on a board; a lamp over the sign.
-    cb(o, mid - dw / 2, mid + dw / 2, front, front + 0.2, g + dh + 0.55, g + dh + 1.4, 0x2f6d4f, "paint");
-    cb(o, mid - dw / 2 + 0.9, mid + dw / 2 - 2.4, front + 0.2, front + 0.24, g + dh + 0.85, g + dh + 1.1, 0xf3eed8, "linen");
-    cb(o, mid - 0.4, mid + 0.4, front, front + 1.1, g + dh + 1.5, g + dh + 1.62, 0x3a3f45, "iron");
-    cb(o, mid - 0.25, mid + 0.25, front + 0.8, front + 1.05, g + dh + 1.4, g + dh + 1.5, 0xfff1c4, "lamp");
-    // A side door and a window in the shaded wall; a downpipe at the corner; a vent and a tank on the roof.
-    const sx = X(m0.u1);
-    cb(o, sx, sx + 0.1, front - 4.4, front - 3.2, g, g + 2.2, 0x3f6b4a, "paint");
-    cb(o, sx, sx + 0.12, Y(m0.v0) + 2.2, Y(m0.v0) + 5.2, g + 1.5, g + 2.9, 0x6f93a8, "pane");
-    cb(o, sx - 0.2, sx + 0.14, front - 0.14, front + 0.2, g, Z(m0.z1), 0x8f8a80, "iron");
-    cb(o, sx - 4.4, sx - 2.6, Y(m0.v0) + 1.6, Y(m0.v0) + 3.2, Z(m0.z1), Z(m0.z1) + 0.9, 0x9aa3ab, "chrome");
-    tinted(o, 0x8a5a36, () => lathe(X(m0.u0) + 3.2, Y(m0.v0) + 2.6, [[0.9, Z(m0.z1) + 0.8], [0.9, Z(m0.z1) + 2.3], [0.45, Z(m0.z1) + 2.7], [0, Z(m0.z1) + 2.75]], "timber", o, 14));
-    for (const [dx, dy] of [[-0.6, -0.6], [0.6, -0.6], [-0.6, 0.6], [0.6, 0.6]]) cb(o, X(m0.u0) + 3.2 + dx - 0.06, X(m0.u0) + 3.2 + dx + 0.06, Y(m0.v0) + 2.6 + dy - 0.06, Y(m0.v0) + 2.6 + dy + 0.06, Z(m0.z1), Z(m0.z1) + 0.8, 0x3a3f45, "iron");
-    // The bins by the door, and THE FOUNDER'S CAR on the apron.
-    cb(o, mid + dw / 2 + 0.7, mid + dw / 2 + 1.5, front + 0.2, front + 1.0, g, g + 1.1, 0x3f6b4a, "paint");
-    cb(o, mid + dw / 2 + 1.7, mid + dw / 2 + 2.5, front + 0.2, front + 1.0, g, g + 1.1, 0x2e4f7a, "paint");
-    parked(o, "hatchback", mid - 4.5, front + 4.6, level, Math.PI * 0.42, 0xc84a3a);
+    garageBuilding(o, m0, level);
   } else {
     entrance(o, m0, mid, id === "hq" ? 4.2 : 5.6, id === "ipo" ? 4.4 : 3.6, id === "hq" ? 0x2e3a42 : 0xd8b04a, id === "hq" ? 0x1c2a33 : 0x15181c);
     roofPlant(o, m0, id === "hq" ? 2 : 1);
@@ -343,7 +321,8 @@ export function landmarkTris(id: LandmarkId, back = false): Tri[] {
   }
   // THE YARD FACING THE BACK OF ITS PLOT, where the road is there: the same yard, front to back.
   const from = o.length;
-  yard(o, tier, level);
+  if (tier === 0) garageYard(o, level);
+  else yard(o, tier, level);
   if (back) for (let k = from; k < o.length; k++) {
     const t = o[k], fy = (p: V3): V3 => [p[0], -p[1], p[2]], paint = t.paint;
     o[k] = { ...t, p: [fy(t.p[0]), fy(t.p[1]), fy(t.p[2])], n: fy(t.n), ...(t.ns ? { ns: [fy(t.ns[0]), fy(t.ns[1]), fy(t.ns[2])] as [V3, V3, V3] } : {}), ...(paint ? { paint: (p: V3) => paint(fy(p)) } : {}) };
