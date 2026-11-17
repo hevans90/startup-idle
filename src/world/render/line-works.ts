@@ -26,7 +26,7 @@ import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props
 import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
 import { walkRound, type Walker } from "./road-plant";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
-import { BEND_R, CHEEK, CONCRETE, MATERIAL, SADDLE, ZT, box as meshBox, flange, footing, made, pipeMesh, solid, tube as meshTube } from "./pipe-mesh";
+import { BEND_R, CHEEK, CONCRETE, MATERIAL, SADDLE, ZT, box as meshBox, elbowPath, flange, footing, made, pipeMesh, solid, sweep, tube as meshTube } from "./pipe-mesh";
 import { CRANE_LOOKS, CRANE_REACH, craneTip } from "../agents/cars/models";
 
 /** How high a main's middle lies off the ground, half steps. @see mains-layer LIFT */
@@ -45,6 +45,20 @@ function lengthMesh(alongU: boolean, scale: number, look: PipeStuff): Mesh<Geome
   const m = pipeMesh(), du = alongU ? 1 : 0, dv = alongU ? 0 : 1, h = LENGTH / 2;
   made(look.mat, () => meshTube(m, scale, -du * h, -dv * h, 0, du * h, dv * h, 0, look.r, solid(look.colour), 14));
   for (const e of [-h, h]) flange(m, scale, du * e, dv * e, 0, du, dv, look.r, look.colour, 14, true, false);
+  return pipeDrawable(m);
+}
+/**
+ * A LOOSE ELBOW, as a main's bend is made: the very sweep of a cell's bend (@see pipe-mesh `bendPath`) from the face
+ * it comes in at (`a`, the way to the cell before) to the face it leaves by (`b`), a flange at each. About the
+ * cell's own middle.
+ */
+function elbowMesh(a: { dx: number; dy: number }, b: { dx: number; dy: number }, scale: number, look: PipeStuff): Mesh<Geometry, Shader> {
+  const m = pipeMesh(), path = elbowPath(0, 0, 0, { ...a, zf: 0 }, { ...b, zf: 0 }, 12);
+  // (Its far face's flange behind it, its near face's before it.)
+  const ends = [a, b].sort((p, q) => p.dx + p.dy - (q.dx + q.dy));
+  flange(m, scale, ends[0].dx * 0.5, ends[0].dy * 0.5, 0, ends[0].dx, ends[0].dy, look.r, look.colour, 14, true, false);
+  made(look.mat, () => sweep(m, scale, path, look.r, solid(look.colour), 14));
+  flange(m, scale, ends[1].dx * 0.5, ends[1].dy * 0.5, 0, ends[1].dx, ends[1].dy, look.r, look.colour, 14, true, false);
   return pipeDrawable(m);
 }
 /**
@@ -118,7 +132,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     /** A place by the line: `p` tiles along it, `across` to its side. */
     const by = (p: number, across = 0) => { const a = alongLine(j.cells, p); return { x: a.x - Math.sin(a.heading) * across, y: a.y + Math.cos(a.heading) * across, heading: a.heading }; };
     /** The side the pipe comes from — its lorry, its skids — and the side it is worked from. */
-    const FAR = -1, NEAR = 1, SKID = (under ? 0.52 : 0.3) * NEAR, CRANE_AT = SKID + 0.324 * NEAR, PLINTH = LIFT - 0.34;
+    const FAR = -1, NEAR = 1, CRANE_AT = 0.5 * NEAR, LORRY_AT = 0.92 * NEAR, PLINTH = LIFT - 0.34;
     /** Where a length lies when it is set: on its plinths, the main's own height; or down in the trench. */
     const SET_Z = under ? -0.25 * R_HS : LIFT;
     /** A cell's SADDLE: where it stands (a bend's, under the middle of its curve), which way its tube runs, its half sizes. */
@@ -131,19 +145,43 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     };
     /** A loose length at a place by the line, `z` half steps over the ground there: the real tube, kept by name. */
     const seenL = new Set<string>();
-    const length = (name: string, p: number, across: number, z: number, lift = 0) => {
-      const a = by(p, across), alongU = Math.abs(Math.cos(a.heading)) > 0.5, key = `${alongU}|${scale}|${stuff.id}`;
+    /** A loose piece of the main at a place, `z` half steps over ground `h` there: the real tube, kept by name. */
+    const piece = (name: string, key: string, make: () => Mesh<Geometry, Shader>, px: number, py: number, h: number, z: number, lift: number) => {
       let q = M_.loose.get(name);
       if (q && q.key !== key) { destroyPipeDrawable(q.mesh); M_.loose.delete(name); q = undefined; }
-      if (!q) { q = { mesh: lengthMesh(alongU, scale, stuff), key, band: -1 }; M_.loose.set(name, q); }
+      if (!q) { q = { mesh: make(), key, band: -1 }; M_.loose.set(name, q); }
       seenL.add(name);
-      const [x, y] = pt(scale, a.x, a.y, hAt(p) + z), band = Math.max(0, Math.min(bands.dynamicOf.length - 1, bandOf(Math.round(a.x), Math.round(a.y))));
+      const [x, y] = pt(scale, px, py, h + z), band = Math.max(0, Math.min(bands.dynamicOf.length - 1, bandOf(Math.round(px), Math.round(py))));
       q.mesh.position.set(x, y);
-      const zi = a.x + a.y - band + lift;
+      const zi = px + py - band + lift;
       if (band !== q.band || !q.mesh.parent) { q.mesh.zIndex = zi; bands.dynamicOf[band]?.addChild(q.mesh); q.band = band; }
       else if (Math.abs(q.mesh.zIndex - zi) > 0.04) q.mesh.zIndex = zi;
-      return { x, y, a };
+      return { x, y };
     };
+    type Slung = { x: number; y: number; at: { x: number; y: number }; ends: [number, number][] };
+    const lengthAt = (name: string, a: { x: number; y: number; heading: number }, h: number, z: number, lift: number): Slung => {
+      const alongU = Math.abs(Math.cos(a.heading)) > 0.5, ch = Math.cos(a.heading), sh = Math.sin(a.heading);
+      const at = piece(name, `${alongU}|${scale}|${stuff.id}`, () => lengthMesh(alongU, scale, stuff), a.x, a.y, h, z, lift);
+      return { ...at, at: a, ends: [[ch * LENGTH * 0.36, sh * LENGTH * 0.36], [-ch * LENGTH * 0.36, -sh * LENGTH * 0.36]] };
+    };
+    /**
+     * A BEND of the line, at its cell `k`: the ways to the cell before and the cell after; and the corner of what
+     * runs beside the line there — `across` to its side on both legs — which is the bend's middle moved by `mitre`
+     * times that. Inside the bend, the near side, or outside it.
+     */
+    const bendAt = (k: number) => {
+      if (k <= 0 || k >= n - 1) return null;
+      const c = j.cells[k], a = { dx: j.cells[k - 1].x - c.x, dy: j.cells[k - 1].y - c.y }, b = { dx: j.cells[k + 1].x - c.x, dy: j.cells[k + 1].y - c.y };
+      if (a.dx + b.dx === 0 && a.dy + b.dy === 0) return null;
+      // (The way it goes in is -a, out is b; a side of a way (dx, dy) is (-dy, dx).)
+      const mitre = { x: a.dy - b.dy, y: -a.dx + b.dx }, inside = (a.dy * b.dx - a.dx * b.dy) * NEAR > 0;
+      return { c, a, b, mitre, inside, out: { x: -b.dy, y: b.dx } };
+    };
+    const elbow = (name: string, bd: NonNullable<ReturnType<typeof bendAt>>, px: number, py: number, z: number, lift: number): Slung => {
+      const at = piece(name, `elbow|${bd.a.dx},${bd.a.dy},${bd.b.dx},${bd.b.dy}|${scale}|${stuff.id}`, () => elbowMesh(bd.a, bd.b, scale, stuff), px, py, g.height[idx(g, bd.c.x, bd.c.y)], z, lift);
+      return { ...at, at: { x: px, y: py }, ends: [[bd.a.dx * 0.36, bd.a.dy * 0.36], [bd.b.dx * 0.36, bd.b.dy * 0.36]] };
+    };
+
 
     // ── ITS LINE, PEGGED OUT AHEAD of the first trade: a stake a tile, the builder's line between ──
     const Pr = bakedProps() ? propsLoaded() : null;
@@ -157,7 +195,17 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         const a = by(Math.min(n, c), 0.4 * FAR), hh = hAt(c), band = bandOf(Math.round(a.x), Math.round(a.y));
         const put = (id: string, turn: number, px: number, py: number) => { const sp = propSprite(Pr, id, turn, px, py, hh, scale), layer = bands.dynamicOf[band]; if (sp && layer) { sp.zIndex = px + py - band; layer.addChild(sp); M_.pegs.push(sp); } };
         put("stake", c & 3, a.x, a.y);
-        if (c < n) { const b = by(c + 0.5, 0.4 * FAR); for (const half of [-0.25, 0.25]) put("tape", Math.abs(Math.cos(b.heading)) > 0.5 ? 0 : 1, b.x + Math.cos(b.heading) * half, b.y + Math.sin(b.heading) * half); }
+        const bd = c < n ? bendAt(c) : null;
+        if (bd) {
+          // ROUND A BEND the line turns with the main: a stake at its corner, and the line along each leg to it — longer
+          // round the outside of the bend, shorter inside it.
+          const PEG = 0.4 * FAR, outside = bd.inside;
+          put("stake", (c + 2) & 3, bd.c.x + bd.mitre.x * PEG, bd.c.y + bd.mitre.y * PEG);
+          for (const [l, sx, sy] of [[bd.a, bd.a.dy, -bd.a.dx], [bd.b, -bd.b.dy, bd.b.dx]] as const) {
+            if (!outside) continue;
+            for (const along of [0.25, -0.15]) put("tape", l.dx !== 0 ? 0 : 1, bd.c.x + l.dx * along + sx * PEG, bd.c.y + l.dy * along + sy * PEG);
+          }
+        } else if (c < n) { const b = by(c + 0.5, 0.4 * FAR); for (const half of [-0.25, 0.25]) put("tape", Math.abs(Math.cos(b.heading)) > 0.5 ? 0 : 1, b.x + Math.cos(b.heading) * half, b.y + Math.sin(b.heading) * half); }
       }
     }
 
@@ -224,13 +272,6 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         }
         }
         }
-        // SKIDS, two to a length, where each length lies from when the lorry has passed until the crane takes it.
-        for (const half of [0.75, 1.25]) {
-          const p = c + half;
-          if (p > n - 0.5 || f[MAIN.string] <= p + 0.2 || Math.floor(f[MAIN.set] * 2) - 1 > Math.round(p * 2 - 1.5)) continue;
-          const a = by(p, SKID), ch = Math.cos(a.heading), sh = Math.sin(a.heading);
-          for (const e of [-0.14, 0.14]) box(a.x + ch * e, a.y + sh * e, 0.03 + 0.04 * Math.abs(sh), 0.03 + 0.04 * Math.abs(ch), 0, 0.07, h, 0xb08a5a, 0x9a7347, 0x7b5b38);
-        }
       }
     }
 
@@ -288,47 +329,80 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       hand("form0", c + 0.28, 0.2 * NEAR, "work", -Math.PI / 2, VEST(0));
       hand("form1", c + 0.72, 0.2 * NEAR, "work", -Math.PI / 2, VEST(1));
     }
-    // ── EVERY LENGTH NOT YET PART OF THE RUN, where it is: two to a tile, each the real tube ──
-    // On its skids from when the lorry has passed; in the crane's slings in its turn; set on its plinths and waiting,
-    // till the pipe's own layer has it. (A length is half a tile: `i` counts them from the line's first.)
-    // The pipe runs from the middle of its first tile to the middle of its last — as the main does — so its lengths
-    // are the halves of THAT: one fewer tile of them than the line has tiles, none hanging off either end.
-    const lengths = Math.max(0, 2 * (n - 1)), turn = Math.floor(f[MAIN.set] * 2) - 1, lf = f[MAIN.set] * 2 - 1 - turn, setting = turn >= 0 && turn < lengths;
-    // (Up off the skids, out over the line as the boom comes down, and lowered the last of the way.)
-    const go = Math.max(0, Math.min(1, (lf - 0.08) / 0.84)), e = go * go * (3 - 2 * go);
-    const rk = Math.max(0, Math.min(CRANE_REACH.length - 1, Math.round(e * (CRANE_REACH.length - 1)))), reach = CRANE_REACH[rk] * T;
-    const REST = 0.07 + R_HS, slung = { across: CRANE_AT - reach * NEAR, z: REST + (SET_Z - REST) * e + 1.1 * Math.sin(Math.PI * e) };
-    let load: { x: number; y: number; a: { x: number; y: number; heading: number } } | null = null;
-    for (let i = 0; i < lengths; i++) {
-      const k = Math.round((i + 0.5) / 2), bent = k > 0 && k < n - 1 && (j.cells[k + 1].x - j.cells[k].x !== j.cells[k].x - j.cells[k - 1].x || j.cells[k + 1].y - j.cells[k].y !== j.cells[k].y - j.cells[k - 1].y);
-      // (At a bend the main turns through an elbow: the two lengths that meet there stop short of the corner.)
-      const p = (i + 1.5) / 2, ps = bent ? p + Math.sign(p - 0.5 - k) * 0.12 : p;
+    // ── THE PIPE GOES IN A PIECE AT A TIME, OFF A CONVOY ──
+    // The pipe runs from the middle of its first tile to the middle of its last — as the main does — so its pieces
+    // are the halves of THAT, two to a tile, and a bend's ELBOW for the two that meet in its cell. Each comes on a
+    // lorry of its own: the lorries queue beside the laid pipe, the first of them drawn up outside the CRANE; the
+    // crane hooks the piece on its bed, lifts it, slews round with it over its own front, luffs out and lowers it
+    // onto the saddles; the lorry pulls away empty, the queue moves up, and the boom comes back for the next.
+    const lengths = Math.max(0, 2 * (n - 1)), turn = Math.floor(f[MAIN.set] * 2) - 1;
+    type Piece = { i: number; bd: ReturnType<typeof bendAt>; p: number; turns: number };
+    const win: Piece[] = [];
+    for (let i = Math.max(0, 2 * Math.floor(under ? f[SEWER.fill] : laid) - 5); i < lengths && i < turn + 12; i++) {
+      const k = Math.round((i + 0.5) / 2), bd = bendAt(k);
+      if (!bd) win.push({ i, bd: null, p: (i + 1.5) / 2, turns: 1 });
+      else if (i === 2 * k - 1) win.push({ i, bd, p: k + 0.5, turns: 2 });
+    }
+    const ci = turn < 0 ? -1 : win.findIndex((q) => turn >= q.i && turn < q.i + q.turns), cur = ci >= 0 ? win[ci] : null;
+    const lf = cur ? (f[MAIN.set] * 2 - 1 - cur.i) / cur.turns : 0;
+    const ease = (v: number) => { const q = Math.max(0, Math.min(1, v)); return q * q * (3 - 2 * q); };
+    /** How far a lorry's bed is behind its middle, tiles; how high a piece rides on it, half steps; the gap from lorry to lorry. */
+    const BED_BACK = 0.12, BED = 1.25 * M + R_HS, GAP = 0.95, UNHOOK = 0.66;
+    const setShown = (q: Piece) => (under ? q.p > f[SEWER.fill] : q.p > laid - 0.5);
+    const put = (q: Piece, at: { x: number; y: number; heading: number }, h: number, z: number, lift: number): Slung =>
+      q.bd ? elbow(`l${q.i}`, q.bd, at.x, at.y, z, lift) : lengthAt(`l${q.i}`, at, h, z, lift);
+    const setAt = (q: Piece) => (q.bd ? { x: q.bd.c.x, y: q.bd.c.y, heading: 0 } : by(q.p));
+    let load: Slung | null = null, boom = 0, far = CRANE_REACH[0] * T;
+    const cr = cur ? by(cur.p, CRANE_AT) : null;
+    if (cur && cr) {
+      // Where it is picked from — the bed of the lorry drawn up outside the crane — and where it is set; round the
+      // crane from one to the other, over its front.
+      const lorry = by(cur.p, LORRY_AT), from = { x: lorry.x - Math.cos(lorry.heading) * BED_BACK, y: lorry.y - Math.sin(lorry.heading) * BED_BACK }, to = setAt(cur);
+      const a0 = Math.atan2(from.y - cr.y, from.x - cr.x), a1 = Math.atan2(to.y - cr.y, to.x - cr.x), r0 = Math.hypot(from.x - cr.x, from.y - cr.y), r1 = Math.hypot(to.x - cr.x, to.y - cr.y);
+      let sweepBy = a1 - a0;
+      while (sweepBy * NEAR > 0) sweepBy -= 2 * Math.PI * NEAR;
+      while (sweepBy * NEAR <= -2 * Math.PI) sweepBy += 2 * Math.PI * NEAR;
+      // (Hooked on; lifted, slewed and lowered; unhooked; and the boom back round, empty, for the next.)
+      const carry = ease((lf - 0.1) / 0.5), back = ease((lf - 0.72) / 0.26), on = lf < UNHOOK ? carry : 1 - back;
+      boom = a0 + sweepBy * on;
+      far = r0 + (r1 - r0) * on;
+      if (lf < UNHOOK) load = put(cur, { x: cr.x + Math.cos(boom) * far, y: cr.y + Math.sin(boom) * far, heading: to.heading }, hAt(cur.p), BED + (SET_Z - BED) * carry + 1.5 * Math.sin(Math.PI * carry), 0.5);
+    }
+    for (let q = 0; q < win.length; q++) {
+      const pc = win[q];
       // (Set, it shows until it is part of the run — or, in a trench, until the trench is filled over it.)
-      if (i < turn) { if (under ? p > f[SEWER.fill] : p > laid - 0.5) length(`l${i}`, ps, 0, SET_Z, under ? 0.1 : 0.3); }
-      else if (i === turn && setting) load = length(`l${i}`, ps, slung.across, slung.z, 0.5);
-      else if (f[MAIN.string] > p + 0.2) length(`l${i}`, p, SKID, REST, 0.1);
-      else break;
+      if (ci < 0 ? pc.i < turn : q < ci || (q === ci && lf >= UNHOOK)) { if (setShown(pc)) put(pc, setAt(pc), hAt(pc.p), SET_Z, under ? 0.1 : 0.3); continue; }
+      if (ci < 0 || q - ci > 3) continue;
+      // ITS LORRY. The one being unloaded stands outside the crane till its piece is off it, then pulls out and away;
+      // those behind it move up a place as it goes, each with its piece on its bed.
+      const ahead = q - ci, next = win[ci + 1]?.p ?? cur!.p + 0.5;
+      let lp: number, across = LORRY_AT, veer = 0, alpha = 1;
+      if (ahead === 0) { const go = ease((lf - 0.34) / 0.62); lp = cur!.p + go * 2.4; across += NEAR * 1.5 * go * go; veer = NEAR * 0.5 * Math.sin(Math.PI * Math.min(1, go * 1.15)); alpha = 1 - Math.max(0, (go - 0.6) / 0.4); }
+      else { const up = ease((lf - 0.4) / 0.56), now = cur!.p - ahead * GAP; lp = now + (next - (ahead - 1) * GAP - now) * up; alpha = Math.max(0, Math.min(1, (lp - 0.55) / 0.4));
+        // (The last of the queue is the one arriving: in from out to the side, as the empty one went.)
+        if (ahead === 3) { across += NEAR * 1.5 * (1 - up) * (1 - up); veer = -NEAR * 0.5 * Math.sin(Math.PI * Math.min(1, (1 - up) * 1.15)); alpha *= Math.min(1, up * 3); } }
+      if (alpha <= 0.02) continue;
+      const u = place(`lorry${pc.i % 8}`, lp, [{ look: "flatbed", tint: BLUE }], veer, across);
+      if (u) u.c.alpha = alpha;
+      if (ahead > 0 && alpha > 0.5) { const b = by(lp - BED_BACK, across); put(pc, b, hAt(lp), BED, 0.4); }
     }
-    // ── STRINGING: the pipe lorry, its lengths on its bed, laying them out on their skids as it goes ──
-    if (f[MAIN.string] > 0 && f[MAIN.string] < n) {
-      const lp = f[MAIN.string] + 0.5;
-      place("pipes", lp, [{ look: "flatbed", tint: BLUE }], 0, 0.74 * NEAR);
-      const left = Math.max(0, Math.min(3, Math.ceil((n - f[MAIN.string]) * 2)));
-      for (let q = 0; q < left; q++) length(`bed${q}`, lp - 0.12, 0.74 * NEAR + (q < 2 ? (q - 0.5) * 0.13 : 0), (q < 2 ? 1.25 : 1.95) * M + R_HS, 0.4);
-    }
-    // ── SETTING: THE CRANE, parked on its outriggers beside the line; its boom luffs out with each length — picked
-    // off the skids at its foot, carried out over the line, lowered onto the plinths — and a banksman sees it in ──
-    if (setting) {
-      const p = (turn + 1.5) / 2, cr = by(p, CRANE_AT), toward = cr.heading - (Math.PI / 2) * NEAR;
-      place("crane", p, [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[rk], tint: YELLOW, heading: toward }], 0, CRANE_AT);
+    // ── THE CRANE, parked on its outriggers beside the line, and a banksman to see each piece in ──
+    if (cur && cr) {
+      const p = cur.p;
+      const rk2 = CRANE_REACH.reduce((best, r0, q) => (Math.abs(r0 * T - far) < Math.abs(CRANE_REACH[best] * T - far) ? q : best), 0);
+      place("crane", p, [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[rk2], tint: YELLOW, heading: boom }], 0, CRANE_AT);
+      // THE ROPE from the boom's head down to the hook: over the load, slings from it to the piece's two ends; or empty.
+      const tip = pt(scale, cr.x + Math.cos(boom) * far, cr.y + Math.sin(boom) * far, hAt(p) + craneTip(CRANE_REACH[rk2]) * M);
+      const lw = Math.max(0.6, 0.55 * scale);
       if (load) {
-        // THE ROPE from the boom's head down to the hook over the load, and the slings from it to the length's two ends.
-        const tip = pt(scale, cr.x + Math.cos(toward) * reach, cr.y + Math.sin(toward) * reach, hAt(p) + craneTip(CRANE_REACH[rk]) * M);
         const r = stuff.r * HW * Math.SQRT2 * scale, hook: [number, number] = [load.x, load.y - r - 9 * scale];
-        const lw = Math.max(0.6, 0.55 * scale), ch = Math.cos(load.a.heading), sh = Math.sin(load.a.heading);
         G.moveTo(tip[0], tip[1]).lineTo(hook[0], hook[1]).stroke({ color: 0x1f2226, width: lw });
         G.rect(hook[0] - 1.6 * scale, hook[1] - 2 * scale, 3.2 * scale, 4 * scale).fill({ color: 0xe9a71b });
-        for (const sg of [-1, 1]) { const ex = (ch - sh) * HW * scale * LENGTH * 0.36 * sg, ey = (ch + sh) * HH * scale * LENGTH * 0.36 * sg; G.moveTo(hook[0], hook[1] + 2 * scale).lineTo(load.x + ex, load.y + ey - r).stroke({ color: 0x1f2226, width: lw }); }
+        for (const [ox, oy] of load.ends) { const ex = (ox - oy) * HW * scale, ey = (ox + oy) * HH * scale; G.moveTo(hook[0], hook[1] + 2 * scale).lineTo(load.x + ex, load.y + ey - r).stroke({ color: 0x1f2226, width: lw }); }
+      } else {
+        const hook = pt(scale, cr.x + Math.cos(boom) * far, cr.y + Math.sin(boom) * far, hAt(p) + 2.6);
+        G.moveTo(tip[0], tip[1]).lineTo(hook[0], hook[1]).stroke({ color: 0x1f2226, width: lw });
+        G.rect(hook[0] - 1.6 * scale, hook[1] - 2 * scale, 3.2 * scale, 4 * scale).fill({ color: 0xe9a71b });
       }
       hand("banks", Math.max(0.3, p - 0.1), (under ? 0.72 : 0.5) * FAR, "stand", Math.PI / 2, VEST(1));
     }
