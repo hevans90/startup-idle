@@ -7,7 +7,7 @@ import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { lineDone, newLine, stepLine } from "./jobs";
-import { lineHead, lineLorriesOut, sendLineLoad, stepLineHaul } from "./line-loads";
+import { lineHead, lineLorriesOut, sendLineLoad, stepLineHaul, stepLinePlant } from "./line-loads";
 
 /** A road along row 5 edge to edge, the Garage on its north side; a line ordered south of it. */
 function yardAndLine(far = false) {
@@ -44,6 +44,31 @@ describe("a line's pipe, by road", () => {
     expect(j.delivered).toBe(j.deliveries);
     expect(back).toBe(true);
     expect(lineDone(j)).toBe(true);
+  });
+
+  test("its machines come from the yard before it is worked, and go home when it is done", () => {
+    const { g, j, net, town } = yardAndLine();
+    const haul = { net, town };
+    const seen: string[] = [];
+    let out = 0, home = 0;
+    for (let t = 0; t < 600; t += 1 / 30) {
+      stepLineHaul(g, haul, 1 / 30);
+      const at = stepLinePlant(g, haul, j, 1 / 30);
+      if (seen[seen.length - 1] !== at) seen.push(at);
+      if (at === "gone") break;
+      if (at === "work") {
+        stepLine(j, 1 / 30, () => true, { out: lineLorriesOut(town, g).get(j.id) ?? 0, send: () => sendLineLoad(g, haul, j) });
+        if (lineDone(j) && j.plant) { j.plant.leaving = 0; j.plant.t = 0; }
+      }
+      out = Math.max(out, town.movers.filter((m) => m.job?.role === "plant" && m.job.site === j.id).length);
+      if (at === "leaving") home = Math.max(home, town.movers.filter((m) => m.job?.role === "plant").length);
+      town.arrived.length = 0;
+      stepTown(town, g, net, 0, 1 / 30);
+    }
+    // Not worked till they are there; worked; then gathered and sent home, and only then over.
+    expect(seen).toEqual(["wait", "work", "leaving", "gone"]);
+    expect(out).toBeGreaterThan(1);
+    expect(home).toBeGreaterThan(0);
   });
 
   test("a line no road comes near is supplied on the clock, as it was", () => {

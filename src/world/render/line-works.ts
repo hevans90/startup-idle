@@ -20,7 +20,7 @@ import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-s
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
-import { LINE_GAPS, LINE_LAYS, LINE_PACE, LINE_STAGES, MAIN, SEWER, YARD_LOADING, alongLine, lineFront, type LineJob } from "../lines/jobs";
+import { LINE_GAPS, LINE_LAYS, LINE_PACE, LINE_PLANT, LINE_STAGES, MAIN, SEWER, YARD_LOADING, alongLine, lineFront, type LineJob, type PlantKind } from "../lines/jobs";
 import { YARDS } from "../lines/line-loads";
 import { YARD_BAY, YARD_CRANE, YARD_PARKING, YARD_STACKS, inYard } from "../landmarks/yard";
 import { YARD_PALLETS, fleetFree, type YardLoad } from "../fleet/fleet";
@@ -39,6 +39,12 @@ const SKIN = 0xd9a47a, LEGS = 0x3a4a63;
 /** A main's tube: its radius, tiles and half steps; its steel. @see mains-layer TUBE_R, STEEL */
 const TUBE_R = 0.09 / Math.SQRT2, STEEL = 0xa6a9aa;
 /** How long a length of pipe is as it comes off the lorry, tiles: two to a tile of main. */
+/** A job's machines by the mover that brings them: which of its units each is. @see LINE_PLANT */
+const PLANT_UNIT: Readonly<Record<string, PlantKind>> = { crane: "crane", mixer: "mixer", footer: "loader", digger: "loader", filler: "loader", roller: "loader", welder: "pickup" };
+/** The tracked ones, in the order their low-loaders take them home: a main has the one digger; a sewer its two and a roller. */
+const LOADER_IDX: Readonly<Record<string, number>> = { footer: 0, digger: 0, filler: 1, roller: 2 };
+/** Tiles a second a machine makes across a job. */
+const PLANT_SPEED = 1.8;
 const LENGTH = 0.46;
 /**
  * THE INSIDE OF A LOOSE LENGTH, SEEN IN AT ITS END — what is really there. A length is a tube with a wall: at its
@@ -146,6 +152,10 @@ export function createLineWorks(bands: BandLayer): LineWorks {
   /** The yards' own: the pieces on the lorry being loaded, and each crane's rope. @see sync, THE YARD'S CRANE */
   const yardLoose = new Map<string, { mesh: Mesh<Geometry, Shader>; key: string; band: number }>();
   const yardRopes = new Map<number, Graphics>();
+  /** Where each of a job's machines is, driving: kept from frame to frame, by the unit's name. @see sync `drive` */
+  const poses = new Map<string, { x: number; y: number; heading: number; k: number; looks: { look: string; tint: number; heading?: number }[]; h: number }>();
+  /** Whether a unit is on the move this frame, not yet where its work is: its rope and its sparks wait for it. */
+  const awayNow = new WeakMap<Unit, boolean>();
   const dropMain = (m: Laying) => { for (const q of m.loose.values()) destroyPipeDrawable(q.mesh); m.loose.clear(); drop(m.g); for (const q of m.stood.values()) drop(q); for (const q of m.front.values()) drop(q); for (const h of m.hands.values()) drop(h.c); for (const q of m.pegs) drop(q); };
   /**
    * A MAIN GOING IN, SIX TRADES ALONG IT AT ONCE (@see lines/jobs MAIN). The pipe itself is real — on the map a
@@ -627,12 +637,15 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     if (cr) {
       const p = cur ? cur.p : turn < 0 ? 0.5 : n - 0.5;
       const rk2 = CRANE_REACH.reduce((best, r0, q) => (Math.abs(r0 * T - far) < Math.abs(CRANE_REACH[best] * T - far) ? q : best), 0);
-      placeAt("crane", cr.x, cr.y, cr.heading, cellH(cr.x, cr.y), [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[rk2], tint: YELLOW, heading: boom }]);
+      const cu = placeAt("crane", cr.x, cr.y, cr.heading, cellH(cr.x, cr.y), [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[rk2], tint: YELLOW, heading: boom }]);
+      // (Its rope hangs once it is stood where it works: not while it is driving there, nor before it has come.)
+      const stood = !!cu && !awayNow.get(cu);
       // THE ROPE from the boom's head down to the hook: over the load, slings from it to the piece's two ends; or empty.
       const reach = Math.min(far, CRANE_REACH[CRANE_REACH.length - 1] * T);
       const tip = pt(scale, cr.x + Math.cos(boom) * reach, cr.y + Math.sin(boom) * reach, cellH(cr.x, cr.y) + craneTip(CRANE_REACH[rk2]) * M);
       const lw = Math.max(0.6, 0.55 * scale);
-      if (load) {
+      if (!stood) { /* nothing hangs from a crane on the move */ }
+      else if (load) {
         const r = stuff.r * HW * Math.SQRT2 * scale, hook: [number, number] = [load.x, load.y - r - 9 * scale];
         G.moveTo(tip[0], tip[1]).lineTo(hook[0], hook[1]).stroke({ color: 0x1f2226, width: lw });
         G.rect(hook[0] - 1.6 * scale, hook[1] - 2 * scale, 3.2 * scale, 4 * scale).fill({ color: 0xe9a71b });
@@ -770,22 +783,46 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           if (!cars) return null;
           const id = `${j.id}:${name}`, on = alongLine(j.cells, p), c = j.cells[Math.max(0, Math.min(n - 1, Math.floor(p)))];
           const at = { x: on.x - Math.sin(on.heading) * across, y: on.y + Math.cos(on.heading) * across, heading: on.heading };
+          return drive(name, id, at.x, at.y, at.heading + turn, g.height[idx(g, c.x, c.y)], looks);
+        };
+        // ITS MACHINES COME AND GO BY ROAD (@see line-loads stepLinePlant): none of them on it till they have come from
+        // the yard; then each DRIVES — from where it turned off the road to its work, from one place of work to the
+        // next, back to the road when its trade is done and when the job is — never set down and never taken up.
+        const plant = j.plant || null, here = !plant || plant.here, leaving = plant?.leaving !== undefined;
+        const sent = plant?.home ? LINE_PLANT[j.kind].filter((k) => k !== "loader" && !plant.home!.includes(k)) : [];
+        const loadersLeft = plant?.home ? plant.home.filter((k) => k === "loader").length : Infinity;
+        const loaders = LINE_PLANT[j.kind].filter((k) => k === "loader").length;
+        const hd = j.head ?? j.cells[0], dl = Math.hypot(j.cells[0].x - hd.x, j.cells[0].y - hd.y) || 1;
+        const dxh = dl > 0.5 ? (j.cells[0].x - hd.x) / dl : 1, dyh = dl > 0.5 ? (j.cells[0].y - hd.y) / dl : 0;
+        /** Where a machine stands by the road, off the haul track: the `k`th of a row of them. */
+        const parkAt = (k: number) => ({ x: hd.x + dxh * 1.0 - dyh * (0.75 + 0.62 * k) * -1, y: hd.y + dyh * 1.0 + dxh * (0.75 + 0.62 * k) * -1 });
+        const drive = (name: string, id: string, x: number, y: number, heading: number, h: number, looks: { look: string; tint: number; heading?: number }[]): Unit | null => {
+          if (!cars || !here) return null;
+          const kind = PLANT_UNIT[name];
+          let px = x, py = y, ph = heading, away = false;
+          if (plant && kind) {
+            // (Gone home already: the crane, the mixer, the pickup when theirs has set off; the diggers one to a low-loader.)
+            if (kind === "loader" ? (LOADER_IDX[name] ?? 0) < loaders - Math.min(loaders, loadersLeft) : sent.includes(kind)) { poses.delete(id); return null; }
+            let st = poses.get(id);
+            if (!st) { let k = 0; for (const key of poses.keys()) if (key.startsWith(`${j.id}:`)) k++; const at0 = parkAt(k); st = { x: at0.x, y: at0.y, heading, k, looks, h }; poses.set(id, st); }
+            const tx = leaving ? parkAt(st.k).x : x, ty = leaving ? parkAt(st.k).y : y, ddx = tx - st.x, ddy = ty - st.y, d = Math.hypot(ddx, ddy), step = PLANT_SPEED * dt;
+            if (d <= Math.max(step, 0.03)) { st.x = tx; st.y = ty; if (!leaving) st.heading = heading; }
+            else { st.x += (ddx / d) * step; st.y += (ddy / d) * step; st.heading = Math.atan2(ddy, ddx); away = true; }
+            st.looks = looks; st.h = h;
+            px = st.x; py = st.y; ph = st.heading;
+          }
           let u = units.get(id);
           if (!u) { u = makeUnit(looks.length); units.set(id, u); }
           seen.add(id);
-          const base = poseUnit(u, cars, looks, { x: at.x, y: at.y, z: g.height[idx(g, c.x, c.y)], heading: at.heading + turn, pitch: 0 }, scale, P ? { people: P, id: j.id * 8 + name.length } : null);
-          u.band = into(u.c, u.band, at.x, at.y, base);
+          // (Driving, its arm or its boom is carried square to it, not swung to its work.)
+          const base = poseUnit(u, cars, away ? looks.map((l) => (l.heading !== undefined ? { ...l, heading: ph } : l)) : looks, { x: px, y: py, z: h, heading: ph, pitch: 0 }, scale, P ? { people: P, id: j.id * 8 + name.length } : null);
+          u.band = into(u.c, u.band, px, py, base);
+          awayNow.set(u, away);
           return u;
         };
         const placeAt = (name: string, x: number, y: number, heading: number, h: number, looks: { look: string; tint: number; heading?: number }[]): Unit | null => {
           if (!cars) return null;
-          const id = `${j.id}:${name}`;
-          let u = units.get(id);
-          if (!u) { u = makeUnit(looks.length); units.set(id, u); }
-          seen.add(id);
-          const base = poseUnit(u, cars, looks, { x, y, z: h, heading, pitch: 0 }, scale, P ? { people: P, id: j.id * 8 + name.length } : null);
-          u.band = into(u.c, u.band, x, y, base);
-          return u;
+          return drive(name, `${j.id}:${name}`, x, y, heading, h, looks);
         };
         if (j.kind === "sewer" && f0 < n) {
           // THE DIGGER backs along the line ahead of its trench: a bite out of the end of it, round to the side, tipped on the ridge.
@@ -800,6 +837,12 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           place("digger", f0 + 0.62, [{ look: "exTracks", tint: YELLOW }, { look: j.stalled > 0 ? "exLift" : pose, tint: YELLOW, heading: house }]);
         }
         if (j.kind !== "dredge") layMain(g, j, w, dt, scale, P, place, seenM, placeAt);
+        if (plant && here) {
+          // WHAT IS NOT AT WORK STANDS BY THE ROAD: a machine whose trade has not begun, or is over, drives there and waits.
+          for (const [id, st] of poses) if (id.startsWith(`${j.id}:`) && !seen.has(id)) drive(id.slice(id.indexOf(":") + 1), id, parkAt(st.k).x, parkAt(st.k).y, st.heading, st.h, st.looks);
+          // AND THE LOW-LOADERS that brought the tracked ones, bare, till they take them home.
+          for (let q = 0; q < Math.min(loaders, loadersLeft); q++) { const at = parkAt(7 + q), id = `${j.id}:low${q}`; let u = units.get(id); if (!u) { u = makeUnit(1); units.set(id, u); } seen.add(id); const base = poseUnit(u, cars!, [{ look: "lowLoaderEmpty", tint: YELLOW }], { x: at.x, y: at.y, z: g.height[idx(g, Math.round(hd.x), Math.round(hd.y))], heading: Math.atan2(dyh, dxh), pitch: 0 }, scale, null); u.band = into(u.c, u.band, at.x, at.y, base); }
+        }
         if (j.kind === "dredge" && f0 < n) {
           // THE DREDGER: a barge on the water over where it is working, a jib over its bow and a grab on a rope; mud in the water round it.
           seenB.add(j.id);
@@ -999,6 +1042,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       for (const [name, m] of yardLoose) if (!seenY.has(name)) { destroyPipeDrawable(m.mesh); yardLoose.delete(name); }
       for (const [id, G] of yardRopes) if (!seenY.has(`rope${id}`)) { drop(G); yardRopes.delete(id); }
       for (const [id, u] of units) if (!seen.has(id)) { drop(u.c); units.delete(id); }
+      for (const id of poses.keys()) { const jid = Number(id.slice(0, id.indexOf(":"))); if (!jobs.some((q) => q.id === jid)) poses.delete(id); }
       for (const [id, b] of barges) if (!seenB.has(id)) { drop(b.c); barges.delete(id); }
       for (const [id, m] of mains) if (!seenM.has(id)) { dropMain(m); mains.delete(id); }
       for (const id of clocks.keys()) if (id >= 0 ? !jobs.some((j) => j.id === id) : !g.razeJobs.some((j) => j.id === -id)) clocks.delete(id);

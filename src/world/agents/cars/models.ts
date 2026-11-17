@@ -1234,8 +1234,42 @@ const craneUpper = (id: string, reach: number): Model => ({
 /** The crane's upperworks, a look a reach. @see CRANE_REACH */
 export const CRANE_LOOKS = ["crane0", "crane1", "crane2", "crane3", "crane4"] as const;
 const cranes = CRANE_LOOKS.map((id, k) => craneUpper(id, CRANE_REACH[k]));
+/**
+ * PLANT ON THE ROAD, between the yard and a job: THE CRANE travelling — its carrier with its upperworks squared
+ * up and its boom laid down along it, the hook block made fast at its nose; and A LOW-LOADER — a bed low between
+ * its axles, ramps folded at its tail — bare, and with a digger chained down on it, its arm tucked. @see line-loads
+ */
+const craneTravel: Model = {
+  ...craneCarrier, id: "craneTravel",
+  slabs: [
+    ...craneCarrier.slabs,
+    { l0: 0.2, l1: -2.6, w: 1.1, z0: 1.3, z1: 2.25, mat: "paint" },
+    { l0: 1.0, l1: 0.2, w: 0.48, wc: 0.62, z0: 1.3, z1: 2.4, mat: "glass" },
+    { l0: 1.05, l1: 0.15, w: 0.52, wc: 0.62, z0: 2.4, z1: 2.5, mat: "paint" },
+    { l0: -2.6, l1: -3.3, w: 1.0, z0: 1.3, z1: 2.1, mat: "trim" },
+    { l0: 3.9, l1: -2.4, w: 0.3, wc: -0.3, z0: 2.25, z1: 2.72, mat: "paint" },
+    { l0: 3.95, l1: 3.6, w: 0.22, wc: -0.3, z0: 1.7, z1: 2.25, mat: "trim" },
+  ],
+};
+/** A machine's own shapes, moved: carried on a bed `dl` along and `dz` up. */
+const carriedOn = (m: Model, dl: number, dz: number): { slabs: Slab[]; extra: FreeTri[] } => ({
+  slabs: m.slabs.map((s) => ({ ...s, l0: s.l0 + dl, l1: s.l1 + dl, z0: s.z0 + dz, z1: s.z1 + dz })),
+  extra: (m.extra?.() ?? []).map((t) => ({ ...t, p: t.p.map((p): P3 => [p[0] + dl, p[1], p[2] + dz]) as [P3, P3, P3] })),
+});
+const LOW_BED: Slab[] = [
+  { l0: 2.2, l1: -4.3, w: 1.25, z0: 0.68, z1: 0.88, mat: "bed" },
+  { l0: 2.25, l1: 2.12, w: 1.2, z0: 0.88, z1: 1.7, mat: "trim" },
+  ...[1, -1].map((sg): Slab => ({ l0: -4.05, l1: -4.3, w: 0.28, wc: sg * 0.7, z0: 0.88, z1: 2.1, mat: "trim" })),
+  ...[1, -1].map((sg): Slab => ({ l0: 2.0, l1: -4.2, w: 0.03, wc: sg * 1.24, z0: 0.88, z1: 0.96, mat: "livery" })),
+];
+const lowLoaderEmpty = lorry("lowLoaderEmpty", 8.6, 2.5, 1.8, LOW_BED, [2.9, -2.6, -3.6]);
+const onLow = [carriedOn(exTracks, -1.0, 0.88), carriedOn(exLift, -1.0, 0.88)];
+const lowLoader: Model = {
+  ...lorry("lowLoader", 8.6, 2.5, 1.8, [...LOW_BED, ...onLow.flatMap((c) => c.slabs)], [2.9, -2.6, -3.6]),
+  extra: () => onLow.flatMap((c) => c.extra), overhang: 2.2,
+};
 /** What builds a road. Never in the traffic. */
-export const PLANT = [pipeLorry, pipeLorryLoaded, paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp, ...spoils, rigUp, ...rigs, ...mixers, craneCarrier, ...cranes];
+export const PLANT = [craneTravel, lowLoader, lowLoaderEmpty, pipeLorry, pipeLorryLoaded, paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp, ...spoils, rigUp, ...rigs, ...mixers, craneCarrier, ...cranes];
 
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];

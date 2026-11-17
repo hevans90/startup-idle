@@ -63,7 +63,7 @@ export type Mover = {
    * job are not the town's trips: they are counted apart, reported when they
    * arrive, and a builder at work stands where it is. @see world/projects
    */
-  job?: { site: number; role: "road-load" | "line-load" | "builder" | "home" | "working" | "truck" | "arrive" | "leave" | "moving-in" | "haul" | "haul-back" | "clean-go" | "clean" | "cleaning" | "clean-back" | "leader" | "emergency" | "emergency-back" | "freight" };
+  job?: { site: number; role: "road-load" | "line-load" | "plant" | "builder" | "home" | "working" | "truck" | "arrive" | "leave" | "moving-in" | "haul" | "haul-back" | "clean-go" | "clean" | "cleaning" | "clean-back" | "leader" | "emergency" | "emergency-back" | "freight" };
   /**
    * Seconds to stand where it is before going on: a bus at a stop, letting
    * its passengers off. @see world/agents/arrivals

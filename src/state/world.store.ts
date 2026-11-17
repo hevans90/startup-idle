@@ -78,7 +78,7 @@ import {
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import { GANGS, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
 import { stepRoadLoads } from "../world/roads/job-loads";
-import { lineLorriesOut, lineLorryFree, sendLineLoad, stepLineHaul } from "../world/lines/line-loads";
+import { lineLorriesOut, lineLorryFree, sendLineLoad, stepLineHaul, stepLinePlant } from "../world/lines/line-loads";
 import { LINE_LAYS, lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
 import { payForLoad } from "../world/projects/economy";
 import {
@@ -895,6 +895,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (haul && stepLineHaul(g, haul, dt)) changed = true;
     const out = haul && lineLorriesOut(haul.town, g);
     for (const j of [...g.lineJobs]) {
+      // ITS MACHINES: from the yard before it is worked, and home when it is done. @see stepLinePlant
+      const plant = haul ? stepLinePlant(g, haul, j, dt) : "none";
+      if (plant === "gone") { g.lineJobs = g.lineJobs.filter((q) => q !== j); changed = true; continue; }
+      if (plant === "wait" || plant === "leaving") { j.at = now; continue; }
+      /** Done with: off the list — or, with machines to send home, kept on it till they have gone. */
+      const over = () => { if (plant === "work" && j.plant) { j.plant.leaving = 0; j.plant.t = 0; } else g.lineJobs = g.lineJobs.filter((q) => q !== j); };
       if (stepLine(j, dt, get().playing ? payForLoad : () => true, haul && { out: out?.get(j.id) ?? 0, send: () => sendLineLoad(g, haul, j), free: () => lineLorryFree(g, haul, j) })) changed = true;
       j.at = now;
       if (j.stalled > 0 && !j.told && get().playing) { j.told = true; report(`${LINE_NAME[j.kind]} has stopped: ${formatCurrency(lineLoadPrice(j))} for the next load.`, { title: "Works" }); }
@@ -924,14 +930,16 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
           }
           changed = true;
         }
-        if (lineDone(j)) { g.lineJobs = g.lineJobs.filter((q) => q !== j); changed = true; }
+        if (lineDone(j) && g.lineJobs.includes(j)) { over(); changed = true; }
         continue;
       }
       if (!lineDone(j)) continue;
       // DONE: laid, all of it, as the stroke that ordered it lays it — on the map as it is now. Paid for already.
-      g.lineJobs = g.lineJobs.filter((q) => q !== j);
       // (What it was to be laid on has changed under it, and it cannot be: its loads are given back.)
-      if (!relay(ordered) && get().playing) useMoneyStore.getState().increaseMoney(lineLoadPrice(j) * j.delivered);
+      // (Off the list while it is laid — it is laid as if ordered afresh — and, with machines to send home, back on it till they have gone.)
+      g.lineJobs = g.lineJobs.filter((q) => q !== j);
+      if (!relay(ordered)) { if (get().playing) useMoneyStore.getState().increaseMoney(lineLoadPrice(j) * j.delivered); }
+      else if (plant === "work" && j.plant) { j.plant.leaving = 0; j.plant.t = 0; g.lineJobs.push(j); }
       changed = true;
     }
     if (changed) set({ lineRev: get().lineRev + 1 });

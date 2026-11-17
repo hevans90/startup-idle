@@ -16,6 +16,8 @@ export const AI_TRUCK_COLOUR = 0xeef0f6;
 export const PORT_LORRY_COLOUR = 0x2f6ea8;
 /** A lorry bringing a line its pipe from the yard, three lengths on its bed; and the same lorry going home, its bed bare. @see line-loads */
 export const PIPE_LORRY_COLOUR = 0x2e63b9, PIPE_EMPTY_COLOUR = 0x2e63b8;
+/** A job's machines on the road between the yard and it: the crane travelling, a mixer, a low-loader with a digger on it, the gang's pickup. @see line-loads */
+export const PLANT_CRANE_COLOUR = 0xe9a71a, PLANT_MIXER_COLOUR = 0xe9a71c, PLANT_LOADER_COLOUR = 0xe9a71d, PLANT_PICKUP_COLOUR = 0xe9a71e;
 /** The company's own lorries with a site's pallets and a road's stone: a flatbed and a tipper, loaded; the tipper going home empty (the flatbed goes home a bare bed). @see world/fleet */
 export const FLEET_FLATBED_COLOUR = 0x2e63ba, FLEET_TIPPER_COLOUR = 0x2e63bb, FLEET_TIPPER_EMPTY_COLOUR = 0x2e63bc;
 /** Hire to Fire's moving vans, white. */
@@ -49,6 +51,10 @@ export function modelFor(m: Pick<Mover, "id" | "kind" | "colour" | "siren" | "bu
     if (m.colour === PIPE_LORRY_COLOUR) return "pipeLorryLoaded";
     if (m.colour === PIPE_EMPTY_COLOUR) return "pipeLorry";
     if (m.colour === FLEET_FLATBED_COLOUR) return "flatbed";
+    if (m.colour === PLANT_CRANE_COLOUR) return "craneTravel";
+    if (m.colour === PLANT_MIXER_COLOUR) return "mixer";
+    if (m.colour === PLANT_LOADER_COLOUR) return "lowLoader";
+    if (m.colour === PLANT_PICKUP_COLOUR) return "pickup";
     if (m.colour === FLEET_TIPPER_COLOUR) return "tipper";
     if (m.colour === FLEET_TIPPER_EMPTY_COLOUR) return "spoil0";
     return ofId(m.id, 0x7a11, m.colour === VAN_COLOUR ? VAN_PICKS : LORRY_PICKS);

@@ -8,9 +8,9 @@ import { idx, inBounds, type Grid } from "../grid";
 import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, type Mover, type Town } from "../agents/town";
 import { find, type Network } from "../roads/network";
-import { FLEET_TIPPER_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PIPE_EMPTY_COLOUR, PIPE_LORRY_COLOUR } from "../agents/cars/fleet";
+import { FLEET_TIPPER_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PIPE_EMPTY_COLOUR, PIPE_LORRY_COLOUR, PLANT_CRANE_COLOUR, PLANT_LOADER_COLOUR, PLANT_MIXER_COLOUR, PLANT_PICKUP_COLOUR } from "../agents/cars/fleet";
 import { craneFree, fleetFree, isYard } from "../fleet/fleet";
-import { LINE_HAUL, LINE_LAYS, TRACK_SPEED, YARD_LOADING, lineFront, type LineJob } from "./jobs";
+import { LINE_HAUL, LINE_LAYS, LINE_PLANT, PLANT_GAP, PLANT_GATHER, TRACK_SPEED, YARD_LOADING, lineFront, type LineJob, type PlantKind } from "./jobs";
 
 /** The Garage and what it grows into: the yard a load comes from. @see works depotFor */
 export const YARDS: readonly string[] = ["garage", "hq", "boardroom", "ipo"];
@@ -83,6 +83,8 @@ export function stepLineHaul(g: Grid, haul: { net: Network; town: Town }, dt: nu
   let changed = false, places: Place[] | null = null;
   for (let k = haul.town.arrived.length - 1; k >= 0; k--) {
     const m = haul.town.arrived[k];
+    // (A machine that has got there is simply there. @see stepLinePlant)
+    if (m.job?.role === "plant") { haul.town.arrived.splice(k, 1); changed = true; continue; }
     if (m.job?.role !== "line-load") continue;
     haul.town.arrived.splice(k, 1);
     const j = g.lineJobs.find((q) => q.id === m.job!.site);
@@ -154,4 +156,45 @@ export function lineLorryFree(g: Grid, haul: { net: Network; town: Town }, j: Li
   const head = lineHead(g, haul.net, j);
   const from = head && yardFor(g, placesOf(g, haul.net), head);
   return !head || !isYard(g, from) || fleetFree(g, haul.town) > 0;
+}
+
+const PLANT_COLOUR: Readonly<Record<PlantKind, number>> = { crane: PLANT_CRANE_COLOUR, mixer: PLANT_MIXER_COLOUR, loader: PLANT_LOADER_COLOUR, pickup: PLANT_PICKUP_COLOUR };
+
+/**
+ * A FRAME OF A LINE'S MACHINES. A job by a road a yard is on is not worked till its machines have come from that
+ * yard — the crane, a mixer, its diggers on low-loaders, the gang's pickup, one after another through the town —
+ * and when it is done they gather at the road and go home the same way; only then is the job over. Says where it
+ * has got to: `wait` (not worked yet), `work`, `leaving` (done, its machines going), `gone` (to be taken off the
+ * map's list). `none` for a job nothing comes to by road: its machines are simply there, as they were.
+ */
+export function stepLinePlant(g: Grid, haul: { net: Network; town: Town }, j: LineJob, dt: number): "none" | "wait" | "work" | "leaving" | "gone" {
+  if (j.plant === false || !LINE_PLANT[j.kind].length) return "none";
+  const head = lineHead(g, haul.net, j), from = head && yardFor(g, placesOf(g, haul.net), head);
+  const ok = !!head && isYard(g, from) && (from.x !== head.x || from.y !== head.y);
+  if (!j.plant) {
+    // (Under way already — a map loaded with it half laid — its machines are on it.)
+    if (!ok || j.t > 0) { j.plant = ok ? { queue: [], t: 0, here: true } : false; return ok ? "work" : "none"; }
+    j.head = { x: head!.x, y: head!.y };
+    j.depot = from!.structure;
+    j.plant = { queue: [...LINE_PLANT[j.kind]], t: 0, here: false };
+  }
+  const p = j.plant;
+  const send = (kind: PlantKind, a: Place, b: Place) => { const m = sendOnJob(haul.town, g, "truck", a, b, { site: j.id, role: "plant" }); if (m) m.colour = PLANT_COLOUR[kind]; };
+  if (p.leaving !== undefined) {
+    p.leaving += dt;
+    p.home ??= [...LINE_PLANT[j.kind]];
+    if (p.leaving >= PLANT_GATHER && p.home.length) {
+      p.t -= dt;
+      if (p.t <= 0) { const kind = p.home.shift()!; if (ok) send(kind, head!, from!); p.t = PLANT_GAP; }
+    }
+    return p.home.length ? "leaving" : "gone";
+  }
+  if (p.here) return "work";
+  // (Its road gone from under it since: they are counted as there.)
+  if (!ok) { p.queue = []; p.here = true; return "work"; }
+  p.t -= dt;
+  if (p.queue.length && p.t <= 0) { send(p.queue.shift()!, from!, head!); p.t = PLANT_GAP; }
+  const onRoad = haul.town.movers.some((m) => m.job?.role === "plant" && m.job.site === j.id && !haul.town.arrived.includes(m));
+  if (!p.queue.length && !onRoad) p.here = true;
+  return p.here ? "work" : "wait";
 }
