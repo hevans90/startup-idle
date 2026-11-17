@@ -20,10 +20,25 @@ import type { BandLayer } from "./bands";
 const YELLOW = 0xe9a71b, WHITE = 0xf1f1ee;
 /** Hi-vis, a hard hat, and the rest of a builder. */
 const VESTS = [0xf47b20, 0xc8dc32, 0xf47b20, 0xe8e23a], HAT = 0xf5c224, SKIN = 0xd9a47a, LEGS = 0x3a4a63;
-/** Where the four stand, tiles along the road from the machine they work beside, and across it. */
-const CREW = [[-0.75, 0.3], [-1.05, -0.3], [-1.6, 0.28], [0.85, -0.32]];
+/** The lorry's blue, tipping into the paver. */
+const LORRY = 0x3f6fb0;
+/**
+ * THE FOUR, by what each does. Laying: two rake the mat behind the screed, facing it; one walks the edge beside the
+ * roller; the foreman stands off the paver's shoulder. Before that, by the digger: one bank each side of the
+ * bucket, one walking the line ahead with the pegs, the foreman behind. Tiles along from the machine, across the
+ * road, the pose, and which way they face from the road's own way.
+ */
+type Role = { al: number; ac: number; pose: "work" | "walk" | "stand"; face: number; pace?: number };
+const LAYING: Role[] = [
+  { al: -0.62, ac: 0.24, pose: "work", face: Math.PI }, { al: -0.7, ac: -0.22, pose: "work", face: Math.PI },
+  { al: -1.7, ac: 0.4, pose: "walk", face: 0, pace: 0.35 }, { al: 0.15, ac: -0.42, pose: "stand", face: Math.PI / 2 },
+];
+const DIGGING: Role[] = [
+  { al: 0.75, ac: 0.38, pose: "stand", face: -Math.PI / 2 }, { al: 0.6, ac: -0.38, pose: "work", face: Math.PI / 2 },
+  { al: 2.2, ac: 0.3, pose: "walk", face: 0, pace: 0.6 }, { al: -1.0, ac: -0.3, pose: "stand", face: 0 },
+];
 
-type Unit = { c: Container; paint: Sprite; trim: Sprite; steam: Graphics | null; key: string; band: number };
+type Unit = { c: Container; paint: Sprite; trim: Sprite; fx: Graphics | null; key: string; band: number };
 type Hand = { c: Container; parts: Sprite[]; key: string; band: number };
 type At = { x: number; y: number; z: number; heading: number; pitch: number };
 
@@ -58,10 +73,13 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
         g.roadJobs.slice(0, GANGS).forEach((j) => {
           if (j.t <= ARRIVE || !cars) return;
           const n = j.cells.length, f = [0, 1, 2, 3].map((s) => frontAt(j, s)), still = j.stalled > 0;
-          const place = (name: string, look: string, tint: number, p: number, steam = false) => {
+          const place = (name: string, look: string, tint: number, p: number, fx: "" | "steam" | "dust" = "", swing = 0) => {
             const L = cars!.looks.get(look);
             if (!L) return null;
             const at = alongJob(g, j, p), id = `${j.id}:${name}`;
+            // Slewed off the road's own way: a digger swinging to its spoil and back.
+            const way = at.heading;
+            at.heading += swing;
             seenU.add(id);
             let u = units.get(id);
             if (!u) {
@@ -69,9 +87,9 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               const paint = new Sprite(), trim = new Sprite();
               paint.tint = tint;
               c.addChild(paint, trim);
-              const s = steam ? new Graphics() : null;
+              const s = fx ? new Graphics() : null;
               if (s) { s.context.batchMode = "batch"; c.addChild(s); }
-              u = { c, paint, trim, steam: s, key: "", band: -1 };
+              u = { c, paint, trim, fx: s, key: "", band: -1 };
               units.set(id, u);
             }
             const h = headingIndex(at.heading, cars!.headings), pose = poseOf(cars!, L, h, at.pitch), F = pose.from, k = pose.k;
@@ -87,37 +105,48 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             if (tilt) { tilt.tx = x; tilt.ty = y; u.c.setFromMatrix(tilt); } else { u.c.scale.set(1); u.c.skew.set(0, 0); u.c.rotation = 0; u.c.position.set(x, y); }
             u.band = into(u.c, u.band, at.x, at.y);
             // STEAM off the mat behind it: three puffs that rise and thin.
-            if (u.steam) {
-              u.steam.clear();
-              if (!still) for (let q = 0; q < 3; q++) {
-                const ph = (t * 0.6 + q / 3) % 1, bx = -Math.cos(at.heading) * 0.42, by = -Math.sin(at.heading) * 0.42;
-                u.steam.circle((bx - by) * HW * scale + (q - 1) * 5 * scale, (bx + by) * HH * scale - ph * 26 * scale, (3 + ph * 5) * scale).fill({ color: 0xffffff, alpha: 0.28 * (1 - ph) });
+            if (u.fx) {
+              u.fx.clear();
+              // STEAM off the mat behind a paver, the width of it; DUST where a digger's bucket bites, ahead of it.
+              const steam = fx === "steam", far = steam ? -0.42 : 0.42, n = steam ? 5 : 3;
+              if (!still) for (let q = 0; q < n; q++) {
+                const ph = (t * (steam ? 0.55 : 0.8) + q / n + (q * 0.37) % 1) % 1, side = steam ? (q / (n - 1) - 0.5) * 0.5 : (q - 1) * 0.08;
+                const bx = Math.cos(steam ? way : at.heading) * far - Math.sin(way) * side, by = Math.sin(steam ? way : at.heading) * far + Math.cos(way) * side;
+                u.fx.circle((bx - by) * HW * scale, (bx + by) * HH * scale - (steam ? 4 + ph * 30 : 2 + ph * 12) * scale, (steam ? 3 + ph * 6 : 2.5 + ph * 4) * scale)
+                  .fill({ color: steam ? 0xffffff : 0xa98660, alpha: (steam ? 0.26 : 0.34) * (1 - ph) });
               }
             }
             return at;
           };
           // Each where its trade is, while its trade is still at work.
           // (Not out over the water: there is nothing to dig on a bridge.)
-          if (f[0] < n && !j.cells[Math.min(n - 1, Math.floor(f[0]))].deck && !j.cells[Math.max(0, Math.floor(f[0] - 0.55))].deck) place("digger", "excavator", YELLOW, Math.max(0, f[0] - 0.55));
+          const digging = f[0] < n && !j.cells[Math.min(n - 1, Math.floor(f[0]))].deck && !j.cells[Math.max(0, Math.floor(f[0] - 0.55))].deck;
+          // The digger swings out to its spoil and back as it goes.
+          if (digging) place("digger", "excavator", YELLOW, Math.max(0, f[0] - 0.55), "dust", still ? 0 : 0.55 * Math.sin(t * 1.1 + j.id));
           const paving = j.t > ARRIVE + 2 * GAP * PACE && f[2] < n;
-          if (paving) place("paver", "paver", YELLOW, f[2] + 0.1, true);
+          if (paving) place("paver", "paver", YELLOW, f[2] + 0.1, "steam");
+          // A LORRY backed up to its hopper, creeping ahead of it as it lays: there while there is something to tip.
+          if (paving && !still && f[2] + 0.95 < n - 0.2) place("tipper", "tipper", LORRY, f[2] + 0.95);
           if (j.t > ARRIVE + 2 * GAP * PACE && f[3] < n && f[2] > 1.2) place("roller", "roller", YELLOW, Math.min(n - 1, f[2]) - 1.25 + (still ? 0 : 0.45 * Math.sin(t * 1.7 + j.id)));
           if (f[3] > 0.2 && f[3] < n) place("liner", "pickup", WHITE, f[3] - 0.2);
-          // THE FOUR, beside the paver once it is laying; before that, by the digger.
+          // THE FOUR: by the paver once it is laying; before that, by the digger; with neither, stood where the work stopped.
           if (P) {
-            const by = paving ? f[2] : Math.max(0, f[0] - 0.55);
-            CREW.forEach(([al, ac], k) => {
-              const at = alongJob(g, j, by + al), id = `${j.id}:${k}`;
+            const roles = paving ? LAYING : DIGGING, by = paving ? f[2] + 0.1 : Math.max(0, Math.min(n - 1, f[0]) - 0.55);
+            roles.forEach((r, k) => {
+              // One who walks, walks: up the line and back, at their own pace.
+              const stride = r.pace && !still ? Math.sin(t * r.pace + k) * 0.7 : 0;
+              const at = alongJob(g, j, by + r.al + stride), id = `${j.id}:${k}`;
               seenH.add(id);
               let hnd = hands.get(id);
               if (!hnd) {
                 const c = new Container(); c.eventMode = "none";
-                const parts = [SKIN, LEGS, VESTS[k % VESTS.length], HAT, 0xffffff].map((tint) => { const sp = new Sprite(); sp.tint = tint; c.addChild(sp); return sp; });
+                const parts = [SKIN, LEGS, k === 3 ? 0xf2f2f2 : VESTS[k % VESTS.length], HAT, 0xffffff].map((tint) => { const sp = new Sprite(); sp.tint = tint; c.addChild(sp); return sp; });
                 hnd = { c, parts, key: "", band: -1 };
                 hands.set(id, hnd);
               }
-              const px = at.x - Math.sin(at.heading) * ac, py = at.y + Math.cos(at.heading) * ac;
-              hnd.key = posePerson(hnd.parts, P, "builder", still ? "stand" : k % 2 ? "work" : "walk", at.heading + (k % 2 ? Math.PI / 2 : 0), still ? 0 : t * 5 + k * 1.7, scale, 1, hnd.key);
+              const px = at.x - Math.sin(at.heading) * r.ac, py = at.y + Math.cos(at.heading) * r.ac;
+              const turned = r.pace && !still && Math.cos(t * r.pace + k) < 0 ? Math.PI : 0;
+              hnd.key = posePerson(hnd.parts, P, "builder", still ? "stand" : r.pose, at.heading + r.face + turned, still ? 0 : t * (r.pose === "walk" ? 7 : 5) + k * 1.7, scale, 0.94 + 0.04 * k, hnd.key);
               const x = (px - py) * HW * scale, y = (px + py) * HH * scale - at.z * HEIGHT_UNIT * scale;
               for (const sp of hnd.parts) sp.position.set(x, y);
               hnd.band = into(hnd.c, hnd.band, px, py);
