@@ -6,7 +6,7 @@
  * through the cell it is in, not from cell to cell: what is whole is redrawn
  * only when a trade passes a cell; the three moving edges, each frame.
  * Round it, where a gang is at work: cones, a barrier where the open road
- * stops, a heap of stone; and a bridge's own pieces, stood as the work comes
+ * stops; and a bridge's own pieces, stood as the work comes
  * to each. @see roads/jobs, render/road-plant (the gang), plans/road-building.md
  */
 import { Container, Graphics, Sprite } from "pixi.js";
@@ -14,7 +14,7 @@ import { Container, Graphics, Sprite } from "pixi.js";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { GANGS, GAP, TRADES, frontAt, frontOf, plannedGrid, stageOf, type JobCell, type RoadJob } from "../roads/jobs";
+import { GANGS, GAP, TRADES, frontAt, plannedGrid, stageOf, type JobCell, type RoadJob } from "../roads/jobs";
 import { looksOf, type Look } from "../roads/looks";
 import type { BandLayer } from "./bands";
 import { bridgePiecesOf } from "./bridge-props";
@@ -194,11 +194,10 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             }
             if (!P || n >= GANGS) continue;
             // WHAT STANDS ROUND IT, where a gang is at work: a cone each side of every other cell till it is lined; a
-            // barrier across where the open road stops; a heap of stone just ahead of the sub-base.
+            // barrier across where the open road stops.
             const stand = (id: string, turn: number, x: number, y: number) => { const sp = propSprite(P, id, turn, x, y, h, scale); const dyn = bands.dynamicOf[band]; if (sp && dyn) { sp.zIndex = 0.2; dyn.addChild(sp); drawn.push(sp); } };
             if (stage >= 1 && c % 2 === 0 && (w.ax !== 0 || w.ay !== 0)) for (const sg of [-1, 1]) stand("cone", 0, cell.x - w.ay * sg * 0.44, cell.y + w.ax * sg * 0.44);
             if (c === j.opened && j.opened > 0) stand("barrier", w.ix !== 0 ? 1 : 0, cell.x - w.ix * 0.42, cell.y - w.iy * 0.42);
-            if (c === Math.min(j.cells.length - 1, frontOf(j, 1) + 1) && stage === 1 && !cell.deck) stand("heapStone", c % 4, cell.x + w.ay * 0.22, cell.y - w.ax * 0.22);
           }
         });
       }

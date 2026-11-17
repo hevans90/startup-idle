@@ -1,6 +1,6 @@
 /**
  * World v2 — WHAT STANDS ROUND A ROAD BEING BUILT, as models: a cone, a
- * barrier across a road that stops, a heap of stone. Metres, about the
+ * barrier across a road that stops. Metres, about the
  * origin on the ground. In the props' sheet. @see render/road-works
  */
 import { face, type Tri, type V3 } from "../agents/cars/raster";
@@ -33,17 +33,7 @@ function barrierTris(): Tri[] {
   box(-0.08, 0.08, -0.06, 0.06, 1.0, 1.18, "indicator", out);
   return out;
 }
-/** A heap of stone tipped ready, about 2.6 m across. */
-function heapTris(mat: Mat, dark: Mat): Tri[] {
-  const out: Tri[] = [], c: V3 = [0, 0, 0.3], n = 7, r = 1.3, top: V3 = [0.1, -0.05, 0.95];
-  for (let k = 0; k < n; k++) {
-    const a = (k / n) * Math.PI * 2, b = ((k + 1) / n) * Math.PI * 2, ra = r * (0.85 + 0.15 * Math.sin(k * 2.3)), rb = r * (0.85 + 0.15 * Math.sin((k + 1) * 2.3));
-    face([[Math.cos(a) * ra, Math.sin(a) * ra, 0], [Math.cos(b) * rb, Math.sin(b) * rb, 0], top], k % 2 ? mat : dark, c, out);
-  }
-  return out;
-}
-
 const P = (id: string, tris: () => Tri[]): Prop => ({ id, tris, shadow: SMALL });
 export const ROADWORKS: readonly Prop[] = [
-  P("cone", coneTris), P("barrier", barrierTris), P("heapStone", () => heapTris("gravel", "stone")),
+  P("cone", coneTris), P("barrier", barrierTris),
 ];
