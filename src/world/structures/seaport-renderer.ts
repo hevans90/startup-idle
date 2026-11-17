@@ -36,6 +36,9 @@ import { portLife, type BerthState } from "./port-life";
 import { cranesLoaded, craneSprites, framePiece, lightPiece, makePiece, type Piece } from "./cranes/crane-sheet";
 import { BOX, CRATE, HARBOUR, LUFFING, M_STEP, M_TILE, RTG, STS, TURNS, type Turning } from "./cranes/models";
 import { registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
+import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-sheet";
+import { RIG_LOOKS } from "../agents/cars/models";
+import { YELLOW, makeUnit, poseUnit, type Unit } from "../render/plant-kit";
 
 const STONE = 0xa29d93, STONE_SIDE = 0x7d786f, STONE_SHADE = 0x625e57;
 const PLANK = 0x8b6a45;
@@ -412,7 +415,90 @@ function lay(g: Graphics, a: readonly [number, number], b: readonly [number, num
   g.scale.x = Math.max(0.001, Math.hypot(b[0] - a[0], b[1] - a[1]));
 }
 
+/** A port still being built: its quay as far as it has got, a drawing a tile of its length; and the rig that drives its piles. */
+type PortSite = StructureHandle & { site: true; cols: Graphics[]; key: string; rig: Unit | null; destroy: () => void };
+const PILE = 0x5d4d43, PILE_LIT = 0x83716a, FILL = 0x8b6a4a, FILL_SIDE = 0x6a4f37, WET = 0x8d9296, PEG = 0xf4efe2, TAPE = 0xe0533b;
+/** Piles a tile of quay. */
+const PILES = 6;
+/** The vehicles' sheet, for the rig: asked for once, by the first port that is a site. */
+let rigCars: CarSprites | null = null, rigAsked = false;
+const isSite = (h: StructureHandle): h is PortSite => (h as PortSite).site === true;
+
+/**
+ * A PORT GOING UP, with `p` of its work done: the quay's line SET OUT; SHEET PILES driven along the water's edge one
+ * after another by a rig that works along it; the ground FILLED behind them, from the back out; the quay's top POURED
+ * along its length and curing to stone; its bollards last. Then it is a port, and is drawn as one.
+ */
+function drawPortSite(g: Graphics, s: Structure, ctx: RenderCtx, c: number, p: number): void {
+  const { P, L, Q, depth, length } = frame(s, ctx);
+  const quad = (pts: [number, number][], color: number, alpha = 1) => { g.poly(pts.flat()); g.fill({ color, alpha }); };
+  const box = (a0: number, d0: number, a1: number, d1: number, z0: number, z1: number, top: number, side: number) => {
+    const [ua, va] = L(a0, d0), [ub, vb] = L(a1, d1), u0 = Math.min(ua, ub), v0 = Math.min(va, vb), u1 = Math.max(ua, ub), v1 = Math.max(va, vb);
+    quad([P(u1, v0, z1), P(u1, v1, z1), P(u1, v1, z0), P(u1, v0, z0)], side);
+    quad([P(u0, v1, z1), P(u1, v1, z1), P(u1, v1, z0), P(u0, v1, z0)], side);
+    quad([P(u0, v0, z1), P(u1, v0, z1), P(u1, v1, z1), P(u0, v1, z1)], top);
+  };
+  const part = (a: number, b: number) => Math.max(0, Math.min(1, (p - a) / (b - a)));
+  g.clear();
+  // SET OUT: pegs along the back and tape between, till the fill covers them.
+  if (part(0.3, 0.7) < 1) {
+    for (const a of [c + 0.06, c + 0.94]) box(a - 0.02, 0.06, a + 0.02, 0.1, 0, 0.5, PEG, TAPE);
+    g.moveTo(...Q(c + 0.06, 0.08, 0.42)).lineTo(...Q(c + 0.94, 0.08, 0.42)).stroke({ color: TAPE, width: Math.max(1, ctx.scale) });
+  }
+  // THE FILL, rising behind the piles from the back out.
+  const fill = part(0.3, 0.7);
+  if (fill > 0) box(c, 0, c + 1, depth * Math.min(1, 0.25 + fill) - 0.06, -0.3, -0.3 + (QUAY + 0.15) * fill, FILL, FILL_SIDE);
+  // THE PILES along the edge: all those driven, home; the one being driven, standing out of the water by what is left of it.
+  const all = length * PILES, driven = part(0.1, 0.45) * all;
+  for (let k = 0; k < PILES; k++) {
+    const n = c * PILES + k;
+    if (n > driven) break;
+    const left = n > driven - 1 ? 1 - (driven - n) : 0, a = c + (k + 0.5) / PILES;
+    box(a - 0.07, depth - 0.07, a + 0.07, depth - 0.01, -1.4 + left * 1.6, QUAY - 0.05 + left * 1.6, PILE_LIT, PILE);
+  }
+  // THE TOP, poured along its length: wet where it has just come, stone behind.
+  const pour = part(0.7, 0.92) * length;
+  if (pour > c) {
+    const a1 = Math.min(c + 1, pour);
+    box(c, 0, a1, depth - 0.07, QUAY - 0.15, QUAY, pour - c < 1.4 ? WET : STONE, STONE_SIDE);
+  }
+  // Its bollards, last.
+  if (part(0.94, 0.98) >= 1) for (const a of [c + 0.25, c + 0.75]) box(a - 0.03, depth - 0.2, a + 0.03, depth - 0.14, QUAY, QUAY + 0.22, IRON, IRON);
+}
+const siteKey = (s: Structure, ctx: RenderCtx) => `${Math.floor((s.build ? s.build.done / s.build.need : 1) * 240)}|${ctx.scale}|${s.facing}`;
+function mountSite(s: Structure, ctx: RenderCtx): PortSite {
+  const f = frame(s, ctx), clamp = (b: number) => Math.max(0, Math.min(ctx.bands.structureOf.length - 1, b));
+  const cols = Array.from({ length: f.length }, (_, c) => { const g = new Graphics(); g.eventMode = "none"; ctx.bands.structureOf[clamp(bandOfColumn(s, c))].addChild(g); return g; });
+  const h: PortSite = {
+    site: true, cols, key: "", rig: null,
+    destroy: () => { for (const g of cols) { g.parent?.removeChild(g); g.destroy(); } if (h.rig) { h.rig.c.parent?.removeChild(h.rig.c); h.rig.c.destroy({ children: true }); h.rig = null; } },
+  };
+  tickSite(h, s, ctx);
+  return h;
+}
+/** A frame of a port being built: drawn again as the work moves on; its rig moved along the quay to the pile it is driving. */
+function tickSite(h: PortSite, s: Structure, ctx: RenderCtx): void {
+  const p = s.build ? Math.min(1, s.build.done / s.build.need) : 1, key = siteKey(s, ctx);
+  if (key !== h.key) { h.key = key; h.cols.forEach((g, c) => drawPortSite(g, s, ctx, c, p)); }
+  // THE RIG, on the bank behind the edge, facing the water, at the pile it is driving.
+  const f = frame(s, ctx), piling = Math.max(0, Math.min(1, (p - 0.1) / 0.35));
+  const on = piling > 0 && piling < 1 && bakedCars();
+  if (on && !rigCars) { if (!rigAsked) { rigAsked = true; void loadCarSprites().then((c) => { rigCars = c; }); } }
+  if (!on || !rigCars) { if (h.rig) { h.rig.c.parent?.removeChild(h.rig.c); h.rig.c.destroy({ children: true }); h.rig = null; } return; }
+  const all = f.length * PILES, n = Math.min(all - 1, Math.floor(piling * all)), fr = piling * all - n;
+  const [u, v] = f.L((n + 0.5) / PILES, f.depth - 0.07 - 0.283), [wu, wv] = f.L((n + 0.5) / PILES, f.depth);
+  if (!h.rig) h.rig = makeUnit(1);
+  const ground = inBounds(ctx.grid, s.x, s.y) ? ctx.grid.height[idx(ctx.grid, s.x, s.y)] : 0;
+  const P = bakedPeople() ? peopleLoaded() : null;
+  poseUnit(h.rig, rigCars, [{ look: RIG_LOOKS[Math.max(0, Math.min(RIG_LOOKS.length - 1, Math.floor(fr * RIG_LOOKS.length)))], tint: YELLOW }],
+    { x: u, y: v, z: ground + QUAY * Math.max(0, Math.min(1, (p - 0.3) / 0.4)), heading: Math.atan2(wv - v, wu - u), pitch: 0 }, ctx.scale, P ? { people: P, id: s.id } : null);
+  const band = ctx.bands.dynamicOf[Math.max(0, Math.min(ctx.bands.dynamicOf.length - 1, Math.round(u) + Math.round(v)))];
+  if (band && h.rig.c.parent !== band) { h.rig.c.zIndex = 1 + (u + v) / 100; band.addChild(h.rig.c); }
+}
+
 function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
+  // STILL BEING BUILT: a site, not a port. @see drawPortSite
+  if (s.build) return mountSite(s, ctx) as unknown as SeaportHandle;
   const columns: Graphics[] = [], statics: Statics[] = [], rigs: Rig[] = [], nodes: Container[] = [], yards: Yard[] = [];
   const rtgs: SeaportHandle["rtgs"] = [], later: (() => void)[] = [];
   const f = frame(s, ctx), sc = f.sc;
@@ -615,6 +701,16 @@ const turnTo = (from: number, to: number) => from + Math.atan2(Math.sin(to - fro
  * Transforms, tints and alphas only. @see render-group-rebuilds
  */
 function tick(hh: StructureHandle, s: Structure, _def: unknown, ctx: RenderCtx, dt: number): void {
+  // A SITE: worked on; and when it is done, a port — made now, in the site's place.
+  if (isSite(hh) ? !s.build : !!s.build) {
+    // (Or a port become a site again — an order taken back and given: the same, the other way.)
+    const fresh = mount(s, _def, ctx);
+    hh.destroy();
+    for (const k of Object.keys(hh)) delete (hh as Record<string, unknown>)[k];
+    Object.assign(hh, fresh);
+    return;
+  }
+  if (isSite(hh)) { tickSite(hh, s, ctx); return; }
   const h = hh as SeaportHandle;
   if (!h.rigs.length && !h.beacon && !h.rtgs.length) return;
   h.t += dt;
@@ -943,6 +1039,7 @@ const SHEAR = new Matrix();
 registerCustomRenderer("seaport", {
   mount,
   update(h, s, _def, ctx) {
+    if (isSite(h) || s.build) { tick(h, s, _def, ctx, 0); if (isSite(h) && s.build) { h.key = ""; tickSite(h, s, ctx); } return; }
     // A port refitted has other gear: its moving parts are made again with it.
     const was = h as SeaportHandle;
     const fits = (s.fit ?? []).join(",");

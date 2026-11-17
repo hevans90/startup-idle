@@ -20,6 +20,8 @@ export const CONTRACTS: Readonly<Record<string, Contract>> = {
   rack: { seconds: 18, loads: 2, gang: 3, carried: true },
   refinery: { seconds: 60, loads: 4, gang: 5 }, dataplant: { seconds: 60, loads: 4, gang: 5 }, contentfarm: { seconds: 45, loads: 3, gang: 4 },
   levee: { seconds: 14, loads: 1, gang: 3, carried: true },
+  // A PORT: its quay piled, filled and poured before a ship can lie at it. (Grown a tier, it is at once, as it was.)
+  seaport: { seconds: 80, loads: 5, gang: 6 },
 };
 
 /** A LOT is set out and serviced before anybody can move onto it: pegged, a trench in from the road, its pipes capped at the plot. Quick. */

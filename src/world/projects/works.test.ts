@@ -491,6 +491,7 @@ describe("what a contractor builds", () => {
   });
 
   test("everything a contractor builds has a look to be drawn going up", () => {
-    for (const def of Object.keys(CONTRACTS)) { expect(structureDef(def), def).toBeDefined(); expect(structureDef(def)!.render, def).toEqual({ kind: "custom", rendererId: "project" }); }
+    // (The project renderer's, from a model; but a port's is its own, which draws its quay going up.)
+    for (const def of Object.keys(CONTRACTS)) { expect(structureDef(def), def).toBeDefined(); expect(structureDef(def)!.render, def).toEqual({ kind: "custom", rendererId: def === "seaport" ? "seaport" : "project" }); }
   });
 });
