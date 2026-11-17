@@ -63,7 +63,9 @@ function crop(img: Image, ox: number, oy: number): { img: Image; ox: number; oy:
   return { img: { w, h, px }, ox: ox - x0, oy: oy - y0 };
 }
 
-const sheet: CarSheet = { res: CAR_RES, headings: CAR_HEADINGS, pitches: [...CAR_PITCHES], pitchHeadings: PITCH_HEADINGS, pages: [], models: {} };
+/** The layers drawn over a vehicle's occupants: its paint and its trim. */
+const OVER = 2;
+const sheet: CarSheet = { res: CAR_RES, headings: CAR_HEADINGS, pitches: [...CAR_PITCHES], pitchHeadings: PITCH_HEADINGS, over: OVER, pages: [], models: {} };
 const t0 = performance.now();
 // Baked first and packed tallest first, so a shelf wastes little over its frames.
 // (`p`: which pitch, −1 level; `h`: which heading — of all of them level, of a road's four ways on a slope.)
@@ -73,7 +75,10 @@ const poses = [
 ];
 const baked = MODELS.flatMap((m) => poses.map(({ p, h, heading, pitch }) => {
   const b = bakeFrame(m, heading, CAR_RES, pitch);
-  return { m, p, h, paint: crop(b.paint, b.ox, b.oy), trim: crop(b.trim, b.ox, b.oy), lamps: b.lamps.map((l) => crop(l, b.ox, b.oy)) };
+  // (After its lamps and packed as they are, each by itself: the two layers that go over whoever is in it — empty where nobody could be.)
+  const none: Image = { w: 0, h: 0, px: new Uint8Array(0) };
+  const over = Array.from({ length: OVER }, (_, k) => (b.over[k] ? crop(b.over[k], b.ox, b.oy) : { img: none, ox: 0, oy: 0 }));
+  return { m, p, h, paint: crop(b.paint, b.ox, b.oy), trim: crop(b.trim, b.ox, b.oy), lamps: [...b.lamps.map((l) => crop(l, b.ox, b.oy)), ...over] };
 }));
 for (const m of MODELS) sheet.models[m.id] = { length: m.length, width: m.width, frames: [], tilted: CAR_PITCHES.map(() => []) };
 const frameOf = (b: { m: (typeof MODELS)[number]; p: number; h: number }) => (b.p < 0 ? sheet.models[b.m.id].frames : sheet.models[b.m.id].tilted![b.p]);
