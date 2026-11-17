@@ -13,7 +13,7 @@ import { structureDef } from "../structures/def";
 import { touchesRoad, validatePlacement } from "../structures/place";
 import { idx, setHeight, type Grid } from "../grid";
 import { roadCost } from "../../game/build-cost";
-import { ARRIVE, GANGS, GAP, PACE, SET_GAP, SET_STEPS, TILES_PER_LOAD, frontAt, frontOf, jobSeconds, lengthsOf, loadPrice, plannedGrid, setOutAt, setOutSeconds, stageOf } from "./jobs";
+import { ARRIVE, GANGS, GAP, PACE, SET_GAP, SET_STEPS, TILES_PER_LOAD, frontAt, frontOf, jobSeconds, lengthsOf, loadPrice, plannedGrid, setOutAt, setOutSeconds, stageOf, startOf } from "./jobs";
 import { connects, isPaved } from "./mask";
 import { rampNeed } from "./ramp-derive";
 
@@ -319,6 +319,43 @@ describe("roads ordered at random over generated maps", () => {
       }
     }
   }, 180_000);
+});
+
+describe("a road is built from where the work can get to it, not the way it was drawn", () => {
+  // (Which end is a matter of where the roads are, and of nothing else of the map.)
+  const flat = (): Grid => ({ w: 40, h: 40, paved: new Uint8Array(1600) }) as unknown as Grid;
+  test("from the end at an open road, whichever way the stroke ran", () => {
+    const q = flat(), P = { ...q, paved: q.paved.slice() } as Grid;
+    q.paved.fill(0); P.paved.fill(0);
+    for (let x = 5; x < 30; x++) { q.paved[idx(q, x, 10)] = 1; P.paved[idx(P, x, 10)] = 1; }
+    const out = Array.from({ length: 8 }, (_, k) => ({ x: 12, y: 11 + k }));
+    expect(startOf(q, P, out)).toBe(0);
+    expect(startOf(q, P, [...out].reverse())).toBe(1);
+  });
+  test("an open road before one still being built; one being built before open country", () => {
+    const q = flat(), P = { ...q, paved: q.paved.slice() } as Grid;
+    q.paved.fill(0); P.paved.fill(0);
+    // An open road along y = 10; a planned one, not built, along y = 20.
+    for (let x = 5; x < 30; x++) { q.paved[idx(q, x, 10)] = 1; P.paved[idx(P, x, 10)] = 1; P.paved[idx(P, x, 20)] = 1; }
+    const between = Array.from({ length: 9 }, (_, k) => ({ x: 12, y: 19 - k }));
+    // Drawn from the unbuilt one to the open one: built from the open one.
+    expect(startOf(q, P, between)).toBe(1);
+    expect(startOf(q, P, [...between].reverse())).toBe(0);
+    // From the unbuilt one out into open country: from the unbuilt one, either way round.
+    const beyond = Array.from({ length: 6 }, (_, k) => ({ x: 20, y: 21 + k }));
+    expect(startOf(q, P, beyond)).toBe(0);
+    expect(startOf(q, P, [...beyond].reverse())).toBe(1);
+  });
+  test("touching no road at all: from the end nearer an open one; and with none on the map, as drawn", () => {
+    const q = flat(), P = { ...q, paved: q.paved.slice() } as Grid;
+    q.paved.fill(0); P.paved.fill(0);
+    const lone = Array.from({ length: 6 }, (_, k) => ({ x: 20, y: 30 - k }));
+    expect(startOf(q, P, lone)).toBe(0);
+    for (let x = 5; x < 30; x++) { q.paved[idx(q, x, 10)] = 1; P.paved[idx(P, x, 10)] = 1; }
+    // Drawn toward the road from far off, stopping short of it: built from the end nearer it.
+    expect(startOf(q, P, lone)).toBe(1);
+    expect(startOf(q, P, [...lone].reverse())).toBe(0);
+  });
 });
 
 describe("a road is set out before it is dug", () => {

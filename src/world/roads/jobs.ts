@@ -206,15 +206,36 @@ export function takeOn(g: Grid, o: Extract<Ordered, { job: RoadJob }>): void {
 }
 
 /**
+ * WHICH END A ROAD IS BUILT FROM, 0 its first cell or 1 its last: NOT the way it was drawn, but the way the work
+ * would come — from where it is nearest to getting on site. In order: an end on or beside a road that is OPEN,
+ * which a lorry can drive to; failing that, one beside a road still being built, which will bring one; failing
+ * that, whichever end is nearer an open road across country. All else equal, the way it was drawn.
+ */
+export function startOf(g: Grid, planned: Grid, path: readonly GradeCell[]): 0 | 1 {
+  if (path.length < 2) return 0;
+  const joins = (q: Grid, c: GradeCell) => q.paved[idx(q, c.x, c.y)] !== 0
+    || [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inBounds(q, c.x + dx, c.y + dy) && q.paved[idx(q, c.x + dx, c.y + dy)] !== 0);
+  /** Tiles to the nearest open road, as the crow flies; none on the map, no nearer either way. */
+  const far = (c: GradeCell) => {
+    let best = Infinity;
+    for (let i = 0; i < g.paved.length; i++) if (g.paved[i] !== 0) best = Math.min(best, Math.abs((i % g.w) - c.x) + Math.abs(((i / g.w) | 0) - c.y));
+    return best;
+  };
+  const rank = (c: GradeCell) => (joins(g, c) ? 0 : joins(planned, c) ? 1 : 2);
+  const a = path[0], b = path[path.length - 1], ra = rank(a), rb = rank(b);
+  if (ra !== rb) return ra < rb ? 0 : 1;
+  if (ra < 2) return 0;
+  return far(b) < far(a) ? 1 : 0;
+}
+
+/**
  * ORDER A ROAD along `path` — a stroke's cells in order. The job, not yet on
  * the grid's list; or the grade that refused it; or nothing, for a path with
  * no road to build. Nothing is changed here. @see takeOn
  */
 export function orderRoad(g: Grid, path: readonly GradeCell[]): Ordered {
   const P = plannedGrid(g);
-  const roadAt = (c: GradeCell) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inBounds(P, c.x + dx, c.y + dy) && P.paved[idx(P, c.x + dx, c.y + dy)] !== 0);
-  // FROM THE END THAT JOINS A ROAD: it is built toward open country, and opens from where traffic can reach it.
-  const way = path.length > 1 && !roadAt(path[0]) && P.paved[idx(P, path[0].x, path[0].y)] === 0 && (roadAt(path[path.length - 1]) || P.paved[idx(P, path[path.length - 1].x, path[path.length - 1].y)] !== 0) ? [...path].reverse() : path;
+  const way = startOf(g, P, path) === 0 ? path : [...path].reverse();
   const grade = gradeRoad(P, way);
   if (grade.blocked.length) return { refused: grade };
   const decks = new Map(grade.decks.map((d) => [idx(g, d.x, d.y), d.z]));
