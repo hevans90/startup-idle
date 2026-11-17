@@ -8,6 +8,8 @@
  * plans/built-not-bought.md
  */
 import type { Build } from "../grid";
+import { serviceOf } from "../agents/needs";
+import { isAiBuilding } from "../structures/def";
 
 /** A contract: seconds its gang takes with everything on site, how many loads it is brought in, and how many are in the gang. */
 export type Contract = { seconds: number; loads: number; gang: number; /** Its materials come with its gang, on their own van: paid for as any load is, and there at once — nothing so small waits for a lorry from the map's edge. */ carried?: boolean };
@@ -27,9 +29,16 @@ export const CONTRACTS: Readonly<Record<string, Contract>> = {
 /** A LOT is set out and serviced before anybody can move onto it: pegged, a trench in from the road, its pipes capped at the plot. Quick. */
 export const LOT: Contract = { seconds: 12, loads: 1, gang: 2, carried: true };
 const isLot = (def: string) => /^kit:.+\.t0$/.test(def);
+/**
+ * WHAT IS NOBODY'S TO PAY FOR and goes up all the same: a service the town opens for itself, a building the Machine
+ * puts up for itself. Sites as any other, their loads free.
+ */
+export const TOWNS: Contract = { seconds: 36, loads: 3, gang: 4 };
+export const MACHINES: Contract = { seconds: 40, loads: 3, gang: 4 };
 
 /** What builds a structure of this kind, if a contractor does. */
-export const contractFor = (def: string): Contract | null => CONTRACTS[def] ?? (isLot(def) ? LOT : null);
+export const contractFor = (def: string): Contract | null =>
+  CONTRACTS[def] ?? (isLot(def) ? LOT : serviceOf(def) ? TOWNS : isAiBuilding(def) ? MACHINES : null);
 
 /** A fresh build record for a contract costing `cost` in all: paid a load at a time, none of it now. */
 export const contractBuild = (def: string, cost: number, now: number): Build | null => {

@@ -1135,6 +1135,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const cmd = def && placeCommand(st.grid, def, x, y, playRules(st.grid));
     const added = cmd?.structures?.added ?? [];
     if (!cmd || onAiSite(added)) return null;
+    // BUILT, as everything is in the game: the town's own, so nobody is billed for its loads. @see contracts TOWNS
+    const built = st.playing && st.roadWorks ? contractBuild(defId, 0, Date.now()) : null;
+    if (built) for (const s of added) s.build = { ...built };
     // Off the player's history: it is the town's, not theirs to take back.
     const touched = commit(st.grid, createHistory(), cmd);
     if (water && touchesSurface(cmd)) syncGround(water, st.grid);
