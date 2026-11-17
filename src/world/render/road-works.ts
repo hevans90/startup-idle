@@ -19,6 +19,7 @@ import { looksOf, type Look } from "../roads/looks";
 import type { BandLayer } from "./bands";
 import { bridgePiecesOf } from "./bridge-props";
 import { plannedTile, unlinedLooks, type PavedLayer } from "./paved";
+import { createGrow, type Grow } from "./road-grow";
 
 const EARTH = 0x7a5a3c, RUT = 0x5c4330, STONE = 0x8f8b84, GRIT = [0xa7a39b, 0x76726c], BLACK = 0x2c2c2f, KERB = 0x9c9b97, LINE = 0xe9e7df;
 const TAPE = 0xf2c230, PEG = 0xc9972a, SLAB = 0xaeaca6, SLAB_SIDE = 0x7f7d78;
@@ -48,6 +49,12 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
    * the trades move. A job's cells are drawn with the very tiles they will be.
    */
   let plan: { key: string; grid: Grid; lined: (Look | null)[]; bare: (Look | null)[] } | null = null;
+  /**
+   * THE CELLS GROWING: a quad a cell of a job at work, drawn by the road's own shader from the tile it will be —
+   * the cut, the stone, the blacktop and the lines each spreading over it as its trade comes. @see road-grow
+   */
+  const growing = new Map<number, { grow: Grow; band: number }>();
+  const ungrow = () => { for (const c of growing.values()) c.grow.destroy(); growing.clear(); };
   const clear = () => { for (const c of drawn) { c.parent?.removeChild(c); c.destroy({ children: true }); } drawn = []; };
   /** Tile coordinates to the screen, at a height. */
   const pt = (scale: number, u: number, v: number, h: number) => [(u - v) * HW * scale, (u + v) * HH * scale - h * HEIGHT_UNIT * scale];
@@ -82,8 +89,13 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
       if (pl?.painter && g.roadJobs.length && plan?.key !== planKey) {
         const grid = plannedGrid(g), lined = looksOf(grid, pl.dress);
         plan = { key: planKey, grid, lined, bare: unlinedLooks(lined) };
+        // What is planned has changed: the tiles may have. Every growing cell is made again from them.
+        ungrow();
+        pl.ghost = new Set();
       }
-      if (!g.roadJobs.length) plan = null;
+      if (!g.roadJobs.length) { plan = null; if (growing.size) ungrow(); }
+      /** Whether the cells grow by the shader: wherever there are tiles to grow. */
+      const grows = !!pl?.painter && !!plan;
       /** A cell's own tile as a sprite: unlined, or with its lines. */
       const tileOf = (x: number, y: number, lined: boolean): Sprite | null => {
         const t = pl && plan ? plannedTile(pl, plan.grid, lined ? plan.lined : plan.bare, x, y) : null;
@@ -101,7 +113,6 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
       if (rebuilt) {
         key = k;
         clear();
-        if (pl) pl.ghost = new Set();
         const of = new Map<number, Graphics>();
         // A BRIDGE GOES UP AS A BRIDGE: the pieces it will have, from the map as it will be, each stood as the work
         // comes to it — its piers and its bank's walls rising from the ground once the earthworks reach their tile,
@@ -175,10 +186,9 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
                 gfx.poly([...pt(scale, cell.x + 0.5, cell.y - 0.5, h), ...pt(scale, cell.x + 0.5, cell.y + 0.5, h), ...pt(scale, cell.x + 0.5, cell.y + 0.5, h - t), ...pt(scale, cell.x + 0.5, cell.y - 0.5, h - t)]).fill({ color: 0x6f6d69 });
                 gfx.poly(rect(scale, cell.x - 0.5, cell.y - 0.5, cell.x + 0.5, cell.y + 0.5, h)).fill({ color: SLAB });
               }
-            } else if (stage >= 1) ground(gfx, scale, cell, w, 1, h);
-            // THE ROAD ITSELF, from the sub-base on: the tile this cell will be — its kerbs, its pavements, its corners,
-            // its ramp — showing through the formation, then laid whole, then lined. Drawn plainly where there is no painter.
-            if (stage >= 2) {
+            } else if (stage >= 1 && !(grows && n < GANGS)) ground(gfx, scale, cell, w, 1, h);
+            // THE ROAD ITSELF grows on the cell by its own shader (below). Drawn plainly where there is no painter.
+            if (stage >= 2 && !(grows && n < GANGS)) {
               const sp = tileOf(cell.x, cell.y, stage >= TRADES);
               if (sp) { if (stage === 2) sp.alpha = FORMING; layer.addChild(sp); drawn.push(sp); }
               else if (!cell.deck || stage >= 3) ground(gfx, scale, cell, w, stage, h);
@@ -201,10 +211,37 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
           }
         });
       }
-      // THE MOVING EDGES, every frame: in the cell a trade is passing through, what it leaves behind it as far as
-      // it has got — so the stone, the blacktop and the lines creep along the road and do not jump a tile at a time.
+      // THE ROAD GROWING, every frame: each cell of a job at work that a trade has come near, its four fronts told
+      // to its shader — how far past the cell's near edge each has got. What grows there is the tile it will be.
+      const alive = new Set<number>();
+      if (grows) g.roadJobs.slice(0, GANGS).forEach((j) => {
+        const f = [0, 1, 2, 3].map((t) => frontAt(j, t)), now = performance.now() / 1000;
+        for (let c = j.opened; c < j.cells.length; c++) {
+          const cell = j.cells[c];
+          // (A ragged front reaches a little ahead of where its trade is: a cell is begun before the trade is on it.)
+          if (!cell.fresh || f[0] - c < -0.8) continue;
+          const i = idx(g, cell.x, cell.y), band = bandOf(cell.x, cell.y), layer = bands.pavedOf[band];
+          if (!layer) continue;
+          alive.add(i);
+          let it = growing.get(i);
+          if (!it) {
+            const bare = plannedTile(pl!, plan!.grid, plan!.bare, cell.x, cell.y), lined = plannedTile(pl!, plan!.grid, plan!.lined, cell.x, cell.y);
+            if (!bare || !lined) continue;
+            const w = wayAt(j, c), pi = idx(plan!.grid, cell.x, cell.y);
+            const h = plan!.grid.deck[pi] !== 0 ? plan!.grid.deckZ[pi] : plan!.grid.height[pi];
+            it = { grow: createGrow({ bare: bare.tex, lined: lined.tex, x: bare.x, y: bare.y, scale: pl!.scale, cx: cell.x, cy: cell.y, h, ix: w.ix, iy: w.iy, deck: cell.deck }), band: -1 };
+            growing.set(i, it);
+          }
+          // (Over what is drawn whole, which was just put back under it.)
+          if (rebuilt || it.band !== band || !it.grow.mesh.parent) { layer.addChild(it.grow.mesh); it.band = band; }
+          it.grow.fronts(f[0] - c, f[1] - c, f[2] - c, f[3] - c, now);
+        }
+      });
+      for (const [i, it] of growing) if (!alive.has(i)) { it.grow.destroy(); growing.delete(i); }
+      // THE MOVING EDGES, where there is no painter: in the cell a trade is passing through, what it leaves behind
+      // it as far as it has got.
       const live = new Set<string>();
-      g.roadJobs.slice(0, GANGS).forEach((j) => {
+      if (!grows) g.roadJobs.slice(0, GANGS).forEach((j) => {
         for (let trade = 0; trade < TRADES; trade++) {
           const p = frontAt(j, trade), c = Math.floor(p), f = p - c;
           if (c < j.opened || c >= j.cells.length || f <= 0.01) continue;
@@ -243,6 +280,6 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
       });
       for (const [id, e] of edges) if (!live.has(id)) { if (e.tile) { e.tile.mask = null; e.tile.parent?.removeChild(e.tile); e.tile.destroy(); } e.gfx.parent?.removeChild(e.gfx); e.gfx.destroy(); edges.delete(id); }
     },
-    destroy() { clear(); for (const e of edges.values()) { if (e.tile) { e.tile.mask = null; e.tile.destroy(); } e.gfx.parent?.removeChild(e.gfx); e.gfx.destroy(); } edges.clear(); },
+    destroy() { clear(); ungrow(); for (const e of edges.values()) { if (e.tile) { e.tile.mask = null; e.tile.destroy(); } e.gfx.parent?.removeChild(e.gfx); e.gfx.destroy(); } edges.clear(); },
   };
 }

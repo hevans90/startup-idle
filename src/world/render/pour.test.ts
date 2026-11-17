@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { POUR, pourSources, pourVerts } from "./pour";
+import { growSources } from "./road-grow";
 import { onRound } from "./road-plant";
 
 describe("a pour", () => {
@@ -31,6 +32,16 @@ describe("a pour", () => {
     expect(wgsl).not.toMatch(/\bfloat \w+ =/);
     expect(fragment).toContain("void main()");
     expect(fragment).not.toMatch(/\blet \w+ =|vec[23]<f32>/);
+  });
+});
+
+describe("a road growing", () => {
+  test("one body, two dialects, each sampling both tiles", () => {
+    const { wgsl, fragment } = growSources();
+    expect(wgsl).toContain("fn mainFragment");
+    expect(wgsl).not.toMatch(/\b(float|vec[234]) \w+ =/);
+    expect(fragment).not.toMatch(/\blet \w+ =|vec[234]<f32>/);
+    for (const src of [wgsl, fragment]) { expect(src).toContain("tapBare(vUvA)"); expect(src).toContain("tapLined(vUvB)"); }
   });
 });
 

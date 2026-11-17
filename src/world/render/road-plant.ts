@@ -8,8 +8,8 @@
  *  - STONE comes off a lorry with its body up, creeping ahead as it tips, and
  *    a roller runs over it behind.
  *  - THE PAVER creeps with a lorry backed up to its hopper, body up, blacktop
- *    pouring off its tail; the mat behind the screed lies hot and wet and
- *    steams; a roller works it in passes, a lane over each time.
+ *    pouring off its tail; the mat behind the screed steams; a roller works
+ *    it in passes, a lane over each time.
  *  - THE LINING TRUCK last, a puff of white at its tail.
  *  - SIX IN HI-VIS, each walking a round of their own: two raking behind the
  *    screed, one shovelling between the hopper and the mat's edge, a banksman
@@ -251,14 +251,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             const at = alongJob(g, j, f[2] + 0.1);
             const u = place("paver", at, [{ look: "paver", tint: YELLOW }]);
             if (u) {
-              // THE MAT just laid: wet black behind the screed for a tile, a sheen along it, steam the width of it.
-              const mat = (a0: number, a1: number, colour: number, alpha: number, half = 0.3) => {
-                const p = [off(at.heading, a0, -half), off(at.heading, a0, half), off(at.heading, a1, half), off(at.heading, a1, -half)].flat();
-                u.under.poly(p).fill({ color: colour, alpha });
-              };
-              mat(-0.33, -0.8, 0x111113, 0.7); mat(-0.8, -1.25, 0x111113, 0.35);
-              const sh = -0.4 - ((w * 0.25) % 1) * 0.7;
-              mat(sh, sh - 0.06, 0xffffff, still ? 0 : 0.1, 0.27);
+              // Steam off the mat behind the screed, the width of it. (The mat itself is the road's own, growing. @see road-grow)
               if (!still) puffs(u.over, at.heading, -0.5, 0, 0.2, 0xffffff, 6, 0.5, 30, 0.24);
             }
             if (f[2] + 1.05 < n - 0.15) {
