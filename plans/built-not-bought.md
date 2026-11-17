@@ -19,7 +19,7 @@ short of the plan:
   being erected.
 - The AI's own mains and sewers are laid at once (its buildings are sites).
 - No balance sim was run for the early game's pace; the times are first
-  numbers (a lot 12 s, a rack 18 s, an office 60 s, a port 80 s, a main 3 s a
+  numbers (a lot 12 s, a rack 18 s, an office 60 s, a port 80 s, a main 6 s a
   tile).
 - No new words on screen but one comms line when a line job stops for money.
 

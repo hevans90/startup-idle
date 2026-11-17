@@ -175,8 +175,9 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
     id: "garage",
     name: "Founder's Garage",
     // ITS LANDMARK'S SIZE FROM THE START, so the HQ, the Boardroom and the IPO
-    // Tower rise where it stands. @see LANDMARKS
-    footprint: { w: 3, h: 3 },
+    // Tower rise where it stands: the building's three tiles by three, and two
+    // more across for THE YARD its lorries work out of. @see LANDMARKS, landmarks/models
+    footprint: { w: 5, h: 3 },
     render: { kind: "custom", rendererId: "project" },
   },
   {
@@ -190,13 +191,13 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
   {
     id: "hq",
     name: "Company HQ",
-    footprint: { w: 3, h: 3 },
+    footprint: { w: 5, h: 3 },
     render: { kind: "custom", rendererId: "project" },
   },
   {
     id: "boardroom",
     name: "Boardroom Tower",
-    footprint: { w: 3, h: 3 },
+    footprint: { w: 5, h: 3 },
     render: { kind: "custom", rendererId: "project" },
   },
   {
@@ -228,7 +229,7 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
   { id: "datacentre", name: "Data Centre", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" }, ports: INLETS(1) },
   { id: "conference", name: "Conference Centre", footprint: { w: 4, h: 3 }, render: { kind: "custom", rendererId: "project" } },
   { id: "hackerspace", name: "Hackerspace", footprint: { w: 4, h: 3 }, render: { kind: "custom", rendererId: "project" } },
-  { id: "ipo", name: "IPO Tower", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "ipo", name: "IPO Tower", footprint: { w: 5, h: 3 }, render: { kind: "custom", rendererId: "project" } },
 ];
 
 /**

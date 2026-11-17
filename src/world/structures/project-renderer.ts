@@ -26,6 +26,7 @@ import { HEIGHT_UNIT, HH, HW, cellToWorld } from "../iso";
 import { drawLive, liveState } from "./projects/ai-live";
 import { crewAt } from "./projects/crew";
 import { lookOf } from "./projects/looks";
+import { landmarkSprites, landmarksLoaded } from "../landmarks/landmarks-sheet";
 import type { Building } from "./projects/model";
 import { makePen } from "./projects/pen";
 import { groundPlan } from "./projects/groundworks";
@@ -49,6 +50,9 @@ type ProjectHandle = StructureHandle & {
    */
   sky: Graphics;
   model: Building;
+  /** Its baked building's sprites, a tile each, when it is finished and there is one. @see placeBaked */
+  baked: Sprite[];
+  bakedKey: string;
   drawn: string;
   /** The crew, one each, in the same group as the crane. @see crewAt */
   crew: Hand[];
@@ -141,6 +145,9 @@ export function pen(g: Graphics, s: Structure, ctx: RenderCtx, c: number) {
   return { P, quad, box, line, cu0, cu1, sc };
 }
 
+/** The company's own building, tier by tier: baked, with its yard. @see landmarks/models */
+const LANDMARK_DEFS: ReadonlySet<string> = new Set(["garage", "hq", "boardroom", "ipo"]);
+
 /** The band of a column's front cell. */
 const bandOfColumn = (s: Structure, c: number) => s.x + c + s.y + s.h - 1;
 
@@ -155,7 +162,8 @@ const frontBand = (s: Structure, ctx: RenderCtx) =>
 /** What a drawing depends on, so it is redrawn only when that changes enough to see. */
 const stateOf = (s: Structure) => {
   const b = s.build;
-  if (!b) return "done";
+  // (Done, and drawn again when the baked buildings' sheet comes in. @see placeBaked)
+  if (!b) return landmarksLoaded() ? "done:baked" : "done";
   // (Finer while its ground is worked: a pile's head is drawn as the rig leaves it.)
   const p = b.done / b.need, g = groundShare(b.deliveries, s.def);
   return `${Math.floor(p * 400)}:${p < g ? Math.floor((p / g) * 700) : ""}:${b.delivered}:${b.priority === 0}`;
@@ -347,6 +355,36 @@ function placeProps(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numb
   }
 }
 
+/**
+ * THE BAKED BUILDING, where there is one for it on a plot this size: a sprite a tile of its plot, each in that
+ * tile's band, in place of its drawing. Says whether it stands. @see landmarks-sheet
+ */
+function placeBaked(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number): boolean {
+  const sheet = h.site ? null : landmarksLoaded(), look = sheet?.marks.get(s.def);
+  const want = !!sheet && !!look && look.w === s.w && look.h === s.h;
+  const key = want ? `${s.def}|${ctx.scale}|${ground}|${s.x},${s.y}` : "";
+  if (key !== h.bakedKey) {
+    for (const sp of h.baked) { sp.parent?.removeChild(sp); sp.destroy(); }
+    h.baked = [];
+    h.bakedKey = key;
+    if (want) {
+      const at = cellToWorld(s.x - 0.5 + s.w / 2, s.y - 0.5 + s.h / 2, ground, ctx.scale);
+      h.cells.forEach(({ c, r }) => {
+        const t = look!.tiles[r * s.w + c];
+        if (!t) return;
+        const sp = new Sprite(t.tex);
+        sp.eventMode = "none";
+        sp.anchor.set(t.anchor.x, t.anchor.y);
+        sp.position.set(at.wx, at.wy);
+        sp.scale.set(ctx.scale / sheet!.res);
+        ctx.bands.structureOf[bandOfTile(s, ctx, c, r)].addChild(sp);
+        h.baked.push(sp);
+      });
+    }
+  }
+  return want;
+}
+
 /** Draw every column of a project, and the crane over it. */
 function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): void {
   const ground = groundOf(s, ctx);
@@ -356,6 +394,9 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): 
   h.site = site;
   h.growing = !!site && (growing || h.growing);
   const lawnless = !site && !!h.model.lawn && onGrass(s, ctx);
+  // (One of the company's own, finished: asked for its baked building, which is drawn when it is in.)
+  if (!site && s.w > 3 && LANDMARK_DEFS.has(s.def) && !landmarksLoaded()) void landmarkSprites();
+  const baked = placeBaked(h, s, ctx, ground);
   h.columns.forEach((g, k) => {
     // A SITE GOING UP IS NEVER BATCHED: redrawn every quarter percent, a small
     // tile's piece crossed Pixi's batching limit back and forth as the work
@@ -371,6 +412,7 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): 
     // overflowed WebGPU's per-frame uniform buffer outright.
     g.context.batchMode = h.growing ? "no-batch" : "batch";
     g.clear();
+    if (baked) return;
     const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, h.cells[k]);
     if (site) drawSite(p, h.model, f, site, stockOf(s), laidUp(s));
     else {
@@ -412,8 +454,8 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   const handle: ProjectHandle = {
     columns, cells, sky, live, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
-    t: s.id * 3.7, site: null, plant: createSitePlant(), crew: [], opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false, props: [], propsKey: "",
-    destroy: () => { for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); dropSitePlant(handle.plant); for (const c of handle.props) { c.parent?.removeChild(c); c.destroy({ children: true }); } },
+    t: s.id * 3.7, site: null, plant: createSitePlant(), crew: [], baked: [], bakedKey: "", opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false, props: [], propsKey: "",
+    destroy: () => { for (const sp of handle.baked) { sp.parent?.removeChild(sp); sp.destroy(); } for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); dropSitePlant(handle.plant); for (const c of handle.props) { c.parent?.removeChild(c); c.destroy({ children: true }); } },
   };
   draw(handle, s, ctx);
   return handle;

@@ -57,7 +57,7 @@ describe("landmarks", () => {
     const cmd = startUpgradeCommand(g, projectDef("hq")!, { needsRoad: true }, 0)!;
     commit(g, createHistory(), cmd);
     const up = g.structures.get(s.id)!;
-    expect([up.w, up.h]).toEqual([3, 3]);
+    expect([up.w, up.h]).toEqual([5, 3]);
     expect(up.y + up.h).toBe(s.y + s.h);
     expect(up.x <= s.x && up.x + up.w >= s.x + s.w).toBe(true);
   });

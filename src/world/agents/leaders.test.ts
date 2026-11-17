@@ -52,7 +52,7 @@ describe("who the leaders lead", () => {
     for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 5)] = 1;
     const history = createHistory();
     commit(g, history, placeCommand(g, structureDef("garage")!, 0, 2)!);
-    commit(g, history, placeCommand(g, structureDef("kit:intern.t1")!, 4, 4)!);
+    commit(g, history, placeCommand(g, structureDef("kit:intern.t1")!, 5, 4)!);
     commit(g, history, placeCommand(g, structureDef("kit:intern.t1")!, 14, 4)!);
     commit(g, history, placeCommand(g, structureDef("office-intern")!, 17, 3)!);
     for (const s of g.structures.values()) if (s.def.startsWith("kit")) s.residents = 3;
@@ -64,8 +64,8 @@ describe("who the leaders lead", () => {
     const { g, net, id } = street();
     const fond = (house: number) => new Map([[house, { total: 20, parts: [] }]]);
     const at = (placedAt: number | null) => [{ id: "tl_1", role: "intern" as const, name: "Ada", placedAt }];
-    const office = leadershipOf(g, placesOf(g, net), at(id("office-intern", 17)), fond(id("kit:intern.t1", 4)));
-    expect(office.of.get("tl_1")).toEqual({ home: id("kit:intern.t1", 4), work: id("office-intern", 17) });
+    const office = leadershipOf(g, placesOf(g, net), at(id("office-intern", 17)), fond(id("kit:intern.t1", 5)));
+    expect(office.of.get("tl_1")).toEqual({ home: id("kit:intern.t1", 5), work: id("office-intern", 17) });
     expect(office.leads.get(id("office-intern", 17))).toEqual(["Ada"]);
     const garage = leadershipOf(g, placesOf(g, net), at(id("garage", 0)), fond(id("kit:intern.t1", 14)));
     expect(garage.of.get("tl_1")).toEqual({ home: id("kit:intern.t1", 14), work: id("garage", 0) });

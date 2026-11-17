@@ -2007,8 +2007,23 @@ export function lattice(f: Footprint): Building {
 }
 
 /** Each building by the structure it is drawn for. */
+/**
+ * THE COMPANY'S OWN BUILDING HAS A YARD: on a plot wider than its three tiles, the building is the one it always
+ * was, on the first three, and the rest is hardstanding — where, finished, its lorries stand. (What it looks like
+ * finished is baked: this is the building as its site raises it. @see landmarks/models)
+ */
+const yarded = (make: (f: Footprint) => Building) => (f: Footprint): Building => {
+  if (f.w <= 3) return make(f);
+  const f3 = { w: 3, h: f.h }, b = make(f3);
+  const on3 = (fn?: (p: Pen, f: Footprint) => void) => fn && ((p: Pen) => fn(p, f3));
+  return {
+    ...b, court: on3(b.court), details: on3(b.details), lawn: on3(b.lawn),
+    grounds: (p) => { b.grounds?.(p, f3); p.flat(3.04, 0.06, f.w - 0.06, f.h - 0.06, 0.004, 0x64686d); },
+  };
+};
+
 export const LOOKS: Record<string, (f: Footprint) => Building> = {
-  garage, studio, hq, boardroom, campus, agency, townhall, harbour, datacentre, conference, hackerspace, ipo,
+  garage: yarded(garage), studio, hq: yarded(hq), boardroom: yarded(boardroom), campus, agency, townhall, harbour, datacentre, conference, hackerspace, ipo: yarded(ipo),
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
   cafe, park, gym, lab, levee, derelict, rack, pump,

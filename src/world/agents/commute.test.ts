@@ -40,7 +40,7 @@ describe("the way to work", () => {
 
   test("is along the roads to the NEAREST workplace of the house's kind", () => {
     // Garage at 2, an intern office at 30; houses at 6 and 26.
-    const { commutes, ids } = street([["garage", 2], ["office-intern", 30], ["kit:intern.t0", 6], ["kit:intern.t0", 26]]);
+    const { commutes, ids } = street([["garage", 0], ["office-intern", 30], ["kit:intern.t0", 6], ["kit:intern.t0", 26]]);
     const [garage, office, near, far] = ids;
     expect(commutes.get(near)!.to).toBe(garage);
     expect(commutes.get(far)!.to).toBe(office);
@@ -84,7 +84,7 @@ describe("the way to work", () => {
 describe("desks", () => {
   test("the nearest take them first; past the last desk, people work without one", () => {
     // The garage at the west end, and twelve houses of two along the street: 24 people, 20 desks.
-    const { g, net, ids } = street([["garage", 1], ...Array.from({ length: 12 }, (_, k) => ["kit:intern.t0", 5 + k * 2] as [string, number])]);
+    const { g, net, ids } = street([["garage", 0], ...Array.from({ length: 12 }, (_, k) => ["kit:intern.t0", 5 + k * 2] as [string, number])]);
     const { commutes, desks } = seat(g, placesOf(g, net));
     expect(desks.get(ids[0])).toEqual({ used: DESKS.garage, of: DESKS.garage });
     // The nearest ten houses are seated; the farthest two are not.
@@ -94,7 +94,7 @@ describe("desks", () => {
   });
 
   test("an office takes the overflow, nearest first", () => {
-    const things: [string, number][] = [["garage", 1], ...Array.from({ length: 12 }, (_, k) => ["kit:intern.t0", 5 + k * 2] as [string, number]), ["office-intern", 32]];
+    const things: [string, number][] = [["garage", 0], ...Array.from({ length: 12 }, (_, k) => ["kit:intern.t0", 5 + k * 2] as [string, number]), ["office-intern", 32]];
     const { g, net, ids } = street(things);
     const { commutes, desks } = seat(g, placesOf(g, net));
     const office = ids[ids.length - 1];

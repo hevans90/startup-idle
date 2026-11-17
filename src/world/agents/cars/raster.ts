@@ -82,7 +82,7 @@ const LIGHT = (() => { const v = [-0.3, 0.6, 1.0]; const n = Math.hypot(...v); r
 
 export type V3 = [number, number, number];
 /** A triangle: its points in the model's metres, its material, its face's normal, and, if smooth, a normal at each point. */
-export type Tri = { p: [V3, V3, V3]; mat: Mat; n: V3; ns?: [V3, V3, V3]; paint?: (p: V3) => Mat };
+export type Tri = { p: [V3, V3, V3]; mat: Mat; n: V3; ns?: [V3, V3, V3]; paint?: (p: V3) => Mat; /** A colour of its own, 0..1, in place of its material's: the material still says how it shines. @see landmarks/models */ c?: V3 };
 /** Toward the camera, true lengths: the line of sight (1, 1, 4) in tiles and half steps. */
 const VIEW = norm3([1, 1, 4 * 0.2041]);
 /** Halfway between the light and the eye, for the highlight. */
@@ -293,6 +293,8 @@ export function bakeFrame(m: Model, heading: number, res: number, pitch = 0): Ba
 export type BakeOpts = {
   layers: number;
   layerOf: (mat: Mat) => number;
+  /** A layer by WHERE on the model a sample is as well, metres: a building cut into its tiles. In place of `layerOf`. @see dev/bake-landmarks.ts */
+  layerAt?: (mat: Mat, p: V3) => number;
   shadow: { hl: number; hw: number; edge: number; soft: number; strength: number; reach: number };
   /**
    * MARKS: `n` masks more, white, of where what is seen is one thing or
@@ -387,7 +389,7 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
     const zm = t.p.map((p) => p[2]);
     // The light at a normal, turned into the ground's frame: diffuse, the sky in glass, and a highlight.
     const shade = (n0: V3, mat: Mat): V3 => {
-      const base = COLOUR[mat], gloss = GLOSS[mat], glows = GLOWS.has(mat), n = tip(n0);
+      const base = t.c && (!t.paint || PAINTED.has(mat)) ? t.c : COLOUR[mat], gloss = GLOSS[mat], glows = GLOWS.has(mat), n = tip(n0);
       const nu = n[0] * ch - n[1] * sh, nv = n[0] * sh + n[1] * ch, nz = n[2];
       const lam = Math.max(0, nu * LIGHT[0] + nv * LIGHT[1] + nz * LIGHT[2]);
       const lit = glows ? 0.88 + 0.12 * lam : 0.55 + 0.45 * lam;
@@ -433,7 +435,7 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
           w0 * t.ns[0][2] + w1 * t.ns[1][2] + w2 * t.ns[2][2],
         ]) : t.n, mat);
         col[i * 3] = c[0] * ao; col[i * 3 + 1] = c[1] * ao; col[i * 3 + 2] = c[2] * ao;
-        layer[i] = opt.layerOf(mat) + 1;
+        layer[i] = (opt.layerAt ? opt.layerAt(mat, at()) : opt.layerOf(mat)) + 1;
       }
     }
   }

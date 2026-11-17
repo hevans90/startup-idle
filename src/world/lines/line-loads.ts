@@ -45,7 +45,9 @@ export function yardFor(g: Grid, places: readonly Place[], at: Place): Place | n
  */
 export function sendHome(town: Town, g: Grid, places: readonly Place[], m: Mover, at: Place): boolean {
   const home = yardFor(g, places, at);
-  const back = home && sendOnJob(town, g, "truck", at, home, { site: m.job?.site ?? 0, role: "haul-back" }, m);
+  // (On from the lane it stopped in where that leads home; else turned round where it stands, onto the lane that does.)
+  const job = { site: m.job?.site ?? 0, role: "haul-back" as const };
+  const back = home && (sendOnJob(town, g, "truck", at, home, job, m) ?? sendOnJob(town, g, "truck", at, home, job));
   if (!back) return false;
   // (The same lorry: its model and its driver go by its number.)
   back.id = m.id;

@@ -285,7 +285,7 @@ describe("the Campus", () => {
 
   test("has a building to put up", () => {
     expect(structureDef(CAMPUS.structure)?.footprint.w).toBe(4);
-    expect(structureDef(projectDef("boardroom")!.structure)?.footprint.w).toBe(3);
+    expect(structureDef(projectDef("boardroom")!.structure)?.footprint.w).toBe(5);
   });
 });
 
