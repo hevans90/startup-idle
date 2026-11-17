@@ -28,7 +28,7 @@ import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { TIP_LOOKS } from "../agents/cars/models";
 import { ARRIVE, GANGS, GAP, PACE, frontAt, type RoadJob } from "../roads/jobs";
 import type { BandLayer } from "./bands";
-import { POURS, clearPour, createPourSim, eachGrain, heapLine, stepPour, type PourKind, type PourRun, type PourSim } from "./pour-sim";
+import { COLUMN, POURS, carry, createPourSim, eachColumn, eachGrain, stepPour, type PourKind, type PourRun, type PourSim } from "./pour-sim";
 
 /** The contractor's yellow; the lorries' blue; the lining truck's white. */
 const YELLOW = 0xe9a71b, BLUE = 0x3f6fb0, WHITE = 0xf1f1ee;
@@ -45,7 +45,7 @@ const EARTH: Stuff = { kind: POURS.earth, tones: [0x4d3722, 0x73553a, 0x9a7650],
 const STONE: Stuff = { kind: POURS.stone, tones: [0x6b6862, 0x908c84, 0xb9b4aa], wet: false };
 const TAR: Stuff = { kind: POURS.tar, tones: [0x09090b, 0x121214, 0x1c1c20], wet: true };
 /** Something being poured: its grains and its heap, and what draws them — in a layer of its own, filed by where it lands. */
-type Spill = { sim: PourSim; c: Container; gfx: Graphics; band: number; mark: number };
+type Spill = { sim: PourSim; c: Container; gfx: Graphics; band: number; /** Where it last landed on the map's own picture, pixels across at the map's scale: for leaving its heap where it fell. */ landed: number };
 /** Pixels a metre at the map's own scale, about: for a lip's width. */
 const PPM = 6.5;
 /** A person's footprint, for which tile they are drawn with. */
@@ -190,7 +190,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
            * heaped and slumped by the pour's own simulation, a step a frame whether it pours or not — so the last of
            * it falls and the heap goes on being taken away. Drawn in a layer of its own, with the tile it LANDS on.
            */
-          const spill = (name: string, at: At, h: number, from: [number, number, number], to: [number, number, number], stuff: Stuff, width: number, on: boolean, run: PourRun, wall = Infinity): Spill => {
+          const spill = (name: string, at: At, h: number, from: [number, number, number], to: [number, number, number], stuff: Stuff, width: number, on: boolean, run: PourRun, wall = Infinity): void => {
             const id = `${j.id}:${name}`;
             seenS.add(id);
             let sp = spills.get(id);
@@ -198,13 +198,20 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               const c = new Container(), gfx = new Graphics();
               c.eventMode = "none"; gfx.context.batchMode = "batch";
               c.addChild(gfx);
-              sp = { sim: createPourSim(stuff.kind, wall), c, gfx, band: -1, mark: -1 };
+              sp = { sim: createPourSim(stuff.kind, wall), c, gfx, band: -1, landed: NaN };
               spills.set(id, sp);
             }
             const tile = (p: [number, number, number]) => ({ x: at.x + Math.cos(h) * p[0] - Math.sin(h) * p[1], y: at.y + Math.sin(h) * p[0] + Math.cos(h) * p[1], m: p[2] });
             const px = (p: { x: number; y: number; m: number }): [number, number] => [(p.x - p.y) * HW * scale, (p.x + p.y) * HH * scale - at.z * HEIGHT_UNIT * scale - p.m * M * HEIGHT_UNIT * scale];
             const lip = tile(from), land = tile(to), a = px(lip), b = px(land), S = sp.sim;
             S.dx = (b[0] - a[0]) / scale; S.drop = Math.max(2, (b[1] - a[1]) / scale);
+            // WHAT HAS LANDED ON THE GROUND STAYS ON THE GROUND: as the machine moves on, its heap is left where it fell —
+            // along the road, which on the screen runs aslant, so the ground under the heap does too.
+            const run2 = [(Math.cos(h) - Math.sin(h)) * HW, (Math.cos(h) + Math.sin(h)) * HH];
+            S.base = Math.abs(run2[0]) > 1 ? run2[1] / run2[0] : 0;
+            const across = b[0] / scale;
+            if (Number.isNaN(sp.landed)) sp.landed = across;
+            if (Math.abs(across - sp.landed) >= COLUMN) { const k = Math.round((across - sp.landed) / COLUMN); carry(S, k * COLUMN); sp.landed += k * COLUMN; }
             stepPour(S, still ? 0 : dt, on && !still, width * PPM, run);
             // FILED WITH THE TILE IT LANDS ON, or its lip's if that is nearer the camera: over that tile's road, not under it.
             const band = Math.max(0, Math.min(bands.dynamicOf.length - 1, Math.max(bandOf(Math.round(land.x), Math.round(land.y)), bandOf(Math.round(lip.x), Math.round(lip.y)))));
@@ -212,21 +219,23 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             if (band !== sp.band || !sp.c.parent) { sp.c.zIndex = z; bands.dynamicOf[band]?.addChild(sp.c); sp.band = band; }
             else if (Math.abs(sp.c.zIndex - z) > 0.04) sp.c.zIndex = z;
             sp.c.position.set(a[0], a[1]);
-            // DRAWN: the heap, dark, its lit slopes picked out and grains on its face; then every grain in the air, by its tone.
-            const G = sp.gfx, line = heapLine(S), r = S.kind.grain * scale;
+            // DRAWN: the heap as what it is — grains, piled, each column's own and keeping its tone as the lip moves on,
+            // the lit ones on top and toward the light; then every grain in the air, by its tone.
+            const G = sp.gfx, r = S.kind.grain * scale, cw = COLUMN * scale;
             G.clear();
-            if (line.length > 1) {
-              const poly: number[] = [];
-              for (const [x, y] of line) poly.push(x * scale, y * scale);
-              poly.push(line[line.length - 1][0] * scale, S.drop * scale + 0.6 * scale, line[0][0] * scale, S.drop * scale + 0.6 * scale);
-              G.poly(poly).fill({ color: stuff.tones[0] });
-              // The slopes that face the light, and the body of it between.
-              for (let k = 0; k + 1 < line.length; k++) {
-                const [x0, y0] = line[k], [x1, y1] = line[k + 1], lit = y1 < y0 - 0.05;
-                G.poly([x0 * scale, y0 * scale, x1 * scale, y1 * scale, x1 * scale, (y1 + 1.6) * scale, x0 * scale, (y0 + 1.6) * scale]).fill({ color: stuff.tones[lit || stuff.wet ? 2 : 1], alpha: stuff.wet ? (lit ? 0.9 : 0.35) : 1 });
-                if (!stuff.wet && k % 2 === 0 && S.drop - y0 > 2.2) G.rect(x0 * scale, (y0 + 2 + ((k * 7) % 3)) * scale, r * 0.8, r * 0.8).fill({ color: stuff.tones[(k * 5) % 3] });
-              }
-              if (stuff.wet) G.poly(poly.slice(0, line.length * 2)).stroke({ color: 0x5a5a64, width: Math.max(1, 0.8 * scale), alpha: 0.8 });
+            for (let tone = 0; tone < 3; tone++) {
+              let any = false;
+              eachColumn(S, (x, ground, high, id) => {
+                for (let up = 0; up < high; up += COLUMN) {
+                  const hsh = Math.abs(Math.sin(id * 12.9898 + Math.floor(up / COLUMN) * 78.233) * 43758.5453) % 1;
+                  // Lighter toward the top of it, where the light falls.
+                  const tn = Math.min(2, Math.floor((hsh * 0.7 + (up / Math.max(high, COLUMN)) * 0.45) * 3));
+                  if (tn !== tone) continue;
+                  any = true;
+                  G.rect(x * scale - cw / 2, (ground - Math.min(high, up + COLUMN)) * scale, cw, Math.min(COLUMN, high - up) * scale + 0.5);
+                }
+              });
+              if (any) G.fill({ color: stuff.tones[tone] });
             }
             for (let tone = 0; tone < 3; tone++) {
               let any = false;
@@ -239,7 +248,6 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             }
             // Blacktop is wet: a glint on the lit side of some of it.
             if (stuff.wet) { let any = false; eachGrain(S, (x, y, tn) => { if (tn > 0.55) { any = true; G.rect(x * scale - r * 0.45, y * scale - r * 0.45, r * 0.4, r * 0.4); } }); if (any) G.fill({ color: 0x6a6a74 }); }
-            return sp;
           };
           /** Puffs that rise from a point and thin: steam, dust. */
           const puffs = (gfx: Graphics, h: number, al: number, ac: number, m: number, colour: number, count: number, spread: number, rise: number, alpha: number) => {
@@ -277,12 +285,10 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             if (u && !still && q < DIG.dig) puffs(u.over, hh, (in2 ? 4.6 : 5.6) * T, ARM, 0.3, 0xa98660, 4, 0.12, 16, 0.4);
             // EARTH breaking over the bucket's lip as it is drawn through the ground; a full bucket shedding as it is
             // lifted and swung; and TIPPED, the bucketful into the lorry's body, heaping there bucket on bucket.
-            spill("bite", at, at.heading, [4.4 * T, ARM, 0.85], [4.75 * T, ARM, 0.05], EARTH, 0.8, in2, { rate: 70, gain: 0.2, drain: 2.5 });
-            spill("shed", at, hh, [3.3 * T, ARM, 1.9], [3.3 * T, ARM, 0.1], EARTH, 0.3, carrying, { rate: 24, gain: 0.2, drain: 3 });
-            const load = spill("load", at, at.heading + Math.PI, [5.25 * T, -ARM, 2.4], [5.25 * T, -ARM, 1.3], EARTH, 1.0, tip, { rate: 190, gain: 0.09 }, 10);
-            // A lorry takes four buckets and goes; the next comes empty.
-            const lorry = Math.floor(w / (DIG_ALL * 4));
-            if (load.mark !== lorry) { if (load.mark >= 0) clearPour(load.sim); load.mark = lorry; }
+            // (None of it heaps: what falls back falls into the cut; what is tipped goes into the lorry's load.)
+            spill("bite", at, at.heading, [4.4 * T, ARM, 0.85], [4.75 * T, ARM, 0.05], EARTH, 0.8, in2, { rate: 70, gain: 0 });
+            spill("shed", at, hh, [3.3 * T, ARM, 1.9], [3.3 * T, ARM, 0.1], EARTH, 0.3, carrying, { rate: 24, gain: 0 });
+            spill("load", at, at.heading + Math.PI, [5.25 * T, -ARM, 2.4], [5.25 * T, -ARM, 1.45], EARTH, 1.0, tip, { rate: 190, gain: 0 }, 10);
             // (Backed up to it, tail first: its body under where the bucket swings round to.)
             if (digAt > 1.3) { const la = alongJob(g, j, digAt - 0.68); place("spoil", la, [{ look: "tipper", tint: BLUE, heading: la.heading + Math.PI }]); }
           }
@@ -293,7 +299,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             const at = alongJob(g, j, f[1] + 0.42), up = tipping(4) && !still;
             const u = place("stone", at, [{ look: tipLook(4), tint: BLUE }]);
             // STONE sliding off the body's tail to the ground behind, a windrow heaping under it — and spread as fast as it comes; dust off where it lands.
-            spill("stone", at, at.heading, [-3.15 * T, 0, 1.1], [-4.0 * T, 0, 0.05], STONE, 1.7, up, { gain: 0.25, drain: 2 });
+            spill("stone", at, at.heading, [-3.15 * T, 0, 1.1], [-4.0 * T, 0, 0.05], STONE, 1.7, up, { gain: 0.22, drain: 1.1 });
             if (u && up) puffs(u.over, at.heading, -4.1 * T, 0, 0.25, 0xc4bfb5, 3, 0.25, 14, 0.3);
           }
           if (basing && f[1] > 1.1) place("packer", alongJob(g, j, f[1] - 0.75 + (still ? 0 : 0.35 * Math.sin(w * 0.9))), [{ look: "roller", tint: YELLOW }]);
@@ -313,7 +319,8 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               // BLACKTOP off its tail into the hopper, and the heat off it.
               // BLACKTOP off its tail into the hopper: a thick wet fall of it, pooling there between the hopper's wings
               // and going down as the screed takes it; and the heat off it.
-              spill("tar", la, la.heading, [-3.15 * T, 0, 1.15], [-4.2 * T, 0, 0.8], TAR, 1.5, up, { gain: 0.12, drain: 1.2 }, 8);
+              // (Into what is in the hopper already: nothing heaps on it.)
+              spill("tar", la, la.heading, [-3.15 * T, 0, 1.15], [-4.2 * T, 0, 0.8], TAR, 1.5, up, { gain: 0 }, 8);
               if (l && up) puffs(l.over, la.heading, -4.2 * T, 0, 1.0, 0xffffff, 4, 0.3, 20, 0.22);
             }
           }

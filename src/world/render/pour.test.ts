@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { COLUMN, GRAVITY, POURS, clearPour, createPourSim, heaped, stepPour } from "./pour-sim";
+import { COLUMN, GRAVITY, POURS, carry, clearPour, createPourSim, eachColumn, groundAt, heaped, stepPour } from "./pour-sim";
 import { growSources } from "./road-grow";
 import { onRound } from "./road-plant";
 
@@ -62,6 +62,34 @@ describe("something poured", () => {
     expect(tenth / whole).toBeLessThan(0.2);
     clearPour(a);
     expect(heaped(a)).toBe(0);
+  });
+});
+
+describe("what is poured on the ground", () => {
+  test("stays where it fell: as the lip moves on the heap is left behind it, each column keeping its own number, and what passes out of reach is gone", () => {
+    const s = createPourSim(POURS.stone);
+    s.drop = 12;
+    for (let t = 0; t < 2; t += 1 / 60) stepPour(s, 1 / 60, true, 4, { gain: 0.2 });
+    const mid = s.heap.length >> 1, before = Array.from(s.heap), ids: number[] = [];
+    eachColumn(s, (_x, _g, _h, id) => ids.push(id));
+    // The lip moves three columns on: the heap is three columns back under it, and is the same heap.
+    carry(s, 3 * COLUMN);
+    for (let i = 0; i + 3 < s.heap.length; i++) expect(s.heap[i]).toBe(before[i + 3]);
+    const after: number[] = [];
+    eachColumn(s, (_x, _g, _h, id) => after.push(id));
+    expect(after).toEqual(ids);
+    expect(s.heap[mid]).toBe(before[mid + 3]);
+    // Far enough on, and none of it is under the lip any more.
+    carry(s, s.heap.length * COLUMN);
+    expect(heaped(s)).toBe(0);
+  });
+
+  test("lies along the road as the screen shows it: the ground under it runs aslant, and a grain lands on that", () => {
+    const s = createPourSim(POURS.earth);
+    s.dx = 0; s.drop = 10; s.base = 0.5;
+    expect(groundAt(s, 0)).toBe(10);
+    expect(groundAt(s, 8)).toBe(14);
+    expect(groundAt(s, -8)).toBe(6);
   });
 });
 

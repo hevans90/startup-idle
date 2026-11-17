@@ -61,17 +61,38 @@ export type PourSim = {
   drop: number;
   /** How far either side of the landing the heap may reach: a wall beyond it. Infinity, open ground. */
   wall: number;
+  /**
+   * How the ground under the heap runs on the screen: down, for each pixel across. A road seen from above and
+   * aside runs aslant, and what is laid along it lies along that slant. Nought for what lands in something.
+   */
+  base: number;
+  /** How far the heap's columns have been moved along under the lip, columns: so each keeps its own grain. @see carry */
+  moved: number;
   /** A grain owed: the part of one not yet let go. */
   owed: number;
   seed: number;
 };
 
 export function createPourSim(kind: PourKind, wall = Infinity, columns = 41): PourSim {
-  return { kind, grains: new Float32Array(600 * WORDS), n: 0, heap: new Float32Array(columns), dx: 0, drop: 10, wall, owed: 0, seed: 0x9e3779b9 };
+  return { kind, grains: new Float32Array(600 * WORDS), n: 0, heap: new Float32Array(columns), dx: 0, drop: 10, wall, base: 0, moved: 0, owed: 0, seed: 0x9e3779b9 };
 }
 const rnd = (s: PourSim) => { s.seed = (Math.imul(s.seed, 1664525) + 1013904223) >>> 0; return s.seed / 4294967296; };
 /** The column over a place across from the lip. */
 const columnAt = (s: PourSim, x: number) => Math.max(0, Math.min(s.heap.length - 1, Math.round((x - s.dx) / COLUMN) + (s.heap.length >> 1)));
+/**
+ * THE LIP HAS MOVED ON by so many pixels across: what is heaped STAYS WHERE IT FELL. The heap's columns are a
+ * window under the landing, and the window moves with it — so the heap is slid back through it the other way, and
+ * what passes out of its end is left behind and gone from the count.
+ */
+export function carry(s: PourSim, across: number): void {
+  const k = Math.round(across / COLUMN);
+  if (!k) return;
+  const n = s.heap.length, old = s.heap.slice();
+  for (let i = 0; i < n; i++) { const from = i + k; s.heap[i] = from >= 0 && from < n ? old[from] : 0; }
+  s.moved += k;
+}
+/** Where the ground is under a place across from the lip, pixels down from it. */
+export const groundAt = (s: PourSim, x: number) => s.drop + (x - s.dx) * s.base;
 /** How much is heaped, pixels squared. */
 export const heaped = (s: PourSim) => s.heap.reduce((n, h) => n + h, 0) * COLUMN;
 
@@ -104,7 +125,7 @@ export function stepPour(s: PourSim, dt: number, pours: boolean, width: number, 
     g[o] += g[o + 2] * dt; g[o + 1] += g[o + 3] * dt;
     // A wall turns it back.
     if (Math.abs(g[o] - s.dx) > s.wall) { g[o] = s.dx + Math.sign(g[o] - s.dx) * s.wall; g[o + 2] *= -0.3; }
-    const c = columnAt(s, g[o]), top = s.drop - s.heap[c];
+    const c = columnAt(s, g[o]), top = groundAt(s, g[o]) - s.heap[c];
     if (g[o + 1] < top) continue;
     // IT HAS MET THE HEAP. A hard grain landing fast skips off, once, the way the slope under it throws it.
     if (!g[o + 5] && rnd(s) < K.skip) {
@@ -146,17 +167,13 @@ export function stepPour(s: PourSim, dt: number, pours: boolean, width: number, 
 /** Empty it: a lorry gone with its load. */
 export function clearPour(s: PourSim): void { s.heap.fill(0); s.n = 0; }
 
+/** Each column of the heap that has anything in it: where it is across from the lip, the ground under it, how high it stands, and which column of the ground it is — the same number wherever the lip has got to. */
+export function eachColumn(s: PourSim, f: (x: number, ground: number, high: number, id: number) => void): void {
+  const mid = s.heap.length >> 1;
+  for (let i = 0; i < s.heap.length; i++) if (s.heap[i] > 0.2) { const x = s.dx + (i - mid) * COLUMN; f(x, groundAt(s, x), s.heap[i], i + s.moved); }
+}
+
 /** Each grain in the air: where it is from the lip, and its tone. */
 export function eachGrain(s: PourSim, f: (x: number, y: number, tone: number) => void): void {
   for (let k = 0; k < s.n; k++) f(s.grains[k * WORDS], s.grains[k * WORDS + 1], s.grains[k * WORDS + 4]);
-}
-/** The heap's outline from the lip: across, and down to its surface, column by column — only where there is any. */
-export function heapLine(s: PourSim): [number, number][] {
-  const out: [number, number][] = [], mid = s.heap.length >> 1;
-  let a = 0, b = s.heap.length - 1;
-  while (a < b && s.heap[a] < 0.15) a++;
-  while (b > a && s.heap[b] < 0.15) b--;
-  if (s.heap[a] < 0.15) return out;
-  for (let i = Math.max(0, a - 1); i <= Math.min(s.heap.length - 1, b + 1); i++) out.push([s.dx + (i - mid) * COLUMN, s.drop - s.heap[i]]);
-  return out;
 }
