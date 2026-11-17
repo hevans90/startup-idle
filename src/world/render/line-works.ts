@@ -28,7 +28,7 @@ import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props
 import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
 import { walkRound, type Walker } from "./road-plant";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
-import { BEND_R, CHEEK, CONCRETE, FLANGE_R, MATERIAL, SADDLE, ZT, box as meshBox, elbowPath, flange, footing, made, pipeMesh, solid, sweep, tube as meshTube } from "./pipe-mesh";
+import { BEND_R, CHEEK, CONCRETE, FLANGE_R, MATERIAL, SADDLE, ZT, box as meshBox, disc, elbowPath, flange, footing, made, pipeMesh, solid, sweep, tube as meshTube } from "./pipe-mesh";
 import { CRANE_LOOKS, CRANE_REACH, craneTip } from "../agents/cars/models";
 
 /** How high a main's middle lies off the ground, half steps. @see mains-layer LIFT */
@@ -38,6 +38,8 @@ const SKIN = 0xd9a47a, LEGS = 0x3a4a63;
 const TUBE_R = 0.09 / Math.SQRT2, STEEL = 0xa6a9aa;
 /** How long a length of pipe is as it comes off the lorry, tiles: two to a tile of main. */
 const LENGTH = 0.46;
+/** The inside of a loose length, seen in at its end. */
+const BORE = 0x15171a;
 /**
  * A LOOSE LENGTH OF MAIN, as the main itself is made: the very tube — its steel, its welds and seams, lit as it is —
  * a flange at each end, about its own middle and lying along u or along v. Moved by its place; made again only for
@@ -46,6 +48,8 @@ const LENGTH = 0.46;
 function lengthMesh(alongU: boolean, scale: number, look: PipeStuff): Mesh<Geometry, Shader> {
   const m = pipeMesh(), du = alongU ? 1 : 0, dv = alongU ? 0 : 1, h = LENGTH / 2;
   made(look.mat, () => meshTube(m, scale, -du * h, -dv * h, 0, du * h, dv * h, 0, look.r, solid(look.colour), 14));
+  // (THE DARK OF ITS BORE, in at its near end: a length is not seen through.)
+  made(MATERIAL.plain, () => disc(m, scale, du * (h - 0.012), dv * (h - 0.012), 0, du, dv, 0, look.r * 0.99, solid(BORE), 14));
   for (const e of [-h, h]) flange(m, scale, du * e, dv * e, 0, du, dv, look.r, look.colour, 14, true, false);
   return pipeDrawable(m);
 }
@@ -60,6 +64,7 @@ function elbowMesh(a: { dx: number; dy: number }, b: { dx: number; dy: number },
   const ends = [a, b].sort((p, q) => p.dx + p.dy - (q.dx + q.dy));
   flange(m, scale, ends[0].dx * 0.5, ends[0].dy * 0.5, 0, ends[0].dx, ends[0].dy, look.r, look.colour, 14, true, false);
   made(look.mat, () => sweep(m, scale, path, look.r, solid(look.colour), 14));
+  made(MATERIAL.plain, () => disc(m, scale, ends[1].dx * 0.488, ends[1].dy * 0.488, 0, ends[1].dx, ends[1].dy, 0, look.r * 0.99, solid(BORE), 14));
   flange(m, scale, ends[1].dx * 0.5, ends[1].dy * 0.5, 0, ends[1].dx, ends[1].dy, look.r, look.colour, 14, true, false);
   return pipeDrawable(m);
 }
