@@ -78,7 +78,7 @@ import {
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import { GANGS, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
 import { stepRoadLoads } from "../world/roads/job-loads";
-import { lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
+import { LINE_LAYS, lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
 import { payForLoad } from "../world/projects/economy";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
@@ -908,7 +908,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if (isPipeTool(ordered.tool)) {
         // A PIPE GOES IN A LENGTH AT A TIME: every cell the pipe's trade has passed is laid, on from where the run
         // is capped — the same stroke, as far as it has got. Its pump, if it has one, with its first length.
-        const n = j.cells.length, laid = j.laid ?? 0, upTo = lineDone(j) ? n : Math.floor(lineFront(j, 1));
+        const n = j.cells.length, laid = j.laid ?? 0, upTo = lineDone(j) ? n : Math.floor(lineFront(j, LINE_LAYS[j.kind]));
         if (upTo > laid && (upTo >= 2 || lineDone(j))) {
           const seg = j.cells.slice(Math.max(0, laid - 1), upTo);
           const ok = relay({ ...ordered, path: seg, anchor: seg[0], head: seg[seg.length - 1], pins: undefined, pump: laid === 0 && !!ordered.pump, noPump: true });

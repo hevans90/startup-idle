@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { LINE_GAP, LINE_LOAD, LINE_PACE, LINE_TRADES, alongLine, lineDone, lineFront, lineLoads, lineSeconds, newLine, stepLine } from "./jobs";
+import { LINE_GAPS, LINE_LAYS, LINE_LOAD, LINE_PACE, LINE_STAGES, alongLine, lineDone, lineFront, lineLoads, lineSeconds, newLine, stepLine } from "./jobs";
 
 const cells = (n: number) => Array.from({ length: n }, (_, k) => ({ x: 3 + k, y: 7 }));
 
@@ -23,18 +23,20 @@ describe("a line is laid, not bought", () => {
   });
 
   test("the trades follow one another and none goes back; the pipe never passes what has been brought", () => {
-    const j = newLine(1, "sewer", cells(20), null, 100, 0);
-    let last = [0, 0, 0];
-    for (let t = 0; !lineDone(j) && t < 5000; t += 0.1) {
-      stepLine(j, 0.1, () => true);
-      const f = [0, 1, 2].map((k) => lineFront(j, k));
-      for (let k = 0; k < LINE_TRADES; k++) expect(f[k]).toBeGreaterThanOrEqual(last[k] - 1e-9);
-      for (let k = 1; k < LINE_TRADES; k++) expect(f[k]).toBeLessThanOrEqual(f[k - 1] + 1e-9);
-      expect(f[1]).toBeLessThanOrEqual(Math.min(20, j.delivered * LINE_LOAD) + 1e-6);
-      last = f;
+    for (const kind of ["main", "sewer", "dredge"] as const) {
+      const j = newLine(1, kind, cells(20), null, 100, 0), N = LINE_STAGES[kind];
+      let last = Array(N).fill(0) as number[];
+      for (let t = 0; !lineDone(j) && t < 5000; t += 0.1) {
+        stepLine(j, 0.1, () => true);
+        const f = Array.from({ length: N }, (_, k) => lineFront(j, k));
+        for (let k = 0; k < N; k++) expect(f[k]).toBeGreaterThanOrEqual(last[k] - 1e-9);
+        for (let k = 1; k < N; k++) expect(f[k]).toBeLessThanOrEqual(f[k - 1] + 1e-9);
+        expect(f[LINE_LAYS[kind]]).toBeLessThanOrEqual(Math.min(20, j.delivered * LINE_LOAD) + 1e-6);
+        last = f;
+      }
+      expect(lineFront(j, N - 1)).toBeCloseTo(20, 6);
+      expect(LINE_GAPS[kind] * LINE_PACE[kind]).toBeGreaterThan(0);
     }
-    expect(lineFront(j, 2)).toBeCloseTo(20, 6);
-    expect(LINE_GAP * LINE_PACE.sewer).toBeGreaterThan(0);
   });
 
   test("with no money it stands where it is, and nothing is lost; with money again it goes on", () => {
