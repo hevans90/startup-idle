@@ -736,10 +736,79 @@ const VARIANTS: Model[] = [
   variant(largeSuv, "rails", rails(largeSuv)), variant(largeSuv, "box", [...rails(largeSuv), roofBox(largeSuv)]),
 ];
 
+// ── road plant: what builds a road, not what drives on one. @see render/road-plant ──────────
+const post = (l: number, y: number, z0: number, z1: number): Slab => ({ l0: l + 0.05, l1: l - 0.05, w: 0.05, wc: y, z0, z1, mat: "trim" });
+/** An asphalt paver: tracks, a hopper of blacktop at the front, the engine and a seat under a canopy, the screed across the back. */
+const paver: Model = {
+  id: "paver", length: 6.2, width: 3.0, wheels: [],
+  slabs: [
+    ...[1, -1].map((sg): Slab => ({ l0: 1.6, l1: -1.9, w: 0.28, wc: sg * 1.0, z0: 0, z1: 0.72, inF: 0.2, inB: 0.2, mat: "tyre" })),
+    { l0: 1.5, l1: -2.0, w: 1.15, z0: 0.5, z1: 1.45, mat: "paint" },
+    // The hopper: its floor, its two wings, and what is in it.
+    { l0: 3.05, l1: 1.5, w: 1.3, z0: 0.45, z1: 0.68, mat: "trim" },
+    ...[1, -1].map((sg): Slab => ({ l0: 3.05, l1: 1.5, w: 0.06, wc: sg * 1.27, z0: 0.68, z1: 1.5, inF: 0.25, mat: "paint" })),
+    { l0: 2.9, l1: 1.55, w: 1.15, z0: 0.68, z1: 1.2, inF: 0.35, inB: 0.15, inS: 0.3, mat: "tyre" },
+    { l0: 1.0, l1: -1.1, w: 1.0, z0: 1.45, z1: 1.95, mat: "paint" },
+    { l0: 0.9, l1: 0.2, w: 0.5, z0: 1.95, z1: 2.02, mat: "grille" },
+    { l0: -1.1, l1: -1.95, w: 0.95, z0: 1.45, z1: 1.62, mat: "trim" },
+    { l0: -1.35, l1: -1.8, w: 0.3, wc: 0.45, z0: 1.62, z1: 2.25, mat: "seat" },
+    { l0: -1.05, l1: -1.2, w: 0.5, z0: 1.62, z1: 2.1, mat: "trim" },
+    ...[[0.5, 1.0], [0.5, -1.0], [-1.9, 1.0], [-1.9, -1.0]].map(([l, y]) => post(l, y, 1.95 - (l < 0 ? 0.33 : 0), 2.95)),
+    { l0: 0.65, l1: -2.05, w: 1.12, z0: 2.95, z1: 3.05, mat: "paint" },
+    // The screed and its walkway, wider than the machine; an auger's housing ahead of it.
+    { l0: -2.0, l1: -2.35, w: 1.4, z0: 0.15, z1: 0.75, mat: "trim" },
+    { l0: -2.35, l1: -3.05, w: 1.5, z0: 0.03, z1: 0.42, mat: "chrome" },
+    { l0: -2.4, l1: -3.0, w: 1.45, z0: 0.42, z1: 0.5, mat: "trim" },
+    ...[1, -1].map((sg): Slab => ({ l0: -2.95, l1: -3.0, w: 0.02, wc: sg * 1.4, z0: 0.5, z1: 1.4, mat: "trim" })),
+    { l0: -2.95, l1: -3.0, w: 1.4, z0: 1.36, z1: 1.4, mat: "trim" },
+  ],
+};
+/** A tandem roller: a steel drum the width of it at each end, the engine between, a seat under a canopy. */
+const roller: Model = {
+  id: "roller", length: 4.6, width: 1.9,
+  wheels: [1.45, -1.45].map((l) => ({ l, w: 0.42, r: 0.62, width: 0.86, rim: "steel" as const })),
+  slabs: [
+    { l0: 0.75, l1: -0.75, w: 0.8, z0: 0.55, z1: 1.5, mat: "paint" },
+    // The yokes that carry the drums.
+    ...[1, -1].flatMap((e) => [1, -1].map((sg): Slab => ({ l0: e > 0 ? 1.6 : -0.7, l1: e > 0 ? 0.7 : -1.6, w: 0.06, wc: sg * 0.9, z0: 0.5, z1: 1.2, mat: "paint" }))),
+    ...[1, -1].map((e): Slab => ({ l0: e > 0 ? 2.15 : -0.75, l1: e > 0 ? 0.75 : -2.15, w: 0.9, z0: 1.24, z1: 1.38, mat: "paint" })),
+    { l0: 0.7, l1: 0.1, w: 0.6, z0: 1.5, z1: 1.9, mat: "paint" },
+    { l0: -0.15, l1: -0.6, w: 0.3, z0: 1.5, z1: 2.1, mat: "seat" },
+    { l0: 0.1, l1: 0.0, w: 0.4, z0: 1.5, z1: 2.0, mat: "trim" },
+    ...[[0.7, 0.75], [0.7, -0.75], [-0.7, 0.75], [-0.7, -0.75]].map(([l, y]) => post(l, y, 1.5, 2.75)),
+    { l0: 0.85, l1: -0.85, w: 0.85, z0: 2.75, z1: 2.84, mat: "paint" },
+    { l0: 0.3, l1: 0.1, w: 0.1, z0: 2.84, z1: 3.0, mat: "indicator" },
+  ],
+};
+/** An excavator: tracks, a house that slews on them with a cab at one side, a boom up and over to a bucket at the ground ahead. */
+const excavator: Model = {
+  id: "excavator", length: 7.4, width: 2.7, wheels: [],
+  slabs: [
+    ...[1, -1].map((sg): Slab => ({ l0: 1.2, l1: -2.4, w: 0.3, wc: sg * 1.0, z0: 0, z1: 0.8, inF: 0.25, inB: 0.25, mat: "tyre" })),
+    { l0: 0.6, l1: -1.8, w: 0.75, z0: 0.4, z1: 0.95, mat: "trim" },
+    // The house, its counterweight, the cab.
+    { l0: 0.5, l1: -2.3, w: 1.25, z0: 0.95, z1: 2.1, mat: "paint" },
+    { l0: -2.3, l1: -2.8, w: 1.2, z0: 1.0, z1: 2.0, inB: 0.2, mat: "trim" },
+    { l0: -0.9, l1: -2.0, w: 0.5, wc: -0.5, z0: 2.1, z1: 2.3, mat: "grille" },
+    { l0: 1.1, l1: -0.3, w: 0.48, wc: 0.72, z0: 0.95, z1: 2.75, mat: "glass" },
+    { l0: 1.15, l1: -0.35, w: 0.52, wc: 0.72, z0: 2.75, z1: 2.85, mat: "paint" },
+    { l0: 1.15, l1: -0.35, w: 0.52, wc: 0.72, z0: 0.95, z1: 1.45, mat: "paint" },
+    // The boom, up from the house and over; the dipper down from its head; the bucket.
+    { l0: 1.6, l1: 0.4, w: 0.2, wc: -0.25, z0: 1.6, z1: 2.9, inF: 0.3, mat: "paint" },
+    { l0: 2.7, l1: 1.3, w: 0.2, wc: -0.25, z0: 2.7, z1: 3.7, inB: 0.3, inF: 0.3, mat: "paint" },
+    { l0: 3.7, l1: 2.4, w: 0.2, wc: -0.25, z0: 3.3, z1: 4.1, inB: 0.3, mat: "paint" },
+    { l0: 4.0, l1: 3.55, w: 0.16, wc: -0.25, z0: 1.3, z1: 3.9, mat: "paint" },
+    { l0: 3.5, l1: 3.2, w: 0.06, wc: -0.25, z0: 2.6, z1: 3.9, mat: "chrome" },
+    { l0: 4.25, l1: 3.25, w: 0.5, wc: -0.25, z0: 0.35, z1: 1.3, inB: 0.3, mat: "trim" },
+  ],
+};
+/** What builds a road. Never in the traffic. */
+export const PLANT = [paver, roller, excavator];
+
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];
 
-export const MODELS: readonly Model[] = [...CARS, ...VARIANTS, ...WORK, ...SERVICE, ...SPECIAL, ...BUSES];
+export const MODELS: readonly Model[] = [...CARS, ...VARIANTS, ...WORK, ...SERVICE, ...SPECIAL, ...BUSES, ...PLANT];
 export const modelById = new Map(MODELS.map((m) => [m.id, m]));
 
 /**

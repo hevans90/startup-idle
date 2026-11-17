@@ -5,11 +5,12 @@
  * stage, redrawn when a trade passes a cell and never between.
  * @see roads/jobs, plans/road-building.md (the plant and the gang come later)
  */
-import { Graphics } from "pixi.js";
+import { Container, Graphics } from "pixi.js";
 
 import { idx, type Grid } from "../grid";
 import { bandOf } from "../iso";
-import { GANGS, stageOf } from "../roads/jobs";
+import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
+import { GANGS, frontOf, stageOf } from "../roads/jobs";
 import type { BandLayer } from "./bands";
 import { cellDiamond } from "./overlays";
 
@@ -20,11 +21,13 @@ const STAKE = 0xf2c230;
 export type RoadWorks = { sync(g: Grid, rev: number, roadRev: number, scale: number): void; destroy(): void };
 
 export function createRoadWorks(bands: BandLayer): RoadWorks {
-  let drawn: Graphics[] = [], key = "";
-  const clear = () => { for (const c of drawn) { c.parent?.removeChild(c); c.destroy(); } drawn = []; };
+  let drawn: Container[] = [], key = "";
+  const clear = () => { for (const c of drawn) { c.parent?.removeChild(c); c.destroy({ children: true }); } drawn = []; };
   return {
     sync(g, rev, roadRev, scale) {
-      const k = `${rev}|${roadRev}|${scale}|${g.roadJobs.length}`;
+      const P = bakedProps() ? propsLoaded() : null;
+      if (bakedProps() && !P && g.roadJobs.length) void propSprites();
+      const k = `${rev}|${roadRev}|${scale}|${g.roadJobs.length}|${P ? 1 : 0}`;
       if (k === key) return;
       key = k;
       clear();
@@ -47,6 +50,15 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             gfx.poly(d).stroke({ color: STAKE, width: Math.max(1, 2 * scale), alpha: 0.9 });
             for (let q = 0; q < 8; q += 2) gfx.circle(d[q], d[q + 1], Math.max(1.5, 3 * scale)).fill({ color: STAKE });
           }
+          if (!P || n >= GANGS) continue;
+          // WHAT STANDS ROUND IT, where a gang is at work: a cone each side of every other cell till it is lined; a
+          // barrier across where the open road stops; a heap of stone just ahead of the sub-base.
+          const next = j.cells[Math.min(j.cells.length - 1, c + 1)], prev = j.cells[Math.max(0, c - 1)];
+          const ax = Math.sign(next.x - prev.x) || 0, ay = Math.sign(next.y - prev.y) || 0, z = cell.deck ? cell.z : g.height[idx(g, cell.x, cell.y)];
+          const stand = (id: string, turn: number, x: number, y: number) => { const sp = propSprite(P, id, turn, x, y, z, scale); const dyn = bands.dynamicOf[band]; if (sp && dyn) { sp.zIndex = 0.2; dyn.addChild(sp); drawn.push(sp); } };
+          if (stage >= 1 && c % 2 === 0 && (ax === 0) !== (ay === 0)) for (const sg of [-1, 1]) stand("cone", 0, cell.x - ay * sg * 0.44, cell.y + ax * sg * 0.44);
+          if (c === j.opened && j.opened > 0) stand("barrier", ax !== 0 ? 1 : 0, cell.x - ax * 0.42, cell.y - ay * 0.42);
+          if (c === Math.min(j.cells.length - 1, frontOf(j, 1) + 1) && stage === 1) stand("heapStone", c % 4, cell.x + ay * 0.2, cell.y - ax * 0.2);
         }
       });
     },

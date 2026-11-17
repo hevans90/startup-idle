@@ -9,8 +9,9 @@ import { encodePng } from "./png-min.ts";
 import { bakeTris } from "../src/world/agents/cars/raster.ts";
 import { PROPS as STREET, PROP_LAYERS, propLayerOf } from "../src/world/props/models.ts";
 import { BRIDGE } from "../src/world/props/bridges.ts";
+import { ROADWORKS } from "../src/world/props/roadworks.ts";
 
-const PROPS = [...STREET, ...BRIDGE];
+const PROPS = [...STREET, ...BRIDGE, ...ROADWORKS];
 import { PROP_TINT } from "../src/world/props/props-format.ts";
 
 const RES = Number(process.argv[3] ?? 3);

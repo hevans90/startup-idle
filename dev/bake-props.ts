@@ -14,8 +14,9 @@ import { join } from "node:path";
 import { bakeTris } from "../src/world/agents/cars/raster.ts";
 import { PROPS as STREET, PROP_LAYERS, propLayerOf } from "../src/world/props/models.ts";
 import { BRIDGE } from "../src/world/props/bridges.ts";
+import { ROADWORKS } from "../src/world/props/roadworks.ts";
 
-const PROPS = [...STREET, ...BRIDGE];
+const PROPS = [...STREET, ...BRIDGE, ...ROADWORKS];
 import { PROP_GAP, PROP_RES, PROP_TURNS, type PropFrame, type PropsSheet } from "../src/world/props/props-format.ts";
 import { encodePng, type Image } from "./png-min.ts";
 

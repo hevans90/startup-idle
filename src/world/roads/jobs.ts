@@ -28,8 +28,10 @@ export type RoadJob = {
   id: number;
   cells: JobCell[];
   levelled: JobLevel[];
-  /** Seconds it has been worked. */
+  /** Seconds it has been worked: the earthworks' clock, which needs nothing brought. */
   t: number;
+  /** Seconds the trades that lay something have worked: no further than the loads on site allow. @see materialTime */
+  tm: number;
   /** How many of its cells the earthworks have passed, and how many are open road. */
   dug: number;
   opened: number;
@@ -76,12 +78,21 @@ const cellOf = (j: RoadJob, i: number, g: Grid) => j.cells.find((c) => idx(g, c.
 /** Seconds of work each cell takes one trade, by what is done there. */
 const cellTime = (c: JobCell) => (!c.fresh ? 0 : PACE * (c.deck ? DECK_PACE : 1 + DIG_PACE * Math.abs(c.z - c.from)));
 
+/** The clock a trade works by: the earthworks' own; the others', held to the materials, and never ahead of the earthworks. */
+const clockOf = (j: RoadJob, trade: number) => (trade === 0 ? j.t : Math.min(j.t, j.tm ?? j.t));
 /** How many of a job's cells a trade has passed: `trade` 0 the earthworks … 3 the lining. */
 export function frontOf(j: RoadJob, trade: number): number {
   // Each follows the one ahead by GAP tiles' worth of time.
-  let left = j.t - ARRIVE - trade * GAP * PACE, k = 0;
+  let left = clockOf(j, trade) - ARRIVE - trade * GAP * PACE, k = 0;
   for (; k < j.cells.length; k++) { left -= cellTime(j.cells[k]); if (left < 0) break; }
   return k;
+}
+/** Where a trade is along a job, to a part of a cell: for whatever is drawn working there. */
+export function frontAt(j: RoadJob, trade: number): number {
+  let left = clockOf(j, trade) - ARRIVE - trade * GAP * PACE;
+  if (left <= 0) return 0;
+  for (let k = 0; k < j.cells.length; k++) { const need = cellTime(j.cells[k]); if (left < need) return k + (need ? left / need : 0); left -= need; }
+  return j.cells.length;
 }
 /** How many trades have passed a cell of a job. */
 export const stageOf = (j: RoadJob, k: number) => { let s = 0; while (s < TRADES && frontOf(j, s) > k) s++; return s; };
@@ -104,8 +115,10 @@ export function materialTime(j: RoadJob): number {
 }
 /** Tiles' worth of materials on site that the sub-base has not come to yet. */
 export const onHand = (j: RoadJob) => j.delivered * TILES_PER_LOAD - freshIn(j, frontOf(j, 1));
-/** Whether a job should send for its next load: one not yet in, less than a load on hand, and none on its way — `onWay`, by road or across country. */
-export const wantsLoad = (j: RoadJob, onWay: number) => j.delivered + onWay < j.deliveries && onWay === 0 && onHand(j) < TILES_PER_LOAD;
+/** How many loads a job keeps on their way at once, and how many loads' worth it keeps on hand and coming: a lorry takes longer to come than a load takes to lay. */
+export const LORRIES = 3, STOCK = 3;
+/** Whether a job should send for its next load: one not yet in or on its way — `onWay`, by road or across country — and less than its stock on hand and coming. */
+export const wantsLoad = (j: RoadJob, onWay: number) => j.delivered + onWay < j.deliveries && onWay < LORRIES && onHand(j) + onWay * TILES_PER_LOAD < STOCK * TILES_PER_LOAD;
 /** How long a job takes in all, seconds. */
 export const jobSeconds = (j: Pick<RoadJob, "cells">) => ARRIVE + (TRADES - 1) * GAP * PACE + j.cells.reduce((n, c) => n + cellTime(c), 0);
 
@@ -207,7 +220,7 @@ export function orderRoad(g: Grid, path: readonly GradeCell[]): Ordered {
     levelled.push({ x: m.x, y: m.y, to: m.to, from: g.height[i], at });
   }
   if (!cells.some((c) => c.fresh) && !levelled.length && !cells.some((c) => !c.deck && c.z !== g.height[idx(g, c.x, c.y)])) return { nothing: true };
-  const job: RoadJob = { id: g.nextRoadJob, cells, levelled, t: 0, dug: 0, opened: 0, lengths: lengthsOf(cells), delivered: 0, deliveries: 0, cost: 0, overland: [], stalled: 0, at: 0 };
+  const job: RoadJob = { id: g.nextRoadJob, cells, levelled, t: 0, tm: 0, dug: 0, opened: 0, lengths: lengthsOf(cells), delivered: 0, deliveries: 0, cost: 0, overland: [], stalled: 0, at: 0 };
   job.deliveries = loadsFor(freshIn(job));
   return { job, retarget };
 }
@@ -234,8 +247,9 @@ export function stepRoadJobs(g: Grid, dt: number): { writes: RoadWrites; changed
     const before = [0, 1, 2, 3].map((s) => frontOf(j, s));
     // LOADS ACROSS COUNTRY, arriving.
     for (let k = j.overland.length - 1; k >= 0; k--) if ((j.overland[k] -= dt) <= 0) { j.overland.splice(k, 1); j.delivered = Math.min(j.deliveries, j.delivered + 1); changed = true; }
-    // As far as the materials on site allow, and no further.
-    j.t = Math.max(j.t, Math.min(j.t + dt, materialTime(j)));
+    j.t += dt;
+    // What lays something works as far as the materials on site allow, and no further.
+    j.tm = Math.max(j.tm ?? j.t, Math.min((j.tm ?? j.t) + dt, materialTime(j)));
     const after = [0, 1, 2, 3].map((s) => frontOf(j, s));
     if (after.some((v, s) => v !== before[s])) changed = true;
     // EARTHWORKS: the ground under a cell goes to its level as they pass it.

@@ -73,7 +73,7 @@ export function stepRoadLoads(
     if (!wantsLoad(j, onWay)) { if (j.stalled) { j.stalled = 0; changed = true; } continue; }
     if (!spend(loadPrice(j))) {
       // STALLED only once the work has run out of what it has.
-      if (j.t >= materialTime(j) - 1e-6) { if (!j.stalled) changed = true; j.stalled += dt; }
+      if ((j.tm ?? j.t) >= materialTime(j) - 1e-6 && onWay === 0) { if (!j.stalled) changed = true; j.stalled += dt; }
       continue;
     }
     if (j.stalled) { j.stalled = 0; changed = true; }
