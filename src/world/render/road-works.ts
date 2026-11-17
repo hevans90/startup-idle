@@ -8,9 +8,11 @@
 import { Container, Graphics } from "pixi.js";
 
 import { idx, type Grid } from "../grid";
+import type { RoadJob } from "../roads/jobs";
 import { bandOf } from "../iso";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { GANGS, frontOf, stageOf } from "../roads/jobs";
+import { GANGS, GAP, frontAt, frontOf, plannedGrid, stageOf } from "../roads/jobs";
+import { bridgePiecesOf } from "./bridge-props";
 import type { BandLayer } from "./bands";
 import { cellDiamond } from "./overlays";
 
@@ -32,6 +34,39 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
       key = k;
       clear();
       const of = new Map<number, Graphics>();
+      // A BRIDGE GOES UP AS A BRIDGE: the pieces it will have, from the map as it will be, each stood as the work
+      // comes to it — its piers and its bank's walls rising from the ground once the earthworks reach their tile,
+      // its sides and what stands over the road once the deck there is surfaced. @see bridgePiecesOf
+      const building = new Map<number, { j: RoadJob; k: number }>();
+      g.roadJobs.slice(0, GANGS).forEach((j) => j.cells.forEach((c, k) => { if (k >= j.opened && c.deck && g.deck[idx(g, c.x, c.y)] === 0) building.set(idx(g, c.x, c.y), { j, k }); }));
+      if (P && building.size) {
+        const pieces = bridgePiecesOf(plannedGrid(g)).filter((p) => building.has(idx(g, p.cell?.x ?? Math.ceil(p.x), p.cell?.y ?? Math.ceil(p.y))));
+        const span = new Map<number, [number, number]>();
+        for (const p of pieces) if (p.tier === "under") { const i = idx(g, p.cell?.x ?? Math.ceil(p.x), p.cell?.y ?? Math.ceil(p.y)), s = span.get(i) ?? [Infinity, -Infinity]; span.set(i, [Math.min(s[0], p.z), Math.max(s[1], p.z)]); }
+        const under = new Map<number, Container>();
+        for (const p of pieces) {
+          const cx = p.cell?.x ?? Math.ceil(p.x), cy = p.cell?.y ?? Math.ceil(p.y), i = idx(g, cx, cy), { j, k } = building.get(i)!;
+          const stage = stageOf(j, k);
+          if (p.tier === "under") {
+            // From the ground up, as the earthworks go on past it.
+            const [z0, z1] = span.get(i)!, risen = Math.max(0, Math.min(1, (frontAt(j, 0) - k) / GAP));
+            if (stage < 1 || (z1 > z0 && (p.z - z0) / (z1 - z0) > risen + 1e-6)) continue;
+          } else if (stage < 3) continue;
+          const band = bandOf(cx, cy), sp = propSprite(P, p.id, p.turn, p.x, p.y, p.z, scale);
+          if (!sp) continue;
+          if (p.stretch) sp.scale.y = p.stretch;
+          if (p.tier === "under") {
+            let c = under.get(band);
+            if (!c) { const layer = bands.staticOf[band]; if (!layer) { sp.destroy({ children: true }); continue; } c = new Container(); c.eventMode = "none"; layer.addChild(c); under.set(band, c); drawn.push(c); }
+            c.addChild(sp);
+          } else {
+            const layer = bands.dynamicOf[band];
+            if (!layer) { sp.destroy({ children: true }); continue; }
+            sp.zIndex = p.tier === "back" ? -0.45 : 0.45;
+            layer.addChild(sp); drawn.push(sp);
+          }
+        }
+      }
       g.roadJobs.forEach((j, n) => {
         for (let c = j.opened; c < j.cells.length; c++) {
           const cell = j.cells[c];

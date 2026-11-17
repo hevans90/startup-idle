@@ -97,7 +97,8 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             return at;
           };
           // Each where its trade is, while its trade is still at work.
-          if (f[0] < n) place("digger", "excavator", YELLOW, Math.max(0, f[0] - 0.55));
+          // (Not out over the water: there is nothing to dig on a bridge.)
+          if (f[0] < n && !j.cells[Math.min(n - 1, Math.floor(f[0]))].deck && !j.cells[Math.max(0, Math.floor(f[0] - 0.55))].deck) place("digger", "excavator", YELLOW, Math.max(0, f[0] - 0.55));
           const paving = j.t > ARRIVE + 2 * GAP * PACE && f[2] < n;
           if (paving) place("paver", "paver", YELLOW, f[2] + 0.1, true);
           if (j.t > ARRIVE + 2 * GAP * PACE && f[3] < n && f[2] > 1.2) place("roller", "roller", YELLOW, Math.min(n - 1, f[2]) - 1.25 + (still ? 0 : 0.45 * Math.sin(t * 1.7 + j.id)));
