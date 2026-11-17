@@ -1067,41 +1067,51 @@ const rigUp = rigAt("rigUp", null), rigs = RIG_LOOKS.map((id, k) => rigAt(id, [5
  * its tail, and the chute swung down from under that, where the concrete comes out. `turn` is how far round the
  * drum has gone, nought to one of the way from one band to the next: the one lorry in every look, its drum turned.
  */
-const mixerAt = (id: string, turn: number): Model => ({
-  ...lorry(id, 7.6, 2.5, 2.0, [
-    { l0: 1.75, l1: -3.7, w: 0.55, z0: 0.72, z1: 1.05, mat: "trim" },
-    // The frame that carries its mouth, the hopper on it, a ladder up one side.
-    ...[1, -1].map((sg): Slab => ({ l0: -3.05, l1: -3.2, w: 0.05, wc: sg * 0.75, z0: 1.05, z1: 3.3, mat: "trim" })),
-    { l0: -3.0, l1: -3.75, w: 0.5, z0: 3.0, z1: 3.55, inF: 0.2, inB: 0.05, mat: "trim" },
-    { l0: -3.3, l1: -3.4, w: 0.25, wc: 0.95, z0: 1.05, z1: 3.0, mat: "chrome" },
-  ], [2.6, -1.7, -2.9], {
-    // THE DRUM, round: narrow at its head behind the cab, fat in the middle, drawn in to its mouth and lying back toward it; banded.
-    hulls: [{
-      sections: [
-        { l: 1.6, w: 0.45, z0: 1.55, z1: 2.45, r: 0.45 },
-        { l: 1.0, w: 0.9, z0: 1.2, z1: 3.0, r: 0.88 },
-        { l: -0.2, w: 1.1, z0: 1.12, z1: 3.3, r: 1.05 },
-        { l: -1.5, w: 1.05, z0: 1.3, z1: 3.4, r: 1.0 },
-        { l: -2.5, w: 0.78, z0: 1.75, z1: 3.3, r: 0.75 },
-        { l: -3.1, w: 0.48, z0: 2.25, z1: 3.2, r: 0.46 },
-      ],
-      side: "paint", top: "paint",
-      decals: [
-        // THE BANDS: two, wound round it and along it — so that as it turns they run down it, toward its mouth.
-        { mat: "liveryRed", at: (l, y, z) => { const a = Math.atan2(z - (2.2 - 0.13 * l), y) / Math.PI, q = (((a + l * 0.42 + turn) % 1) + 1) % 1; return l < 1.45 && l > -2.95 && q < 0.2; } },
-        // A dark ring where it rides on its rollers, and the lip of its mouth.
-        { mat: "trim", at: (l) => Math.abs(l + 2.05) < 0.05 || l < -3.0 },
-      ],
-    }],
-  }),
-  extra: () => {
-    const out: FreeTri[] = [];
-    // THE CHUTE: a trough from under the drum's mouth down and out behind, its two cheeks standing over its floor.
-    beam([-3.2, 2.0], [-5.1, 0.95], 0.1, 0.1, 0.6, 0, "trim", out);
-    for (const sy of [-0.3, 0.3]) beam([-3.2, 2.14], [-5.1, 1.09], 0.3, 0.22, 0.05, sy, "chrome", out);
-    return out;
-  },
-});
+const mixerAt = (id: string, turn: number): Model => {
+  /** The drum's axis, rising toward its mouth: how high it is, so far along the lorry. */
+  const axis = (l: number) => 2.38 - 0.17 * l;
+  /** A ring of the drum: round, so as wide as it is high. */
+  const ring = (l: number, R: number): Section => ({ l, w: R, z0: axis(l) - R, z1: axis(l) + R, r: R });
+  return {
+    ...lorry(id, 7.6, 2.5, 2.0, [
+      // The subframe, narrow: there is daylight under the drum either side of it.
+      { l0: 1.75, l1: -3.7, w: 0.5, z0: 0.72, z1: 1.02, mat: "trim" },
+      // WHAT CARRIES THE DRUM: the pedestal and gearbox at its head, behind the cab; a cradle with a roller each side under its track ring.
+      { l0: 1.8, l1: 1.45, w: 0.4, z0: 1.02, z1: axis(1.6) + 0.15, mat: "trim" },
+      { l0: 1.62, l1: 1.5, w: 0.2, z0: axis(1.6) - 0.2, z1: axis(1.6) + 0.2, mat: "chrome" },
+      { l0: -1.95, l1: -2.25, w: 0.95, z0: 1.02, z1: 1.2, mat: "trim" },
+      ...[1, -1].map((sg): Slab => ({ l0: -1.98, l1: -2.22, w: 0.12, wc: sg * 0.72, z0: 1.2, z1: axis(-2.1) - 0.62, mat: "chrome" })),
+      // A water tank across the frame behind the cab, under the drum's head; a mudguard over the back wheels each side.
+      { l0: 1.4, l1: 0.95, w: 0.7, z0: 1.02, z1: 1.3, inS: 0.06, mat: "chrome" },
+      ...[1, -1].map((sg): Slab => ({ l0: -1.0, l1: -3.45, w: 0.2, wc: sg * 1.04, z0: 1.12, z1: 1.2, mat: "trim" })),
+      // The frame that carries its mouth, the hopper on it, a ladder up one side.
+      ...[1, -1].map((sg): Slab => ({ l0: -3.02, l1: -3.17, w: 0.05, wc: sg * 0.72, z0: 1.02, z1: axis(-3.0) + 0.75, mat: "trim" })),
+      { l0: -2.98, l1: -3.2, w: 0.74, z0: axis(-3.0) + 0.62, z1: axis(-3.0) + 0.75, mat: "trim" },
+      { l0: -2.95, l1: -3.7, w: 0.46, z0: axis(-3.0) + 0.3, z1: axis(-3.0) + 0.95, inF: 0.2, inB: 0.05, mat: "trim" },
+      { l0: -3.3, l1: -3.4, w: 0.25, wc: 0.95, z0: 1.02, z1: axis(-3.0) + 0.3, mat: "chrome" },
+    ], [2.6, -1.7, -2.9], {
+      // THE DRUM, round and clear of the frame: narrow at its head behind the cab, fat in the middle, drawn in to its
+      // mouth and lying back toward it.
+      hulls: [{
+        sections: [ring(1.5, 0.4), ring(0.95, 0.86), ring(0, 1.08), ring(-1.2, 1.1), ring(-2.2, 0.84), ring(-3.0, 0.5)],
+        side: "paint", top: "paint",
+        decals: [
+          // THE BANDS: two, wound round it and along it — so that as it turns they run down it, toward its mouth.
+          { mat: "liveryRed", at: (l, y, z) => { const a = Math.atan2(z - axis(l), y) / Math.PI, q = (((a + l * 0.42 + turn) % 1) + 1) % 1; return l < 1.35 && l > -2.85 && q < 0.2; } },
+          // The track ring it rides its rollers on, and the lip of its mouth.
+          { mat: "trim", at: (l) => Math.abs(l + 2.1) < 0.07 || l < -2.93 },
+        ],
+      }],
+    }),
+    extra: () => {
+      const out: FreeTri[] = [];
+      // THE CHUTE: a trough from under the drum's mouth down and out behind, its two cheeks standing over its floor.
+      beam([-3.2, 2.15], [-5.1, 0.95], 0.1, 0.1, 0.6, 0, "trim", out);
+      for (const sy of [-0.3, 0.3]) beam([-3.2, 2.29], [-5.1, 1.09], 0.3, 0.22, 0.05, sy, "chrome", out);
+      return out;
+    },
+  };
+};
 /** The mixer with its drum turning: a quarter of the way from one band to the next, each look on from the last. */
 export const MIXER_LOOKS = ["mixer", "mixer1", "mixer2", "mixer3"] as const;
 const mixers = MIXER_LOOKS.map((id, k) => mixerAt(id, k / MIXER_LOOKS.length));
