@@ -50,7 +50,8 @@ describe("bakeFrame", () => {
       expect(f.ox).toBeGreaterThan(0); expect(f.ox).toBeLessThan(f.paint.w);
       expect(f.oy).toBeGreaterThan(0); expect(f.oy).toBeLessThan(f.paint.h);
       // Longest way round, at 2 texels a px, with the shadow's reach.
-      const reach = (m.length + 0.8) * TILES_PER_M * HW * 2 * 2;
+      // (Or, for what overhangs its own body — a crane's boom — as far as that reaches, either way.)
+      const reach = (Math.max(m.length, 2 * (m.overhang ?? 0)) + 0.8) * TILES_PER_M * HW * 2 * 2;
       expect(f.paint.w).toBeLessThan(reach + 8);
     }
   }, 90_000);

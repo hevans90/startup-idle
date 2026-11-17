@@ -101,6 +101,8 @@ export type Model = {
    * are, to draw over them. @see raster OVER, occupants
    */
   seats?: Seat[];
+  /** How far from its middle something of it reaches that is not its body — a crane's boom over its tail or its nose — metres: its picture is as wide as that, though it is spaced, shadowed and filed by its body's length. */
+  overhang?: number;
 };
 export type Seat = { l: number; y: number; z: number };
 /** Rows of seats two abreast from the driver's back, `gap` apart, no further back than `end`. */
@@ -1146,8 +1148,63 @@ const mixerAt = (id: string, turn: number): Model => {
 /** The mixer with its drum turning: a quarter of the way from one band to the next, each look on from the last. */
 export const MIXER_LOOKS = ["mixer", "mixer1", "mixer2", "mixer3"] as const;
 const mixers = MIXER_LOOKS.map((id, k) => mixerAt(id, k / MIXER_LOOKS.length));
+/**
+ * A MOBILE CRANE, IN TWO, as the excavator is: its CARRIER — a lorry's cab and a long flat deck on three axles, its
+ * outriggers run out and down either side — which stands as it is parked; and its UPPERWORKS, which slew on it: a
+ * turntable, the operator's cab to one side, a counterweight behind, and a telescopic boom in two sections, held by
+ * its ram. The boom LUFFS: `CRANE_REACH` is how far out its tip is in each look, metres, from steep and close to
+ * low and far, the same boom at other angles.
+ */
+const craneCarrier: Model = {
+  ...lorry("craneCarrier", 8.2, 2.5, 1.8, [
+    { l0: 2.2, l1: -4.0, w: 1.2, z0: 0.75, z1: 1.15, mat: "paint" },
+    { l0: 1.0, l1: -1.4, w: 0.95, z0: 1.15, z1: 1.3, mat: "trim" },
+    // THE OUTRIGGERS: a beam out each side fore and aft, a leg down from its end to a pad on the ground.
+    ...[1.9, -3.3].flatMap((l): Slab[] => [
+      { l0: l + 0.14, l1: l - 0.14, w: 2.25, z0: 0.62, z1: 0.82, mat: "trim" },
+      ...[1, -1].flatMap((sg): Slab[] => [
+        { l0: l + 0.1, l1: l - 0.1, w: 0.1, wc: sg * 2.2, z0: 0.06, z1: 0.82, mat: "chrome" },
+        { l0: l + 0.3, l1: l - 0.3, w: 0.3, wc: sg * 2.2, z0: 0, z1: 0.07, mat: "trim" },
+      ]),
+    ]),
+  ], [2.9, -1.9, -3.2]),
+};
+/** The boom: where it is pinned to the upperworks, and how long it is, metres. */
+const BOOM_PIN: [number, number] = [-0.7, 2.25], BOOM_LEN = 10.4;
+export const CRANE_REACH = [3.6, 4.5, 5.4, 6.2, 6.9] as const;
+/** How high a crane's boom tip is at a reach, metres. */
+export const craneTip = (reach: number) => BOOM_PIN[1] + Math.sqrt(Math.max(0, BOOM_LEN ** 2 - (reach - BOOM_PIN[0]) ** 2));
+const craneUpper = (id: string, reach: number): Model => ({
+  // (Its length is its body's, for its shadow and its place in the draw order: the boom overhangs it.)
+  id, length: 5.2, width: 2.6, overhang: 7.2, wheels: [], seats: [{ l: 0.75, y: 0.78, z: 1.75 }],
+  slabs: [
+    { l0: 1.1, l1: -1.1, w: 0.95, z0: 1.3, z1: 1.55, mat: "trim" },
+    { l0: 0.6, l1: -1.5, w: 0.7, z0: 1.55, z1: 2.5, mat: "paint" },
+    { l0: -1.5, l1: -2.6, w: 1.1, z0: 1.45, z1: 2.45, inB: 0.15, mat: "trim" },
+    { l0: 1.45, l1: 0.1, w: 0.42, wc: 0.78, z0: 1.55, z1: 3.1, mat: "glass" },
+    { l0: 1.5, l1: 0.05, w: 0.46, wc: 0.78, z0: 3.1, z1: 3.2, mat: "paint" },
+    { l0: 1.5, l1: 0.05, w: 0.46, wc: 0.78, z0: 1.55, z1: 1.95, mat: "paint" },
+  ],
+  extra: () => {
+    const out: FreeTri[] = [], tip: [number, number] = [reach, craneTip(reach)], P = BOOM_PIN;
+    const at = (t: number): [number, number] => [P[0] + (tip[0] - P[0]) * t, P[1] + (tip[1] - P[1]) * t];
+    // THE BOOM, in two sections: the base, deep and yellow; the fly out of its end, slimmer and paler; a head with its sheave.
+    beam(P, at(0.56), 0.72, 0.62, 0.62, 0, "paint", out);
+    beam(at(0.5), at(0.97), 0.5, 0.42, 0.44, 0, "liveryWhite", out, "chrome");
+    beam(at(0.95), at(1.0), 0.5, 0.5, 0.5, 0, "trim", out);
+    for (const t of [0.14, 0.3, 0.46]) beam(at(t - 0.012), at(t + 0.012), 0.76, 0.76, 0.66, 0, "trim", out);
+    // THE RAM that luffs it, from the turntable's front up to the boom's belly.
+    const r0: [number, number] = [0.9, 1.6], b = at(0.3);
+    for (const sy of [-0.3, 0.3]) ram(r0, [b[0], b[1] - 0.3], sy, out, 0.24);
+    pin(P, 0, 0.8, out, 0.16);
+    return out;
+  },
+});
+/** The crane's upperworks, a look a reach. @see CRANE_REACH */
+export const CRANE_LOOKS = ["crane0", "crane1", "crane2", "crane3", "crane4"] as const;
+const cranes = CRANE_LOOKS.map((id, k) => craneUpper(id, CRANE_REACH[k]));
 /** What builds a road. Never in the traffic. */
-export const PLANT = [paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp, ...spoils, rigUp, ...rigs, ...mixers];
+export const PLANT = [paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp, ...spoils, rigUp, ...rigs, ...mixers, craneCarrier, ...cranes];
 
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];
