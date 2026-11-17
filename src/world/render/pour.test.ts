@@ -1,41 +1,67 @@
 /**
- * Something pouring: where its quad goes, and that both dialects of its
- * shader are written from the one body.
+ * Something poured — its grains and its heap — a road growing, and the gang's rounds.
  */
 import { describe, expect, test } from "bun:test";
 
-import { POUR, pourSources, pourVerts } from "./pour";
+import { COLUMN, GRAVITY, POURS, clearPour, createPourSim, heaped, stepPour } from "./pour-sim";
 import { growSources } from "./road-grow";
 import { onRound } from "./road-plant";
 
-describe("a pour", () => {
-  test("its quad is a box on the screen round the fall, its skirt and its heap, each corner knowing where it is from the lip and carrying what it is told", () => {
-    const v = new Float32Array(4 * 20);
-    pourVerts(v, [10, 20], [16, 80], 4, 1.2, 6, { time: 3, kind: POUR.tar, head: 0.7, tail: 0.1, pile: 0.5, lit: 0xff8000, shade: 0x102030 });
-    // Wide enough either side for what flies off it; from just over the lip to under the landing.
-    expect(v[0]).toBeLessThan(10 - 4 * 4);
-    expect(v[20]).toBeGreaterThan(16 + 4 * 4);
-    expect(v[1]).toBeLessThanOrEqual(20);
-    expect(v[2 * 20 + 1]).toBeGreaterThan(80);
-    for (let k = 0; k < 4; k++) {
-      const o = k * 20;
-      // From the lip, pixels: its place less the lip's.
-      expect(v[o + 2]).toBeCloseTo(v[o] - 10, 5);
-      expect(v[o + 3]).toBeCloseTo(v[o + 1] - 20, 5);
-      expect([v[o + 4], v[o + 5], v[o + 6], v[o + 7]]).toEqual([3, 2, 0.7, 0.1].map(Math.fround));
-      // Six across to where it lands, its heap, sixty down, four half across; its taper and a metre.
-      expect([v[o + 8], v[o + 9], v[o + 10], v[o + 11], v[o + 12], v[o + 13]]).toEqual([6, 0.5, 60, 4, 1.2, 6].map(Math.fround));
-      expect(v[o + 14]).toBeCloseTo(1, 5);
-      expect(v[o + 19]).toBeCloseTo(0x30 / 255, 5);
-    }
+describe("something poured", () => {
+  const run = (s: ReturnType<typeof createPourSim>, seconds: number, pours: boolean, width = 8, o = {}) => { let landed = 0; for (let t = 0; t < seconds; t += 1 / 60) landed += stepPour(s, 1 / 60, pours, width, o); return landed; };
+
+  test("grains fall as things fall and land where they are aimed: the heap rises under the landing, and what lands is what the heap is", () => {
+    const s = createPourSim(POURS.stone);
+    s.dx = 9; s.drop = 14;
+    // Nothing has landed in the time the fall takes less a little; then it has.
+    const fall = Math.sqrt((2 * 14) / GRAVITY);
+    expect(run(s, fall * 0.7, true)).toBe(0);
+    const landed = run(s, 2, true, 8, { gain: 0.2 });
+    expect(landed).toBeGreaterThan(50);
+    expect(heaped(s)).toBeCloseTo(landed, 3);
+    // Its top is over the landing, give or take the lip's width.
+    let peak = 0;
+    s.heap.forEach((h, i) => { if (h > s.heap[peak]) peak = i; });
+    expect(Math.abs(peak - (s.heap.length >> 1)) * COLUMN).toBeLessThan(6);
+    // Stopped, the last of it falls and nothing is left in the air.
+    run(s, 2, false);
+    expect(s.n).toBe(0);
   });
 
-  test("one body, two dialects: neither left with the other's words in it", () => {
-    const { wgsl, fragment } = pourSources();
-    expect(wgsl).toContain("fn mainFragment");
-    expect(wgsl).not.toMatch(/\bfloat \w+ =/);
-    expect(fragment).toContain("void main()");
-    expect(fragment).not.toMatch(/\blet \w+ =|vec[23]<f32>/);
+  test("the heap stands no steeper than its stuff will: earth steep, blacktop all but level", () => {
+    for (const kind of [POURS.earth, POURS.stone, POURS.tar]) {
+      const s = createPourSim(kind);
+      s.dx = 0; s.drop = 20;
+      run(s, 3, true, 4, { gain: 0.3 });
+      run(s, 2, false, 4, { gain: 0.3 });
+      let steepest = 0;
+      for (let i = 0; i + 1 < s.heap.length; i++) steepest = Math.max(steepest, Math.abs(s.heap[i] - s.heap[i + 1]) / COLUMN);
+      expect(steepest).toBeLessThanOrEqual(kind.rest + 0.1);
+      expect(heaped(s)).toBeGreaterThan(20);
+    }
+    // And so, of as much of each, blacktop lies lower and wider than earth.
+    const tops = [POURS.earth, POURS.tar].map((kind) => { const s = createPourSim(kind); s.drop = 20; run(s, 3, true, 4, { rate: 100, gain: 5.3 / (kind.grain * kind.grain * 0.8) }); run(s, 2, false, 4); return Math.max(...s.heap); });
+    expect(tops[1]).toBeLessThan(tops[0] * 0.6);
+  });
+
+  test("walls hold it: nothing heaps beyond them; and what is taken away goes", () => {
+    const s = createPourSim(POURS.earth, 6);
+    s.drop = 16;
+    run(s, 3, true, 6);
+    const mid = s.heap.length >> 1, edge = Math.round(6 / COLUMN);
+    s.heap.forEach((h, i) => { if (Math.abs(i - mid) > edge) expect(h).toBe(0); });
+    expect(s.heap[mid + edge]).toBeGreaterThan(0);
+    const full = heaped(s);
+    run(s, 2, false, 6, { drain: 1 });
+    expect(heaped(s)).toBeLessThan(full * 0.2);
+    // And a grain stands for as much as it is told to.
+    const a = createPourSim(POURS.stone), b = createPourSim(POURS.stone);
+    a.drop = b.drop = 12;
+    const whole = run(a, 1, true, 6), tenth = run(b, 1, true, 6, { gain: 0.1 });
+    expect(tenth).toBeGreaterThan(0);
+    expect(tenth / whole).toBeLessThan(0.2);
+    clearPour(a);
+    expect(heaped(a)).toBe(0);
   });
 });
 

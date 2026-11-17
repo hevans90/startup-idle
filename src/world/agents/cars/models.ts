@@ -532,13 +532,6 @@ const boxLorry = lorry("boxLorry", 7.0, 2.45, 1.9, [
   { l0: -3.5, l1: -3.52, w: 0.015, z0: 1.1, z1: 3.35, mat: "trim" },
 ], [2.45, -1.9]);
 
-/** A tipper: a deep steel body, heaped with gravel, on two axles at the back. */
-const tipper = lorry("tipper", 6.6, 2.4, 1.9, [
-  { l0: 1.3, l1: -3.3, w: 1.18, z0: 1.05, z1: 2.25, inB: 0.15, mat: "paint", faces: { top: "gravel" } },
-  { l0: 0.9, l1: -2.6, w: 1.0, z0: 2.25, z1: 2.6, inF: 0.6, inB: 0.6, inS: 0.5, mat: "gravel" },
-  { l0: 1.55, l1: 1.3, w: 1.1, z0: 2.25, z1: 2.4, mat: "paint" },
-], [2.25, -1.55, -2.65]);
-
 /** The Machine's lorry: white, no windows anyone sits behind, a violet bar of light, dark crates. */
 const machineLorry = lorry("machineLorry", 6.6, 2.4, 1.5, [
   { l0: 1.75, l1: -3.3, w: 1.2, z0: 1.0, z1: 1.16, mat: "bed" },
@@ -917,8 +910,11 @@ function tipped(id: string, deg: number): Model {
       box(4.4, 4.95, 1.33, 1.45, 0, 2.2, "paint", out);
       // Ribs down its sides.
       for (const sg of [-1, 1]) for (const x of [0.9, 1.9, 2.9, 3.9]) box(x - 0.05, x + 0.05, 0.1, 1.25, sg * 1.2, 0.05, "trim", out);
-      // WHAT IS LEFT OF THE LOAD, slid down to the tail: a wedge, deep at the tail, thinning up the floor.
-      prism([at(0.05, 0.1), at(3.0, 0.1), at(1.7, 0.75), at(0.05, 1.0)], 0, 2.2, "gravel", out);
+      // ITS LOAD: heaped the length of it while it lies level; tipped, what is left slid down to the tail — a wedge,
+      // deep there and thinning up the floor, less of it the higher it is.
+      const left = 1 - deg / 60;
+      if (deg < 5) prism([at(0.1, 0.1), at(4.3, 0.1), at(4.25, 1.15), at(3.2, 1.5), at(1.2, 1.5), at(0.15, 1.15)], 0, 2.2, "gravel", out);
+      else prism([at(0.05, 0.1), at(0.6 + 3.4 * left, 0.1), at(0.4 + 2.0 * left, 0.35 + 0.6 * left), at(0.05, 0.55 + 0.6 * left)], 0, 2.2, "gravel", out);
       // THE TAILGATE, hinged along its top edge and hanging straight down from it.
       const top = at(0, 1.25);
       prism([[top[0] - 0.05, top[1]], [top[0] + 0.03, top[1]], [top[0] + 0.03, top[1] - 1.15], [top[0] - 0.05, top[1] - 1.15]], 0, 2.3, "paint", out);
@@ -931,9 +927,14 @@ function tipped(id: string, deg: number): Model {
     },
   };
 }
-const tipperMid = tipped("tipperMid", 20), tipperUp = tipped("tipperUp", 42);
+/**
+ * THE TIPPER, at every angle the one lorry: lying level and full as it drives, and on up in steps as it tips — so
+ * nothing about it changes but the angle of its body and how much is left in it.
+ */
+export const TIP_LOOKS = ["tipper", "tipper1", "tipper2", "tipperUp"] as const;
+const tipper = tipped("tipper", 0), tipper1 = tipped("tipper1", 14), tipper2 = tipped("tipper2", 28), tipperUp = tipped("tipperUp", 42);
 /** What builds a road. Never in the traffic. */
-export const PLANT = [paver, roller, exTracks, exDig, exDig2, exLift, exDump, tipperMid, tipperUp];
+export const PLANT = [paver, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp];
 
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];
