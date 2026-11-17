@@ -14,7 +14,7 @@ import { Container, Graphics, Sprite } from "pixi.js";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { GANGS, GAP, TRADES, frontAt, plannedGrid, stageOf, type JobCell, type RoadJob } from "../roads/jobs";
+import { GANGS, GAP, TRADES, frontAt, plannedGrid, setOutAt, stageOf, type JobCell, type RoadJob } from "../roads/jobs";
 import { looksOf, type Look } from "../roads/looks";
 import type { BandLayer } from "./bands";
 import { bridgePiecesOf } from "./bridge-props";
@@ -22,7 +22,13 @@ import { plannedTile, unlinedLooks, type PavedLayer } from "./paved";
 import { createGrow, type Grow } from "./road-grow";
 
 const EARTH = 0x7a5a3c, RUT = 0x5c4330, STONE = 0x8f8b84, GRIT = [0xa7a39b, 0x76726c], BLACK = 0x2c2c2f, KERB = 0x9c9b97, LINE = 0xe9e7df;
-const TAPE = 0xf2c230, PEG = 0xc9972a, SLAB = 0xaeaca6, SLAB_SIDE = 0x7f7d78;
+const PEG = 0xd9b26a, SLAB = 0xaeaca6, SLAB_SIDE = 0x7f7d78;
+/** The plan's own blue-white, as a drawing's; the tape's red and white; a ribbon's orange; the spray on the ground. */
+const PLAN = 0x9fe0ff, TAPE_RED = 0xe2382e, TAPE_WHITE = 0xf4f2ea, RIBBON = 0xff8a1f, SPRAY = 0xff7ab8;
+/** How finely the setting out is redrawn as it goes: steps a tile. */
+const SET_FINE = 16;
+/** A trade's front as its shader is told it: nowhere till the trade has begun, and begun from behind the job's first edge — every front is ragged and reaches ahead of itself, and must not reach onto ground its trade has not come to. */
+const told = (f: number) => (f <= 0 ? -2 : f - 0.65 * (1 - Math.min(1, f)) ** 2);
 const hash = (n: number) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
 
 /** How much of the road shows through, once the sub-base is down and before it is surfaced: the road taking shape on the formation. */
@@ -54,6 +60,13 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
    * the cut, the stone, the blacktop and the lines each spreading over it as its trade comes. @see road-grow
    */
   const growing = new Map<number, { grow: Grow; band: number }>();
+  /**
+   * THE LINE AS ORDERED, AND AS SET OUT: a band's three drawings — what is sprayed on the ground, under the road as
+   * it grows; the plan, which breathes; the pegs and the tape, over all of it — and each planned cell's own tile,
+   * shown pale till its pegs are in. Drawn again only as the setting out moves on. @see setOutAt
+   */
+  const setOf = new Map<number, { low: Graphics; plan: Graphics; high: Graphics }>();
+  let ghosts: { sp: Sprite; j: RoadJob; n: number; c: number }[] = [], setKey = "";
   const ungrow = () => { for (const c of growing.values()) c.grow.destroy(); growing.clear(); };
   const clear = () => { for (const c of drawn) { c.parent?.removeChild(c); c.destroy({ children: true }); } drawn = []; };
   /** Tile coordinates to the screen, at a height. */
@@ -168,12 +181,26 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             }
           }
         });
+        // THE ROAD AS IT WILL BE, pale on the ground it is ordered on: each cell's own tile, till its pegs are in.
+        setOf.clear(); ghosts = []; setKey = "";
+        g.roadJobs.forEach((j, n) => {
+          for (let c = j.opened; c < j.cells.length; c++) {
+            const cell = j.cells[c], layer = bands.pavedOf[bandOf(cell.x, cell.y)];
+            if (!cell.fresh || !layer || (n < GANGS && stageOf(j, c) > 0)) continue;
+            const sp = tileOf(cell.x, cell.y, true);
+            if (sp) { sp.alpha = 0.5; sp.tint = 0x9fd6ff; layer.addChild(sp); drawn.push(sp); ghosts.push({ sp, j, n, c }); }
+          }
+        });
         g.roadJobs.forEach((j, n) => {
           for (let c = j.opened; c < j.cells.length; c++) {
             const cell = j.cells[c];
             if (!cell.fresh) continue;
             const band = bandOf(cell.x, cell.y), layer = bands.pavedOf[band];
             if (!layer) continue;
+            if (!setOf.has(band)) {
+              const mk = () => { const q = new Graphics(); q.eventMode = "none"; q.context.batchMode = "batch"; layer.addChild(q); drawn.push(q); return q; };
+              setOf.set(band, { low: mk(), plan: mk(), high: mk() });
+            }
             let gfx = of.get(band);
             if (!gfx) { gfx = new Graphics(); gfx.eventMode = "none"; gfx.context.batchMode = "batch"; layer.addChild(gfx); of.set(band, gfx); drawn.push(gfx); }
             // A job waiting its turn is staked out and no more.
@@ -193,15 +220,6 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
               if (sp) { if (stage === 2) sp.alpha = FORMING; layer.addChild(sp); drawn.push(sp); }
               else if (!cell.deck || stage >= 3) ground(gfx, scale, cell, w, stage, h);
             }
-            // STAKED till the blacktop is down: tape along each side of the line, a peg at each corner; a wash over a
-            // cell nothing has been done to yet, so the line reads from far off.
-            if (stage < 3) {
-              if (stage === 0) gfx.poly(rect(scale, cell.x - 0.5, cell.y - 0.5, cell.x + 0.5, cell.y + 0.5, h)).fill({ color: TAPE, alpha: cell.deck ? 0.06 : 0.1 });
-              const lw = Math.max(1, 1.3 * scale);
-              if (w.ax !== 0 || w.ay !== 0) for (const a of [-0.5, 0.5]) { const s = strip(scale, cell, w, a, a, h); gfx.moveTo(s[0], s[1]).lineTo(s[2], s[3]).stroke({ color: TAPE, width: lw, alpha: 0.85 }); }
-              else gfx.poly(rect(scale, cell.x - 0.5, cell.y - 0.5, cell.x + 0.5, cell.y + 0.5, h)).stroke({ color: TAPE, width: lw, alpha: 0.85 });
-              for (const [du, dv] of [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]) { const [x, y] = pt(scale, cell.x + du, cell.y + dv, h); gfx.rect(x - 1.2 * scale, y - 5 * scale, 2.4 * scale, 5 * scale).fill({ color: PEG }); }
-            }
             if (!P || n >= GANGS) continue;
             // WHAT STANDS ROUND IT, where a gang is at work: a cone each side of every other cell till it is lined; a
             // barrier across where the open road stops.
@@ -213,9 +231,12 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
       }
       // THE ROAD GROWING, every frame: each cell of a job at work that a trade has come near, its four fronts told
       // to its shader — how far past the cell's near edge each has got. What grows there is the tile it will be.
-      const alive = new Set<number>();
+      const alive = new Set<number>(), raised = new Set<number>();
       if (grows) g.roadJobs.slice(0, GANGS).forEach((j) => {
         const f = [0, 1, 2, 3].map((t) => frontAt(j, t)), now = performance.now() / 1000;
+        // (Nothing grows on a job nobody digs yet.)
+        if (f[0] <= 0) return;
+        const tf = f.map(told);
         for (let c = j.opened; c < j.cells.length; c++) {
           const cell = j.cells[c];
           // (A ragged front reaches a little ahead of where its trade is: a cell is begun before the trade is on it.)
@@ -233,11 +254,83 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             growing.set(i, it);
           }
           // (Over what is drawn whole, which was just put back under it.)
-          if (rebuilt || it.band !== band || !it.grow.mesh.parent) { layer.addChild(it.grow.mesh); it.band = band; }
-          it.grow.fronts(f[0] - c, f[1] - c, f[2] - c, f[3] - c, now);
+          if (rebuilt || it.band !== band || !it.grow.mesh.parent) { layer.addChild(it.grow.mesh); it.band = band; raised.add(band); }
+          it.grow.fronts(tf[0] - c, tf[1] - c, tf[2] - c, tf[3] - c, now);
         }
       });
       for (const [i, it] of growing) if (!alive.has(i)) { it.grow.destroy(); growing.delete(i); }
+      // (The pegs and the tape stand over the road growing between them.)
+      for (const band of raised) { const s = setOf.get(band), layer = bands.pavedOf[band]; if (s && layer) layer.addChild(s.high); }
+
+      // ── THE LINE, ORDERED AND SET OUT ───────────────────────────────────────────────────
+      // ORDERED, it is a PLAN: the road it will be, pale, inside a bright line round the whole of it. Then a crew
+      // walks it and it becomes a SITE a step at a time — a peg driven at every corner, tape strung peg to peg with
+      // ribbons on it, the centre sprayed on the ground — and the plan is gone from each cell as its pegs go in.
+      const sk = g.roadJobs.map((j, n) => (n < GANGS ? [0, 1, 2].map((q) => Math.floor(setOutAt(j, q) * SET_FINE)).join(".") : "w")).join("|");
+      if (rebuilt || sk !== setKey) {
+        setKey = sk;
+        for (const s of setOf.values()) { s.low.clear(); s.plan.clear(); s.high.clear(); }
+        /** Every cell some job is to build: a plan's line runs round all of them together, not between two of them. */
+        const mine = new Set<number>();
+        for (const j of g.roadJobs) for (let c = j.opened; c < j.cells.length; c++) if (j.cells[c].fresh) mine.add(idx(g, j.cells[c].x, j.cells[c].y));
+        const lw = Math.max(1.5, 2.2 * scale), up = 6 * scale;
+        for (const gh of ghosts) gh.sp.visible = gh.n >= GANGS || (setOutAt(gh.j, 0) < gh.c + 1 && stageOf(gh.j, gh.c) === 0) || (gh.j.cells[gh.c].deck && stageOf(gh.j, gh.c) < 2);
+        g.roadJobs.forEach((j, n) => {
+          const at = n < GANGS ? [0, 1, 2].map((q) => setOutAt(j, q)) : [0, 0, 0];
+          for (let c = j.opened; c < j.cells.length; c++) {
+            const cell = j.cells[c];
+            if (!cell.fresh) continue;
+            const s = setOf.get(bandOf(cell.x, cell.y)), stage = n < GANGS ? stageOf(j, c) : 0;
+            if (!s || stage >= 3) continue;
+            const w = wayAt(j, c), h = cell.deck ? cell.z : g.height[idx(g, cell.x, cell.y)];
+            /** The cell's edges that are the line's own — none of them between two cells to be built — each with how far along the job's way its ends are. */
+            const sides: { a: number[]; b: number[]; fa: number; fb: number }[] = [];
+            for (const [ex, ey] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              const x = cell.x + ex, y = cell.y + ey;
+              // (Nor where it meets a road that is there: nothing is strung across the way in.)
+              if (x >= 0 && y >= 0 && x < g.w && y < g.h && (mine.has(idx(g, x, y)) || g.paved[idx(g, x, y)] !== 0)) continue;
+              const a = [cell.x + ex * 0.5 - ey * 0.5, cell.y + ey * 0.5 - ex * 0.5], b = [cell.x + ex * 0.5 + ey * 0.5, cell.y + ey * 0.5 + ex * 0.5];
+              const far = (q: number[]) => (q[0] - cell.x) * w.ix + (q[1] - cell.y) * w.iy + 0.5;
+              sides.push(far(a) <= far(b) ? { a, b, fa: far(a), fb: far(b) } : { a: b, b: a, fa: far(b), fb: far(a) });
+            }
+            const pegged = at[0] >= c + 1 || stage > 0;
+            if (!pegged || (cell.deck && stage < 2)) {
+              // THE PLAN: a wash, and the line round it — bright, and thick enough to read from far off.
+              s.plan.poly(rect(scale, cell.x - 0.5, cell.y - 0.5, cell.x + 0.5, cell.y + 0.5, h)).fill({ color: 0x3fb4ff, alpha: 0.26 });
+              for (const e of sides) { const [x0, y0] = pt(scale, e.a[0], e.a[1], h), [x1, y1] = pt(scale, e.b[0], e.b[1], h); s.plan.moveTo(x0, y0).lineTo(x1, y1).stroke({ color: PLAN, width: lw * 1.6, alpha: 1, cap: "round" }); }
+              // Its middle, in dashes the way it runs.
+              if (w.ax !== 0 || w.ay !== 0) for (const l of [-0.42, -0.08, 0.26]) s.plan.poly(strip(scale, cell, w, -0.03, 0.03, h, l, l + 0.18)).fill({ color: PLAN, alpha: 0.95 });
+            }
+            if (cell.deck || n >= GANGS) continue;
+            // PEGS, once driven: a timber at each corner, its top painted.
+            if (pegged) for (const [du, dv] of [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]) {
+              const [x, y] = pt(scale, cell.x + du, cell.y + dv, h);
+              s.high.rect(x - 1.4 * scale, y - up - scale, 2.8 * scale, up + scale).fill({ color: PEG });
+              s.high.rect(x - 1.4 * scale, y - up - scale, 2.8 * scale, 2.2 * scale).fill({ color: TAPE_RED });
+            }
+            // TAPE, as far as it has been run out: peg top to peg top, red and white, a ribbon hung from it here and there.
+            const run = stage > 0 ? 1 : Math.max(0, Math.min(1, at[1] - c));
+            if (run > 0) for (const e of sides) {
+              if (e.fa > run) continue;
+              const k = e.fb > e.fa ? Math.min(1, (run - e.fa) / (e.fb - e.fa)) : 1, bits = Math.max(1, Math.round(6 * k));
+              for (let q = 0; q < bits; q++) {
+                const t0 = (q / bits) * k, t1 = ((q + 1) / bits) * k;
+                const [x0, y0] = pt(scale, e.a[0] + (e.b[0] - e.a[0]) * t0, e.a[1] + (e.b[1] - e.a[1]) * t0, h), [x1, y1] = pt(scale, e.a[0] + (e.b[0] - e.a[0]) * t1, e.a[1] + (e.b[1] - e.a[1]) * t1, h);
+                s.high.moveTo(x0, y0 - up + scale).lineTo(x1, y1 - up + scale).stroke({ color: q & 1 ? TAPE_WHITE : TAPE_RED, width: Math.max(1, 1.7 * scale) });
+                if (q % 2 === 1) s.high.poly([x0 - 1.1 * scale, y0 - up + 1.6 * scale, x0 + 1.1 * scale, y0 - up + 1.6 * scale, x0, y0 - up + 5 * scale]).fill({ color: RIBBON });
+              }
+            }
+            // SPRAYED, the centre of it: dashes the way it runs and a cross at the cell's middle — till it is dug.
+            const mk = Math.max(0, Math.min(1, at[2] - c));
+            if (stage === 0 && mk > 0) {
+              if (w.ix !== 0 || w.iy !== 0) for (const l of [0.08, 0.6]) { if (l >= mk) continue; const l1 = Math.min(mk, l + 0.28); s.low.poly(strip(scale, cell, { ax: w.ix, ay: w.iy }, -0.022, 0.022, h, w.ix + w.iy > 0 ? l - 0.5 : 0.5 - l1, w.ix + w.iy > 0 ? l1 - 0.5 : 0.5 - l)).fill({ color: SPRAY, alpha: 0.95 }); }
+              if (mk > 0.5) for (const [du, dv] of [[1, 1], [1, -1]]) { const [x0, y0] = pt(scale, cell.x - du * 0.07, cell.y - dv * 0.07, h), [x1, y1] = pt(scale, cell.x + du * 0.07, cell.y + dv * 0.07, h); s.low.moveTo(x0, y0).lineTo(x1, y1).stroke({ color: SPRAY, width: Math.max(1, 1.4 * scale), alpha: 0.95 }); }
+            }
+          }
+        });
+      }
+      // (The plan breathes, so the eye finds it.)
+      if (setOf.size) { const a = 0.78 + 0.22 * Math.sin(performance.now() / 380); for (const s of setOf.values()) s.plan.alpha = a; }
       // THE MOVING EDGES, where there is no painter: in the cell a trade is passing through, what it leaves behind
       // it as far as it has got.
       const live = new Set<string>();
@@ -280,6 +373,6 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
       });
       for (const [id, e] of edges) if (!live.has(id)) { if (e.tile) { e.tile.mask = null; e.tile.parent?.removeChild(e.tile); e.tile.destroy(); } e.gfx.parent?.removeChild(e.gfx); e.gfx.destroy(); edges.delete(id); }
     },
-    destroy() { clear(); ungrow(); for (const e of edges.values()) { if (e.tile) { e.tile.mask = null; e.tile.destroy(); } e.gfx.parent?.removeChild(e.gfx); e.gfx.destroy(); } edges.clear(); },
+    destroy() { clear(); setOf.clear(); ghosts = []; ungrow(); for (const e of edges.values()) { if (e.tile) { e.tile.mask = null; e.tile.destroy(); } e.gfx.parent?.removeChild(e.gfx); e.gfx.destroy(); } edges.clear(); },
   };
 }

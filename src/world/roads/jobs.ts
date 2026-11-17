@@ -55,8 +55,20 @@ export type RoadJob = {
   told?: boolean;
 };
 
-/** Seconds before a gang is on a job it has been given. */
-export const ARRIVE = 5;
+/**
+ * A ROAD IS SET OUT BEFORE IT IS DUG: a crew walks its line from the end it
+ * starts at, in three steps that follow one another — pegs driven at every
+ * corner, tape strung peg to peg, the centre sprayed on the ground. Seconds
+ * before the first of them is on the line; seconds a tile; and tiles each
+ * step follows the one ahead by.
+ */
+export const SET_IN = 2, SET_PACE = 3, SET_GAP = 2, SET_STEPS = 3;
+/** Seconds before the gang that digs is on a job it has been given: the setting out well ahead of it by then, and faster than it ever after. */
+export const ARRIVE = SET_IN + ((SET_STEPS - 1) * SET_GAP + 2) * SET_PACE;
+/** How far along a job a step of its setting out has got, in cells from its first one's near edge: `step` 0 the pegs, 1 the tape, 2 the marks. */
+export const setOutAt = (j: Pick<RoadJob, "t" | "cells">, step: number) => Math.max(0, Math.min(j.cells.length, (j.t - SET_IN) / SET_PACE - step * SET_GAP));
+/** Seconds from its order until a job is set out from end to end. */
+export const setOutSeconds = (j: Pick<RoadJob, "cells">) => SET_IN + (j.cells.length + (SET_STEPS - 1) * SET_GAP) * SET_PACE;
 /**
  * Seconds a tile, each trade: the train of them moves this fast along a level
  * road. Slow enough to watch the work done — a bucket filled and tipped, a

@@ -11,6 +11,10 @@
  *    pouring off its tail; the mat behind the screed steams; a roller works
  *    it in passes, a lane over each time.
  *  - THE LINING TRUCK last, a puff of white at its tail.
+ *  - BEFORE ANY OF IT, THE SETTING OUT: five on foot walk the line as it was
+ *    ordered — two driving a peg at every corner, one each side; two behind
+ *    them running the tape out peg to peg; one down the middle with a spray
+ *    can — and their pickup after them. @see roads/jobs setOutAt
  *  - SIX IN HI-VIS, each walking a round of their own: two raking behind the
  *    screed, one shovelling between the hopper and the mat's edge, a banksman
  *    at the lorry's cab, one walking the roller's edge, the foreman.
@@ -26,7 +30,7 @@ import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { TIP_LOOKS } from "../agents/cars/models";
-import { ARRIVE, GANGS, GAP, PACE, frontAt, type RoadJob } from "../roads/jobs";
+import { ARRIVE, GANGS, GAP, PACE, frontAt, setOutAt, setOutSeconds, type RoadJob } from "../roads/jobs";
 import type { BandLayer } from "./bands";
 import { COLUMN, POURS, carry, createPourSim, eachColumn, eachGrain, stepPour, type PourKind, type PourRun, type PourSim } from "./pour-sim";
 
@@ -135,7 +139,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
         const P = bakedPeople() ? peopleLoaded() : null;
         if (bakedPeople() && !P) void peopleSprites();
         g.roadJobs.slice(0, GANGS).forEach((j) => {
-          if (j.t <= ARRIVE || !cars) return;
+          if (!cars) return;
           const still = j.stalled > 0, n = j.cells.length, f = [0, 1, 2, 3].map((s) => frontAt(j, s));
           const w = (clocks.get(j.id) ?? j.id * 3.7) + (still ? 0 : dt);
           clocks.set(j.id, w);
@@ -264,6 +268,48 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             const up = still ? 0 : q < TIP.in ? 1 - (TIP.in - q) / rise : q > TIP.in + TIP.up ? 1 - (q - TIP.in - TIP.up) / rise : 1;
             return TIP_LOOKS[Math.max(0, Math.min(3, Math.round(up * 3)))];
           };
+
+          // ── THE SETTING OUT: who walks the line before it is dug ───────────────────────────
+          // There as the order is given, gone when the last of the line is marked.
+          const shown = Math.max(0, Math.min(1, j.t / 1.2, (setOutSeconds(j) + 1.5 - j.t) / 1.5));
+          if (shown > 0) {
+            const so = [0, 1, 2].map((q) => setOutAt(j, q));
+            /** A place on the line, or off either end of it: `p` cells along, a cell's middle a whole number. */
+            const lineAt = (p: number): At => { const q = Math.max(0, Math.min(n - 1, p)), at = alongJob(g, j, q); at.x += Math.cos(at.heading) * (p - q); at.y += Math.sin(at.heading) * (p - q); return at; };
+            // A PEG A CORNER: across a cell to its far corners, then the peg driven there.
+            const pc = Math.min(n - 1, Math.floor(so[0])), pfr = so[0] - pc, driving = so[0] < n && pfr >= 0.6;
+            const pegAt = so[0] >= n ? n - 0.5 : pc - 0.5 + Math.min(1, pfr / 0.6);
+            // The can: a burst, a pace, a burst.
+            const spraying = so[2] > 0 && so[2] < n && (so[2] * 2) % 1 < 0.55;
+            const crew: { al: number; ac: number; pose: "work" | "stand" | "walk"; face: number }[] = [
+              { al: pegAt, ac: 0.5, pose: driving ? "work" : so[0] < n && j.t > 0 ? "walk" : "stand", face: driving ? RIGHT : 0 },
+              { al: pegAt, ac: -0.5, pose: driving ? "work" : so[0] < n && j.t > 0 ? "walk" : "stand", face: driving ? LEFT : 0 },
+              { al: so[1] - 0.5, ac: 0.6, pose: so[1] > 0 && so[1] < n ? "walk" : "stand", face: 0 },
+              { al: so[1] - 0.5, ac: -0.6, pose: so[1] > 0 && so[1] < n ? "walk" : "stand", face: 0 },
+              { al: so[2] - 0.5, ac: 0.06, pose: spraying ? "work" : so[2] > 0 && so[2] < n ? "walk" : "stand", face: 0 },
+            ];
+            if (P) crew.forEach((r, k) => {
+              const at = lineAt(r.al), id = `${j.id}:set${k}`;
+              seenH.add(id);
+              let hnd = hands.get(id);
+              if (!hnd) {
+                const c = new Container(); c.eventMode = "none";
+                // (White hats: the engineers, not the gang.)
+                const parts = [SKIN, LEGS, k === 4 ? 0xe8e23a : 0xf47b20, 0xf2f2f2, 0xffffff].map((tint) => { const sp = new Sprite(); sp.tint = tint; c.addChild(sp); return sp; });
+                hnd = { c, parts, key: "", band: -1 };
+                hands.set(id, hnd);
+              }
+              const px = at.x - Math.sin(at.heading) * r.ac, py = at.y + Math.cos(at.heading) * r.ac;
+              hnd.key = posePerson(hnd.parts, P, "builder", r.pose, at.heading + r.face, r.pose === "walk" ? j.t * 7.5 + k : r.pose === "work" ? j.t * 6 + k * 1.7 : 0, scale, 0.93 + 0.03 * (k % 3), hnd.key);
+              const x = (px - py) * HW * scale, y = (px + py) * HH * scale - at.z * HEIGHT_UNIT * scale;
+              for (const sp of hnd.parts) sp.position.set(x, y);
+              hnd.c.alpha = shown;
+              hnd.band = into(hnd.c, hnd.band, px, py, FEET);
+            });
+            // THEIR PICKUP after them, with the pegs and the tape in the back of it.
+            if (so[2] > 1.6) { const u = place("survey", lineAt(Math.min(n - 1, so[2] - 1.9)), [{ look: "pickup", tint: YELLOW }]); if (u) u.c.alpha = shown * Math.min(1, (so[2] - 1.6) / 0.4); }
+          }
+          if (j.t <= ARRIVE) return;
 
           // ── THE EXCAVATOR, and the lorry it loads ──────────────────────────────────────────
           const digAt = Math.max(0, f[0] - 0.62);

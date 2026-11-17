@@ -95,7 +95,7 @@ sheet.
 
 ## What it looks like
 
-- **The line staked** the moment it is ordered: pegs and tape along the path,
+- **The line a plan, then set out** (built: a blue plan at the order; a crew pegs, tapes and marks it ahead of the digging). First written as: staked the moment it is ordered: pegs and tape along the path,
   the cursor's ghost left standing. Cones and barriers where it meets an open
   road.
 - **The ground in stages**, painted by the road painter itself so each stage

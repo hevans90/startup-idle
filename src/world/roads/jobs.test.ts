@@ -13,7 +13,7 @@ import { structureDef } from "../structures/def";
 import { touchesRoad, validatePlacement } from "../structures/place";
 import { idx, setHeight, type Grid } from "../grid";
 import { roadCost } from "../../game/build-cost";
-import { ARRIVE, GANGS, GAP, PACE, TILES_PER_LOAD, frontOf, jobSeconds, lengthsOf, loadPrice, plannedGrid, stageOf } from "./jobs";
+import { ARRIVE, GANGS, GAP, PACE, SET_GAP, SET_STEPS, TILES_PER_LOAD, frontAt, frontOf, jobSeconds, lengthsOf, loadPrice, plannedGrid, setOutAt, setOutSeconds, stageOf } from "./jobs";
 import { connects, isPaved } from "./mask";
 import { rampNeed } from "./ramp-derive";
 
@@ -319,4 +319,22 @@ describe("roads ordered at random over generated maps", () => {
       }
     }
   }, 180_000);
+});
+
+describe("a road is set out before it is dug", () => {
+  test("pegs, tape and marks follow one another down the line, and the digging never catches the last of them", () => {
+    const cells = Array.from({ length: 30 }, (_, k) => ({ x: k, y: 0, z: 0, deck: false, from: 0, fresh: true }));
+    const j = { t: 0, tm: 0, cells } as unknown as Parameters<typeof frontAt>[0];
+    expect([0, 1, 2].map((q) => setOutAt(j, q))).toEqual([0, 0, 0]);
+    for (let t = 0; t <= setOutSeconds(j) + 400; t += 0.5) {
+      j.t = t; j.tm = t;
+      const at = [0, 1, 2].map((q) => setOutAt(j, q)), dig = frontAt(j, 0);
+      for (let q = 1; q < SET_STEPS; q++) { expect(at[q]).toBeLessThanOrEqual(at[q - 1]); if (at[q] > 0 && at[q - 1] < cells.length) expect(at[q - 1] - at[q]).toBeCloseTo(SET_GAP, 6); }
+      // What is dug has been pegged, taped and marked — with room in hand until the line's end.
+      if (dig > 0 && at[2] < cells.length) expect(at[2] - dig).toBeGreaterThan(1.5);
+      if (t >= setOutSeconds(j)) expect(at[2]).toBe(cells.length);
+    }
+    j.t = ARRIVE;
+    expect(frontAt(j, 0)).toBe(0);
+  });
 });
