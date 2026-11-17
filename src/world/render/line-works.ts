@@ -200,9 +200,9 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         }
         }
         // SKIDS, two to a length, where each length lies from when the lorry has passed until the crane takes it.
-        for (const half of [0.25, 0.75]) {
+        for (const half of [0.75, 1.25]) {
           const p = c + half;
-          if (f[MAIN.string] <= p + 0.2 || Math.floor(f[MAIN.set] * 2) > Math.round(p * 2 - 0.5)) continue;
+          if (p > n - 0.5 || f[MAIN.string] <= p + 0.2 || Math.floor(f[MAIN.set] * 2) - 1 > Math.round(p * 2 - 1.5)) continue;
           const a = by(p, SKID), ch = Math.cos(a.heading), sh = Math.sin(a.heading);
           for (const e of [-0.14, 0.14]) box(a.x + ch * e, a.y + sh * e, 0.03 + 0.04 * Math.abs(sh), 0.03 + 0.04 * Math.abs(ch), 0, 0.07, h, 0xb08a5a, 0x9a7347, 0x7b5b38);
         }
@@ -266,17 +266,21 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     // ── EVERY LENGTH NOT YET PART OF THE RUN, where it is: two to a tile, each the real tube ──
     // On its skids from when the lorry has passed; in the crane's slings in its turn; set on its plinths and waiting,
     // till the pipe's own layer has it. (A length is half a tile: `i` counts them from the line's first.)
-    const turn = Math.floor(f[MAIN.set] * 2), lf = f[MAIN.set] * 2 - turn, setting = f[MAIN.set] > 0 && f[MAIN.set] < n;
+    // The pipe runs from the middle of its first tile to the middle of its last — as the main does — so its lengths
+    // are the halves of THAT: one fewer tile of them than the line has tiles, none hanging off either end.
+    const lengths = Math.max(0, 2 * (n - 1)), turn = Math.floor(f[MAIN.set] * 2) - 1, lf = f[MAIN.set] * 2 - 1 - turn, setting = turn >= 0 && turn < lengths;
     // (Up off the skids, out over the line as the boom comes down, and lowered the last of the way.)
     const go = Math.max(0, Math.min(1, (lf - 0.08) / 0.84)), e = go * go * (3 - 2 * go);
     const rk = Math.max(0, Math.min(CRANE_REACH.length - 1, Math.round(e * (CRANE_REACH.length - 1)))), reach = CRANE_REACH[rk] * T;
     const REST = 0.07 + R_HS, slung = { across: CRANE_AT - reach * NEAR, z: REST + (SET_Z - REST) * e + 1.1 * Math.sin(Math.PI * e) };
     let load: { x: number; y: number; a: { x: number; y: number; heading: number } } | null = null;
-    for (let i = 0; i < n * 2; i++) {
-      const p = (i + 0.5) / 2;
+    for (let i = 0; i < lengths; i++) {
+      const k = Math.round((i + 0.5) / 2), bent = k > 0 && k < n - 1 && (j.cells[k + 1].x - j.cells[k].x !== j.cells[k].x - j.cells[k - 1].x || j.cells[k + 1].y - j.cells[k].y !== j.cells[k].y - j.cells[k - 1].y);
+      // (At a bend the main turns through an elbow: the two lengths that meet there stop short of the corner.)
+      const p = (i + 1.5) / 2, ps = bent ? p + Math.sign(p - 0.5 - k) * 0.12 : p;
       // (Set, it shows until it is part of the run — or, in a trench, until the trench is filled over it.)
-      if (i < turn) { if (under ? p > f[SEWER.fill] : p > laid - 0.5) length(`l${i}`, p, 0, SET_Z, under ? 0.1 : 0.3); }
-      else if (i === turn && setting) load = length(`l${i}`, p, slung.across, slung.z, 0.5);
+      if (i < turn) { if (under ? p > f[SEWER.fill] : p > laid - 0.5) length(`l${i}`, ps, 0, SET_Z, under ? 0.1 : 0.3); }
+      else if (i === turn && setting) load = length(`l${i}`, ps, slung.across, slung.z, 0.5);
       else if (f[MAIN.string] > p + 0.2) length(`l${i}`, p, SKID, REST, 0.1);
       else break;
     }
@@ -290,7 +294,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     // ── SETTING: THE CRANE, parked on its outriggers beside the line; its boom luffs out with each length — picked
     // off the skids at its foot, carried out over the line, lowered onto the plinths — and a banksman sees it in ──
     if (setting) {
-      const p = (turn + 0.5) / 2, cr = by(p, CRANE_AT), toward = cr.heading - (Math.PI / 2) * NEAR;
+      const p = (turn + 1.5) / 2, cr = by(p, CRANE_AT), toward = cr.heading - (Math.PI / 2) * NEAR;
       place("crane", p, [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[rk], tint: YELLOW, heading: toward }], 0, CRANE_AT);
       if (load) {
         // THE ROPE from the boom's head down to the hook over the load, and the slings from it to the length's two ends.
