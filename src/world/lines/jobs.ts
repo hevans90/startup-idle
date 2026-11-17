@@ -12,7 +12,8 @@
  * @see world.store stepLineWorks
  */
 
-export type LineKind = "main" | "sewer" | "dredge";
+/** A water main; a DRAIN — a sewer's pipe above the ground, a connection, laid as a main is; a SEWER's trunk, underground; a channel dredged. */
+export type LineKind = "main" | "drain" | "sewer" | "dredge";
 export type LineJob = {
   id: number;
   kind: LineKind;
@@ -30,6 +31,8 @@ export type LineJob = {
   t: number;
   /** How many of its cells are ON THE MAP already: a pipe is real as each length of it goes in, capped where it has got to. (A sewer's trunk and a channel are all or nothing: nought till they are done.) */
   laid?: number;
+  /** A sewer's trunk: which of its cells get a MANHOLE, counted along it — its chambers go in with its pipe. */
+  marks?: number[];
   /** Seconds it has stood for want of a load it could not pay for; nought while it works. */
   stalled: number;
   /** When it was last worked, ms since the epoch — for the time away. */
@@ -38,20 +41,25 @@ export type LineJob = {
 };
 
 /** Seconds a tile, the leading trade: a main laid on the ground is quick; a sewer is dug for; a dredger is slow. */
-export const LINE_PACE: Readonly<Record<LineKind, number>> = { main: 3, sewer: 5, dredge: 4 };
+export const LINE_PACE: Readonly<Record<LineKind, number>> = { main: 3, drain: 3, sewer: 4, dredge: 4 };
 /**
  * THE TRADES THAT PASS ALONG A LINE, one after another, each `LINE_GAPS` tiles behind the one ahead.
  *
  * A MAIN is six: its FOOTINGS dug, a pit a tile; the footings POURED, formwork and then a plinth; its lengths
  * STRUNG out along it on skids, off a lorry; each length SET on its plinths — the trade that puts the pipe itself
  * on the map; each joint WELDED; and the run INSPECTED behind.
- * A sewer and a channel are three: the cut, the pipe (or the dredging), the making good.
+ * A drain is a main's six, in iron.
+ * A SEWER'S TRUNK is seven: the trench CUT, its spoil in a ridge beside it; the trench SHORED and bedded with stone;
+ * its lengths STRUNG out along it; each length SET down in it by the crane — and its manholes' rings with them;
+ * each joint MADE; the trench FILLED back; and the ground ROLLED and made good.
+ * A channel is three: the dredger, its mud, the water clearing.
  */
+export const SEWER = { cut: 0, shore: 1, string: 2, set: 3, joint: 4, fill: 5, roll: 6 } as const;
 export const MAIN = { foot: 0, pour: 1, string: 2, set: 3, weld: 4, inspect: 5 } as const;
-export const LINE_STAGES: Readonly<Record<LineKind, number>> = { main: 6, sewer: 3, dredge: 3 };
-export const LINE_GAPS: Readonly<Record<LineKind, number>> = { main: 1.6, sewer: 1.2, dredge: 1.2 };
+export const LINE_STAGES: Readonly<Record<LineKind, number>> = { main: 6, drain: 6, sewer: 7, dredge: 3 };
+export const LINE_GAPS: Readonly<Record<LineKind, number>> = { main: 1.6, drain: 1.6, sewer: 1.5, dredge: 1.2 };
 /** Which trade lays the thing itself: the one its loads are for, and the one the map waits on. */
-export const LINE_LAYS: Readonly<Record<LineKind, number>> = { main: MAIN.set, sewer: 1, dredge: 1 };
+export const LINE_LAYS: Readonly<Record<LineKind, number>> = { main: MAIN.set, drain: MAIN.set, sewer: SEWER.set, dredge: 1 };
 /** Tiles a load of pipe lays; seconds a load takes to come; how many may be on their way at once. */
 export const LINE_LOAD = 6, LINE_HAUL = 6, LINE_COMING = 2;
 

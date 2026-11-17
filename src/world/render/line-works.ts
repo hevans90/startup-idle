@@ -20,7 +20,7 @@ import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-s
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
-import { LINE_STAGES, MAIN, alongLine, lineFront, type LineJob } from "../lines/jobs";
+import { LINE_STAGES, MAIN, SEWER, alongLine, lineFront, type LineJob } from "../lines/jobs";
 import type { BandLayer } from "./bands";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
 import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
@@ -33,7 +33,7 @@ import { CRANE_LOOKS, CRANE_REACH, craneTip } from "../agents/cars/models";
 const LIFT = 1.1;
 const SKIN = 0xd9a47a, LEGS = 0x3a4a63;
 /** A main's tube: its radius, tiles and half steps; its steel. @see mains-layer TUBE_R, STEEL */
-const TUBE_R = 0.09 / Math.SQRT2, TUBE_R_HS = TUBE_R / ZT, STEEL = 0xa6a9aa;
+const TUBE_R = 0.09 / Math.SQRT2, STEEL = 0xa6a9aa;
 /** How long a length of pipe is as it comes off the lorry, tiles: two to a tile of main. */
 const LENGTH = 0.46;
 /**
@@ -41,15 +41,22 @@ const LENGTH = 0.46;
  * a flange at each end, about its own middle and lying along u or along v. Moved by its place; made again only for
  * another scale. @see pipe-mesh, mains-layer
  */
-function lengthMesh(alongU: boolean, scale: number): Mesh<Geometry, Shader> {
+function lengthMesh(alongU: boolean, scale: number, look: PipeStuff): Mesh<Geometry, Shader> {
   const m = pipeMesh(), du = alongU ? 1 : 0, dv = alongU ? 0 : 1, h = LENGTH / 2;
-  made(MATERIAL.steel, () => meshTube(m, scale, -du * h, -dv * h, 0, du * h, dv * h, 0, TUBE_R, solid(STEEL), 14));
-  for (const e of [-h, h]) flange(m, scale, du * e, dv * e, 0, du, dv, TUBE_R, STEEL, 14, true, false);
+  made(look.mat, () => meshTube(m, scale, -du * h, -dv * h, 0, du * h, dv * h, 0, look.r, solid(look.colour), 14));
+  for (const e of [-h, h]) flange(m, scale, du * e, dv * e, 0, du, dv, look.r, look.colour, 14, true, false);
   return pipeDrawable(m);
 }
+/** What a run's lengths are: a main's steel; a drain's cast iron, a little fatter; a sewer's trunk, iron and fatter again. @see mains-layer */
+type PipeStuff = { id: string; r: number; colour: number; mat: number };
+const IRON = 0x7d5c40;
+const STUFF: Record<"main" | "drain" | "sewer", PipeStuff> = {
+  main: { id: "steel", r: TUBE_R, colour: STEEL, mat: MATERIAL.steel },
+  drain: { id: "iron", r: TUBE_R * 1.25, colour: IRON, mat: MATERIAL.iron },
+  sewer: { id: "trunk", r: TUBE_R * 1.1, colour: IRON, mat: MATERIAL.iron },
+};
 
 const TRENCH = 0x35271b, TRENCH_SIDE = 0x4a3625, SPOIL = 0x8b6a47, SPOIL_TOP = 0xa98660, SCAR = 0x7a5a3c;
-const SEWER_PIPE = 0x9aa0a6, SEWER_LIT = 0xc6cbd0;
 const MUD = 0x7a6a4a, HULL = 0x7c2f24, HULL_SIDE = 0x5d231b, DECK = 0x8f8f86, CABIN = 0xe6e2d6, JIB = 0xe9a71b;
 /** How finely the ground is redrawn as a trade moves: steps a tile. */
 const FINE = 10;
@@ -69,9 +76,9 @@ export function createLineWorks(bands: BandLayer): LineWorks {
    * its crew; and the pegs set out ahead of it.
    */
   type Hand = Walker & { c: Container; parts: Sprite[]; key: string; band: number };
-  type Laying = { g: Graphics; band: number; stood: Map<number, Graphics>; stoodKey: string; hands: Map<string, Hand>; pegs: Container[]; pegged: string; /** Its loose lengths, each the real tube: on the lorry, on their skids, in the slings, set and waiting to be made one with the run. */ loose: Map<string, { mesh: Mesh<Geometry, Shader>; key: string; band: number }> };
+  type Laying = { g: Graphics; band: number; stood: Map<number, Graphics>; /** What of that stands NEARER than a length down in a trench: the near sheet of its shoring, drawn over the length. */ front: Map<number, Graphics>; stoodKey: string; hands: Map<string, Hand>; pegs: Container[]; pegged: string; /** Its loose lengths, each the real tube: on the lorry, on their skids, in the slings, set and waiting to be made one with the run. */ loose: Map<string, { mesh: Mesh<Geometry, Shader>; key: string; band: number }> };
   const mains = new Map<number, Laying>();
-  const dropMain = (m: Laying) => { for (const q of m.loose.values()) destroyPipeDrawable(q.mesh); m.loose.clear(); drop(m.g); for (const q of m.stood.values()) drop(q); for (const h of m.hands.values()) drop(h.c); for (const q of m.pegs) drop(q); };
+  const dropMain = (m: Laying) => { for (const q of m.loose.values()) destroyPipeDrawable(q.mesh); m.loose.clear(); drop(m.g); for (const q of m.stood.values()) drop(q); for (const q of m.front.values()) drop(q); for (const h of m.hands.values()) drop(h.c); for (const q of m.pegs) drop(q); };
   /**
    * A MAIN GOING IN, SIX TRADES ALONG IT AT ONCE (@see lines/jobs MAIN). The pipe itself is real — on the map a
    * length at a time, drawn by the mains' own layer — so what is drawn here is everything that comes before it and
@@ -89,24 +96,28 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     place: (name: string, p: number, looks: { look: string; tint: number; heading?: number }[], turn?: number, across?: number) => Unit | null,
     seenM: Set<number>,
   ) => {
-    const n = j.cells.length, f = [0, 1, 2, 3, 4, 5].map((q) => lineFront(j, q)), laid = j.laid ?? 0, still = j.stalled > 0;
-    const done = f[MAIN.inspect] >= n;
+    const n = j.cells.length, f = Array.from({ length: LINE_STAGES[j.kind] }, (_, q) => lineFront(j, q)), laid = j.laid ?? 0, still = j.stalled > 0;
+    // UNDER THE GROUND, a sewer's trunk: the same lengths, the same crane — into a trench, and the trench filled over them.
+    const under = j.kind === "sewer", stuff = STUFF[j.kind === "dredge" ? "main" : j.kind], R_HS = stuff.r / ZT;
+    const done = f[f.length - 1] >= n;
     let m = mains.get(j.id);
-    if (!m) { const gr = new Graphics(); gr.eventMode = "none"; gr.context.batchMode = "batch"; m = { g: gr, band: -1, stood: new Map(), stoodKey: "", hands: new Map(), pegs: [], pegged: "", loose: new Map() }; mains.set(j.id, m); }
+    if (!m) { const gr = new Graphics(); gr.eventMode = "none"; gr.context.batchMode = "batch"; m = { g: gr, band: -1, stood: new Map(), front: new Map(), stoodKey: "", hands: new Map(), pegs: [], pegged: "", loose: new Map() }; mains.set(j.id, m); }
     seenM.add(j.id);
     const M_ = m;
     const hAt = (p: number) => { const c = j.cells[Math.max(0, Math.min(n - 1, Math.floor(p)))]; return g.height[idx(g, c.x, c.y)]; };
     /** A place by the line: `p` tiles along it, `across` to its side. */
     const by = (p: number, across = 0) => { const a = alongLine(j.cells, p); return { x: a.x - Math.sin(a.heading) * across, y: a.y + Math.cos(a.heading) * across, heading: a.heading }; };
     /** The side the pipe comes from — its lorry, its skids — and the side it is worked from. */
-    const FAR = -1, NEAR = 1, SKID = 0.3 * NEAR, CRANE_AT = 0.62 * NEAR, PLINTH = LIFT - 0.34;
+    const FAR = -1, NEAR = 1, SKID = (under ? 0.52 : 0.3) * NEAR, CRANE_AT = SKID + 0.324 * NEAR, PLINTH = LIFT - 0.34;
+    /** Where a length lies when it is set: on its plinths, the main's own height; or down in the trench. */
+    const SET_Z = under ? -0.25 * R_HS : LIFT;
     /** A loose length at a place by the line, `z` half steps over the ground there: the real tube, kept by name. */
     const seenL = new Set<string>();
     const length = (name: string, p: number, across: number, z: number, lift = 0) => {
-      const a = by(p, across), alongU = Math.abs(Math.cos(a.heading)) > 0.5, key = `${alongU}|${scale}`;
+      const a = by(p, across), alongU = Math.abs(Math.cos(a.heading)) > 0.5, key = `${alongU}|${scale}|${stuff.id}`;
       let q = M_.loose.get(name);
       if (q && q.key !== key) { destroyPipeDrawable(q.mesh); M_.loose.delete(name); q = undefined; }
-      if (!q) { q = { mesh: lengthMesh(alongU, scale), key, band: -1 }; M_.loose.set(name, q); }
+      if (!q) { q = { mesh: lengthMesh(alongU, scale, stuff), key, band: -1 }; M_.loose.set(name, q); }
       seenL.add(name);
       const [x, y] = pt(scale, a.x, a.y, hAt(p) + z), band = Math.max(0, Math.min(bands.dynamicOf.length - 1, bandOf(Math.round(a.x), Math.round(a.y))));
       q.mesh.position.set(x, y);
@@ -119,7 +130,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     // ── ITS LINE, PEGGED OUT AHEAD of the first trade: a stake a tile, the builder's line between ──
     const Pr = bakedProps() ? propsLoaded() : null;
     if (bakedProps() && !Pr) void propSprites();
-    const k0 = Math.floor(f[MAIN.foot]), pk = `${Pr ? 1 : 0}|${k0}|${scale}`;
+    const k0 = Math.floor(f[0]), pk = `${Pr ? 1 : 0}|${k0}|${scale}`;
     if (pk !== m.pegged) {
       m.pegged = pk;
       for (const q of m.pegs) drop(q);
@@ -133,31 +144,49 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     }
 
     // ── WHAT STANDS ALONG IT TILL THE PIPE COMES: a pit, its formwork, its plinth; a length on its skids ──
-    const sk = `${scale}|${laid}|${f.slice(0, 3).map((q) => Math.floor(q * 12)).join(".")}|${Math.floor(f[MAIN.set] * 2)}|${Math.floor(f[MAIN.weld])}`;
+    const sk = `${scale}|${laid}|${f.map((q, k) => Math.floor(q * (k === MAIN.set ? 2 : k < 3 ? 12 : 4))).join(".")}`;
     if (sk !== m.stoodKey) {
       m.stoodKey = sk;
       for (const q of m.stood.values()) q.clear();
+      for (const q of m.front.values()) q.clear();
       /** A box stood on the map, seen from the camera: its top and its two near faces. */
-      const box = (x: number, y: number, hx: number, hy: number, z0: number, z1: number, h: number, top: number, lit: number, dark: number) => {
+      const box = (x: number, y: number, hx: number, hy: number, z0: number, z1: number, h: number, top: number, lit: number, dark: number, front = false) => {
         const band = bandOf(Math.round(x), Math.round(y)), layer = bands.dynamicOf[band];
         if (!layer) return;
-        let G = M_.stood.get(band);
-        if (!G) { G = new Graphics(); G.eventMode = "none"; G.context.batchMode = "batch"; G.zIndex = -0.05; layer.addChild(G); M_.stood.set(band, G); }
+        const into2 = front ? M_.front : M_.stood;
+        let G = into2.get(band);
+        if (!G) { G = new Graphics(); G.eventMode = "none"; G.context.batchMode = "batch"; G.zIndex = front ? 0.45 : -0.05; layer.addChild(G); into2.set(band, G); }
         const Q = (u: number, v: number, z: number) => pt(scale, u, v, h + z);
         G.poly([...Q(x + hx, y - hy, z1), ...Q(x + hx, y + hy, z1), ...Q(x + hx, y + hy, z0), ...Q(x + hx, y - hy, z0)]).fill({ color: lit });
         G.poly([...Q(x - hx, y + hy, z1), ...Q(x + hx, y + hy, z1), ...Q(x + hx, y + hy, z0), ...Q(x - hx, y + hy, z0)]).fill({ color: dark });
         G.poly([...Q(x - hx, y - hy, z1), ...Q(x + hx, y - hy, z1), ...Q(x + hx, y + hy, z1), ...Q(x - hx, y + hy, z1)]).fill({ color: top });
       };
       // THE WELDERS' SCREEN: two panels on feet beyond the joint they are at, to keep the arc from the rest of the gang.
-      if (f[MAIN.weld] > 0.5 && f[MAIN.weld] < n) {
+      if (!under && f[MAIN.weld] > 0.5 && f[MAIN.weld] < n) {
         const kw = Math.floor(f[MAIN.weld]), a = by(Math.max(0.5, kw), 0.36 * -1), along = Math.abs(Math.cos(a.heading)) > 0.5, hj = hAt(kw);
         for (const e of [-0.09, 0.09]) box(a.x + (along ? e : 0), a.y + (along ? 0 : e), along ? 0.085 : 0.012, along ? 0.012 : 0.085, 0.08, 1.05, hj, 0xe8742a, 0xe8742a, 0xc95a1c);
       }
       for (let c = 0; c < n; c++) {
         // (Where the pipe is, the pipe's own saddle stands: nothing of this.)
         if (c < laid) continue;
-        const at = by(c + 0.5), h = hAt(c), foot = Math.max(0, Math.min(1, f[MAIN.foot] - c)), pour = Math.max(0, Math.min(1, f[MAIN.pour] - c));
+        const at = by(c + 0.5), h = hAt(c), foot = Math.max(0, Math.min(1, f[0] - c)), pour = Math.max(0, Math.min(1, f[1] - c));
         if (foot <= 0) break;
+        if (under) {
+          const along = Math.abs(Math.cos(at.heading)) > 0.5;
+          // SHORING, from when the trench is shored till it is filled: a steel sheet down each side of it, standing a
+          // little proud of the ground, and a prop across between them.
+          if (pour >= 1 && f[SEWER.fill] < c + 0.5) {
+            // (The near one over whatever is down in the trench; the far one behind it.)
+            for (const sg of [-1, 1]) { const e = by(c + 0.5, 0.29 * sg); box(e.x, e.y, along ? 0.46 : 0.012, along ? 0.012 : 0.46, -0.1, 0.24, h, 0xc9b25a, 0xd8c26a, 0xa8934a, sg > 0); }
+            for (const o of [-0.25, 0.25]) { const e = by(c + 0.5 + o); box(e.x, e.y, along ? 0.015 : 0.29, along ? 0.29 : 0.015, 0.12, 0.18, h, 0x8f959e, 0x8f959e, 0x6d737b, true); }
+          }
+          // A MANHOLE where the plan puts one: its concrete rings standing in the trench once its length is set; then,
+          // the ground made good round it, its cover.
+          if (j.marks?.includes(c) && f[SEWER.set] > c + 0.5) {
+            if (f[SEWER.fill] > c + 0.5) { box(at.x, at.y, 0.13, 0.13, 0, 0.02, h, 0xc9c4b8, 0xbdb8ac, 0x9d988d); box(at.x, at.y, 0.09, 0.09, 0.02, 0.035, h, 0x3d4046, 0x2e3035, 0x2e3035); }
+            else box(at.x, at.y, 0.15, 0.15, -0.1, 0.14, h, 0xc9c4b8, 0xbdb8ac, 0x9d988d);
+          }
+        } else {
         // The pit, growing; its spoil thrown up beside it.
         const half = 0.07 + 0.09 * foot;
         box(at.x, at.y, half, half, 0, 0.015, h, pour > 0.35 ? 0x8d9296 : 0x3a2a1c, 0x3a2a1c, 0x3a2a1c);
@@ -168,6 +197,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           const up = Math.max(0, Math.min(1, (pour - 0.35) / 0.55)), struck = pour >= 1;
           if (!struck) box(at.x, at.y, 0.12, 0.12, 0, PLINTH + 0.06, h, 0xb9a070, 0xd8c08f, 0xb39a68);
           if (up > 0) box(at.x, at.y, 0.1, 0.1, 0, PLINTH * up, h, up < 1 ? 0x8d9296 : 0xc9c4b8, struck ? 0xbdb8ac : 0x8d9296, struck ? 0x9d988d : 0x7b8084);
+        }
         }
         // SKIDS, two to a length, where each length lies from when the lorry has passed until the crane takes it.
         for (const half of [0.25, 0.75]) {
@@ -207,14 +237,19 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     const VEST = (k: number) => [SKIN, LEGS, k % 2 ? 0xc8dc32 : 0xf47b20, 0xf5c224, 0xffffff];
 
     // ── FOOTINGS: a digger ahead, on the far side, turned to the line: a bite a few seconds, a pit a tile ──
-    if (f[MAIN.foot] < n) {
+    if (!under && f[MAIN.foot] < n) {
       const q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL, a = by(f[MAIN.foot] + 0.5, 0.5 * FAR), to = by(f[MAIN.foot] + 0.5), toward = Math.atan2(to.y - a.y, to.x - a.x);
       const pose = q < DIG.dig * 0.45 ? "exDig" : q < DIG.dig ? "exDig2" : q < DIG.dig + DIG.lift + DIG.out ? "exLift" : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? "exDump" : "exLift";
       const slew = q < DIG.dig + DIG.lift ? 0 : q < DIG.dig + DIG.lift + DIG.out ? (q - DIG.dig - DIG.lift) / DIG.out : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? 1 : 1 - (q - DIG.dig - DIG.lift - DIG.out - DIG.tip) / DIG.back;
       place("footer", f[MAIN.foot] + 0.5, [{ look: "exTracks", tint: YELLOW }, { look: still ? "exLift" : pose, tint: YELLOW, heading: toward + 0.9 * (slew * slew * (3 - 2 * slew)) }], 0, 0.5 * FAR);
     }
     // ── THE POUR: a mixer backed up to the pit square to the line, its drum turning; concrete down its chute; two at the formwork ──
-    if (f[MAIN.pour] > 0 && f[MAIN.pour] < n) {
+    // (A sewer's second trade is its shoring: two of the gang at the sheets, one each side of the trench.)
+    if (under && f[SEWER.shore] > 0 && f[SEWER.shore] < n) {
+      hand("shore0", f[SEWER.shore] + 0.2, 0.4 * NEAR, "work", -Math.PI / 2, VEST(0), 1.6);
+      hand("shore1", f[SEWER.shore] - 0.2, 0.72 * FAR, "work", Math.PI / 2, VEST(1), 1.6);
+    }
+    if (!under && f[MAIN.pour] > 0 && f[MAIN.pour] < n) {
       const c = Math.floor(f[MAIN.pour]), fr = f[MAIN.pour] - c, pit = by(c + 0.5), pouring = !still && fr > 0.35 && fr < 0.92;
       // (Its tail to the pit: it faces away from the line, its chute's end over the formwork.)
       place("mixer", c + 0.5, [{ look: mixerLook(w, pouring), tint: DRUM }], Math.PI / 2 * FAR, 0.6 * FAR);
@@ -235,11 +270,12 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     // (Up off the skids, out over the line as the boom comes down, and lowered the last of the way.)
     const go = Math.max(0, Math.min(1, (lf - 0.08) / 0.84)), e = go * go * (3 - 2 * go);
     const rk = Math.max(0, Math.min(CRANE_REACH.length - 1, Math.round(e * (CRANE_REACH.length - 1)))), reach = CRANE_REACH[rk] * T;
-    const REST = 0.07 + TUBE_R_HS, slung = { across: CRANE_AT - reach * NEAR, z: REST + (LIFT - REST) * e + 1.1 * Math.sin(Math.PI * e) };
+    const REST = 0.07 + R_HS, slung = { across: CRANE_AT - reach * NEAR, z: REST + (SET_Z - REST) * e + 1.1 * Math.sin(Math.PI * e) };
     let load: { x: number; y: number; a: { x: number; y: number; heading: number } } | null = null;
     for (let i = 0; i < n * 2; i++) {
       const p = (i + 0.5) / 2;
-      if (i < turn) { if (p > laid - 0.5) length(`l${i}`, p, 0, LIFT, 0.3); }
+      // (Set, it shows until it is part of the run — or, in a trench, until the trench is filled over it.)
+      if (i < turn) { if (under ? p > f[SEWER.fill] : p > laid - 0.5) length(`l${i}`, p, 0, SET_Z, under ? 0.1 : 0.3); }
       else if (i === turn && setting) load = length(`l${i}`, p, slung.across, slung.z, 0.5);
       else if (f[MAIN.string] > p + 0.2) length(`l${i}`, p, SKID, REST, 0.1);
       else break;
@@ -249,7 +285,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       const lp = f[MAIN.string] + 0.5;
       place("pipes", lp, [{ look: "flatbed", tint: BLUE }], 0, 0.74 * NEAR);
       const left = Math.max(0, Math.min(3, Math.ceil((n - f[MAIN.string]) * 2)));
-      for (let q = 0; q < left; q++) length(`bed${q}`, lp - 0.12, 0.74 * NEAR + (q < 2 ? (q - 0.5) * 0.13 : 0), (q < 2 ? 1.25 : 1.95) * M + TUBE_R_HS, 0.4);
+      for (let q = 0; q < left; q++) length(`bed${q}`, lp - 0.12, 0.74 * NEAR + (q < 2 ? (q - 0.5) * 0.13 : 0), (q < 2 ? 1.25 : 1.95) * M + R_HS, 0.4);
     }
     // ── SETTING: THE CRANE, parked on its outriggers beside the line; its boom luffs out with each length — picked
     // off the skids at its foot, carried out over the line, lowered onto the plinths — and a banksman sees it in ──
@@ -259,16 +295,16 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       if (load) {
         // THE ROPE from the boom's head down to the hook over the load, and the slings from it to the length's two ends.
         const tip = pt(scale, cr.x + Math.cos(toward) * reach, cr.y + Math.sin(toward) * reach, hAt(p) + craneTip(CRANE_REACH[rk]) * M);
-        const r = TUBE_R * HW * Math.SQRT2 * scale, hook: [number, number] = [load.x, load.y - r - 9 * scale];
+        const r = stuff.r * HW * Math.SQRT2 * scale, hook: [number, number] = [load.x, load.y - r - 9 * scale];
         const lw = Math.max(0.6, 0.55 * scale), ch = Math.cos(load.a.heading), sh = Math.sin(load.a.heading);
         G.moveTo(tip[0], tip[1]).lineTo(hook[0], hook[1]).stroke({ color: 0x1f2226, width: lw });
         G.rect(hook[0] - 1.6 * scale, hook[1] - 2 * scale, 3.2 * scale, 4 * scale).fill({ color: 0xe9a71b });
         for (const sg of [-1, 1]) { const ex = (ch - sh) * HW * scale * LENGTH * 0.36 * sg, ey = (ch + sh) * HH * scale * LENGTH * 0.36 * sg; G.moveTo(hook[0], hook[1] + 2 * scale).lineTo(load.x + ex, load.y + ey - r).stroke({ color: 0x1f2226, width: lw }); }
       }
-      hand("banks", Math.max(0.3, p - 0.1), 0.5 * FAR, "stand", Math.PI / 2, VEST(1));
+      hand("banks", Math.max(0.3, p - 0.1), (under ? 0.72 : 0.5) * FAR, "stand", Math.PI / 2, VEST(1));
     }
     // ── WELDING: the welders' truck on the near side; a screen stood by the joint; two at it, and the sparks ──
-    if (f[MAIN.weld] > 0.5 && f[MAIN.weld] < n) {
+    if (!under && f[MAIN.weld] > 0.5 && f[MAIN.weld] < n) {
       const kw = Math.floor(f[MAIN.weld]), jp = Math.max(0.5, kw), jt = by(jp), hj = hAt(kw);
       place("welder", Math.max(0.5, f[MAIN.weld] - 0.9), [{ look: "pickup", tint: YELLOW }], 0, 0.62 * NEAR);
       const w0 = hand("weld0", jp, 0.2 * NEAR, "work", -Math.PI / 2, VEST(0)), w1 = hand("weld1", jp, 0.2 * FAR, "work", Math.PI / 2, VEST(1));
@@ -281,7 +317,23 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       }
     }
     // ── INSPECTION: one in a white hat, walking the run behind the welders ──
-    if (f[MAIN.inspect] > 0.3 && !done) hand("inspect", f[MAIN.inspect], 0.28 * NEAR, "stand", -Math.PI / 2, [SKIN, LEGS, 0xf2f2f2, 0xf2f2f2, 0xffffff], 1.4);
+    if (under) {
+      // ── JOINTING: two down at the newest joint, one each side of the trench, making it ──
+      if (f[SEWER.joint] > 0.5 && f[SEWER.joint] < n) {
+        const jp = Math.floor(f[SEWER.joint] * 2) / 2;
+        hand("joint0", jp, 0.4 * NEAR, "work", -Math.PI / 2, VEST(0));
+        hand("joint1", jp, 0.72 * FAR, "work", Math.PI / 2, VEST(1));
+      }
+      // ── FILLING: a digger on the spoil's side, pulling the ridge back into the trench a bucket at a time ──
+      if (f[SEWER.fill] > 0 && f[SEWER.fill] < n) {
+        const q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL, a = by(f[SEWER.fill] + 0.5, 0.95 * FAR), to = by(f[SEWER.fill] + 0.5), toward = Math.atan2(to.y - a.y, to.x - a.x);
+        const pose = q < DIG.dig * 0.45 ? "exDig" : q < DIG.dig ? "exDig2" : q < DIG.dig + DIG.lift + DIG.out ? "exLift" : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? "exDump" : "exLift";
+        place("filler", f[SEWER.fill] + 0.5, [{ look: "exTracks", tint: YELLOW }, { look: still ? "exLift" : pose, tint: YELLOW, heading: toward }], 0, 0.95 * FAR);
+      }
+      // ── ROLLING: a roller up and down the filled trench behind, and the ground made good under it ──
+      if (f[SEWER.roll] > 0 && f[SEWER.roll] < n) place("roller", Math.max(0.4, f[SEWER.roll] + 0.55 + (still ? 0 : 0.4 * Math.sin(w * 0.9))), [{ look: "roller", tint: YELLOW }]);
+    }
+    if (!under && f[MAIN.inspect] > 0.3 && !done) hand("inspect", f[MAIN.inspect], 0.28 * NEAR, "stand", -Math.PI / 2, [SKIN, LEGS, 0xf2f2f2, 0xf2f2f2, 0xffffff], 1.4);
     for (const [name, hd] of m.hands) if (!seenH.has(name)) { drop(hd.c); m.hands.delete(name); }
     for (const [name, q] of m.loose) if (!seenL.has(name)) { destroyPipeDrawable(q.mesh); m.loose.delete(name); }
   };
@@ -319,10 +371,15 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           /** A strip along the line from `a` to `b` tiles, `w` wide and `off` to its side, in short lengths each drawn with the tile it is on. */
           const strip = (a: number, b: number, w: number, off: number, colour: number, alpha = 1, up = 0) => {
             if (b - a < 0.02) return;
-            const N = Math.max(1, Math.ceil((b - a) * 4));
-            for (let q = 0; q < N; q++) {
-              const p0 = alongLine(j.cells, a + ((b - a) * q) / N), p1 = alongLine(j.cells, a + ((b - a) * (q + 1)) / N);
-              const c = j.cells[Math.max(0, Math.min(n - 1, Math.floor(a + ((b - a) * (q + 0.5)) / N)))], h = g.height[idx(g, c.x, c.y)] + up;
+            // CUT AT THE QUARTERS OF A TILE, so no piece lies across two tiles: a piece is drawn with the tile its middle is
+            // on, and whatever of it lay on the next tile was drawn over by that tile's ground — a gap a tile.
+            const cuts = [a];
+            for (let k = Math.floor(a * 4) + 1; k / 4 < b; k++) cuts.push(k / 4);
+            cuts.push(b);
+            for (let q = 0; q + 1 < cuts.length; q++) {
+              if (cuts[q + 1] - cuts[q] < 1e-4) continue;
+              const p0 = alongLine(j.cells, cuts[q]), p1 = alongLine(j.cells, cuts[q + 1]);
+              const c = j.cells[Math.max(0, Math.min(n - 1, Math.floor((cuts[q] + cuts[q + 1]) / 2)))], h = g.height[idx(g, c.x, c.y)] + up;
               const G = gfx((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
               if (!G) continue;
               const side = (p: { x: number; y: number; heading: number }, s: number) => pt(scale, p.x - Math.sin(p.heading) * s, p.y + Math.cos(p.heading) * s, h);
@@ -330,14 +387,14 @@ export function createLineWorks(bands: BandLayer): LineWorks {
             }
           };
           if (j.kind === "sewer") {
-            // Made good behind; the open trench between the making good and the cut, its far wall lit; the pipe in it; the spoil beside.
-            strip(0, f[2], 0.4, 0, SCAR, 0.85);
-            strip(f[2], f[0], 0.36, 0, TRENCH);
-            strip(f[2], f[0], 0.07, -0.15, TRENCH_SIDE);
-            strip(f[2], f[1], 0.15, 0.02, SEWER_PIPE);
-            strip(f[2], f[1], 0.05, -0.01, SEWER_LIT);
-            strip(f[2], f[0], 0.16, 0.34, SPOIL);
-            strip(f[2], f[0], 0.07, 0.31, SPOIL_TOP);
+            // The scar of the filled trench till it is rolled; the open trench between the cut and the filling, its far
+            // wall lit, stone bedded along its floor once it is shored; and its spoil in a ridge on the far side.
+            strip(f[SEWER.roll], f[SEWER.fill], 0.58, 0, SCAR, 0.9);
+            strip(f[SEWER.fill], f[SEWER.cut], 0.6, 0, TRENCH);
+            strip(f[SEWER.fill], f[SEWER.cut], 0.12, -0.24, TRENCH_SIDE);
+            strip(f[SEWER.fill], f[SEWER.shore], 0.3, 0.06, 0x8f8b84);
+            strip(f[SEWER.fill], f[SEWER.cut], 0.2, -0.5, SPOIL);
+            strip(f[SEWER.fill], f[SEWER.cut], 0.08, -0.53, SPOIL_TOP);
           }
           // (A MAIN has nothing drawn on the ground: it is the pipe itself that goes in. @see below)
         }
@@ -375,7 +432,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           const house = at.heading + Math.PI - 0.95 * (slew * slew * (3 - 2 * slew));
           place("digger", f0 + 0.62, [{ look: "exTracks", tint: YELLOW }, { look: j.stalled > 0 ? "exLift" : pose, tint: YELLOW, heading: house }]);
         }
-        if (j.kind === "main") layMain(g, j, w, dt, scale, P, place, seenM);
+        if (j.kind !== "dredge") layMain(g, j, w, dt, scale, P, place, seenM);
         if (j.kind === "dredge" && f0 < n) {
           // THE DREDGER: a barge on the water over where it is working, a jib over its bow and a grab on a rope; mud in the water round it.
           seenB.add(j.id);

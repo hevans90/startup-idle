@@ -6,7 +6,7 @@ const cells = (n: number) => Array.from({ length: n }, (_, k) => ({ x: 3 + k, y:
 
 describe("a line is laid, not bought", () => {
   test("its price is paid a load at a time, all of it by the end and none of it at the order; and it takes about its time", () => {
-    for (const kind of ["main", "sewer", "dredge"] as const) {
+    for (const kind of ["main", "drain", "sewer", "dredge"] as const) {
       const j = newLine(1, kind, cells(17), null, 510, 0);
       let paid = 0, t = 0;
       expect(j.deliveries).toBe(lineLoads(17));
@@ -23,7 +23,7 @@ describe("a line is laid, not bought", () => {
   });
 
   test("the trades follow one another and none goes back; the pipe never passes what has been brought", () => {
-    for (const kind of ["main", "sewer", "dredge"] as const) {
+    for (const kind of ["main", "drain", "sewer", "dredge"] as const) {
       const j = newLine(1, kind, cells(20), null, 100, 0), N = LINE_STAGES[kind];
       let last = Array(N).fill(0) as number[];
       for (let t = 0; !lineDone(j) && t < 5000; t += 0.1) {

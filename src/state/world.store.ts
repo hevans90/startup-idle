@@ -835,7 +835,7 @@ water = createWaterField(INITIAL_GRID);
 /** Whether a stroke is being laid a second time, for a job that is done: it is paid for, and is not ordered again. @see stepLineWorks */
 let relaying = false;
 /** What a line job is called when it has something to say. */
-const LINE_NAME: Record<LineKind, string> = { main: "Laying the main", sewer: "Laying the sewer", dredge: "Dredging" };
+const LINE_NAME: Record<LineKind, string> = { main: "Laying the main", drain: "Laying the sewer connection", sewer: "Laying the sewer", dredge: "Dredging" };
 
 export const useWorldStore = create<WorldState>()((set, get) => ({
   grid: INITIAL_GRID,
@@ -1525,7 +1525,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         const lat = lateralStrokePlan(g, s0, mainWet(g))?.plan ?? { refused: "Drag from a workplace's slop port to a manhole" };
         if ("refused" in lat) { refuse(lat.refused); return; }
         const price = pipeCost(lat.fresh);
-        if (orderLine("sewer", lat.cells, price.toNumber())) return;
+        if (orderLine("drain", lat.cells, price.toNumber())) return;
         if (st.playing && !relaying && price.gt(0) && !spendForBuild(price)) {
           refuse(`Not enough money for ${lat.fresh} tiles of connection: ${formatCurrency(price.toNumber())}`);
           return;
@@ -1556,7 +1556,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       } else {
         const refused = "refused" in plan ? plan.refused : plan.problem?.reason;
         if (refused || "refused" in plan) { refuse(refused ?? ""); return; }
-        if (orderLine("sewer", plan.cells, plan.price)) return;
+        if (orderLine("sewer", plan.cells, plan.price)) {
+          // (Its manholes, where the plan puts them: they go in with its pipe.)
+          const job = st.grid.lineJobs[st.grid.lineJobs.length - 1];
+          job.marks = plan.cells.flatMap((c, k) => { const i = idx(g, c.x, c.y); return plan.staged.sewerFit[i] !== 0 && plan.staged.sewerFit[i] !== g.sewerFit[i] ? [k] : []; });
+          return;
+        }
         if (st.playing && !relaying && plan.price > 0 && !spendForBuild(new Decimal(plan.price))) {
           refuse(`Not enough money for ${plan.fresh} tiles of sewer: ${formatCurrency(plan.price)}`);
           return;
@@ -1585,7 +1590,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       const fresh = m ? m.fresh : previewSewer(st.grid, plan.cells).fresh;
       const price = pipeCost(fresh).plus(m ? m.price.pump : 0);
       // (Ordered as it was worked out: with its pump or without, its route as given.)
-      if (orderLine(sewer ? "sewer" : "main", route, price.toNumber(), { ...s0, pump: m ? m.pump : s0.pump, noPump: m ? !m.pump : s0.noPump })) return;
+      if (orderLine(sewer ? "drain" : "main", route, price.toNumber(), { ...s0, pump: m ? m.pump : s0.pump, noPump: m ? !m.pump : s0.noPump })) return;
       if (st.playing && !relaying && price.gt(0) && !spendForBuild(price)) {
         set({ stroke: null, notice: { text: `Not enough money for ${fresh} tiles of ${what}${m?.pump ? " and its pump" : ""}: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
         return;
