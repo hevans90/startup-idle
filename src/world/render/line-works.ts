@@ -75,9 +75,13 @@ function bore(m: ReturnType<typeof pipeMesh>, scale: number, cu: number, cv: num
  */
 function lengthMesh(alongU: boolean, scale: number, look: PipeStuff): Mesh<Geometry, Shader> {
   const m = pipeMesh(), du = alongU ? 1 : 0, dv = alongU ? 0 : 1, h = LENGTH / 2;
-  made(look.mat, () => meshTube(m, scale, -du * h, -dv * h, 0, du * h, dv * h, 0, look.r, solid(look.colour), 14));
+  // FAR TO NEAR, each drawn over the last: the flange at its far end, which the tube stands in front of; the tube,
+  // out of that flange's face; the inside of its bore; and the flange at its near end, round the hole.
+  const back = FLANGE_T / 2;
+  flange(m, scale, -du * h, -dv * h, 0, du, dv, look.r, look.colour, 14, true, false);
+  made(look.mat, () => meshTube(m, scale, -du * (h - back), -dv * (h - back), 0, du * h, dv * h, 0, look.r, solid(look.colour), 14));
   bore(m, scale, du * h, dv * h, alongU, look);
-  for (const e of [-h, h]) flange(m, scale, du * e, dv * e, 0, du, dv, look.r, look.colour, 14, true, false);
+  flange(m, scale, du * h, dv * h, 0, du, dv, look.r, look.colour, 14, true, false);
   return pipeDrawable(m);
 }
 /**
