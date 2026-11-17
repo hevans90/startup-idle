@@ -1063,7 +1063,8 @@ export const RIG_LOOKS = ["rig0", "rig1", "rig2", "rig3"] as const;
 const rigUp = rigAt("rigUp", null), rigs = RIG_LOOKS.map((id, k) => rigAt(id, [5.2, 3.6, 2.0, 0.5][k]));
 /**
  * A CONCRETE MIXER: a lorry's cab and chassis; its DRUM, a round barrel lying back toward its mouth — narrow at its
- * head, fat in the middle — with two bands wound round it as a screw's thread is; the hopper it is charged by over
+ * head, fat in the middle — the welds of its blades wound round it as a screw's thread is, a hatch in its side,
+ * concrete dried on it round its mouth; the hopper it is charged by over
  * its tail, and the chute swung down from under that, where the concrete comes out. `turn` is how far round the
  * drum has gone, nought to one of the way from one band to the next: the one lorry in every look, its drum turned.
  */
@@ -1096,8 +1097,13 @@ const mixerAt = (id: string, turn: number): Model => {
         sections: [ring(1.5, 0.4), ring(0.95, 0.86), ring(0, 1.08), ring(-1.2, 1.1), ring(-2.2, 0.84), ring(-3.0, 0.5)],
         side: "paint", top: "paint",
         decals: [
-          // THE BANDS: two, wound round it and along it — so that as it turns they run down it, toward its mouth.
-          { mat: "liveryRed", at: (l, y, z) => { const a = Math.atan2(z - axis(l), y) / Math.PI, q = (((a + l * 0.42 + turn) % 1) + 1) % 1; return l < 1.35 && l > -2.85 && q < 0.2; } },
+          // WHAT SHOWS IT TURNING, none of it paint: the WELDS of the blades inside it, two fine seams wound round it and
+          // along it, running down it toward its mouth as it turns; an inspection HATCH on each side of it, going round
+          // with it; and CONCRETE dried on it in runs from its mouth, the way it is charged.
+          { mat: "seam", at: (l, y, z) => { const a = Math.atan2(z - axis(l), y) / Math.PI, q = (((a + l * 0.42 + turn) % 1) + 1) % 1; return l < 1.35 && l > -2.85 && q < 0.045; } },
+          { mat: "trim", at: (l, y, z) => { const a = Math.atan2(z - axis(l), y) / Math.PI, q = (((a + turn + 0.5) % 1) + 1) % 1; return Math.abs(l + 0.55) < 0.24 && Math.abs(q - 0.5) < 0.085; } },
+          { mat: "chrome", at: (l, y, z) => { const a = Math.atan2(z - axis(l), y) / Math.PI, q = (((a + turn + 0.5) % 1) + 1) % 1; return Math.abs(l + 0.55) < 0.17 && Math.abs(q - 0.5) < 0.05; } },
+          { mat: "gravel", at: (l, y, z) => { const a = Math.atan2(z - axis(l), y) / Math.PI, q = (((a * 3 + turn * 3) % 1) + 1) % 1; return l < -2.35 - 0.45 * Math.abs(q - 0.5) * 2 && l > -2.93; } },
           // The track ring it rides its rollers on, and the lip of its mouth.
           { mat: "trim", at: (l) => Math.abs(l + 2.1) < 0.07 || l < -2.93 },
         ],

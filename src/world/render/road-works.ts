@@ -330,9 +330,11 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             const cell = j.cells[c], stage = stageOf(j, c);
             if (!cell.fresh || cell.deck || stage >= 3 || !(at[0] >= c + 1 || stage > 0)) continue;
             const w = wayAt(j, c), h = g.height[idx(g, cell.x, cell.y)];
+            // MIXED UP, the same every time: a few tiles of bunting, then a few of plain line; a flagged stake among the plain ones.
+            const bright = hash(j.id * 7.3 + Math.floor(c / 3) * 1.9) < 0.42;
             for (const [du, dv] of [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]) {
               const k = `${cell.x + du},${cell.y + dv}`;
-              if (!staked.has(k)) { staked.add(k); stand.push({ id: "stake", turn: (cell.x * 3 + cell.y + (du > 0 ? 1 : 0) + (dv > 0 ? 2 : 0)) & 3, x: cell.x + du, y: cell.y + dv, h, cell }); }
+              if (!staked.has(k)) { staked.add(k); stand.push({ id: hash((cell.x + du) * 5.1 + (cell.y + dv) * 9.7) < 0.3 ? "stakeFlag" : "stake", turn: (cell.x * 3 + cell.y + (du > 0 ? 1 : 0) + (dv > 0 ? 2 : 0)) & 3, x: cell.x + du, y: cell.y + dv, h, cell }); }
             }
             // TAPE, as far as it has been run out: each of the cell's own edges in two lengths.
             const run = stage > 0 ? 1 : Math.max(0, Math.min(1, at[1] - c));
@@ -347,12 +349,12 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
                 const ends = [far(mx - Math.abs(ey) * 0.25, my - Math.abs(ex) * 0.25), far(mx + Math.abs(ey) * 0.25, my + Math.abs(ex) * 0.25)];
                 if (Math.max(...ends) > run + 1e-6 && !(ends[0] === ends[1] && ends[0] <= run)) continue;
                 any = true;
-                stand.push({ id: "tape", turn: (ex !== 0 ? 1 : 0) + ((cell.x + cell.y) & 1) * 2, x: mx, y: my, h, cell });
+                stand.push({ id: bright ? "bunting" : "tape", turn: (ex !== 0 ? 1 : 0) + ((cell.x + cell.y) & 1) * 2, x: mx, y: my, h, cell });
               }
-              if (any) stand.push({ id: "tapePin", turn: 0, x: cell.x + ex * 0.5, y: cell.y + ey * 0.5, h, cell });
+              if (any) stand.push({ id: bright ? "buntingPin" : "tapePin", turn: 0, x: cell.x + ex * 0.5, y: cell.y + ey * 0.5, h, cell });
             }
             // A PROFILE BOARD each side, across the line, every third tile of a straight.
-            if (run >= 1 && c % 3 === 1 && (w.ax !== 0 || w.ay !== 0)) for (const sg of [-1, 1]) stand.push({ id: "profile", turn: w.ax !== 0 ? 1 : 0, x: cell.x - w.ay * sg * 0.68 + w.ax * 0.5, y: cell.y + w.ax * sg * 0.68 + w.ay * 0.5, h, cell });
+            if (run >= 1 && c % 3 === 1 && (w.ax !== 0 || w.ay !== 0)) for (const sg of [-1, 1]) stand.push({ id: hash(cell.x * 3.3 + cell.y * 7.1) < 0.5 ? "profileRed" : "profile", turn: w.ax !== 0 ? 1 : 0, x: cell.x - w.ay * sg * 0.68 + w.ax * 0.5, y: cell.y + w.ax * sg * 0.68 + w.ay * 0.5, h, cell });
             // A HUB at its centre, till it is dug.
             if (stage === 0 && at[2] >= c + 0.5) stand.push({ id: "hub", turn: (cell.x + cell.y * 3) & 3, x: cell.x, y: cell.y, h, cell });
           }

@@ -1,7 +1,8 @@
 /**
  * World v2 — WHAT STANDS ROUND A ROAD BEING BUILT, as models: a cone, a
  * barrier across a road that stops; and what a line is SET OUT with — a
- * stake, a length of tape with its pennants, the pin that holds it up, a
+ * stake, a length of builder's line with a level tag on it, the peg two lengths meet at — and their bright
+ * fellows, a flagged stake and a length of bunting on its pin — a
  * profile board, a hub at the centre, a level on its tripod. Metres, about the
  * origin on the ground. In the props' sheet. @see render/road-works
  */
@@ -48,15 +49,54 @@ function rod(a: V3, b: V3, r: number, mat: Mat, out: Tri[]) {
   face([at(b, 1, 1), at(b, 1, -1), at(b, -1, -1), at(b, -1, 1)], mat, c, out);
   face([at(a, 1, 1), at(a, 1, -1), at(a, -1, -1), at(a, -1, 1)], mat, c, out);
 }
+/**
+ * A SETTING-OUT STAKE, 1.5 m: sawn timber driven in and cut to a point, its head painted white with a blue band —
+ * a surveyor's mark, not a warning — and a nail in its top for the line.
+ */
+function stakeTris(): Tri[] {
+  const out: Tri[] = [];
+  box(-0.08, 0.08, -0.08, 0.08, 0, 0.9, "wood", out);
+  box(-0.085, 0.085, -0.085, 0.085, 0.9, 1.3, "liveryWhite", out);
+  box(-0.088, 0.088, -0.088, 0.088, 1.02, 1.14, "liveryAlt", out);
+  taper(0.08, 0.02, 1.3, 1.5, "wood", out);
+  box(-0.02, 0.02, -0.02, 0.02, 1.5, 1.56, "chrome", out);
+  // The earth it threw up, going in.
+  taper(0.2, 0.1, 0, 0.07, "load", out);
+  return out;
+}
+/** Half a tile of line, in metres: what one length of it spans. */
+export const TAPE_RUN = 0.5 / 0.09;
+/**
+ * A LENGTH OF BUILDER'S LINE, half a tile along x about its middle: one pale cord pulled taut from stake to peg at
+ * the height the kerb will be, a twist of it tied off at each end, and a small timber LEVEL TAG hung on it at its
+ * middle. Nothing bright, nothing that flaps.
+ */
+function tapeTris(): Tri[] {
+  const out: Tri[] = [], h = TAPE_RUN / 2, z = 0.74;
+  rod([-h, 0, z + 0.03], [0, 0, z], 0.028, "plate", out);
+  rod([0, 0, z], [h, 0, z + 0.03], 0.028, "plate", out);
+  // The tag: a slip of ply with a dark mark on it, hung from the line.
+  box(-0.1, 0.1, -0.012, 0.012, z - 0.26, z - 0.02, "wood", out);
+  box(-0.06, 0.06, -0.016, 0.016, z - 0.2, z - 0.1, "trim", out);
+  return out;
+}
+/** AN OFFSET PEG where two lengths of line meet, 0.9 m: a short square timber, its top sawn to a slope and painted blue, a notch for the line. */
+function pinTris(): Tri[] {
+  const out: Tri[] = [];
+  box(-0.065, 0.065, -0.065, 0.065, 0, 0.78, "wood", out);
+  box(-0.07, 0.07, -0.07, 0.07, 0.78, 0.9, "liveryAlt", out);
+  taper(0.16, 0.08, 0, 0.06, "load", out);
+  return out;
+}
 /** A streamer tied at a point and blown along x: a ribbon in three lengths, falling away as it goes. */
 function streamer(x: number, y: number, z: number, mat: Mat, out: Tri[], reach = 0.5) {
   for (let k = 0; k < 3; k++) rod([x + (reach * k) / 3, y + 0.03 * k, z - 0.07 * k * k], [x + (reach * (k + 1)) / 3, y + 0.03 * (k + 1), z - 0.07 * (k + 1) * (k + 1)], 0.055 - 0.008 * k, mat, out);
 }
 /**
- * A SETTING-OUT STAKE, 1.5 m: sawn timber driven in and cut to a point, its head banded red over white, a length of
+ * A FLAGGED STAKE, 1.5 m: sawn timber driven in and cut to a point, its head banded red over white, a length of
  * flagging tied round it and blowing.
  */
-function stakeTris(): Tri[] {
+function flagStakeTris(): Tri[] {
   const out: Tri[] = [];
   box(-0.08, 0.08, -0.08, 0.08, 0, 0.82, "wood", out);
   box(-0.085, 0.085, -0.085, 0.085, 0.82, 1.06, "liveryWhite", out);
@@ -67,13 +107,11 @@ function stakeTris(): Tri[] {
   taper(0.2, 0.1, 0, 0.07, "load", out);
   return out;
 }
-/** Half a tile of tape, in metres: what one length of it spans. */
-export const TAPE_RUN = 0.5 / 0.09;
 /**
  * A LENGTH OF TAPE, half a tile along x about its middle: red and white, slack between what holds its ends up so it
  * hangs in a curve, a pennant under it every stride — orange, yellow, white — each hanging to a point.
  */
-function tapeTris(): Tri[] {
+function buntingTris(): Tri[] {
   const out: Tri[] = [], N = 8, h = TAPE_RUN / 2, top = 1.16;
   const hang = (t: number) => top - 0.26 * (1 - (2 * t - 1) ** 2);
   for (let k = 0; k < N; k++) {
@@ -90,7 +128,7 @@ function tapeTris(): Tri[] {
   return out;
 }
 /** A steel road pin holding the tape up between two stakes, 1.25 m: a bar with a hooked head, a yellow cap on it. */
-function pinTris(): Tri[] {
+function buntingPinTris(): Tri[] {
   const out: Tri[] = [];
   rod([0, 0, 0], [0, 0, 1.2], 0.035, "trim", out);
   rod([0, 0, 1.2], [0.12, 0, 1.26], 0.035, "trim", out);
@@ -101,10 +139,10 @@ function pinTris(): Tri[] {
  * A PROFILE BOARD, 2.4 m along x: two stakes and a rail nailed across their heads at the level the road is to be
  * built to, painted in bands to be sighted along — one each side of the line.
  */
-function profileTris(): Tri[] {
+function profileTris(bands: readonly Mat[] = ["liveryWhite", "liveryBlack"]): Tri[] {
   const out: Tri[] = [];
   for (const x of [-0.95, 0.95]) { box(x - 0.07, x + 0.07, -0.07, 0.07, 0, 1.55, "wood", out); box(x - 0.17, x + 0.17, -0.17, 0.17, 0, 0.05, "load", out); }
-  for (let k = 0; k < 6; k++) box(-1.2 + k * 0.4, -0.8 + k * 0.4, -0.11, -0.07, 1.05, 1.36, (["liveryRed", "liveryWhite", "liveryBlack"] as const)[k % 3], out);
+  for (let k = 0; k < 6; k++) box(-1.2 + k * 0.4, -0.8 + k * 0.4, -0.11, -0.07, 1.05, 1.36, bands[k % bands.length], out);
   // A brace down from one stake.
   rod([0.95, 0.07, 1.0], [0.95, 0.75, 0.02], 0.04, "wood", out);
   return out;
@@ -115,7 +153,7 @@ function hubTris(): Tri[] {
   box(-0.09, 0.09, -0.09, 0.09, 0, 0.36, "wood", out);
   box(-0.095, 0.095, -0.095, 0.095, 0.36, 0.46, "hivis", out);
   rod([0.22, 0.05, 0], [0.24, 0.05, 0.95], 0.02, "chrome", out);
-  box(0.24, 0.6, 0.03, 0.07, 0.68, 0.95, "indicator", out);
+  box(0.24, 0.5, 0.03, 0.07, 0.72, 0.95, "liveryWhite", out);
   return out;
 }
 /** A LEVEL ON ITS TRIPOD, 1.6 m: three timber legs splayed from a head, the instrument on it — yellow, a dark barrel through it, a bright eyepiece. */
@@ -134,5 +172,8 @@ export const ROADWORKS: readonly Prop[] = [
   P("cone", coneTris), P("barrier", barrierTris),
   // (Lit evenly: thin bright things, to be read from far off.)
   { ...P("stake", stakeTris), flat: true }, { id: "tape", tris: tapeTris, shadow: LONG, flat: true }, P("tapePin", pinTris),
-  { id: "profile", tris: profileTris, shadow: { ...SMALL, hl: 1.2, hw: 0.2 }, flat: true }, { ...P("hub", hubTris), flat: true }, { id: "tripod", tris: tripodTris, shadow: { ...SMALL, hl: 0.6, hw: 0.6 } },
+  { id: "profile", tris: () => profileTris(), shadow: { ...SMALL, hl: 1.2, hw: 0.2 }, flat: true },
+  // THE BRIGHT ONES, mixed in among the plain: a flagged stake, bunting and the pin that holds it up, a board in red, white and black.
+  { ...P("stakeFlag", flagStakeTris), flat: true }, { id: "bunting", tris: buntingTris, shadow: LONG, flat: true }, P("buntingPin", buntingPinTris),
+  { id: "profileRed", tris: () => profileTris(["liveryRed", "liveryWhite", "liveryBlack"]), shadow: { ...SMALL, hl: 1.2, hw: 0.2 }, flat: true }, { ...P("hub", hubTris), flat: true }, { id: "tripod", tris: tripodTris, shadow: { ...SMALL, hl: 0.6, hw: 0.6 } },
 ];
