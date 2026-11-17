@@ -5,7 +5,9 @@ import { housingCapacity } from "../../game/housing";
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx } from "../grid";
 import { structureDef } from "../structures/def";
-import { placeCommand } from "../structures/place";
+import { placeCommand, validatePlacement } from "../structures/place";
+import { placesOf } from "../agents/roads";
+import { createNetwork } from "../roads/network";
 import { builtProjects, siteOf, startUpgradeCommand, upgradeFrom } from "./works";
 import { useWorldStore } from "../../state/world.store";
 import { WORKPLACES } from "../agents/commute";
@@ -20,6 +22,34 @@ function street(def: string, w?: number, h?: number) {
   commit(g, createHistory(), placeCommand(g, shaped, 6, 5 - shaped.footprint.h)!);
   return { g, s: [...g.structures.values()][0] };
 }
+
+describe("the yard's gate", () => {
+  /** A road along row 8 of a bare map. */
+  const road = () => { const g = createGrid(24, 16); fillTerrain(g, 1); for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 8)] = 1; return g; };
+  const garage = structureDef("garage")!;
+
+  test("opens on a road: in front of the plot, or behind it and the yard turned to face it; beside a road elsewhere is not enough", () => {
+    const g = road();
+    // North of the road, its front on it: the gate's tile is road.
+    expect(validatePlacement(g, garage, 4, 5, { needsRoad: true })).toMatchObject({ ok: true });
+    expect(validatePlacement(g, garage, 4, 5, { needsRoad: true }).facing).toBeUndefined();
+    // South of it, its back on it: the yard faces the back.
+    expect(validatePlacement(g, garage, 4, 9, { needsRoad: true })).toMatchObject({ ok: true, facing: "N" });
+    // A road up its side only: no gate on it.
+    const side = createGrid(24, 16);
+    fillTerrain(side, 1);
+    for (let y = 0; y < side.h; y++) side.paved[idx(side, 3, y)] = 1;
+    expect(validatePlacement(side, garage, 4, 5, { needsRoad: true })).toMatchObject({ ok: false, reason: "Yard gate needs a road" });
+  });
+
+  test("is where its building is come to and left from", () => {
+    const g = road();
+    commit(g, createHistory(), placeCommand(g, garage, 4, 9, { needsRoad: true })!);
+    const s = [...g.structures.values()][0];
+    expect(s.facing).toBe("N");
+    expect(placesOf(g, createNetwork(g)).find((p) => p.structure === s.id)).toMatchObject({ x: 8, y: 8 });
+  });
+});
 
 describe("landmarks", () => {
   test("every project is a tier or a wing of one landmark, and a line's tiers share a footprint", () => {

@@ -360,9 +360,9 @@ function placeProps(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numb
  * tile's band, in place of its drawing. Says whether it stands. @see landmarks-sheet
  */
 function placeBaked(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number): boolean {
-  const sheet = h.site ? null : landmarksLoaded(), look = sheet?.marks.get(s.def);
+  const sheet = h.site ? null : landmarksLoaded(), look = sheet?.marks.get(s.facing === "N" ? `${s.def}~back` : s.def);
   const want = !!sheet && !!look && look.w === s.w && look.h === s.h;
-  const key = want ? `${s.def}|${ctx.scale}|${ground}|${s.x},${s.y}` : "";
+  const key = want ? `${s.def}|${s.facing ?? ""}|${ctx.scale}|${ground}|${s.x},${s.y}` : "";
   if (key !== h.bakedKey) {
     for (const sp of h.baked) { sp.parent?.removeChild(sp); sp.destroy(); }
     h.baked = [];

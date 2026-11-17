@@ -24,7 +24,7 @@ describe("team leaders on the map", () => {
     const seats = [{ id: "tl_1", role: "intern" as const, placedAt: garage }];
     const lead = leadershipOf(g, placesOf(g, net), seats, new Map());
     const seen: string[] = [];
-    for (let k = 0; k < 30 * 120; k++) {
+    for (let k = 0; k < 30 * 200; k++) {
       stepTown(town, g, net, 0, 1 / 30);
       stepLeaders(L, town, g, net, seats, lead, 1 / 30);
       town.arrived.length = 0;

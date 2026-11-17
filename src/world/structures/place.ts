@@ -29,6 +29,7 @@ import { placementOf, structureDef, type StructureDef } from "./def";
 import { hasSewer } from "../sewers/solve";
 import { lateralReach } from "../sewers/reach";
 import { portTiles } from "../water/ports";
+import { YARD_DEFS, YARD_WIDTH, gateRoad } from "../landmarks/yard";
 
 /** Where a structure stroke places: the head cell, with the definition's footprint. */
 export function strokeFootprint(
@@ -98,6 +99,8 @@ export type PlaceRules = {
    * once slop is made; an upgrade keeps its place. @see plans/underground-sewers.md §5
    */
   needsSewer?: boolean;
+  /** A building growing where it stands: its yard's gate is where it was, road or none. @see planUpgrade */
+  keepsGate?: boolean;
 };
 
 /**
@@ -210,6 +213,15 @@ export function validatePlacement(
   if (rules.needsRoad && !placementOf(def).noFrontage && !cells.some((c) => inBounds(grid, c.x, c.y) && touchesRoad(grid, c.x, c.y))) {
     return whole("no road access");
   }
+  // THE YARD'S GATE OPENS ON A ROAD: its lorries drive out of it. The tile its gate is at, and no other. An
+  // upgrade keeps its place: the yard it has is the yard it had. @see landmarks/yard
+  // (To the front of its plot or to the back of it: the yard faces whichever has the road, the front first.)
+  let yardFaces: Facing | undefined;
+  if (!rules.keepsGate && def.footprint.w >= YARD_WIDTH && YARD_DEFS.includes(def.id)) {
+    const open = (f: Facing) => { const gate = gateRoad({ x: ox, y: oy, h: def.footprint.h, facing: f }); return inBounds(grid, gate.x, gate.y) && grid.paved[idx(grid, gate.x, gate.y)] !== VOID; };
+    yardFaces = open("S") ? "S" : open("N") ? "N" : undefined;
+    if (rules.needsRoad && !yardFaces) return whole("Yard gate needs a road");
+  }
 
   // A SEWER IN REACH, for what makes slop. @see sewerInReach
   if (rules.needsSewer && !sewerInReach(grid, def, ox, oy)) return whole("No manhole in reach");
@@ -224,7 +236,7 @@ export function validatePlacement(
   // Uneven ground is a property of the FOOTPRINT, so it can only be judged
   // here — and only matters when nothing is going to level it.
   if (!placementOf(def).autoFlatten && new Set(heights).size > 1) return whole("uneven ground");
-  return { ok: true, cells: verdicts, reason: null, reasons: [], groundHeight, at };
+  return { ok: true, cells: verdicts, reason: null, reasons: [], groundHeight, at, ...(yardFaces === "N" ? { facing: yardFaces } : {}) };
 }
 
 /**
@@ -464,7 +476,7 @@ export function planUpgrade(
   const from = grid.structures.get(id);
   const to = from && (into ?? structureDef(structureDef(from.def)?.upgradesTo ?? ""));
   // GROWN, a building keeps its place: it needs no sewer it didn't. @see needsSewer
-  rules = { ...rules, needsSewer: false };
+  rules = { ...rules, needsSewer: false, keepsGate: true };
   if (!from || !to) return null;
   const grow = Math.max(0, to.footprint.w - from.w), growV = Math.max(0, to.footprint.h - from.h);
   const old = footprintCells(from.x, from.y, from.w, from.h).filter((c) => inBounds(grid, c.x, c.y));

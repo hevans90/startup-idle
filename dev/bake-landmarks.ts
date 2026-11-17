@@ -31,8 +31,8 @@ const tileAt = (x: number, y: number) => {
   const c = Math.max(0, Math.min(PW - 1, Math.floor(x * TILES_PER_M + PW / 2))), r = Math.max(0, Math.min(PH - 1, Math.floor(y * TILES_PER_M + PH / 2)));
   return rank.get(r * PW + c)!;
 };
-function bake(id: LandmarkId, res: number) {
-  return bakeTris(landmarkTris(id), 0, res, {
+function bake(id: LandmarkId, res: number, back = false) {
+  return bakeTris(landmarkTris(id, back), 0, res, {
     layers: PW * PH, layerOf: () => 0, layerAt: (_m, p) => tileAt(p[0], p[1]),
     shadow: { hl: 1, hw: 1, edge: 0.1, soft: 0.4, strength: 0, reach: 0 },
   });
@@ -55,7 +55,7 @@ if (pv >= 0) {
   // A LOOK AT THEM: each as the game will stack it, side by side on grass.
   const rest = process.argv.slice(pv + 2), res = Number(rest.find((a) => /^[\d.]+$/.test(a)) ?? 1.5);
   const ids = rest.filter((a) => (LANDMARK_IDS as readonly string[]).includes(a)) as LandmarkId[];
-  const bakes = (ids.length ? ids : [...LANDMARK_IDS]).map((id) => bake(id, res));
+  const bakes = (ids.length ? ids : [...LANDMARK_IDS]).map((id) => bake(id, res, rest.includes("back")));
   const W = bakes.reduce((s, b) => s + b.layers[0].w + 16, 16), H = Math.max(...bakes.map((b) => b.layers[0].h)) + 32;
   const out: Image = { w: W, h: H, px: new Uint8Array(W * H * 4) };
   for (let i = 0; i < W * H; i++) { out.px[i * 4] = 122; out.px[i * 4 + 1] = 168; out.px[i * 4 + 2] = 76; out.px[i * 4 + 3] = 255; }
@@ -86,10 +86,11 @@ function place(w: number, h: number): { page: number; x: number; y: number } {
 }
 const sheet: LandmarksSheet = { res: LANDMARK_RES, pages: [], marks: {} };
 const all: { piece: ReturnType<typeof crop>; set: (p: LandmarkPiece) => void }[] = [];
-for (const id of LANDMARK_IDS) {
-  const b = bake(id, LANDMARK_RES), tiles: LandmarkPiece[] = new Array(PW * PH).fill(null);
+// (Each twice: its yard to the front of its plot, and to the back — `id~back`.)
+for (const [id, back] of LANDMARK_IDS.flatMap((q) => [[q, false], [q, true]] as const)) {
+  const b = bake(id, LANDMARK_RES, back), tiles: LandmarkPiece[] = new Array(PW * PH).fill(null);
   order.forEach((t, k) => all.push({ piece: crop(b.layers[k], b.ox, b.oy), set: (p) => { tiles[t.r * PW + t.c] = p; } }));
-  sheet.marks[id] = { w: PW, h: PH, tiles };
+  sheet.marks[back ? `${id}~back` : id] = { w: PW, h: PH, tiles };
   console.log(`${id}: ${b.layers[0].w}×${b.layers[0].h}`);
 }
 for (const a of [...all].sort((p, q) => q.piece.img.h - p.piece.img.h)) {

@@ -22,6 +22,7 @@ import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { LINE_GAPS, LINE_LAYS, LINE_PACE, LINE_STAGES, MAIN, SEWER, YARD_LOADING, alongLine, lineFront, type LineJob } from "../lines/jobs";
 import { YARDS } from "../lines/line-loads";
+import { YARD_BAY, YARD_CRANE, YARD_STACK, inYard } from "../landmarks/yard";
 import type { BandLayer } from "./bands";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
 import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
@@ -841,7 +842,9 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       if (yards && cars) for (const s of g.structures.values()) {
         if (s.build || s.w < 5 || !YARDS.includes(s.def)) continue;
         const ox = s.x - 0.5, oy = s.y - 0.5, h = g.height[idx(g, s.x, s.y)] + (s.def === "garage" ? 0.15 : 0.3);
-        const cr = { x: ox + 3.66, y: oy + 2.1 }, stack = { x: ox + (s.def === "garage" ? 3.24 : 3.41), y: oy + 2.55 };
+        // (A yard that faces the back of its plot is the same yard front to back: its lorry noses that way.)
+        const yc = inYard(YARD_CRANE, s), ys = inYard(YARD_STACK, s), yb = inYard(YARD_BAY, s), fwd = s.facing === "N" ? -1 : 1;
+        const cr = { x: ox + yc.u, y: oy + yc.v }, stack = { x: ox + ys.u, y: oy + ys.v };
         let job: LineJob | null = null, left = Infinity;
         for (const j of jobs) if (j.depot === s.id && j.yard?.length) { const m = Math.min(...j.yard); if (m < left) { left = m; job = j; } }
         const q = job ? 1 - Math.max(0, Math.min(1, left / YARD_LOADING)) : -1, ease = (v: number) => { const e = Math.max(0, Math.min(1, v)); return e * e * (3 - 2 * e); };
@@ -859,12 +862,12 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           // THE LORRY, drawn up nose to the gate; loaded, out through it.
           // (Out from the shed to the crane first: it does not appear beside it.)
           const inn = 1 - ease(q / 0.12);
-          const lorry = { x: ox + 4.02 + 0.3 * inn, y: oy + 2.38 - 1.15 * inn + 0.8 * ease((q - 0.88) / 0.12) };
-          unit("lorry", lorry.x, lorry.y, Math.PI / 2, [{ look: "flatbed", tint: BLUE }]);
+          const lorry = { x: ox + yb.u - 0.5 * inn, y: oy + yb.v + fwd * (-1.15 * inn + 0.85 * ease((q - 0.88) / 0.12)) };
+          unit("lorry", lorry.x, lorry.y, (Math.PI / 2) * fwd, [{ look: "flatbed", tint: BLUE }]);
           for (let b = 0; b < 3; b++) {
             const t0 = 0.14 + b * 0.245, t1 = t0 + 0.215;
             if (q < t0) continue;
-            const bed = { x: lorry.x - (b < 2 ? (b - 0.5) * 0.13 : 0), y: lorry.y - 0.12, z: (b < 2 ? 1.25 : 1.95) * M + R };
+            const bed = { x: lorry.x - (b < 2 ? (b - 0.5) * 0.13 : 0), y: lorry.y - 0.12 * fwd, z: (b < 2 ? 1.25 : 1.95) * M + R };
             let at = bed;
             if (q < t1) {
               // (Round the crane from the stack to the bed, up and over.)

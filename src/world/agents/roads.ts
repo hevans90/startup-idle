@@ -25,6 +25,7 @@ import { idx, structureAt, surfaceSampler, type Grid } from "../grid";
 import { surfaceHeight } from "../iso";
 import { connects, isPaved } from "../roads/mask";
 import { find, type Network } from "../roads/network";
+import { gateRoad, hasYard } from "../landmarks/yard";
 
 export type Cell = { x: number; y: number };
 export type Place = Cell & {
@@ -70,6 +71,11 @@ export function placesOf(g: Grid, net: Network): Place[] {
           };
         }
       }
+    }
+    // A YARD'S BUILDING is come to and left by its gate, where that opens on a road. @see landmarks/yard
+    if (hasYard(s)) {
+      const gate = gateRoad(s), n = isPaved(g, gate.x, gate.y) ? find(net, idx(g, gate.x, gate.y)) : -1;
+      if (n >= 0) best = { x: gate.x, y: gate.y, kind: "door", net: n, structure: s.id, ...(s.build ? { building: true } : {}) };
     }
     if (best && best.net >= 0) out.push(best);
   }

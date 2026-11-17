@@ -16,6 +16,7 @@
 import { HALF_STEPS_PER_M, TILES_PER_M, modelById, type Mat } from "../agents/cars/models";
 import { face, modelTris, type Tri, type V3 } from "../agents/cars/raster";
 import { box, lathe } from "../props/models";
+import { YARD_GATE } from "./yard";
 import { lookOf } from "../structures/projects/looks";
 import { bays, floorsOf, type Building, type Facade, type Mass } from "../structures/projects/model";
 
@@ -208,7 +209,8 @@ function yard(o: Out, tier: number, level: number) {
   cb(o, x0, x1, y0, y1, 0, z, tier === 0 ? 0x9c968a : 0x5c6066, tier === 0 ? "gravel" : "roofing");
   if (tier > 0) for (const [a0, a1, b0, b1] of [[x0, x1, y0, y0 + 0.25], [x0, x0 + 0.25, y0, y1], [x1 - 0.25, x1, y0, y1]]) cb(o, a0, a1, b0, b1, 0, z + 0.06, 0xa7a39b);
   // THE RAMP down the front to the road, at the gate.
-  const gate0 = mid - 3.6, gate1 = mid + 3.6;
+  // (THE GATE is at the middle of the yard's last tile: the road it must open on is the tile in front of that. @see YARD_GATE)
+  const gate = X(YARD_GATE.u), gate0 = gate - 3.4, gate1 = gate + 3.4;
   tinted(o, tier === 0 ? 0x8f897d : 0x53575c, () => {
     face([[gate0, y1, z], [gate1, y1, z], [gate1, y1 + 0.45, 0.02], [gate0, y1 + 0.45, 0.02]], "roofing", [mid, y1, -1], o);
     face([[gate1, y1, 0], [gate1, y1, z], [gate1, y1 + 0.45, 0.02]], "roofing", [mid, y1, 0], o);
@@ -219,7 +221,7 @@ function yard(o: Out, tier: number, level: number) {
   fence(o, "x", y1 - 0.15, x0, gate0, z, tier);
   fence(o, "x", y1 - 0.15, gate1, x1, z, tier);
   if (tier > 0) {
-    fence(o, "x", y1 - 0.5, gate1 + 0.3, Math.min(x1 - 0.3, gate1 + 6.6), z, tier);
+    fence(o, "x", y1 - 0.5, gate0 - 6.9, gate0 - 0.3, z, tier);
     for (const g of [gate0, gate1]) { cb(o, g - 0.16, g + 0.16, y1 - 0.31, y1 + 0.01, z, z + 2.6, YELLOW, "livery"); cb(o, g - 0.17, g + 0.17, y1 - 0.32, y1 + 0.02, z + 0.9, z + 1.3, 0x1f2226, "iron"); }
   } else for (const g of [gate0, gate1]) cb(o, g - 0.12, g + 0.12, y1 - 0.27, y1 - 0.03, z, z + 1.6, 0x8a6a44, "timber");
 
@@ -247,9 +249,9 @@ function yard(o: Out, tier: number, level: number) {
 
   // ALONG THE FRONT, inside the fence: pipe for the mains and the sewers; blocks on pallets; stone in a bay.
   const fy = y1 - 1.2;
-  pipeStack(o, x0 + 2.3, fy - 6.2, fy - 0.3, z, tier === 0 ? 2 : 3, 0.5, PIPE);
-  if (tier > 0) pipeStack(o, x0 + 6.0, fy - 6.2, fy - 0.3, z, 3, 0.56, IRON_PIPE);
-  for (let k = 0; k < 1 + tier; k++) pallet(o, x1 - 1.6 - (k % 2) * 1.5, fy - 0.3 - Math.floor(k / 2) * 1.3, z, 0.9 + (k % 3) * 0.2, k % 2 ? 0xa4543a : BLOCK);
+  if (tier === 0) pipeStack(o, x0 + 5.0, fy - 6.2, fy - 0.3, z, 2, 0.5, PIPE);
+  else { pipeStack(o, x0 + 3.3, fy - 6.2, fy - 0.3, z, 3, 0.5, PIPE); pipeStack(o, x0 + 7.0, fy - 6.2, fy - 0.3, z, 3, 0.56, IRON_PIPE); }
+  for (let k = 0; k < 1 + tier; k++) pallet(o, x1 - 1.3, sy1 + (tier ? 7.4 : 3.0) + k * 1.25, z, 0.9 + (k % 3) * 0.2, k % 2 ? 0xa4543a : BLOCK);
   if (tier > 0) bay(o, x1 - 4.2, x1 - 0.5, sy1 + 2.4, sy1 + 6.2, z, 0x8f8a80);
   // A CABIN for the yard's foreman, a fuel tank in its bund, a lamp on a mast, a skip.
   const cx0 = x0 + 0.7, cy0 = sy0 + 0.2;
@@ -270,7 +272,7 @@ function yard(o: Out, tier: number, level: number) {
   // (A skip: its four sides and what has been thrown in it.)
   const kx = gate0 - 3.4, ky = fy - 8.6;
   if (kx - 1.5 > x0 + 7 || tier === 0) {
-    const sx = tier === 0 ? x1 - 2.6 : kx, sy = tier === 0 ? sy1 + 5.2 : ky;
+    const sx = tier === 0 ? x0 + 9.5 : kx, sy = tier === 0 ? sy1 + 1.6 : ky;
     cb(o, sx - 1.5, sx + 1.5, sy - 0.9, sy + 0.9, z + 0.15, z + 0.3, YELLOW, "livery");
     for (const [a0, a1, b0, b1] of [[-1.5, 1.5, -0.9, -0.8], [-1.5, 1.5, 0.8, 0.9], [-1.5, -1.4, -0.9, 0.9], [1.4, 1.5, -0.9, 0.9]]) cb(o, sx + a0, sx + a1, sy + b0, sy + b1, z + 0.3, z + 1.25, YELLOW, "livery");
     cb(o, sx - 1.4, sx + 1.4, sy - 0.8, sy + 0.8, z + 0.3, z + 0.95, 0x6f5338, "gravel");
@@ -307,7 +309,7 @@ function mast(o: Out, x: number, y: number, z: number, h: number, colour: number
 }
 
 /** Every triangle of a tier: the plot's stone under the building, the building, what is on it, and the yard. */
-export function landmarkTris(id: LandmarkId): Tri[] {
+export function landmarkTris(id: LandmarkId, back = false): Tri[] {
   const o: Out = [], b: Building = lookOf(id, HOUSE_PLOT), tier = LANDMARK_IDS.indexOf(id), level = Z(b.plinth.h);
   // THE PLINTH under the building's own three tiles: its stone, and its top a shade of its own.
   const i = b.plinth.inset * MT;
@@ -355,6 +357,12 @@ export function landmarkTris(id: LandmarkId): Tri[] {
     // Planters either side of the way in.
     for (const sg of [-1, 1]) { cb(o, mid + sg * 5.4 - 0.9, mid + sg * 5.4 + 0.9, front + 0.6, front + 1.6, g, g + 0.6, 0xc9c4b8, "stone"); cb(o, mid + sg * 5.4 - 0.8, mid + sg * 5.4 + 0.8, front + 0.7, front + 1.5, g + 0.6, g + 1.1, 0x4f7a3f, "hedge"); }
   }
+  // THE YARD FACING THE BACK OF ITS PLOT, where the road is there: the same yard, front to back.
+  const from = o.length;
   yard(o, tier, level);
+  if (back) for (let k = from; k < o.length; k++) {
+    const t = o[k], fy = (p: V3): V3 => [p[0], -p[1], p[2]], paint = t.paint;
+    o[k] = { ...t, p: [fy(t.p[0]), fy(t.p[1]), fy(t.p[2])], n: fy(t.n), ...(t.ns ? { ns: [fy(t.ns[0]), fy(t.ns[1]), fy(t.ns[2])] as [V3, V3, V3] } : {}), ...(paint ? { paint: (p: V3) => paint(fy(p)) } : {}) };
+  }
   return o;
 }
