@@ -201,7 +201,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         }
         // THE DIGGER at the middle of its front, turned to it: a bite, a pull, and round to drop it.
         if (cars) {
-          const id = `raze:${j.id}`, q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL, at = { x: (x0 + x1) / 2, y: y1 + 0.42 };
+          const id = `raze:${j.id}`, q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL, at = { x: (x0 + x1) / 2, y: y1 - 0.18 };   // (on the plot's own front edge: never out in the road)
           let u = units.get(id);
           if (!u) { u = makeUnit(2); units.set(id, u); }
           seen.add(id);

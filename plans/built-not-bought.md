@@ -6,9 +6,20 @@ pipe, a sewer, a dredged channel. This is the plan to give each of them a
 site, a crew, loads and a finish — with what we already have, not a third
 system.
 
-Status: PLAN. Nothing built. Based on a read-only audit of the build paths;
-its findings are under "The audit" and are to be confirmed as each step
-starts.
+Status: BUILT, all nine steps, in the game's own play path — with these left
+short of the plan:
+- A HOUSE has no baked build stages: a lot is serviced by stages, and a house
+  that grows a floor or a tier stands in scaffold for a while; the floors
+  themselves still appear whole.
+- A LINE (main, sewer, channel) is on the map only when ALL of it is done, not
+  a length at a time; and one cannot be joined to another still being laid.
+- A PORT's upgrade to the next tier is still at once; its cranes are not seen
+  being erected.
+- The AI's own mains and sewers are laid at once (its buildings are sites).
+- No balance sim was run for the early game's pace; the times are first
+  numbers (a lot 12 s, a rack 18 s, an office 60 s, a port 80 s, a main 3 s a
+  tile).
+- No new words on screen but one comms line when a line job stops for money.
 
 ## The audit
 
