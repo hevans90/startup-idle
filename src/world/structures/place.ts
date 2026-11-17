@@ -12,6 +12,7 @@
  * to get their hill back.
  */
 import { PatchBuilder, type Command } from "../edit/commands";
+import { onRoadJob } from "../roads/jobs";
 import type { CellVerdict } from "../edit/cursor";
 import {
   VOID, footprintCells, idx, inBounds, structureAt, type Grid, type Structure,
@@ -123,6 +124,8 @@ function cellVerdict(
   if (grid.terrain[i] === VOID) return { ok: false, reason: "no ground" };
   if (rules.owned && !rules.owned(x, y)) return { ok: false, reason: "out of bounds" };
   if (structureAt(grid, x, y) >= 0) return { ok: false, reason: "occupied" };
+  // A road ordered and not built yet has its ground. @see roads/jobs
+  if (grid.roadJobs.length && onRoadJob(grid, x, y)) return { ok: false, reason: "road works" };
   // A sewer's land is kept: nothing is built over a trunk. @see plans/underground-sewers.md §1
   if (hasSewer(grid, i)) return { ok: false, reason: "over a sewer" };
   if (!placementOf(def).allowOnPaved && grid.paved[i] !== VOID) {

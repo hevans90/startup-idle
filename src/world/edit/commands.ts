@@ -240,6 +240,9 @@ export function commit(grid: Grid, hist: History, cmd: Command): number[] {
   return touched;
 }
 
+/** Do a command and keep no record of it: what the world does to itself — a road's works — is not the player's to undo. */
+export const applyCommand = (grid: Grid, cmd: Command): number[] => applyPatches(grid, cmd, "do");
+
 /** Returns the touched flat indices, or null when there is nothing to undo. */
 export function undo(grid: Grid, hist: History): number[] | null {
   const cmd = hist.past.pop();

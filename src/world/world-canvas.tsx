@@ -150,8 +150,10 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     if (!play) return;
     const st = useWorldStore.getState();
     st.setPlaying(true);
+    // And in the game a road is built, not bought. @see roads/jobs
+    st.setRoadWorks(true);
     st.setTool("inspect");
-    return () => useWorldStore.getState().setPlaying(false);
+    return () => { useWorldStore.getState().setPlaying(false); useWorldStore.getState().setRoadWorks(false); };
   }, [play]);
   /**
    * THE PROJECTS, in the game: what a company already earned stood up

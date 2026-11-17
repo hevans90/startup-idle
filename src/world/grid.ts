@@ -240,6 +240,9 @@ export type Grid = {
   structures: Map<number, Structure>;
   /** Next id to hand out. Monotonic, so an id is never reused. */
   nextStructureId: number;
+  /** Roads ordered and not yet all open, oldest first: none of a job's cells is road until its length opens. @see roads/jobs */
+  roadJobs: import("./roads/jobs").RoadJob[];
+  nextRoadJob: number;
   /** Cached bounds of `height`, kept current by {@link setHeight}. */
   minHeight: number;
   maxHeight: number;
@@ -298,6 +301,8 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     structureAt: new Int32Array(n),
     structures: new Map(),
     nextStructureId: 1,
+    roadJobs: [],
+    nextRoadJob: 1,
     minHeight: 0,
     maxHeight: 0,
     rev: 0,

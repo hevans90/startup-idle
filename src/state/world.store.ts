@@ -59,7 +59,7 @@ import { RAMP } from "../world/iso";
 import { demolishCommand, placeCommand, upgradeCommand, validatePlacement, type PlaceRules } from "../world/structures/place";
 
 import {
-  PatchBuilder, canRedo, canUndo, commit, createHistory, peekRedo, peekUndo,
+  PatchBuilder, applyCommand, canRedo, canUndo, commit, createHistory, peekRedo, peekUndo,
   redo as redoCmd, redoLabel, touchedCells, touchesNetwork, touchesSurface,
   undo as undoCmd, undoLabel, type Command, type History,
 } from "../world/edit/commands";
@@ -75,6 +75,7 @@ import {
   type BrushId, type Stroke, type ToolId,
 } from "../world/edit/tools";
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
+import { cancelRoadJobs, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
@@ -438,6 +439,18 @@ type WorldState = {
    */
   playing: boolean;
   setPlaying: (on: boolean) => void;
+  /**
+   * Whether a road dragged in the game is ORDERED and built over time, not
+   * laid at once: on where the game itself shows the map. Off, a stroke lays
+   * its road there and then — the editor, a fixture, a headless run, the AI.
+   * @see roads/jobs, plans/road-building.md
+   */
+  roadWorks: boolean;
+  setRoadWorks: (on: boolean) => void;
+  /** Bumped when a road job is ordered, a trade passes a cell, a length opens, a job is cancelled. */
+  roadRev: number;
+  /** A frame of the road works. @see stepRoadJobs */
+  stepRoadWorks: (dt: number) => void;
   /** Terrain palette index the paint tool writes. */
   material: number;
   /**
@@ -706,6 +719,34 @@ const markDirty = (grid: Grid, touched: number[], surface: boolean) => {
   return cells;
 };
 
+/**
+ * WHAT THE ROAD WORKS WRITE, written: ground moved, decks up, road open — and
+ * the ramps that follow from them, as a stroke derives them. Not a command in
+ * the history: the works are the world's doing, not an edit to take back.
+ * @see stepRoadJobs, cancelRoadJobs
+ */
+function applyRoadWrites(w: RoadWrites): void {
+  const cells = [...w.heights, ...w.decks, ...w.paved].map(({ x, y }) => ({ x, y }));
+  if (!cells.length) return;
+  const st = useWorldStore.getState(), g = st.grid, b = new PatchBuilder(g);
+  for (const h of w.heights) b.set("height", h.x, h.y, h.to);
+  for (const d of w.decks) { b.set("deck", d.x, d.y, 1); b.set("deckZ", d.x, d.y, d.z); }
+  for (const c of w.paved) b.set("paved", c.x, c.y, PAVED_MATERIAL);
+  for (const c of heightDirtyCells(g, cells)) {
+    const i = c.y * g.w + c.x;
+    if (g.ramp[i] === RAMP.NONE || b.peek("paved", c.x, c.y) !== VOID_MATERIAL) continue;
+    b.set("ramp", c.x, c.y, derivedSlope(g, c.x, c.y));
+  }
+  const read = readerFor(b, g);
+  for (const c of heightDirtyCells(g, cells)) if (b.peek("paved", c.x, c.y) !== VOID_MATERIAL) b.set("ramp", c.x, c.y, derivedRamp(read, c.x, c.y));
+  const cmd = b.build("road works");
+  if (!cmd) return;
+  const touched = applyCommand(g, cmd);
+  if (water && touchesSurface(cmd)) syncGround(water, g);
+  if (network && touchesNetwork(cmd)) rebuildNet(network, g);
+  useWorldStore.setState({ revision: useWorldStore.getState().revision + 1, lastTouched: markDirty(g, touched, true), ...netMeta() });
+}
+
 function freshGrid(w: number, h: number): Grid {
   const g = createGrid(w, h);
   fillTerrain(g, GRASS); // flat grass at height 0 — the starting state, not an assumption
@@ -795,6 +836,16 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   seed: null,
   gen: START_GEN,
+  roadWorks: false,
+  setRoadWorks: (roadWorks) => set({ roadWorks }),
+  roadRev: 0,
+  stepRoadWorks: (dt) => {
+    const g = get().grid;
+    if (!g.roadJobs.length) return;
+    const { writes, changed } = stepRoadJobs(g, dt);
+    applyRoadWrites(writes);
+    if (changed) set({ roadRev: get().roadRev + 1 });
+  },
   playing: false,
   setPlaying: (playing) => {
     // INTO PLAY, mains laid before buildings had inlets are run on to them. @see mainsToPorts
@@ -1263,6 +1314,19 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     let dredged: { x: number; y: number }[] = [];
     // DEMOLISH ON A PIPE OR A ROAD lifts it. @see demolishLifts
     // In the editor a pipe only: Demolish there has never taken up a road.
+    // A ROAD STILL BEING BUILT, under Demolish or the road's eraser: its job is cancelled, what is not open of it
+    // taken up, and what was paid for that given back. @see cancelRoadJobs
+    if ((s0.tool === "demolish" || s0.tool === "eraseRoad") && st.grid.roadJobs.length) {
+      const hit = new Set(strokeCells(st.grid, { ...s0, brush: "line" }).map((c) => c.y * st.grid.w + c.x));
+      const { writes, cancelled } = cancelRoadJobs(st.grid, hit);
+      if (cancelled.length) {
+        applyRoadWrites(writes);
+        const back = cancelled.reduce((n, c) => n + c.tiles * c.job.paidATile, 0);
+        if (back > 0) useMoneyStore.getState().increaseMoney(back);
+        set({ stroke: null, roadRev: get().roadRev + 1 });
+        return;
+      }
+    }
     const under = s0.tool === "demolish" ? demolishLifts(st.grid, s0.anchor) : null;
     const lifts = st.playing || under === "pipe" ? under : null;
     if (lifts) {
@@ -1475,6 +1539,26 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       // NOT OVER A SEWER CONNECTION: it lies on open ground, as a building does not stand on a trunk. @see planLateral
       if (st.playing && s0.tool === "paintRoad" && cells.some((c) => (st.grid.main[c.y * st.grid.w + c.x] & MAIN_SEWER) !== 0 && st.grid.paved[c.y * st.grid.w + c.x] === VOID_MATERIAL)) {
         set({ stroke: null, ...(aiActing() ? {} : { notice: { text: "A road can't go over a sewer connection", at: Date.now() } }) });
+        return;
+      }
+      // IN THE GAME A ROAD IS ORDERED, not laid: a job along the line, built over time and opened a length at a
+      // time. Graded now, on the map as it will be, and refused now if it cannot be built. @see orderRoad
+      if (st.playing && st.roadWorks && !aiActing() && gradeStroke(st.grid, s0, st.brushRadius)) {
+        const got = orderRoad(st.grid, strokeCells(st.grid, s0));
+        if ("refused" in got) { set({ stroke: null, notice: { text: got.refused.why, at: Date.now() } }); return; }
+        if ("nothing" in got) { set({ stroke: null }); return; }
+        const fresh = got.job.cells.filter((c) => c.fresh);
+        // Paid as a road has been: in one sum, new tiles only, the partnership its share. @see roadCost
+        const share = playerShare(st.grid, fresh.map((c) => ({ x: c.x, y: c.y, w: 1, h: 1 })));
+        const price = roadCost(fresh.length).times(share);
+        if (fresh.length > 0 && !spendForBuild(price)) {
+          set({ stroke: null, notice: { text: `Not enough money for ${fresh.length} tiles of road: ${formatCurrency(price.toNumber())}`, at: Date.now() } });
+          return;
+        }
+        if (fresh.length > 0 && share < 1) spendWallet(roadCost(fresh.length).toNumber() * (1 - share));
+        got.job.paidATile = fresh.length ? price.toNumber() / fresh.length : 0;
+        takeOn(st.grid, got);
+        set({ stroke: null, roadRev: get().roadRev + 1 });
         return;
       }
       // A ROAD GRADES ITS OWN GROUND: the hill cut and filled under it, in this command. @see gradeRoad

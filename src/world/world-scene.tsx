@@ -252,6 +252,7 @@ import { createCultureProps, type CultureProps } from "./render/culture-props";
 import { SHOP_LOOK, createShopfronts, type Shopfronts } from "./render/shopfronts";
 import { createStreetProps, type StreetProps } from "./render/street-props";
 import { createBridgeProps, type BridgeKind, type BridgeProps } from "./render/bridge-props";
+import { createRoadWorks, type RoadWorks } from "./render/road-works";
 import { depthAt } from "./water/field";
 import { createWoods, type Woods } from "./render/woods";
 import { createSignals, type Signals } from "./render/signals";
@@ -453,6 +454,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const streetPropsRef = useRef<StreetProps | null>(null);
   /** What a road over water stands on, and its sides. @see createBridgeProps */
   const bridgePropsRef = useRef<BridgeProps | null>(null);
+  /** The roads being built, as far as each has got. @see createRoadWorks */
+  const roadWorksRef = useRef<RoadWorks | null>(null);
   /** The woods' trees, stood on shaded grass. @see createWoods */
   const woodsRef = useRef<Woods | null>(null);
   /** The traffic lights at the lights junctions. @see createSignals */
@@ -1706,6 +1709,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         shopsRef.current = createShopfronts(bl);
         streetPropsRef.current = createStreetProps(bl);
         bridgePropsRef.current = createBridgeProps(bl);
+        roadWorksRef.current = createRoadWorks(bl);
         woodsRef.current = createWoods(bl);
         signalsRef.current = createSignals(bl);
         busStopsRef.current = createBusStops(bl);
@@ -1758,6 +1762,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       shopsRef.current = null;
       streetPropsRef.current?.destroy();
       bridgePropsRef.current?.destroy();
+      roadWorksRef.current?.destroy();
+      roadWorksRef.current = null;
       streetPropsRef.current = null;
       woodsRef.current?.destroy();
       woodsRef.current = null;
@@ -3848,6 +3854,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
       }
       // A BRIDGE'S PIERS AND SIDES, again when the map changes. @see bridge-props
+      if (roadWorksRef.current) { const st = useWorldStore.getState(); roadWorksRef.current.sync(st.grid, st.revision, st.roadRev, scale); }
       if (bridgePropsRef.current) {
         const st = useWorldStore.getState(), field = st.getWaterField();
         // (`?bridge=arch|trestle|girder|truss|stay`: every bridge that kind, for looking at one. @see bridge-props kindOf)

@@ -166,6 +166,8 @@ export function stepSites(g: Grid, net: Network, seen: WorksSeen, dt: number, pl
   });
   stepWorks(works, g, net, town, ownedNow(), playing ? payForLoad : () => true, dt, Date.now());
   if (works.opened.length) announceOpened(works.opened.splice(0));
+  // THE ROADS BEING BUILT, a frame further on. @see roads/jobs
+  if (g.roadJobs.length) useWorldStore.getState().stepRoadWorks(dt);
   if (works.rev !== seen.rev) {
     seen.rev = works.rev;
     useWorldStore.setState({ projectRev: useWorldStore.getState().projectRev + 1 });
