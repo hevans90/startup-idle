@@ -28,7 +28,7 @@ import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props
 import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
 import { walkRound, type Walker } from "./road-plant";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
-import { BEND_R, CHEEK, CONCRETE, MATERIAL, SADDLE, ZT, box as meshBox, elbowPath, flange, footing, made, pipeMesh, solid, sweep, tube as meshTube } from "./pipe-mesh";
+import { BEND_R, CHEEK, CONCRETE, FLANGE_R, MATERIAL, SADDLE, ZT, box as meshBox, elbowPath, flange, footing, made, pipeMesh, solid, sweep, tube as meshTube } from "./pipe-mesh";
 import { CRANE_LOOKS, CRANE_REACH, craneTip } from "../agents/cars/models";
 
 /** How high a main's middle lies off the ground, half steps. @see mains-layer LIFT */
@@ -129,6 +129,8 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     const n = j.cells.length, f = Array.from({ length: LINE_STAGES[j.kind] }, (_, q) => lineFront(j, q)), laid = j.laid ?? 0, still = j.stalled > 0;
     // UNDER THE GROUND, a sewer's trunk: the same lengths, the same crane — into a trench, and the trench filled over them.
     const under = j.kind === "sewer", stuff = STUFF[j.kind === "dredge" ? "main" : j.kind], R_HS = stuff.r / ZT;
+    /** How far its flanges stand out from its middle: tiles, and half steps. What stacked lengths are spaced by. */
+    const FLANGE = stuff.r * FLANGE_R, FLANGE_HS = R_HS * FLANGE_R;
     const done = f[f.length - 1] >= n;
     let m = mains.get(j.id);
     if (!m) { const gr = new Graphics(); gr.eventMode = "none"; gr.context.batchMode = "batch"; m = { g: gr, band: -1, stood: new Map(), front: new Map(), stoodKey: "", hands: new Map(), pegs: [], pegged: "", loose: new Map() }; mains.set(j.id, m); }
@@ -441,8 +443,10 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     const setAt = (q: Piece) => (q.bd ? { x: q.bd.c.x, y: q.bd.c.y, heading: 0 } : by(q.p));
     /** A piece's place on its lorry's bed: the `b`th of them — two side by side, and one on the two. */
     const onBed = (lorry: { x: number; y: number; heading: number }, b: number) => {
-      const ch = Math.cos(lorry.heading), sh = Math.sin(lorry.heading), off = b < 2 ? (b - 0.5) * 0.13 : 0;
-      return { x: lorry.x - ch * BED_BACK - sh * off, y: lorry.y - sh * BED_BACK + ch * off, heading: lorry.heading, z: (b < 2 ? 1.25 : 1.95) * M + R_HS };
+      // (BY THEIR FLANGES, which stand out past the tube: two side by side flange to flange, the third resting on
+      // both — its flanges on theirs — and drawn over them.)
+      const ch = Math.cos(lorry.heading), sh = Math.sin(lorry.heading), off = b < 2 ? (b - 0.5) * 2 * FLANGE : 0;
+      return { x: lorry.x - ch * BED_BACK - sh * off, y: lorry.y - sh * BED_BACK + ch * off, heading: lorry.heading, z: 1.27 * M + FLANGE_HS * (b < 2 ? 1 : 1 + Math.sqrt(3)), lift: b < 2 ? 0.4 : 0.75 };
     };
     /** The laydown: where a lorry stands to be loaded, the stack it is loaded from, and the machine that loads it. */
     const loadAt = onTrack(PL.load, -LANE), stackAt = onTrack(PL.load, -LANE - 0.46), loaderAt = onTrack(PL.load + 0.75, -LANE - 0.55);
@@ -477,8 +481,8 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           const pc = pieces[trip * PER + q], b = count - 1 - q, t0 = s0 + 0.08 + T_LOAD * (b + 0.1) / PER, t1 = s0 + 0.08 + T_LOAD * (b + 0.75) / PER;
           if (s < t0) continue;
           const bed = onBed(at, b), go = ease((s - t0) / (t1 - t0));
-          if (go < 1) { const x = stackAt.x + (bed.x - stackAt.x) * go, y = stackAt.y + (bed.y - stackAt.y) * go; put(pc, { x, y, heading: bed.heading }, cellH(x, y), 0.5 + R_HS + (bed.z - 0.5 - R_HS) * go + 1.1 * Math.sin(Math.PI * go), 0.5); loading = { x, y }; }
-          else put(pc, bed, cellH(at.x, at.y), bed.z, 0.4);
+          if (go < 1) { const x = stackAt.x + (bed.x - stackAt.x) * go, y = stackAt.y + (bed.y - stackAt.y) * go; put(pc, { x, y, heading: bed.heading }, cellH(x, y), 0.5 + R_HS + (bed.z - 0.5 - R_HS) * go + 1.1 * Math.sin(Math.PI * go), 0.9); loading = { x, y }; }
+          else put(pc, bed, cellH(at.x, at.y), bed.z, bed.lift);
         }
       } else {
         const here = slotU(trip), end = trip + lorries >= trips, homeU = end ? rowU(lastOf(trip)) : PL.load;
@@ -498,7 +502,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         const count = Math.min(PER, total - trip * PER);
         for (let q = 0; q < count; q++) {
           const m = trip * PER + q;
-          if (m > ci && ci >= 0 || (m === ci && lf < HOOKED)) put(pieces[m], onBed(at, count - 1 - q), cellH(at.x, at.y), onBed(at, count - 1 - q).z, 0.4);
+          if (m > ci && ci >= 0 || (m === ci && lf < HOOKED)) { const bed = onBed(at, count - 1 - q); put(pieces[m], bed, cellH(at.x, at.y), bed.z, bed.lift); }
         }
         if (s < T_LEAVE) beds.set(trip, at);
       }
@@ -508,8 +512,8 @@ export function createLineWorks(bands: BandLayer): LineWorks {
     if (total && !byRoad) {
       const left = Math.max(0, Math.min(5, total - Math.max(0, Math.floor(tau + lorries - T_END + 1)) * PER));
       for (let q = 0; q < left; q++) {
-        const row = q < 3 ? 0 : 1, off = row ? (q - 3.5) * 0.14 : (q - 1) * 0.14;
-        lengthAt(`stk${q}`, { x: stackAt.x - Math.sin(stackAt.heading) * off, y: stackAt.y + Math.cos(stackAt.heading) * off, heading: stackAt.heading }, cellH(stackAt.x, stackAt.y), 0.07 + R_HS + row * R_HS * 1.75, 0.05 + row * 0.02);
+        const row = q < 3 ? 0 : 1, off = (row ? q - 3.5 : q - 1) * 2 * FLANGE;
+        lengthAt(`stk${q}`, { x: stackAt.x - Math.sin(stackAt.heading) * off, y: stackAt.y + Math.cos(stackAt.heading) * off, heading: stackAt.heading }, cellH(stackAt.x, stackAt.y), 0.07 + FLANGE_HS * (1 + row * Math.sqrt(3)), 0.05 + row * 0.35);
       }
       const face = loading ? Math.atan2(loading.y - loaderAt.y, loading.x - loaderAt.x) : Math.atan2(stackAt.y - loaderAt.y, stackAt.x - loaderAt.x);
       placeAt("loader", loaderAt.x, loaderAt.y, loaderAt.heading, cellH(loaderAt.x, loaderAt.y), [{ look: "exTracks", tint: YELLOW }, { look: "exLift", tint: YELLOW, heading: face }]);
@@ -523,7 +527,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         placeAt(`lorry${trip % 12}`, at.x, at.y, at.heading, cellH(at.x, at.y), [{ look: "pipeLorry", tint: BLUE }]);
         const list = PL.trips[trip] ?? [];
         if (loaded) list.forEach((m, q) => {
-          if (ci >= 0 ? m > ci || (m === ci && lf < HOOKED) : turn < 0) { const bed = onBed(at, list.length - 1 - q); put(pieces[m], bed, cellH(at.x, at.y), bed.z, 0.4); }
+          if (ci >= 0 ? m > ci || (m === ci && lf < HOOKED) : turn < 0) { const bed = onBed(at, list.length - 1 - q); put(pieces[m], bed, cellH(at.x, at.y), bed.z, bed.lift); }
         });
       };
       const turnU = (trip: number) => slotU(trip) + 1.0;
@@ -578,7 +582,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       const carry = ease((lf - HOOKED) / 0.5), back = ease((lf - 0.72) / 0.26), on = lf < UNHOOK ? carry : 1 - back;
       boom = a0 + sweepBy * on;
       far = r0 + (r1 - r0) * on;
-      if (lf >= HOOKED && lf < UNHOOK) load = put(cur, { x: cr.x + Math.cos(boom) * far, y: cr.y + Math.sin(boom) * far, heading: to.heading }, hAt(cur.p), from.z + (SET_Z - from.z) * carry + 1.5 * Math.sin(Math.PI * carry), 0.5);
+      if (lf >= HOOKED && lf < UNHOOK) load = put(cur, { x: cr.x + Math.cos(boom) * far, y: cr.y + Math.sin(boom) * far, heading: to.heading }, hAt(cur.p), from.z + (SET_Z - from.z) * carry + 1.5 * Math.sin(Math.PI * carry), 0.9);
     } else if (cr) boom = cr.heading + (Math.PI / 2) * NEAR;
     // ── THE CRANE, on its outriggers beside the line, and a banksman to see each piece in ──
     if (cr) {
@@ -853,14 +857,14 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         stacks.forEach((st, si) => {
           const stuff = STUFF[st.of], R = stuff.r / ZT, key = `${scale}|${stuff.id}`;
           for (let k = 0; k < 3; k++) {
-            const name = `yard${s.id}:k${si}_${k}`, px = ox + st.u + (k < 2 ? (k - 0.5) * stuff.r * 2.06 : 0), py = oy + st.v, z = 0.055 + R + (k < 2 ? 0 : R * 1.76);
+            const name = `yard${s.id}:k${si}_${k}`, px = ox + st.u + (k < 2 ? (k - 0.5) * 2 * stuff.r * FLANGE_R : 0), py = oy + st.v, z = 0.055 + R * FLANGE_R * (k < 2 ? 1 : 1 + Math.sqrt(3));
             let m = yardLoose.get(name);
             if (m && m.key !== key) { destroyPipeDrawable(m.mesh); yardLoose.delete(name); m = undefined; }
             if (!m) { m = { mesh: lengthMesh(false, scale, stuff), key, band: -1 }; yardLoose.set(name, m); }
             seenY.add(name);
             const [sx, sy] = pt(scale, px, py, h + z), band = Math.max(0, Math.min(bands.dynamicOf.length - 1, bandOf(Math.round(px), Math.round(py))));
             m.mesh.position.set(sx, sy);
-            if (band !== m.band || !m.mesh.parent) { m.mesh.zIndex = px + py - band + 0.05 + k * 0.01; bands.dynamicOf[band]?.addChild(m.mesh); m.band = band; }
+            if (band !== m.band || !m.mesh.parent) { m.mesh.zIndex = px + py - band + 0.05 + (k < 2 ? 0 : 0.35); bands.dynamicOf[band]?.addChild(m.mesh); m.band = band; }
           }
         });
         const mine = job ? stacks.find((st) => st.of === (job!.kind === "main" ? "main" : "drain")) ?? stacks[0] : stacks[0];
@@ -885,7 +889,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           for (let b = 0; b < 3; b++) {
             const t0 = 0.14 + b * 0.245, t1 = t0 + 0.215;
             if (q < t0) continue;
-            const bed = { x: lorry.x - (b < 2 ? (b - 0.5) * 0.13 : 0), y: lorry.y - 0.12 * fwd, z: (b < 2 ? 1.25 : 1.95) * M + R };
+            const bed = { x: lorry.x - (b < 2 ? (b - 0.5) * 2 * stuff.r * FLANGE_R : 0), y: lorry.y - 0.12 * fwd, z: 1.27 * M + R * FLANGE_R * (b < 2 ? 1 : 1 + Math.sqrt(3)) };
             let at = bed;
             if (q < t1) {
               // (Round the crane from the stack to the bed, up and over.)
@@ -903,7 +907,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
             seenY.add(name);
             const [px, py] = pt(scale, at.x, at.y, h + at.z), band = Math.max(0, Math.min(bands.dynamicOf.length - 1, bandOf(Math.round(at.x), Math.round(at.y))));
             m.mesh.position.set(px, py);
-            const zi = at.x + at.y - band + (held === at ? 0.5 : 0.4);
+            const zi = at.x + at.y - band + (held === at ? 0.9 : b < 2 ? 0.4 : 0.75);
             if (band !== m.band || !m.mesh.parent) { m.mesh.zIndex = zi; bands.dynamicOf[band]?.addChild(m.mesh); m.band = band; }
             else if (Math.abs(m.mesh.zIndex - zi) > 0.04) m.mesh.zIndex = zi;
           }
