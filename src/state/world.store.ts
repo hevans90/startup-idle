@@ -78,7 +78,7 @@ import {
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import { GANGS, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
 import { stepRoadLoads } from "../world/roads/job-loads";
-import { lineDone, lineLoadPrice, newLine, stepLine, type LineKind } from "../world/lines/jobs";
+import { lineDone, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
 import { payForLoad } from "../world/projects/economy";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
@@ -875,8 +875,21 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   lineRev: 0,
   stepLineWorks: (dt, now = Date.now()) => {
     const g = get().grid;
-    if (!g.lineJobs.length) return;
+    if (!g.lineJobs.length && !g.razeJobs.length) return;
     let changed = false;
+    // WHAT IS BEING PULLED DOWN: worked, and when its time is up taken down as Demolish takes it.
+    for (const j of [...g.razeJobs]) {
+      j.t += dt; j.at = now;
+      const there = g.structures.get(j.structure);
+      if (there && j.t < j.need) continue;
+      g.razeJobs = g.razeJobs.filter((q) => q !== j);
+      changed = true;
+      if (!there) continue;
+      const st = get(), was = { tool: st.tool, stroke: st.stroke, notice: st.notice };
+      relaying = true;
+      try { set({ tool: "demolish" }); get().commitStructure({ x: j.x, y: j.y }); } finally { relaying = false; }
+      set({ tool: was.tool, stroke: was.stroke, notice: was.notice });
+    }
     for (const j of [...g.lineJobs]) {
       if (stepLine(j, dt, get().playing ? payForLoad : () => true)) changed = true;
       j.at = now;
@@ -898,10 +911,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   catchUpLineWorks: (now, maxSeconds = 2 * 24 * 3600) => {
     const g = get().grid;
-    let away = Math.min(maxSeconds, Math.max(0, ...g.lineJobs.map((j) => (now - j.at) / 1000)));
-    for (; away > 0 && g.lineJobs.length; away--) {
+    let away = Math.min(maxSeconds, Math.max(0, ...g.lineJobs.map((j) => (now - j.at) / 1000), ...g.razeJobs.map((j) => (now - j.at) / 1000)));
+    for (; away > 0 && (g.lineJobs.length || g.razeJobs.length); away--) {
       get().stepLineWorks(Math.min(1, away), now);
-      if (g.lineJobs.every((j) => j.stalled > 0)) break;
+      if (!g.razeJobs.length && g.lineJobs.every((j) => j.stalled > 0)) break;
     }
   },
   catchUpRoadWorks: (now, maxSeconds = 2 * 24 * 3600) => {
@@ -1819,9 +1832,19 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       return;
     }
     // A DERELICT costs to clear. @see DERELICT
-    if (st.playing && demolishing && st.grid.structures.get(under)?.def === "derelict") {
+    if (st.playing && !relaying && demolishing && st.grid.structures.get(under)?.def === "derelict") {
       const price = new Decimal(clearingPrice());
       if (!spendForBuild(price)) { refuse(`Not enough money to clear it: ${formatCurrency(price.toNumber())}`); return; }
+    }
+    // PULLED DOWN, NOT GONE, in the game: what stands finished is ordered down — it stands, and works, until the gang
+    // has had its time at it. A site not yet built is simply called off, at once. @see lines/jobs RazeJob
+    if (st.playing && st.roadWorks && demolishing && !relaying && !aiActing()) {
+      const victim = st.grid.structures.get(under);
+      if (victim && !victim.build) {
+        if (!st.grid.razeJobs.some((j) => j.structure === victim.id)) st.grid.razeJobs.push({ id: st.grid.nextLineJob++, structure: victim.id, x: c.x, y: c.y, t: 0, need: razeSeconds(victim.w * victim.h), at: Date.now() });
+        set({ stroke: null, lineRev: get().lineRev + 1 });
+        return;
+      }
     }
     // NOR PORTS before the project that opens them; nor services ever — the town opens its own. @see featureGateOpen, stepTown
     if (st.playing && !demolishing && target) {

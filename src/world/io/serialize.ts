@@ -126,6 +126,7 @@ export type WorldFile = {
   roadJobs?: import("../roads/jobs").RoadJob[];
   /** Lines being laid. Absent in a map with none, and in one saved before there were any. @see lines/jobs */
   lineJobs?: import("../lines/jobs").LineJob[];
+  razeJobs?: import("../lines/jobs").RazeJob[];
   /**
    * The boats on the water, where they are and which way they face. OPTIONAL,
    * like `structures`: a file from before boats has none, and an unreadable
@@ -252,6 +253,7 @@ export function serializeWorld(
     // Roads ordered and still being built. @see roads/jobs
     ...(grid.roadJobs.length ? { roadJobs: grid.roadJobs } : {}),
     ...(grid.lineJobs.length ? { lineJobs: grid.lineJobs } : {}),
+    ...(grid.razeJobs.length ? { razeJobs: grid.razeJobs } : {}),
     // The boats as they stand, when there is a running world to ask.
     ...(fleet ? { boats: saveFleet(fleet) } : {}),
     ...(water && pollutionSaved(water) ? { pollution: encodeF32(pollutionSaved(water)!) } : {}),
@@ -361,6 +363,7 @@ export function deserializeWorld(
   if (typeof f.sewer === "string") grid.sewer.set(decodeU8(f.sewer, n));
   if (typeof f.sewerFit === "string") grid.sewerFit.set(decodeU8(f.sewerFit, n));
   grid.structureAt.fill(-1);
+  if (Array.isArray(f.razeJobs)) grid.razeJobs = f.razeJobs.map((j) => ({ ...j }));
   if (Array.isArray(f.lineJobs)) { grid.lineJobs = f.lineJobs.map((j) => ({ ...j, cells: j.cells.map((c) => ({ ...c })), coming: [...(j.coming ?? [])] })); grid.nextLineJob = Math.max(1, ...grid.lineJobs.map((j) => j.id + 1)); }
   if (Array.isArray(f.roadJobs)) { grid.roadJobs = f.roadJobs.map((j) => ({ ...j, cells: j.cells.map((c) => ({ ...c })), levelled: j.levelled.map((l) => ({ ...l })), lengths: [...j.lengths] })); for (const j of grid.roadJobs) grid.nextRoadJob = Math.max(grid.nextRoadJob, j.id + 1); }
   for (const raw of Array.isArray(f.structures) ? f.structures : []) {

@@ -8,6 +8,7 @@
  *  - A MAIN: a bed of sand, then the pipe on it length by length off a lorry,
  *    collared where lengths meet; tested, it takes its colour.
  *  - A CHANNEL: a dredger working along it, the water muddied where it is.
+ *  - A BUILDING BEING PULLED DOWN: taped off, a digger at its front, dust over it, rubble at its foot.
  *
  * What is on the ground is drawn again only as a trade moves on; the machines
  * are units of the vehicles' sheet, moved by transform. @see plant-kit
@@ -35,6 +36,8 @@ export function createLineWorks(bands: BandLayer): LineWorks {
   let ground: Graphics[] = [], key = "", cars: CarSprites | null = null, asked = false, last = -1;
   const of = new Map<number, Graphics>(), units = new Map<string, Unit>(), clocks = new Map<number, number>();
   const barges = new Map<number, { c: Container; g: Graphics; band: number }>();
+  /** What is drawn round a building being pulled down: its fence, its dust, its rubble. */
+  const razing = new Map<number, { g: Graphics; band: number }>();
   const drop = (c: Container) => { c.parent?.removeChild(c); c.destroy({ children: true }); };
   const clear = () => { for (const q of ground) drop(q); ground = []; of.clear(); };
   const pt = (scale: number, u: number, v: number, h: number): [number, number] => [(u - v) * HW * scale, (u + v) * HH * scale - h * HEIGHT_UNIT * scale];
@@ -103,7 +106,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
 
       // ── THE MACHINES ────────────────────────────────────────────────────────────────────
       const seen = new Set<string>(), seenB = new Set<number>();
-      if (jobs.length && bakedCars() && !cars && !asked) { asked = true; void loadCarSprites().then((s) => { cars = s; }); }
+      if ((jobs.length || g.razeJobs.length) && bakedCars() && !cars && !asked) { asked = true; void loadCarSprites().then((s) => { cars = s; }); }
       const P = bakedPeople() ? peopleLoaded() : null;
       for (const j of jobs) {
         const w = (clocks.get(j.id) ?? j.id * 2.9) + (j.stalled > 0 ? 0 : dt);
@@ -162,10 +165,57 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           b.band = into(b.c, b.band, at.x, at.y, [{ u: 0.3, v: 0.3 }]);
         }
       }
+      // ── WHAT IS BEING PULLED DOWN: taped off, a digger at its front pulling at it, dust over it, rubble heaping at its foot ──
+      const seenR = new Set<number>();
+      for (const j of g.razeJobs) {
+        const s = g.structures.get(j.structure);
+        if (!s) continue;
+        seenR.add(j.id);
+        const w = (clocks.get(-j.id) ?? j.id * 1.7) + dt;
+        clocks.set(-j.id, w);
+        const h = g.height[idx(g, s.x, s.y)], p = Math.min(1, j.t / j.need);
+        const x0 = s.x - 0.5, x1 = s.x + s.w - 0.5, y0 = s.y - 0.5, y1 = s.y + s.h - 0.5;
+        let r = razing.get(j.id);
+        if (!r) { const gr = new Graphics(); gr.eventMode = "none"; gr.context.batchMode = "batch"; r = { g: gr, band: -1 }; razing.set(j.id, r); }
+        const band = Math.max(0, Math.min(bands.dynamicOf.length - 1, s.x + s.w - 1 + s.y + s.h - 1));
+        if (band !== r.band || !r.g.parent) { r.g.zIndex = 3; bands.dynamicOf[band]?.addChild(r.g); r.band = band; }
+        const G = r.g;
+        G.clear();
+        // Tape round it on posts, along the two near sides.
+        for (const [a, b] of [[[x0, y1], [x1, y1]], [[x1, y1], [x1, y0]]] as [number[], number[]][]) {
+          for (let q = 0; q < 8; q++) {
+            const [ax, ay] = pt(scale, a[0] + ((b[0] - a[0]) * q) / 8, a[1] + ((b[1] - a[1]) * q) / 8, h + 0.45), [bx, by] = pt(scale, a[0] + ((b[0] - a[0]) * (q + 1)) / 8, a[1] + ((b[1] - a[1]) * (q + 1)) / 8, h + 0.45);
+            G.moveTo(ax, ay).lineTo(bx, by).stroke({ color: q % 2 ? 0xf1efe8 : 0xe8463c, width: Math.max(1, 1.4 * scale) });
+          }
+        }
+        for (const [u, v] of [[x0, y1], [x1, y1], [x1, y0]]) { const [px, py] = pt(scale, u, v, h); G.rect(px - scale, py - 6 * scale, 2 * scale, 6 * scale).fill({ color: 0xf4efe2 }); }
+        // Rubble at its foot, more of it as it comes down.
+        for (let q = 0; q < Math.round(p * 9); q++) {
+          const [px, py] = pt(scale, x0 + (((q * 0.37) % 1) * (x1 - x0)), y1 - 0.08 - ((q * 0.61) % 1) * 0.25, h);
+          G.poly([px - 5 * scale, py, px + 5 * scale, py, px + 2 * scale, py - (3 + (q % 3)) * scale, px - 3 * scale, py - (2 + (q % 2)) * scale]).fill({ color: q % 2 ? 0x8f8b84 : 0x7a5a3c });
+        }
+        // Dust, rising off it where the bucket is pulling.
+        for (let q = 0; q < 7; q++) {
+          const ph = (w * 0.45 + q / 7) % 1, [px, py] = pt(scale, x0 + ((q * 0.29 + 0.2) % 1) * (x1 - x0), y0 + ((q * 0.53 + 0.4) % 1) * (y1 - y0), h + 1 + ph * 3);
+          G.circle(px, py, (5 + ph * 11) * scale).fill({ color: 0xc9bfae, alpha: 0.42 * (1 - ph) });
+        }
+        // THE DIGGER at the middle of its front, turned to it: a bite, a pull, and round to drop it.
+        if (cars) {
+          const id = `raze:${j.id}`, q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL, at = { x: (x0 + x1) / 2, y: y1 + 0.42 };
+          let u = units.get(id);
+          if (!u) { u = makeUnit(2); units.set(id, u); }
+          seen.add(id);
+          const pose = q < DIG.dig * 0.45 ? "exDig" : q < DIG.dig ? "exDig2" : q < DIG.dig + DIG.lift + DIG.out ? "exLift" : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? "exDump" : "exLift";
+          const slew = q < DIG.dig + DIG.lift ? 0 : q < DIG.dig + DIG.lift + DIG.out ? (q - DIG.dig - DIG.lift) / DIG.out : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? 1 : 1 - (q - DIG.dig - DIG.lift - DIG.out - DIG.tip) / DIG.back;
+          const base = poseUnit(u, cars, [{ look: "exTracks", tint: YELLOW }, { look: pose, tint: YELLOW, heading: -Math.PI / 2 + 1.1 * (slew * slew * (3 - 2 * slew)) }], { x: at.x, y: at.y, z: h, heading: -Math.PI / 2, pitch: 0 }, scale, P ? { people: P, id: j.id * 5 } : null);
+          u.band = into(u.c, u.band, at.x, at.y, base);
+        }
+      }
+      for (const [id, r] of razing) if (!seenR.has(id)) { drop(r.g); razing.delete(id); }
       for (const [id, u] of units) if (!seen.has(id)) { drop(u.c); units.delete(id); }
       for (const [id, b] of barges) if (!seenB.has(id)) { drop(b.c); barges.delete(id); }
-      for (const id of clocks.keys()) if (!jobs.some((j) => j.id === id)) clocks.delete(id);
+      for (const id of clocks.keys()) if (id >= 0 ? !jobs.some((j) => j.id === id) : !g.razeJobs.some((j) => j.id === -id)) clocks.delete(id);
     },
-    destroy() { clear(); for (const u of units.values()) drop(u.c); for (const b of barges.values()) drop(b.c); units.clear(); barges.clear(); clocks.clear(); },
+    destroy() { clear(); for (const r of razing.values()) drop(r.g); razing.clear(); for (const u of units.values()) drop(u.c); for (const b of barges.values()) drop(b.c); units.clear(); barges.clear(); clocks.clear(); },
   };
 }

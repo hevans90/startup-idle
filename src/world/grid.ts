@@ -246,6 +246,8 @@ export type Grid = {
   /** MAINS, SEWERS AND DREDGING BEING DONE: ordered, and not on the map until each is finished. @see lines/jobs */
   lineJobs: import("./lines/jobs").LineJob[];
   nextLineJob: number;
+  /** BUILDINGS BEING PULLED DOWN. @see lines/jobs RazeJob */
+  razeJobs: import("./lines/jobs").RazeJob[];
   /** Cached bounds of `height`, kept current by {@link setHeight}. */
   minHeight: number;
   maxHeight: number;
@@ -308,6 +310,7 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     nextRoadJob: 1,
     lineJobs: [],
     nextLineJob: 1,
+    razeJobs: [],
     minHeight: 0,
     maxHeight: 0,
     rev: 0,

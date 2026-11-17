@@ -91,3 +91,12 @@ export function alongLine(cells: readonly { x: number; y: number }[], p: number)
   const dx = b === a ? a.x - back.x : b.x - a.x, dy = b === a ? a.y - back.y : b.y - a.y;
   return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, heading: Math.atan2(dy, dx) };
 }
+
+/**
+ * A BUILDING BEING PULLED DOWN: ordered under Demolish, it stands — and goes on working — until the gang has had
+ * its time at it; then it is gone, as Demolish took it. Which structure, the tile it was ordered at (for taking it
+ * down the way the tool does), seconds worked and seconds it takes.
+ */
+export type RazeJob = { id: number; structure: number; x: number; y: number; t: number; need: number; at: number };
+/** Seconds to pull down a building of so many tiles: a few bites a tile, and never long. */
+export const razeSeconds = (tiles: number) => Math.min(30, 5 + 3 * tiles);

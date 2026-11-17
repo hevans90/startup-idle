@@ -129,3 +129,41 @@ describe("a main dragged in the game", () => {
     expect(laid(g)).toBe(route.length);
   });
 });
+
+describe("a building under Demolish in the game", () => {
+  const S = () => useWorldStore.getState();
+  afterEach(() => useWorldStore.setState({ playing: false, roadWorks: false }));
+  test("is ordered down, not gone: it stands until the gang has had its time at it, then it is gone as Demolish takes it; a site is called off at once", () => {
+    S().resize(40, 24);
+    const g0 = S().grid;
+    for (let x = 0; x < g0.w; x++) g0.paved[idx(g0, x, 10)] = 1;
+    S().loadGrid(g0);
+    useWorldStore.setState({ playing: true, roadWorks: false });
+    useMoneyStore.getState().increaseMoney(1e9);
+    const g = S().grid;
+    const put = (def: string, x: number) => { useWorldStore.setState({ tool: "placeStructure", structureDefId: def, notice: null }); S().commitStructure({ x, y: 11 }); };
+    put("office-intern", 4);
+    expect([...g.structures.values()].filter((q) => q.def === "office-intern").length).toBe(1);
+    useWorldStore.setState({ roadWorks: true });
+    const knock = (x: number) => { useWorldStore.setState({ tool: "demolish", notice: null }); S().commitStructure({ x, y: 11 }); };
+    knock(4);
+    expect(g.structures.size).toBe(1);
+    expect(g.razeJobs.length).toBe(1);
+    // (Asked twice, it is one job.)
+    knock(5);
+    expect(g.razeJobs.length).toBe(1);
+    const need = g.razeJobs[0].need;
+    for (let t = 0; t < need - 1; t += 0.25) S().stepLineWorks(0.25);
+    expect(g.structures.size).toBe(1);
+    for (let t = 0; t < 2; t += 0.25) S().stepLineWorks(0.25);
+    expect(g.structures.size).toBe(0);
+    expect(g.razeJobs.length).toBe(0);
+    // A site, not built yet: called off there and then.
+    put("office-intern", 12);
+    const site = [...g.structures.values()][0];
+    expect(site.build).toBeDefined();
+    knock(12);
+    expect(g.structures.size).toBe(0);
+    expect(g.razeJobs.length).toBe(0);
+  });
+});
