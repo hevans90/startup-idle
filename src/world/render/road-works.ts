@@ -136,13 +136,28 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             }
           }
         }
-        g.roadJobs.forEach((j, n) => {
-          // WHERE THE OPEN ROAD STOPS for now it is not a road's end: the last open cell is drawn as the cell it will
-          // be, running on, over its own rounded end — once the road beyond it is laid.
-          if (n < GANGS && j.opened > 0 && j.opened < j.cells.length && stageOf(j, j.opened) >= 3) {
-            const last = j.cells[j.opened - 1], layer = bands.pavedOf[bandOf(last.x, last.y)], sp = layer ? tileOf(last.x, last.y, true) : null;
-            if (sp && layer) { layer.addChild(sp); drawn.push(sp); }
+        // A JUNCTION JOINS AS THE ROAD REACHES IT, not when the length opens: every road that stands beside a cell
+        // whose blacktop is down — the road it leaves, one it crosses, one it comes to, the open part of its own job —
+        // is drawn as the cell it will be, its kerb gone and its lines carried through. Where its level is to
+        // change for the junction it waits for that.
+        const joined = new Set<number>();
+        const surf = (q: Grid, i: number) => (q.deck[i] !== 0 ? q.deckZ[i] : q.height[i]);
+        g.roadJobs.slice(0, GANGS).forEach((j) => {
+          for (let c = j.opened; c < j.cells.length; c++) {
+            const cell = j.cells[c];
+            if (!cell.fresh || stageOf(j, c) < 3) continue;
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              const x = cell.x + dx, y = cell.y + dy;
+              if (x < 0 || y < 0 || x >= g.w || y >= g.h) continue;
+              const i = idx(g, x, y), layer = bands.pavedOf[bandOf(x, y)];
+              if (g.paved[i] === 0 || joined.has(i) || !plan || !layer || surf(plan.grid, i) !== surf(g, i) || plan.grid.ramp[i] !== g.ramp[i]) continue;
+              joined.add(i);
+              const sp = tileOf(x, y, true);
+              if (sp) { layer.addChild(sp); drawn.push(sp); }
+            }
           }
+        });
+        g.roadJobs.forEach((j, n) => {
           for (let c = j.opened; c < j.cells.length; c++) {
             const cell = j.cells[c];
             if (!cell.fresh) continue;

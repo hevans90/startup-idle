@@ -780,30 +780,61 @@ const roller: Model = {
     { l0: 0.3, l1: 0.1, w: 0.1, z0: 2.84, z1: 3.0, mat: "indicator" },
   ],
 };
-/** An excavator: tracks, a house that slews on them with a cab at one side, a boom up and over to a bucket at the ground ahead. */
-const excavator: Model = {
-  id: "excavator", length: 7.4, width: 2.7, wheels: [],
+/**
+ * AN EXCAVATOR, IN TWO: its tracks, which stand as the machine stands; and its house — engine, counterweight, cab,
+ * boom, dipper and bucket — which slews on them, drawn over them at whatever heading it has swung to. The house in
+ * three poses of its arm: reached out and down, digging; curled and lifted, carrying; lifted and thrown out, tipping.
+ */
+const exTracks: Model = {
+  id: "exTracks", length: 3.9, width: 2.7, wheels: [],
   slabs: [
-    ...[1, -1].map((sg): Slab => ({ l0: 1.2, l1: -2.4, w: 0.3, wc: sg * 1.0, z0: 0, z1: 0.8, inF: 0.25, inB: 0.25, mat: "tyre" })),
-    { l0: 0.6, l1: -1.8, w: 0.75, z0: 0.4, z1: 0.95, mat: "trim" },
-    // The house, its counterweight, the cab.
-    { l0: 0.5, l1: -2.3, w: 1.25, z0: 0.95, z1: 2.1, mat: "paint" },
-    { l0: -2.3, l1: -2.8, w: 1.2, z0: 1.0, z1: 2.0, inB: 0.2, mat: "trim" },
-    { l0: -0.9, l1: -2.0, w: 0.5, wc: -0.5, z0: 2.1, z1: 2.3, mat: "grille" },
-    { l0: 1.1, l1: -0.3, w: 0.48, wc: 0.72, z0: 0.95, z1: 2.75, mat: "glass" },
-    { l0: 1.15, l1: -0.35, w: 0.52, wc: 0.72, z0: 2.75, z1: 2.85, mat: "paint" },
-    { l0: 1.15, l1: -0.35, w: 0.52, wc: 0.72, z0: 0.95, z1: 1.45, mat: "paint" },
-    // The boom, up from the house and over; the dipper down from its head; the bucket.
-    { l0: 1.6, l1: 0.4, w: 0.2, wc: -0.25, z0: 1.6, z1: 2.9, inF: 0.3, mat: "paint" },
-    { l0: 2.7, l1: 1.3, w: 0.2, wc: -0.25, z0: 2.7, z1: 3.7, inB: 0.3, inF: 0.3, mat: "paint" },
-    { l0: 3.7, l1: 2.4, w: 0.2, wc: -0.25, z0: 3.3, z1: 4.1, inB: 0.3, mat: "paint" },
-    { l0: 4.0, l1: 3.55, w: 0.16, wc: -0.25, z0: 1.3, z1: 3.9, mat: "paint" },
-    { l0: 3.5, l1: 3.2, w: 0.06, wc: -0.25, z0: 2.6, z1: 3.9, mat: "chrome" },
-    { l0: 4.25, l1: 3.25, w: 0.5, wc: -0.25, z0: 0.35, z1: 1.3, inB: 0.3, mat: "trim" },
+    ...[1, -1].map((sg): Slab => ({ l0: 1.9, l1: -1.9, w: 0.3, wc: sg * 1.0, z0: 0, z1: 0.8, inF: 0.25, inB: 0.25, mat: "tyre" })),
+    ...[1, -1].map((sg): Slab => ({ l0: 1.7, l1: -1.7, w: 0.31, wc: sg * 1.0, z0: 0.3, z1: 0.5, mat: "trim" })),
+    { l0: 1.2, l1: -1.2, w: 0.75, z0: 0.35, z1: 0.92, mat: "trim" },
   ],
 };
+/** The house, about the slewing ring at its middle: `arm`, the boom and what hangs from it. */
+const exHouse = (id: string, arm: Slab[]): Model => ({
+  id, length: 7.4, width: 2.7, wheels: [],
+  slabs: [
+    { l0: 1.0, l1: -1.9, w: 1.25, z0: 0.95, z1: 2.1, mat: "paint" },
+    { l0: -1.9, l1: -2.4, w: 1.2, z0: 1.0, z1: 2.0, inB: 0.2, mat: "trim" },
+    { l0: -0.6, l1: -1.7, w: 0.5, wc: -0.5, z0: 2.1, z1: 2.3, mat: "grille" },
+    { l0: 1.5, l1: 0.1, w: 0.48, wc: 0.72, z0: 0.95, z1: 2.75, mat: "glass" },
+    { l0: 1.55, l1: 0.05, w: 0.52, wc: 0.72, z0: 2.75, z1: 2.85, mat: "paint" },
+    { l0: 1.55, l1: 0.05, w: 0.52, wc: 0.72, z0: 0.95, z1: 1.45, mat: "paint" },
+    ...arm,
+  ],
+});
+const B = (l0: number, l1: number, z0: number, z1: number, mat: Mat = "paint", w = 0.2, extra: Partial<Slab> = {}): Slab => ({ l0, l1, w, wc: -0.25, z0, z1, mat, ...extra });
+/** Digging: the boom out low, the dipper down ahead of it, the bucket in the ground. */
+const exDig = exHouse("exDig", [
+  B(2.0, 0.8, 1.6, 2.7, "paint", 0.2, { inF: 0.3 }), B(3.2, 1.8, 2.3, 3.2, "paint", 0.2, { inB: 0.3, inF: 0.3 }), B(4.3, 3.0, 2.4, 3.1, "paint", 0.2, { inB: 0.3 }),
+  B(4.75, 4.3, 0.9, 2.9, "paint", 0.16), B(4.25, 4.0, 1.8, 2.9, "chrome", 0.06),
+  B(5.0, 4.0, -0.1, 0.9, "trim", 0.5, { inB: 0.3 }),
+]);
+/** Carrying: the boom up, the dipper drawn in under it, the bucket curled full at the house's shoulder. */
+const exLift = exHouse("exLift", [
+  B(1.8, 0.8, 1.6, 3.2, "paint", 0.2, { inF: 0.3 }), B(2.6, 1.5, 3.0, 4.3, "paint", 0.2, { inB: 0.3, inF: 0.3 }), B(3.2, 2.3, 4.0, 4.8, "paint", 0.2, { inB: 0.3 }),
+  B(3.3, 2.85, 2.2, 4.5, "paint", 0.16), B(2.85, 2.6, 3.1, 4.4, "chrome", 0.06),
+  B(3.45, 2.5, 1.4, 2.3, "trim", 0.5, { inF: 0.2 }), B(3.35, 2.6, 2.3, 2.5, "load", 0.42),
+]);
+/** Tipping: the boom up, the dipper thrown out, the bucket open over what it tips onto. */
+const exDump = exHouse("exDump", [
+  B(1.8, 0.8, 1.6, 3.2, "paint", 0.2, { inF: 0.3 }), B(2.8, 1.5, 3.0, 4.2, "paint", 0.2, { inB: 0.3, inF: 0.3 }), B(3.9, 2.5, 3.8, 4.6, "paint", 0.2, { inB: 0.3 }),
+  B(4.5, 3.9, 2.6, 4.4, "paint", 0.16, { inF: 0.2 }), B(3.9, 3.65, 3.2, 4.3, "chrome", 0.06),
+  B(4.9, 4.0, 1.9, 2.7, "trim", 0.5, { inB: 0.35 }),
+]);
+/** A tipper with its body up, tipping: the body in steps rising to the cab, its tailgate swung open, the last of its load sliding out. */
+const tipperUp = lorry("tipperUp", 6.6, 2.4, 1.9, [
+  ...[0, 1, 2, 3].map((k): Slab => ({ l0: 1.3 - k * 1.15, l1: 1.3 - (k + 1) * 1.15, w: 1.18, z0: 2.5 - k * 0.42, z1: 3.7 - k * 0.42, mat: "paint", faces: { top: "gravel" } })),
+  { l0: 1.55, l1: 1.3, w: 1.1, z0: 3.7, z1: 3.85, mat: "paint" },
+  // The ram under it, and the tailgate hanging open.
+  { l0: 0.6, l1: 0.3, w: 0.12, z0: 1.05, z1: 2.5, mat: "chrome" },
+  { l0: -3.3, l1: -3.4, w: 1.15, z0: 0.6, z1: 1.3, mat: "paint" },
+], [2.25, -1.55, -2.65]);
 /** What builds a road. Never in the traffic. */
-export const PLANT = [paver, roller, excavator];
+export const PLANT = [paver, roller, exTracks, exDig, exLift, exDump, tipperUp];
 
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];

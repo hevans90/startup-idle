@@ -56,26 +56,29 @@ export type RoadJob = {
 };
 
 /** Seconds before a gang is on a job it has been given. */
-export const ARRIVE = 3;
-/** Seconds a tile, each trade: the train of them moves this fast along a level road. */
-export const PACE = 1.5;
+export const ARRIVE = 5;
+/**
+ * Seconds a tile, each trade: the train of them moves this fast along a level
+ * road. Slow enough to watch the work done — a bucket filled and tipped, a
+ * lorry emptied, a mat raked — not a road unrolled like a carpet.
+ */
+export const PACE = 10;
 /** A tile of bridge takes this many times a tile of road; and each half step of ground cut or filled adds this share. */
-export const DECK_PACE = 3, DIG_PACE = 0.5;
+export const DECK_PACE = 2, DIG_PACE = 0.3;
 /** Tiles each trade follows the one ahead by. */
-export const GAP = 2;
+export const GAP = 3;
 /** How many tiles of a job open at once, about. */
 export const LENGTH = 4;
 /** Tiles of road a load of materials makes. */
 export const TILES_PER_LOAD = 4;
 /** Seconds a load takes to a job no road reaches: brought across country, unseen. */
-export const OVERLAND = 12;
+export const OVERLAND = 25;
 /** How many jobs are worked at once: the rest wait their turn, staked out. */
 export const GANGS = 3;
 /** The trades, in the order they pass. A cell's stage is how many have: 0 staked, 4 lined and ready to open. */
 export const TRADES = 4;
 
 const PAVED = 1;
-const cellOf = (j: RoadJob, i: number, g: Grid) => j.cells.find((c) => idx(g, c.x, c.y) === i);
 
 /** Seconds of work each cell takes one trade, by what is done there. */
 const cellTime = (c: JobCell) => (!c.fresh ? 0 : PACE * (c.deck ? DECK_PACE : 1 + DIG_PACE * Math.abs(c.z - c.from)));
@@ -206,17 +209,13 @@ export function orderRoad(g: Grid, path: readonly GradeCell[]): Ordered {
     if (seen.has(i)) return;
     seen.set(i, cells.length);
     cells.push({ x: c.x, y: c.y, z: decks.get(i) ?? grade.heights[k], deck: decks.has(i), from: g.height[i], fresh: P.paved[i] === 0 });
-    // A cell of another job's, still to be built, that this one's junction stands at another level: that job's plan changes with it.
-    const theirs = g.paved[i] === 0 && P.paved[i] !== 0 && P.deck[i] === 0 ? g.roadJobs.map((j) => cellOf(j, i, g)).find((q) => q) : undefined;
-    if (theirs && theirs.z !== grade.heights[k]) retarget.push({ cell: theirs, z: grade.heights[k] });
   });
   const levelled: JobLevel[] = [];
   for (const m of grade.moved) {
     const i = idx(g, m.x, m.y);
     if (seen.has(i)) continue;
-    // A road beside it, levelled: another job's, still to be built — that job's plan is what changes — or one that stands.
-    const theirs = g.roadJobs.map((j) => cellOf(j, i, g)).find((c) => c);
-    if (theirs && g.paved[i] === 0) { retarget.push({ cell: theirs, z: m.to }); continue; }
+    // A road beside it, levelled: one that stands, or another job's still to be built. Either way it is THIS job's
+    // to change, with its first length and all at once — not that job's plan now, half of a levelling ahead of the rest.
     let at = 0;
     for (let k = 1; k < cells.length; k++) if (Math.abs(cells[k].x - m.x) + Math.abs(cells[k].y - m.y) < Math.abs(cells[at].x - m.x) + Math.abs(cells[at].y - m.y)) at = k;
     levelled.push({ x: m.x, y: m.y, to: m.to, from: g.height[i], at });
@@ -274,8 +273,21 @@ export function stepRoadJobs(g: Grid, dt: number): { writes: RoadWrites; changed
       // in its place, on its line or beside it — changes all at once, with its first length: each such change
       // leaves that road sound by itself, and half of one does not.
       if (j.opened === 0) {
-        for (const l of j.levelled) writes.heights.push({ x: l.x, y: l.y, to: l.to });
-        for (let k = to; k < j.cells.length; k++) { const c = j.cells[k], i = idx(g, c.x, c.y); if (!c.fresh && !c.deck && g.paved[i] !== 0 && g.deck[i] === 0 && g.height[i] !== c.z) writes.heights.push({ x: c.x, y: c.y, to: c.z }); }
+        /** A cell's level changed: on the ground if its road stands; in the plan of the job that is still to build it, and under what that job has dug. */
+        const level = (x: number, y: number, z: number) => {
+          const i = idx(g, x, y);
+          if (g.deck[i] !== 0) return;
+          if (g.paved[i] !== 0) { if (g.height[i] !== z) writes.heights.push({ x, y, to: z }); return; }
+          for (const o of g.roadJobs) {
+            if (o === j) continue;
+            const n = o.cells.findIndex((c) => c.x === x && c.y === y);
+            if (n < o.opened || o.cells[n].deck) continue;
+            o.cells[n].z = z;
+            if (n < o.dug && g.height[i] !== z) writes.heights.push({ x, y, to: z });
+          }
+        };
+        for (const l of j.levelled) level(l.x, l.y, l.to);
+        for (let k = to; k < j.cells.length; k++) { const c = j.cells[k]; if (!c.fresh && !c.deck) level(c.x, c.y, c.z); }
       }
       j.opened = to;
       changed = true;

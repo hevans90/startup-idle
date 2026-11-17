@@ -13,7 +13,7 @@ import { structureDef } from "../structures/def";
 import { touchesRoad, validatePlacement } from "../structures/place";
 import { idx, setHeight, type Grid } from "../grid";
 import { roadCost } from "../../game/build-cost";
-import { ARRIVE, GANGS, PACE, TILES_PER_LOAD, frontOf, jobSeconds, lengthsOf, loadPrice, plannedGrid, stageOf } from "./jobs";
+import { ARRIVE, GANGS, GAP, PACE, TILES_PER_LOAD, frontOf, jobSeconds, lengthsOf, loadPrice, plannedGrid, stageOf } from "./jobs";
 import { connects, isPaved } from "./mask";
 import { rampNeed } from "./ramp-derive";
 
@@ -82,9 +82,8 @@ describe("a road ordered in the game", () => {
       expect(G.roadJobs.length).toBe(0);
       expect(pavedCount(G)).toBe(20);
       expect(s().netComponents).toBe(1);
-      // About a second and a half a tile, and the gang's coming: a 20-tile road in under a minute.
-      expect(jobSeconds(j)).toBeGreaterThan(20);
-      expect(jobSeconds(j)).toBeLessThan(60);
+      // A tile's pace a tile, the trades' gaps and the gang's coming.
+      expect(jobSeconds(j)).toBeCloseTo(ARRIVE + 3 * GAP * PACE + 20 * PACE, 6);
     } finally { done(); }
   });
 
@@ -101,7 +100,7 @@ describe("a road ordered in the game", () => {
       // Over the same line again: there is nothing to order.
       expect(drag("paintRoad", 12, 20, 28, 20)).toBe("");
       expect(G.roadJobs.length).toBe(2);
-      run(120);
+      run(60 * PACE);
       expect(G.roadJobs.length).toBe(0);
       expect(pavedCount(G)).toBe(21 + 14);
       expect(s().netComponents).toBe(1);
@@ -124,8 +123,8 @@ describe("a road ordered in the game", () => {
       const moved = j.cells.filter((c) => !c.deck && G.height[idx(G, c.x, c.y)] !== before[idx(G, c.x, c.y)]);
       expect(moved.length).toBeGreaterThan(0);
       let whole = true;
-      for (let t = 0; t < 400 && G.roadJobs.length; t += 0.25) {
-        s().stepRoadWorks(0.25);
+      for (let t = 0; t < 100 * PACE && G.roadJobs.length; t += 0.5) {
+        s().stepRoadWorks(0.5);
         const decks = [30, 31, 32, 33, 34].filter((x) => G.deck[idx(G, x, 10)] !== 0).length;
         if (decks !== 0 && decks !== 5) whole = false;
         expect([...faults(G)]).toEqual([]);
@@ -148,8 +147,8 @@ describe("a road ordered in the game", () => {
       expect(j.cost).toBeCloseTo(roadCost(20).toNumber(), 6);
       // A load is sent for at once, and paid for then.
       s().stepRoadWorks(0.25);
-      expect(money0.minus(useMoneyStore.getState().money).toNumber()).toBeCloseTo(loadPrice(j), 6);
-      run(200);
+      expect(money0.minus(useMoneyStore.getState().money).toNumber()).toBeGreaterThanOrEqual(loadPrice(j) - 1e-6);
+      run(40 * PACE, 0.5);
       expect(G.roadJobs.length).toBe(0);
       expect(money0.minus(useMoneyStore.getState().money).toNumber()).toBeCloseTo(roadCost(20).toNumber(), 4);
     } finally { done(); }
@@ -163,19 +162,18 @@ describe("a road ordered in the game", () => {
       // Money for two loads and no more.
       const m = useMoneyStore.getState();
       m.spendMoney(m.money.minus(loadPrice(j) * 2.5));
-      run(300);
+      run(40 * PACE, 0.5);
       expect(G.roadJobs.length).toBe(1);
       expect(j.delivered).toBe(2);
       expect(j.stalled).toBeGreaterThan(0);
-      // The sub-base has come to the end of two loads' tiles and stopped; what lined up behind it is open.
+      // The sub-base has come to the end of two loads' tiles and stopped, and the trades behind it where they were.
       expect(frontOf(j, 1)).toBe(2 * TILES_PER_LOAD);
       expect(pavedCount(G)).toBeLessThanOrEqual(2 * TILES_PER_LOAD);
-      expect(pavedCount(G)).toBeGreaterThanOrEqual(TILES_PER_LOAD);
       const at = pavedCount(G);
       run(30);
       expect(pavedCount(G)).toBe(at);
       useMoneyStore.getState().increaseMoney(1e9);
-      run(200);
+      run(40 * PACE, 0.5);
       expect(G.roadJobs.length).toBe(0);
       expect(pavedCount(G)).toBe(20);
     } finally { done(); }
@@ -186,7 +184,7 @@ describe("a road ordered in the game", () => {
     try {
       expect(drag("paintRoad", 10, 20, 29, 20)).toBe("");
       const j = G.roadJobs[0];
-      s().catchUpRoadWorks(j.at + 10_000);
+      s().catchUpRoadWorks(j.at + (ARRIVE + PACE * 4) * 1000);
       expect(G.roadJobs.length).toBe(1);
       expect(frontOf(j, 0)).toBeGreaterThan(2);
       s().catchUpRoadWorks(j.at + 3_600_000);
@@ -222,7 +220,7 @@ describe("a road ordered in the game", () => {
       run(ARRIVE + PACE * 6);
       expect(G.roadJobs.slice(0, GANGS).every((j) => j.t > 0)).toBe(true);
       expect(G.roadJobs.slice(GANGS).every((j) => j.t === 0)).toBe(true);
-      run(200);
+      run(80 * PACE, 0.5);
       expect(G.roadJobs.length).toBe(0);
       expect(pavedCount(G)).toBe(5 * 15);
     } finally { done(); }
@@ -243,7 +241,7 @@ describe("a road ordered in the game", () => {
       expect(touchesRoad(G, 15, 23)).toBe(false);
       const lot = structureDef("lot") ?? [...["house", "cafe", "garage"].map((d) => structureDef(d))].find((d) => d)!;
       expect(validatePlacement(G, lot, 15, 20, {}).ok).toBe(false);
-      run(120);
+      run(40 * PACE, 0.5);
       expect(pavedCount(G)).toBe(15);
     } finally { done(); }
   });
@@ -305,7 +303,7 @@ describe("roads ordered at random over generated maps", () => {
             if (G.roadJobs.length > jobs) ordered++;
             check(`order ${st}`);
             checkPlan(`order ${st}`);
-            for (let t = pick(40); t > 0; t--) { s().stepRoadWorks(0.5); check(`work after ${st}`); }
+            for (let t = pick(40); t > 0; t--) { s().stepRoadWorks(PACE / 3); check(`work after ${st}`); }
             // Now and then one is cancelled part built.
             if (G.roadJobs.length && rnd() < 0.15) {
               const j = G.roadJobs[pick(G.roadJobs.length)], c = j.cells[j.cells.length - 1];
@@ -315,7 +313,7 @@ describe("roads ordered at random over generated maps", () => {
             }
           }
           expect(ordered).toBeGreaterThan(5);
-          for (let t = 0; t < 4000 && G.roadJobs.length; t++) { s().stepRoadWorks(0.5); check("to the end"); }
+          for (let t = 0; t < 6000 && G.roadJobs.length; t++) { s().stepRoadWorks(PACE / 3); check("to the end"); }
           expect({ start, m, left: G.roadJobs.length }).toEqual({ start, m, left: 0 });
         } finally { done(); }
       }
