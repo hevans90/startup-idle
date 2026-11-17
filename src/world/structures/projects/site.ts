@@ -14,6 +14,7 @@ import {
   CONCRETE, REBAR, drawClad, drawFrame, drawMass, floorsOf, sortMasses, wholeFloors,
   type Building, type Footprint, type Mass,
 } from "./model";
+import { groundPlan, pilesDriven, pourCover, type Ground } from "./groundworks";
 import { PIT, type Site } from "./schedule";
 
 const EARTH = 0x8b6a4a;
@@ -80,26 +81,66 @@ function drawHoarding(p: Pen, f: Footprint) {
  * strip along its back edges, and the strip is the walls. A floor drawn at its
  * real depth would spill out under the near rim onto the next tile.
  */
-function drawPit(p: Pen, f: Footprint, inset: number, back: number, d: number, fill: number) {
+function drawPit(p: Pen, G: Ground, d: number) {
   if (d <= 0.01) return;
-  const u0 = inset, v0 = back, u1 = f.w - inset, v1 = f.h - inset;
+  const { u0, v0, u1, v1 } = G.pit;
   const s = Math.min(d / 4, (u1 - u0) / 2, (v1 - v0) / 2);
   // The far walls, banded where the digging has cut through the layers.
   p.flat(u0, v0, u1, v0 + s, 0.008, EARTH);
   p.flat(u0, v0 + s * 0.45, u1, v0 + s * 0.6, 0.009, EARTH_DARK);
   p.flat(u0, v0 + s, u0 + s, v1, 0.008, tone(EARTH, 0.8));
   p.flat(u0 + s * 0.45, v0 + s, u0 + s * 0.6, v1, 0.009, tone(EARTH_DARK, 0.8));
-  // The floor, going to concrete as the foundations are poured.
-  p.flat(u0 + s, v0 + s, u1, v1, 0.008, mix(EARTH_PIT, CONCRETE, fill));
-  // The ramp down from the gate, until the pour covers it.
-  if (fill < 0.6) {
-    const gu = f.w / 2;
-    p.flat(gu - 0.22, v1 - Math.min(0.9, (v1 - v0) * 0.4), gu + 0.22, v1, 0.01, mix(TRACK, EARTH, 0.3));
+  // The floor, and the ramp down from the gate.
+  p.flat(u0 + s, v0 + s, u1, v1, 0.008, EARTH_PIT);
+  const gu = (u0 + u1) / 2;
+  p.flat(gu - 0.22, v1 - Math.min(0.9, (v1 - v0) * 0.4), gu + 0.22, v1, 0.01, mix(TRACK, EARTH, 0.3));
+}
+
+const STAKE = 0xc79a5b, STAKE_TOP = 0xd23a30, TAPE_A = 0xe8463c, TAPE_B = 0xf1efe8, PILE = 0xb9bbbd, WET = 0x8d9296;
+/**
+ * THE GROUND BEING WORKED, before anything is built on it: the pit's line SET OUT with stakes and tape, a side at a
+ * time, till the digging takes it; the PIT; every PILE that has been driven, its head and its starter bars standing
+ * out of the floor; the mat of BAR laid over them, a rod at a time; and the CONCRETE, spreading from where it is
+ * poured till the floor is covered. The machines that do it are not drawn here. @see site-plant
+ */
+function drawGround(p: Pen, G: Ground, site: Site) {
+  const { u0, v0, u1, v1 } = G.pit, s = Math.min(site.pit / 4, (u1 - u0) / 2, (v1 - v0) / 2);
+  drawPit(p, G, site.pit);
+  if (site.pit > 0.01) {
+    // PILES driven: a square head, four bars out of it.
+    const n = pilesDriven(G, site.piles);
+    for (let k = 0; k < n; k++) {
+      const q = G.piles[k];
+      p.box(q.u - 0.04, q.v - 0.04, q.u + 0.04, q.v + 0.04, 0, 0.07, PILE, { top: tone(PILE, 1.08) });
+      for (const [du, dv] of [[-0.022, -0.022], [0.022, -0.022], [0.022, 0.022], [-0.022, 0.022]]) p.strut([q.u + du, q.v + dv, 0.07], [q.u + du, q.v + dv, 0.2], 0.007, REBAR);
+    }
+    // BAR: rods one way, back to front, then the other way over them.
+    if (site.bar > 0) {
+      const a = Math.min(1, site.bar * 2), b = Math.max(0, site.bar * 2 - 1), fu0 = u0 + s + 0.06, fv0 = v0 + s + 0.06;
+      for (let u = fu0; u < u1 - 0.04; u += 0.16) { if ((u - fu0) / (u1 - fu0) > a) break; p.flat(u - 0.007, fv0, u + 0.007, v1 - 0.04, 0.012, REBAR); }
+      for (let v = fv0; v < v1 - 0.04; v += 0.16) { if ((v - fv0) / (v1 - fv0) > b) break; p.flat(fu0, v - 0.007, u1 - 0.04, v + 0.007, 0.013, REBAR); }
+    }
+    // CONCRETE: wet where it has just come, lighter behind; the bar and the piles' heads gone under it.
+    const c = pourCover(G, site.fill);
+    if (c) {
+      p.flat(c.u0, c.v0, c.u1, c.v1, 0.015, WET);
+      const m = 0.07;
+      if (c.u1 - c.u0 > m * 2 && c.v1 - c.v0 > m * 2) p.flat(c.u0 + m, c.v0 + m, c.u1 - m, c.v1 - m, 0.016, mix(WET, CONCRETE, 0.35 + 0.65 * site.fill));
+    }
   }
-  // Formwork round the edge and a mat of bar over the pour.
-  if (fill > 0) {
-    for (let u = u0 + s + 0.18; u < u1 - 0.05; u += 0.24) p.flat(u - 0.008, v0 + s, u + 0.008, v1, 0.012, REBAR);
-    for (let v = v0 + s + 0.18; v < v1 - 0.05; v += 0.24) p.flat(u0 + s, v - 0.008, u1, v + 0.008, 0.012, REBAR);
+  // SET OUT: a stake at each corner of the opening and tape from one to the next, till the digger has it out.
+  if (site.set > 0 && site.dig < 0.35) {
+    // (A stride inside the opening's own line, clear of the hoarding and the fence.)
+    const m = Math.min(0.16, (u1 - u0) / 5, (v1 - v0) / 5), cs: [number, number][] = [[u0 + m, v0 + m], [u1 - m, v0 + m], [u1 - m, v1 - m], [u0 + m, v1 - m]], sides = Math.min(4, Math.floor(site.set * 4 + 1e-6));
+    for (let k = 0; k < 4; k++) {
+      const [a, b] = [cs[k], cs[(k + 1) % 4]];
+      if (k < sides) for (let q = 0; q < 6; q++) p.strut([a[0] + ((b[0] - a[0]) * q) / 6, a[1] + ((b[1] - a[1]) * q) / 6, 0.26], [a[0] + ((b[0] - a[0]) * (q + 1)) / 6, a[1] + ((b[1] - a[1]) * (q + 1)) / 6, 0.26], 0.012, q % 2 ? TAPE_B : TAPE_A);
+    }
+    cs.forEach(([u, v], k) => {
+      if (k > sides) return;
+      p.box(u - 0.018, v - 0.018, u + 0.018, v + 0.018, 0, 0.3, STAKE);
+      p.box(u - 0.019, v - 0.019, u + 0.019, v + 0.019, 0.24, 0.3, STAKE_TOP);
+    });
   }
 }
 
@@ -403,8 +444,10 @@ export function drawSite(p: Pen, b: Building, f: Footprint, site: Site, stock: n
   // THE CABIN in the back corner while the ground is being worked, and the
   // pit kept clear of it; gone when the plinth is cast over the whole plot.
   const cabin = site.plinth === 0 && f.h >= 2;
-  drawPit(p, f, pi, cabin ? 0.55 : pi, site.pit, site.fill);
-  if (site.pit > 0 && site.plinth === 0) drawSpoil(p, f, Math.max(site.pit / PIT, 1 - site.fill));
+  const G = groundPlan(b, f);
+  if (site.plinth === 0) drawGround(p, G, site);
+  // (Its spoil heaped in the corner only where no lorry can stand to take it.)
+  if (site.pit > 0 && site.plinth === 0 && !G.lorry) drawSpoil(p, f, Math.max(site.pit / PIT, 1 - site.fill));
   if (cabin) drawCabin(p);
   if (site.plinth > 0.005) {
     p.box(pi, pi, f.w - pi, f.h - pi, 0, site.plinth, CONCRETE);

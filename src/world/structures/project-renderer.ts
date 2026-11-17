@@ -28,7 +28,10 @@ import { crewAt } from "./projects/crew";
 import { lookOf } from "./projects/looks";
 import type { Building } from "./projects/model";
 import { makePen } from "./projects/pen";
-import { siteAt, topOf, type Site } from "./projects/schedule";
+import { groundPlan } from "./projects/groundworks";
+import { siteAt, groundShare, topOf, type Site } from "./projects/schedule";
+import { createSitePlant, dropSitePlant, syncSitePlant, type SitePlant } from "./projects/site-plant";
+import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-sheet";
 import {
   OPENING, craneHeight, cranePose, craneRest, drawConfetti, drawFinished, drawSite, drawSky, jibLength,
 } from "./projects/site";
@@ -55,6 +58,8 @@ type ProjectHandle = StructureHandle & {
   opened: number;
   /** The site as last drawn, for the crane to work over. */
   site: Site | null;
+  /** The machines working its ground, while it is worked. @see site-plant */
+  plant: SitePlant;
   /** An AI building's coolant, circuits and fans, open: redrawn a few times a second. @see ai-live */
   live: Graphics;
   /** Seconds since the live layer was last drawn, and its own clock. */
@@ -148,8 +153,13 @@ const frontBand = (s: Structure, ctx: RenderCtx) =>
   Math.max(0, Math.min(ctx.bands.structureOf.length - 1, bandOfColumn(s, s.w - 1)));
 
 /** What a drawing depends on, so it is redrawn only when that changes enough to see. */
-const stateOf = (s: Structure) =>
-  s.build ? `${Math.floor((s.build.done / s.build.need) * 400)}:${s.build.delivered}:${s.build.priority === 0}` : "done";
+const stateOf = (s: Structure) => {
+  const b = s.build;
+  if (!b) return "done";
+  // (Finer while its ground is worked: a pile's head is drawn as the rig leaves it.)
+  const p = b.done / b.need, g = groundShare(b.deliveries, s.def);
+  return `${Math.floor(p * 400)}:${p < g ? Math.floor((p / g) * 700) : ""}:${b.delivered}:${b.priority === 0}`;
+};
 
 /** Loads delivered and not yet built into the work: stacked in the yard. */
 const stockOf = (s: Structure) => {
@@ -282,6 +292,24 @@ function drawCrane(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numbe
   drawSky(p, f, craneHeight(site.top), pose);
 }
 
+/** The vehicles' sheet, for a site's machines: asked for once, by the first site that wants it. */
+let plantCars: CarSprites | null = null, plantAsked = false;
+/**
+ * THE MACHINES ON ITS GROUND, while its ground is worked — where the work has got to this moment, not as the site
+ * was last drawn: a rig between two piles is between them. `dt` on from the last time; nought, and they stand.
+ */
+function drawPlant(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number, dt: number): void {
+  const b = s.build;
+  if (!b || !bakedCars()) { syncSitePlant(h.plant, null, groundPlan(h.model, { w: s.w, h: s.h }), null, 0, 0); return; }
+  const site = siteAt(h.model, Math.min(1, b.done / b.need), groundShare(b.deliveries, s.def));
+  if (site.ground && !plantCars) { if (!plantAsked) { plantAsked = true; void loadCarSprites().then((c) => { plantCars = c; }); } return; }
+  const f = { w: s.w, h: s.h };
+  syncSitePlant(h.plant, site, groundPlan(h.model, f), {
+    cars: plantCars!, ox: s.x - 0.5, oy: s.y - 0.5, z: ground, scale: ctx.scale,
+    layer: (u, v) => ctx.bands.dynamicOf[bandOfTile(s, ctx, Math.max(0, Math.min(s.w - 1, Math.floor(u))), Math.max(0, Math.min(s.h - 1, Math.floor(v))))],
+  }, h.t, dt);
+}
+
 const groundOf = (s: Structure, ctx: RenderCtx) =>
   inBounds(ctx.grid, s.x, s.y) ? ctx.grid.height[idx(ctx.grid, s.x, s.y)] : 0;
 
@@ -324,7 +352,7 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): 
   const ground = groundOf(s, ctx);
   const f = { w: s.w, h: s.h };
   const b = s.build;
-  const site = b ? siteAt(h.model, Math.min(1, b.done / b.need)) : null;
+  const site = b ? siteAt(h.model, Math.min(1, b.done / b.need), groundShare(b.deliveries, s.def)) : null;
   h.site = site;
   h.growing = !!site && (growing || h.growing);
   const lawnless = !site && !!h.model.lawn && onGrass(s, ctx);
@@ -353,6 +381,7 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): 
   placeProps(h, s, ctx, ground);
   drawCrane(h, s, ctx, ground);
   drawCrew(h, s, ctx, ground);
+  drawPlant(h, s, ctx, ground, 0);
   drawLiveLayer(h, s, ctx);
 }
 
@@ -383,8 +412,8 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   const handle: ProjectHandle = {
     columns, cells, sky, live, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
-    t: s.id * 3.7, site: null, crew: [], opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false, props: [], propsKey: "",
-    destroy: () => { for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); for (const c of handle.props) { c.parent?.removeChild(c); c.destroy({ children: true }); } },
+    t: s.id * 3.7, site: null, plant: createSitePlant(), crew: [], opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false, props: [], propsKey: "",
+    destroy: () => { for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); dropSitePlant(handle.plant); for (const c of handle.props) { c.parent?.removeChild(c); c.destroy({ children: true }); } },
   };
   draw(handle, s, ctx);
   return handle;
@@ -417,6 +446,8 @@ registerCustomRenderer("project", {
       // The crane's clock stops while the site waits for a load.
       if (!stalled(s)) handle.t += dt;
       if (handle.crewDue >= CREW_EVERY && onScreen(s, ctx)) {
+        // (Its machines by the time gone since they were last moved — never a leap, after a while off the screen; stood still while it waits for a load.)
+        drawPlant(handle, s, ctx, ground, stalled(s) ? 0 : Math.min(0.1, handle.crewDue));
         handle.crewDue = 0;
         if (handle.model.crane === "tower") drawCrane(handle, s, ctx, ground);
         drawCrew(handle, s, ctx, ground);

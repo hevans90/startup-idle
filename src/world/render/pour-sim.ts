@@ -39,11 +39,12 @@ export type PourKind = {
   /** How much each grain's start is scattered: across the lip, and in its speed. */
   scatter: number;
 };
-/** Earth: steep, cloddy. Stone: a little less steep, small and hard, skipping. Blacktop: thick, no skip, all but level. */
+/** Earth: steep, cloddy. Stone: a little less steep, small and hard, skipping. Blacktop: thick, no skip, all but level. Concrete: wet, as near level. */
 export const POURS = {
   earth: { rest: 0.85, grain: 1.7, rate: 150, skip: 0.12, scatter: 1 },
   stone: { rest: 0.7, grain: 1.25, rate: 210, skip: 0.35, scatter: 1 },
   tar: { rest: 0.06, grain: 2.3, rate: 110, skip: 0, scatter: 0.25 },
+  concrete: { rest: 0.1, grain: 2.0, rate: 130, skip: 0, scatter: 0.3 },
 } satisfies Record<string, PourKind>;
 
 /** Floats a grain: x, y, vx, vy, its tone (nought to one), and whether it has skipped. */

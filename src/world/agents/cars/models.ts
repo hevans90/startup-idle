@@ -1016,8 +1016,81 @@ const tipper = tipped("tipper", 0), tipper1 = tipped("tipper1", 14), tipper2 = t
  */
 export const SPOIL_LOOKS = ["spoil0", "spoil1", "spoil2", "spoil3", "spoil4"] as const;
 const spoils = SPOIL_LOOKS.map((id, k) => tipped(id, 0, "load", k / (SPOIL_LOOKS.length - 1)));
+/**
+ * A PILING RIG: tracks, a house with its cab, and a tall leader stood at its front on a foot, stayed back to the
+ * house — a drop hammer riding it over the pile it is driving. `left` is how much of the pile still stands out of
+ * the ground, metres; none, and it has no pile in it and its hammer hangs half way up. The one rig in every look.
+ */
+function rigAt(id: string, left: number | null): Model {
+  const TOP = 9.6, LEAD = 2.55, h = left ?? 5.6;
+  return {
+    id, length: 6.4, width: 2.8, wheels: [],
+    slabs: [
+      ...[1, -1].map((sg): Slab => ({ l0: 1.9, l1: -1.9, w: 0.32, wc: sg * 1.02, z0: 0, z1: 0.8, inF: 0.25, inB: 0.25, mat: "tyre" })),
+      ...[1, -1].map((sg): Slab => ({ l0: 1.7, l1: -1.7, w: 0.33, wc: sg * 1.02, z0: 0.3, z1: 0.5, mat: "trim" })),
+      { l0: 1.2, l1: -1.2, w: 0.78, z0: 0.35, z1: 0.95, mat: "trim" },
+      // The house: engine and winches, a counterweight behind, the cab to one side.
+      { l0: 1.3, l1: -1.9, w: 1.25, z0: 0.95, z1: 2.15, mat: "paint" },
+      { l0: -1.9, l1: -2.5, w: 1.2, z0: 1.0, z1: 2.05, inB: 0.2, mat: "trim" },
+      { l0: -0.4, l1: -1.6, w: 0.5, wc: -0.5, z0: 2.15, z1: 2.35, mat: "grille" },
+      { l0: 1.75, l1: 0.3, w: 0.48, wc: 0.74, z0: 0.95, z1: 2.8, mat: "glass" },
+      { l0: 1.8, l1: 0.25, w: 0.52, wc: 0.74, z0: 2.8, z1: 2.9, mat: "paint" },
+      { l0: 1.8, l1: 0.25, w: 0.52, wc: 0.74, z0: 0.95, z1: 1.45, mat: "paint" },
+      // THE LEADER: a box mast on its foot, two bright guides down its face, a head with its sheaves.
+      { l0: LEAD + 0.25, l1: LEAD - 0.25, w: 0.5, z0: 0, z1: 0.18, mat: "trim" },
+      { l0: LEAD + 0.16, l1: LEAD - 0.16, w: 0.2, z0: 0.18, z1: TOP, mat: "paint" },
+      ...[1, -1].map((sg): Slab => ({ l0: LEAD + 0.22, l1: LEAD + 0.16, w: 0.04, wc: sg * 0.16, z0: 0.4, z1: TOP - 0.2, mat: "chrome" })),
+      ...[1.5, 3.1, 4.7, 6.3, 7.9].map((z): Slab => ({ l0: LEAD + 0.17, l1: LEAD - 0.17, w: 0.21, z0: z, z1: z + 0.12, mat: "trim" })),
+      { l0: LEAD + 0.75, l1: LEAD - 0.35, w: 0.26, z0: TOP, z1: TOP + 0.35, mat: "trim" },
+      // THE HAMMER on the guides, a ram in a cage; and the pile under it, what is left of it.
+      { l0: LEAD + 0.95, l1: LEAD + 0.22, w: 0.34, z0: h + 0.12, z1: h + 1.75, mat: "trim" },
+      { l0: LEAD + 0.97, l1: LEAD + 0.2, w: 0.36, z0: h + 0.75, z1: h + 1.05, mat: "paint" },
+      { l0: LEAD + 0.85, l1: LEAD + 0.32, w: 0.3, z0: h, z1: h + 0.12, mat: "chrome" },
+      ...(left === null ? [] : [{ l0: LEAD + 0.78, l1: LEAD + 0.4, w: 0.19, z0: 0, z1: h, mat: "hub" } as Slab]),
+    ],
+    extra: () => {
+      const out: FreeTri[] = [];
+      // The stays, from the house's back up to the leader; the rope from the head down to the hammer.
+      for (const sy of [-0.45, 0.45]) beam([-1.6, 2.15], [LEAD - 0.1, 7.2], 0.14, 0.14, 0.12, sy, "paint", out);
+      beam([-0.2, 2.15], [LEAD - 0.12, 3.6], 0.2, 0.2, 0.18, 0, "trim", out);
+      beam([LEAD + 0.6, TOP], [LEAD + 0.6, h + 1.75], 0.05, 0.05, 0.05, 0, "trim", out);
+      return out;
+    },
+  };
+}
+/** The rig between piles, its hammer up and empty; and driving one, the pile going in. */
+export const RIG_LOOKS = ["rig0", "rig1", "rig2", "rig3"] as const;
+const rigUp = rigAt("rigUp", null), rigs = RIG_LOOKS.map((id, k) => rigAt(id, [5.2, 3.6, 2.0, 0.5][k]));
+/**
+ * A CONCRETE MIXER: a lorry's cab and chassis; its drum, lying back and fat in the middle, banded; the hopper it is
+ * charged by over its tail, and the chute swung down from under that — where the concrete comes out.
+ */
+const mixer: Model = {
+  ...lorry("mixer", 7.6, 2.5, 2.0, [
+    { l0: 1.75, l1: -3.7, w: 0.55, z0: 0.72, z1: 1.05, mat: "trim" },
+    // The drum, in rings: narrow at its mouth and at its head, fat between.
+    { l0: 1.55, l1: 1.0, w: 0.72, z0: 1.3, z1: 2.75, inF: 0.2, mat: "paint" },
+    { l0: 1.0, l1: -0.2, w: 1.0, z0: 1.12, z1: 3.1, inF: 0.14, mat: "paint" },
+    { l0: -0.2, l1: -1.5, w: 1.12, z0: 1.1, z1: 3.3, mat: "paint" },
+    { l0: -1.5, l1: -2.5, w: 0.95, z0: 1.4, z1: 3.3, inB: 0.2, mat: "paint" },
+    { l0: -2.5, l1: -3.1, w: 0.62, z0: 2.0, z1: 3.25, inB: 0.2, mat: "paint" },
+    { l0: 0.35, l1: 0.15, w: 1.02, z0: 1.12, z1: 3.12, mat: "liveryRed" },
+    { l0: -1.2, l1: -1.4, w: 1.14, z0: 1.1, z1: 3.32, mat: "liveryRed" },
+    // The frame that carries its mouth, the hopper on it, a ladder up one side.
+    ...[1, -1].map((sg): Slab => ({ l0: -3.05, l1: -3.2, w: 0.05, wc: sg * 0.75, z0: 1.05, z1: 3.3, mat: "trim" })),
+    { l0: -3.0, l1: -3.75, w: 0.5, z0: 3.0, z1: 3.55, inF: 0.2, inB: 0.05, mat: "trim" },
+    { l0: -3.3, l1: -3.4, w: 0.25, wc: 0.95, z0: 1.05, z1: 3.0, mat: "chrome" },
+  ], [2.6, -1.7, -2.9]),
+  extra: () => {
+    const out: FreeTri[] = [];
+    // THE CHUTE: a trough from under the drum's mouth down and out behind, its two cheeks standing over its floor.
+    beam([-3.2, 2.0], [-5.1, 0.95], 0.1, 0.1, 0.6, 0, "trim", out);
+    for (const sy of [-0.3, 0.3]) beam([-3.2, 2.14], [-5.1, 1.09], 0.3, 0.22, 0.05, sy, "chrome", out);
+    return out;
+  },
+};
 /** What builds a road. Never in the traffic. */
-export const PLANT = [paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp, ...spoils];
+export const PLANT = [paver, paver1, paver2, screed, roller, exTracks, exDig, exDig2, exLift, exDump, tipper1, tipper2, tipperUp, ...spoils, rigUp, ...rigs, mixer];
 
 const WORK = [pickup, smallVan, panelVan, lutonVan, flatbed, boxLorry, tipper, machineLorry];
 const SERVICE = [taxi, police, ambulance, postalVan, fireEngine];

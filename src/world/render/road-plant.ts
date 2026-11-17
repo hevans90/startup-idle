@@ -26,33 +26,20 @@
  */
 import { Container, Graphics, Sprite } from "pixi.js";
 
-import { baseCorners, bakedCars, headingIndex, loadCarSprites, pitchMatrix, poseOf, type CarSprites } from "../agents/cars/car-sheet";
+import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-sheet";
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { PAVER_LOOKS, SPOIL_LOOKS, TIP_LOOKS } from "../agents/cars/models";
 import { ARRIVE, GANGS, GAP, PACE, frontAt, setOutAt, setOutSeconds, type RoadJob } from "../roads/jobs";
 import type { BandLayer } from "./bands";
-import { COLUMN, POURS, carry, createPourSim, eachColumn, eachGrain, stepPour, type PourKind, type PourRun, type PourSim } from "./pour-sim";
+import { ARM, BLUE, DIG, DIG_ALL, EARTH, M, PPM, STONE, T, TAR, YELLOW, drawSpill, makeSpill, makeUnit, poseUnit, type Spill, type Stuff, type Unit } from "./plant-kit";
+import { COLUMN, carry, stepPour, type PourRun } from "./pour-sim";
 
-/** The contractor's yellow; the lorries' blue; the lining truck's white. */
-const YELLOW = 0xe9a71b, BLUE = 0x3f6fb0, WHITE = 0xf1f1ee;
+/** The lining truck's white. (The contractor's yellow and the lorries' blue are every site's. @see plant-kit) */
+const WHITE = 0xf1f1ee;
 const VESTS = [0xf47b20, 0xc8dc32, 0xf47b20, 0xe8e23a, 0xc8dc32, 0xf47b20], HAT = 0xf5c224, SKIN = 0xd9a47a, LEGS = 0x3a4a63;
-/** Metres to half steps, for what is drawn above the ground; tiles a metre. */
-const M = 1 / 2.268, T = 0.09;
-/** How far to the side of its middle an excavator's arm is, tiles: across, to its left. @see models ARM_Y */
-const ARM = -0.3 * T;
 
-type Unit = { c: Container; under: Graphics; parts: Sprite[]; over: Graphics; keys: string[]; band: number };
-/** What pours: how it falls and heaps, and its tones from shade to lit. */
-type Stuff = { kind: PourKind; tones: [number, number, number]; wet: boolean };
-const EARTH: Stuff = { kind: POURS.earth, tones: [0x4d3722, 0x73553a, 0x9a7650], wet: false };
-const STONE: Stuff = { kind: POURS.stone, tones: [0x6b6862, 0x908c84, 0xb9b4aa], wet: false };
-const TAR: Stuff = { kind: POURS.tar, tones: [0x09090b, 0x121214, 0x1c1c20], wet: true };
-/** Something being poured: its grains and its heap, and what draws them — in a layer of its own, filed by where it lands. */
-type Spill = { sim: PourSim; c: Container; gfx: Graphics; band: number; /** Where it last landed on the map's own picture, pixels across at the map's scale: for leaving its heap where it fell. */ landed: number };
-/** Pixels a metre at the map's own scale, about: for a lip's width. */
-const PPM = 6.5;
 /** A person's footprint, for which tile they are drawn with. */
 const FEET = [{ u: 0.05, v: 0.05 }];
 type Hand = { c: Container; parts: Sprite[]; key: string; band: number } & Walker;
@@ -120,8 +107,6 @@ const DIGGING: Stop[][] = [
   [{ al: 1.5, ac: 0.38, pose: "work", dwell: 3, face: RIGHT }, { al: 2.3, ac: -0.38, pose: "work", dwell: 3, face: LEFT }, { al: 1.2, ac: -0.4, pose: "stand", dwell: 4, face: 0 }],
 ];
 
-/** A digger's turn of work, seconds: dig, lift, slew round, tip, slew back. */
-const DIG = { dig: 3.2, lift: 0.8, out: 1.9, tip: 1.3, back: 1.9 }, DIG_ALL = DIG.dig + DIG.lift + DIG.out + DIG.tip + DIG.back;
 /** A lorry's turn at tipping, seconds: body down as it backs in, up while it tips, down as it pulls off. */
 const TIP = { in: 2.5, up: 10, off: 2 }, TIP_ALL = TIP.in + TIP.up + TIP.off;
 /** A paver's hopper through a turn, seconds: full and spread, its wings folding up as it empties, held up, and down again. */
@@ -174,39 +159,12 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             const id = `${j.id}:${name}`;
             let u = units.get(id);
             if (!u) {
-              const c = new Container(); c.eventMode = "none";
-              const under = new Graphics(), over = new Graphics();
-              under.context.batchMode = "batch"; over.context.batchMode = "batch";
-              c.addChild(under);
-              const parts: Sprite[] = [];
-              for (let k = 0; k < looks.length * 2; k++) { const sp = new Sprite(); parts.push(sp); c.addChild(sp); }
-              c.addChild(over);
-              u = { c, under, parts, over, keys: looks.map(() => ""), band: -1 };
+              u = makeUnit(looks.length);
               units.set(id, u);
             }
             seenU.add(id);
-            let lean: { heading: number; shear: number } | null = null;
-            // Its footprint: every part's, a house slewed off its tracks reaching further than they do.
-            const base: { u: number; v: number }[] = [];
-            looks.forEach((l, k) => {
-              const L = cars!.looks.get(l.look);
-              if (!L) return;
-              base.push(...baseCorners(L, l.heading ?? at.heading));
-              const h = headingIndex(l.heading ?? at.heading, cars!.headings), pose = poseOf(cars!, L, h, k === 0 ? at.pitch : 0), F = pose.from, q = pose.k;
-              if (k === 0) lean = { heading: pose.heading, shear: pose.shear };
-              const key = `${l.look}|${pose.key}|${scale}`, paint = u!.parts[k * 2], trim = u!.parts[k * 2 + 1];
-              if (u!.keys[k] === key) return;
-              u!.keys[k] = key;
-              paint.tint = l.tint;
-              paint.texture = F.paint[q]; trim.texture = F.trim[q];
-              paint.anchor.set(F.paintAnchor[q].x, F.paintAnchor[q].y); trim.anchor.set(F.trimAnchor[q].x, F.trimAnchor[q].y);
-              paint.scale.set(scale / cars!.res); trim.scale.set(scale / cars!.res);
-            });
-            const x = (at.x - at.y) * HW * scale, y = (at.x + at.y) * HH * scale - at.z * HEIGHT_UNIT * scale;
-            const tilt = lean ? pitchMatrix((lean as { heading: number; shear: number }).heading, (lean as { heading: number; shear: number }).shear) : null;
-            if (tilt) { tilt.tx = x; tilt.ty = y; u.c.setFromMatrix(tilt); } else { u.c.scale.set(1); u.c.skew.set(0, 0); u.c.rotation = 0; u.c.position.set(x, y); }
+            const base = poseUnit(u, cars!, looks, at, scale);
             u.band = into(u.c, u.band, at.x, at.y, base);
-            u.under.clear(); u.over.clear();
             return u;
           };
           /**
@@ -220,10 +178,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             seenS.add(id);
             let sp = spills.get(id);
             if (!sp) {
-              const c = new Container(), gfx = new Graphics();
-              c.eventMode = "none"; gfx.context.batchMode = "batch";
-              c.addChild(gfx);
-              sp = { sim: createPourSim(stuff.kind, wall), c, gfx, band: -1, landed: NaN };
+              sp = makeSpill(stuff, wall);
               spills.set(id, sp);
             }
             const tile = (p: [number, number, number]) => ({ x: at.x + Math.cos(h) * p[0] - Math.sin(h) * p[1], y: at.y + Math.sin(h) * p[0] + Math.cos(h) * p[1], m: p[2] });
@@ -244,35 +199,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             if (band !== sp.band || !sp.c.parent) { sp.c.zIndex = z; bands.dynamicOf[band]?.addChild(sp.c); sp.band = band; }
             else if (Math.abs(sp.c.zIndex - z) > 0.04) sp.c.zIndex = z;
             sp.c.position.set(a[0], a[1]);
-            // DRAWN: the heap as what it is — grains, piled, each column's own and keeping its tone as the lip moves on,
-            // the lit ones on top and toward the light; then every grain in the air, by its tone.
-            const G = sp.gfx, r = S.kind.grain * scale, cw = COLUMN * scale;
-            G.clear();
-            for (let tone = 0; tone < 3; tone++) {
-              let any = false;
-              eachColumn(S, (x, ground, high, id) => {
-                for (let up = 0; up < high; up += COLUMN) {
-                  const hsh = Math.abs(Math.sin(id * 12.9898 + Math.floor(up / COLUMN) * 78.233) * 43758.5453) % 1;
-                  // Lighter toward the top of it, where the light falls.
-                  const tn = Math.min(2, Math.floor((hsh * 0.7 + (up / Math.max(high, COLUMN)) * 0.45) * 3));
-                  if (tn !== tone) continue;
-                  any = true;
-                  G.rect(x * scale - cw / 2, (ground - Math.min(high, up + COLUMN)) * scale, cw, Math.min(COLUMN, high - up) * scale + 0.5);
-                }
-              });
-              if (any) G.fill({ color: stuff.tones[tone] });
-            }
-            for (let tone = 0; tone < 3; tone++) {
-              let any = false;
-              eachGrain(S, (x, y, tn) => {
-                if (Math.min(2, Math.floor(tn * 3)) !== tone) return;
-                any = true;
-                if (stuff.wet) G.circle(x * scale, y * scale, r * 0.62); else G.rect(x * scale - r / 2, y * scale - r / 2, r, r);
-              });
-              if (any) G.fill({ color: stuff.tones[tone] });
-            }
-            // Blacktop is wet: a glint on the lit side of some of it.
-            if (stuff.wet) { let any = false; eachGrain(S, (x, y, tn) => { if (tn > 0.55) { any = true; G.rect(x * scale - r * 0.45, y * scale - r * 0.45, r * 0.4, r * 0.4); } }); if (any) G.fill({ color: 0x6a6a74 }); }
+            drawSpill(sp.gfx, S, stuff, scale);
           };
           /** Puffs that rise from a point and thin: steam, dust. */
           const puffs = (gfx: Graphics, h: number, al: number, ac: number, m: number, colour: number, count: number, spread: number, rise: number, alpha: number) => {

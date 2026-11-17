@@ -17,7 +17,8 @@ import { LOOKS, lookOf } from "./looks";
 import { bays, drawRoof, floorsOf, wholeFloors, type Building, type Footprint, type Mass } from "./model";
 import type { Pen } from "./pen";
 import { makePen } from "./pen";
-import { PIT, STAGES, siteAt, topOf } from "./schedule";
+import { GROUND, GROUND_SHARE, PIT, groundShare, siteAt, topOf } from "./schedule";
+import { RIG_HEADING, RIG_REACH, groundPlan, pilesDriven, pourCover, rigAt } from "./groundworks";
 import {
   LIFT_CYCLE, OPENING, mastOf, craneHeight, cranePose, craneRest, drawConfetti, drawFinished, drawSite, drawSky,
   jibLength,
@@ -73,9 +74,36 @@ describe("a site goes up trade after trade", () => {
   });
 
   test("the pit is dug, then filled, then the plinth cast on it", () => {
-    expect(siteAt(b, STAGES.dig[1]).pit).toBeCloseTo(PIT);
-    expect(siteAt(b, (STAGES.found[0] + STAGES.found[1]) / 2).pit).toBeCloseTo(0);
-    expect(siteAt(b, STAGES.found[1]).plinth).toBeCloseTo(b.plinth.h);
+    const g = GROUND_SHARE;
+    expect(siteAt(b, g * GROUND.dig[1]).pit).toBeCloseTo(PIT);
+    expect(siteAt(b, g * GROUND.pour[1]).fill).toBeCloseTo(1);
+    expect(siteAt(b, g * 0.97).pit).toBeCloseTo(0);
+    expect(siteAt(b, g).plinth).toBeCloseTo(b.plinth.h);
+  });
+
+  test("the groundworks are a site's first loads' worth of its work, each step after the one before", () => {
+    // Two loads of twelve; the garage's one; and never more than a third, however few loads there are.
+    expect(groundShare(12)).toBeCloseTo(2 / 12);
+    expect(groundShare(8, "garage")).toBeCloseTo(1 / 8);
+    expect(groundShare(1, "garage")).toBeCloseTo(0.34);
+    expect(groundShare(2)).toBeCloseTo(0.34);
+    for (const g of [0.1, 2 / 12, 0.34]) {
+      let last = siteAt(b, 0, g);
+      for (let p = 0; p <= g + 1e-9; p += g / 200) {
+        const s = siteAt(b, p, g);
+        // Nothing of the building while the ground is worked; and no step goes back.
+        if (p < g - 1e-6) { expect(s.framing).toBe(false); expect(s.frame).toBeCloseTo(b.plinth.h); }
+        for (const k of ["set", "dig", "piles", "bar", "fill", "plinth"] as const) expect(s[k]).toBeGreaterThanOrEqual(last[k] - 1e-9);
+        // Piles only into a pit that is dug; bar only over piles all driven; concrete only over the bar.
+        if (s.piles > 0) expect(s.dig).toBe(1);
+        if (s.bar > 0) expect(s.piles).toBe(1);
+        if (s.fill > 0) expect(s.bar).toBe(1);
+        if (s.plinth > 0) expect(s.fill).toBe(1);
+        last = s;
+      }
+      expect(siteAt(b, g, g).plinth).toBeCloseTo(b.plinth.h);
+      expect(siteAt(b, 0.999, g).frame).toBeCloseTo(topOf(b));
+    }
   });
 
   test("the cladding never gets ahead of the frame, and both only go up", () => {
@@ -335,5 +363,46 @@ describe("a parapet", () => {
     expect([last[0], last[2], last[3]]).toEqual([0, 2, 3]);
     // Every other rim box stops short of the near corner.
     for (const b of boxes.slice(0, -1)) expect(b[2] < 2 - 1e-9 || b[3] < 3 - 1e-9).toBe(true);
+  });
+});
+
+describe("a site's ground is worked by machines that stand on it", () => {
+  test("on every plot: the piles in the pit, the machines on the plot, the lorry only where there is room", () => {
+    for (const [id, f] of FOOTPRINTS) {
+      const b = lookOf(id, f), G = groundPlan(b, f), { u0, v0, u1, v1, s } = G.pit;
+      expect(G.piles.length).toBeGreaterThan(0);
+      for (const q of G.piles) { expect(q.u).toBeGreaterThan(u0 + s); expect(q.u).toBeLessThan(u1); expect(q.v).toBeGreaterThan(v0 + s); expect(q.v).toBeLessThan(v1); }
+      for (const q of [G.digger, G.pour, ...(G.lorry ? [G.lorry] : [])]) { expect(q.u).toBeGreaterThan(0); expect(q.u).toBeLessThan(f.w); expect(q.v).toBeGreaterThan(0); expect(q.v).toBeLessThan(f.h); }
+      expect(!!G.lorry).toBe(f.w >= 2 && f.h >= 2);
+    }
+  });
+
+  test("the rig goes to each pile in turn, stands at it while it drives it, and never jumps", () => {
+    const f = { w: 3, h: 3 }, b = lookOf("hq", f), G = groundPlan(b, f), n = G.piles.length;
+    expect(rigAt(G, { dig: 0.5, piles: 0 })).toBeNull();
+    expect(rigAt(G, { dig: 1, piles: 1 })).toBeNull();
+    let last = rigAt(G, { dig: 1, piles: 1e-6 })!, drove = new Set<number>();
+    for (let x = 1e-6; x < 1; x += 1 / (n * 400)) {
+      const r = rigAt(G, { dig: 1, piles: x })!;
+      expect(Math.hypot(r.u - last.u, r.v - last.v)).toBeLessThan(0.04);
+      if (r.driving) {
+        drove.add(r.pile);
+        // Its leader over the pile it is driving; and that pile not yet counted as in.
+        expect(r.u + Math.cos(RIG_HEADING) * RIG_REACH).toBeCloseTo(G.piles[r.pile].u, 6);
+        expect(r.v + Math.sin(RIG_HEADING) * RIG_REACH).toBeCloseTo(G.piles[r.pile].v, 6);
+        expect(pilesDriven(G, x)).toBe(r.pile);
+      }
+      last = r;
+    }
+    expect(drove.size).toBe(n);
+    expect(pilesDriven(G, 1)).toBe(n);
+  });
+
+  test("the concrete spreads from where it lands till the floor is covered", () => {
+    const f = { w: 3, h: 3 }, G = groundPlan(lookOf("hq", f), f), { u0, v0, u1, v1, s } = G.pit;
+    expect(pourCover(G, 0)).toBeNull();
+    let area = 0;
+    for (let k = 1; k <= 20; k++) { const c = pourCover(G, k / 20)!, a = (c.u1 - c.u0) * (c.v1 - c.v0); expect(a).toBeGreaterThan(area); area = a; expect(c.u0).toBeLessThanOrEqual(G.pour.u); expect(c.u1).toBeGreaterThanOrEqual(G.pour.u); }
+    expect(pourCover(G, 1)).toEqual({ u0: u0 + s, v0: v0 + s, u1, v1 });
   });
 });

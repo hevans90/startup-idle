@@ -1217,7 +1217,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
  * How far through its work each site in the `projects` gallery stands, left
  * to right. The last is FINISHED — no build record at all.
  */
-export const GALLERY_STAGES = [0.04, 0.14, 0.3, 0.5, 0.7, 0.86, 0.95, 1] as const;
+export const GALLERY_STAGES = [0.012, 0.03, 0.065, 0.1, 0.14, 0.3, 0.5, 0.7, 0.86, 0.95, 1] as const;
 
 /**
  * EVERY BUILDING A PROJECT DRAWS, AT EVERY STAGE OF GOING UP: a row per
