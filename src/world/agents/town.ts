@@ -55,6 +55,8 @@ import type { Emergency } from "./emergency";
 export type Mover = {
   id: number;
   kind: "car" | "person" | "truck" | "bus" | "limo" | "bike";
+  /** One of the company's own lorries, out of its yard. @see fleet */
+  fleet?: boolean;
   /**
    * WORK, if it is on some: a builder walking to a site or home from it, a
    * builder at work on one, or a load of materials on its way. Movers on a
@@ -223,6 +225,8 @@ export type Town = {
   residentsFor?: LaneGraph;
   /** Movers on a job that arrived since the last look. @see stepWorks */
   arrived: Mover[];
+  /** Loads being put on the company's lorries in its yards. @see fleet */
+  yard: import("../fleet/fleet").YardLoad[];
   next: number;
   t: number;
   places: Place[];
@@ -235,7 +239,7 @@ export type Town = {
 };
 
 export const createTown = (): Town => ({
-  movers: [], parked: [], arrived: [], next: 1, t: 0, places: [], placesAt: -1, untilCar: 0, untilPerson: 0, seed: 0x2f6e2b1,
+  movers: [], parked: [], arrived: [], yard: [], next: 1, t: 0, places: [], placesAt: -1, untilCar: 0, untilPerson: 0, seed: 0x2f6e2b1,
 });
 
 /** A person's leg, half steps long, and how far it swings either side of straight down. */

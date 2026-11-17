@@ -22,7 +22,9 @@ import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { LINE_GAPS, LINE_LAYS, LINE_PACE, LINE_STAGES, MAIN, SEWER, YARD_LOADING, alongLine, lineFront, type LineJob } from "../lines/jobs";
 import { YARDS } from "../lines/line-loads";
-import { YARD_BAY, YARD_CRANE, YARD_STACKS, inYard } from "../landmarks/yard";
+import { YARD_BAY, YARD_CRANE, YARD_PARKING, YARD_STACKS, inYard } from "../landmarks/yard";
+import { YARD_PALLETS, fleetFree, type YardLoad } from "../fleet/fleet";
+import { getTown } from "../../state/world.store";
 import type { BandLayer } from "./bands";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
 import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
@@ -879,7 +881,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       // ── THE YARD'S CRANE: at the company's own building, between its stacks of pipe and its gate ──
       // It stands there always. A load sent for is a lorry drawn up beside it: three pieces off the stack, each
       // hooked, lifted, slewed over and set on the bed; then the lorry out of the gate, and onto the road.
-      const seenY = new Set<string>();
+      const seenY = new Set<string>(), town = getTown();
       if (yards && cars) for (const s of g.structures.values()) {
         if (s.build || s.w < 5 || !YARDS.includes(s.def)) continue;
         const ox = s.x - 0.5, oy = s.y - 0.5, h = g.height[idx(g, s.x, s.y)] + (s.def === "garage" ? 0.15 : 0.3);
@@ -888,6 +890,11 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         const cr = { x: ox + yc.u, y: oy + yc.v };
         let job: LineJob | null = null, left = Infinity;
         for (const j of jobs) if (j.depot === s.id && j.yard?.length) { const m = Math.min(...j.yard); if (m < left) { left = m; job = j; } }
+        // (Or a site's pallets, or a road's stone: whichever is under the crane first. @see fleet)
+        let crates: YardLoad | null = null;
+        for (const q of town.yard) if (q.yard === s.id && q.left < left) { left = q.left; crates = q; job = null; }
+        // THE FLEET, AT HOME: as many of the company's lorries as stand free, nose out — under the shed, then in the yard.
+        const places = YARD_PARKING[s.def] ?? [], home = Math.min(places.length, fleetFree(g, town));
         // ITS PIPE, on its chocks: THE VERY LENGTHS THAT ARE LAID — the mains' steel and, past a garage, the sewers'
         // iron beside it — two and one on them. What the crane loads comes off the stack of its own kind.
         const stacks = (s.def === "garage" ? YARD_STACKS.slice(0, 1) : YARD_STACKS).map((st) => ({ ...inYard(st, s), of: st.of }));
@@ -916,6 +923,21 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           u.band = into(u.c, u.band, x, y, base);
         };
         let boom = Math.atan2(stack.y - cr.y, stack.x - cr.x), far = Math.hypot(stack.x - cr.x, stack.y - cr.y), held: { x: number; y: number; z: number } | null = null;
+        for (let k = 0; k < home; k++) { const at = inYard(places[k], s); unit(`park${k}`, ox + at.u, oy + at.v, (Math.PI / 2) * fwd, [{ look: k % 3 === 1 ? "spoil0" : "pipeLorry", tint: BLUE }]); }
+        let crate: { x: number; y: number; z: number } | null = null;
+        if (crates) {
+          // A LORRY FOR A SITE OR A ROAD: out from the shed, a pallet swung onto it, and off through the gate with its load.
+          const qc = 1 - Math.max(0, Math.min(1, crates.left / YARD_PALLETS)), stone = crates.job.role === "road-load", inn = 1 - ease(qc / 0.2);
+          const lorry = { x: ox + yb.u - 0.5 * inn, y: oy + yb.v + fwd * (-1.15 * inn + 0.85 * ease((qc - 0.82) / 0.18)) };
+          unit("lorry", lorry.x, lorry.y, (Math.PI / 2) * fwd, [{ look: qc < 0.62 ? (stone ? "spoil0" : "pipeLorry") : stone ? "tipper" : "flatbed", tint: BLUE }]);
+          if (qc > 0.22 && qc < 0.62) {
+            const e = ease((qc - 0.22) / 0.4), bed = { x: lorry.x, y: lorry.y - 0.12 * fwd }, a0 = Math.atan2(stack.y - cr.y, stack.x - cr.x), a1 = Math.atan2(bed.y - cr.y, bed.x - cr.x);
+            let d = a1 - a0; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+            const r0 = Math.hypot(stack.x - cr.x, stack.y - cr.y), r1 = Math.hypot(bed.x - cr.x, bed.y - cr.y);
+            boom = a0 + d * e; far = r0 + (r1 - r0) * e;
+            crate = { x: cr.x + Math.cos(boom) * far, y: cr.y + Math.sin(boom) * far, z: 0.5 + (1.25 * M - 0.5) * e + 1.5 * Math.sin(Math.PI * e) };
+          }
+        }
         if (job && q >= 0) {
           const stuff = STUFF[job.kind === "dredge" ? "main" : job.kind], R = stuff.r / ZT;
           // THE LORRY, drawn up nose to the gate; loaded, out through it.
@@ -962,6 +984,16 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         G.moveTo(tip[0], tip[1]).lineTo(hook[0], hook[1]).stroke({ color: 0x1f2226, width: lw });
         G.rect(hook[0] - 1.6 * scale, hook[1] - 2 * scale, 3.2 * scale, 4 * scale).fill({ color: 0xe9a71b });
         if (held) { const hp = pt(scale, held.x, held.y, h + held.z); for (const dy of [-0.16, 0.16]) { const e = pt(scale, held.x, held.y + dy, h + held.z + 0.2); G.moveTo(hook[0], hook[1] + 2 * scale).lineTo(e[0], e[1] + (hp[1] - hp[1])).stroke({ color: 0x1f2226, width: lw }); } }
+        if (crate) {
+          // (What it has hold of: a pallet in its wrap, on four chains.)
+          const B = (dx: number, dy: number, dz: number) => pt(scale, crate!.x + dx, crate!.y + dy, h + crate!.z + dz), w2 = 0.05, hh = 0.42;
+          const hk = pt(scale, crate.x, crate.y, h + crate.z + hh + 0.5);
+          G.moveTo(tip[0], tip[1]).lineTo(hk[0], hk[1]).stroke({ color: 0x1f2226, width: lw });
+          for (const [dx, dy] of [[-w2, -w2], [w2, -w2], [w2, w2], [-w2, w2]]) { const c = B(dx, dy, hh); G.moveTo(hk[0], hk[1]).lineTo(c[0], c[1]).stroke({ color: 0x1f2226, width: lw }); }
+          G.poly([...B(w2, -w2, hh), ...B(w2, w2, hh), ...B(w2, w2, 0), ...B(w2, -w2, 0)]).fill({ color: 0x8f6a3c });
+          G.poly([...B(-w2, w2, hh), ...B(w2, w2, hh), ...B(w2, w2, 0), ...B(-w2, w2, 0)]).fill({ color: 0xb98a4e });
+          G.poly([...B(-w2, -w2, hh), ...B(w2, -w2, hh), ...B(w2, w2, hh), ...B(-w2, w2, hh)]).fill({ color: 0xcfa468 });
+        }
         seenY.add(`rope${s.id}`);
       }
       for (const [name, m] of yardLoose) if (!seenY.has(name)) { destroyPipeDrawable(m.mesh); yardLoose.delete(name); }

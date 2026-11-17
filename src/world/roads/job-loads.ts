@@ -10,6 +10,8 @@ import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, type Town } from "../agents/town";
 import { find, type Network } from "./network";
 import { sendHome } from "../lines/line-loads";
+import { fleetFree, isYard, queueYardLoad, yardQueued } from "../fleet/fleet";
+import { FLEET_TIPPER_COLOUR } from "../agents/cars/fleet";
 import { GANGS, OVERLAND, loadPrice, materialTime, wantsLoad, type RoadJob } from "./jobs";
 
 /** The Garage and what it grows into: the yard a load comes from. @see works depotFor */
@@ -44,6 +46,7 @@ function depotFor(g: Grid, places: readonly Place[], head: Place): Place | null 
 export function lorriesOut(town: Town): Map<number, number> {
   const out = new Map<number, number>();
   for (const m of town.movers) if (m.job?.role === "road-load" && !town.arrived.includes(m)) out.set(m.job.site, (out.get(m.job.site) ?? 0) + 1);
+  for (const [site, n] of yardQueued(town, "road-load")) out.set(site, (out.get(site) ?? 0) + n);
   return out;
 }
 
@@ -72,9 +75,16 @@ export function stepRoadLoads(
   }
   const out = haul ? lorriesOut(haul.town) : new Map<number, number>();
   let places: Place[] | null = null;
+  // THE FLEET: a load from the yard is a lorry of the company's, and with none standing free it waits for one.
+  let lorries = haul ? fleetFree(g, haul.town) : 0;
   for (const j of g.roadJobs.slice(0, GANGS)) {
     const onWay = (out.get(j.id) ?? 0) + j.overland.length;
     if (!wantsLoad(j, onWay)) { if (j.stalled) { j.stalled = 0; changed = true; } continue; }
+    const head = haul ? headOf(g, haul.net, j) : null;
+    const from = haul && head ? depotFor(g, places ??= placesOf(g, haul.net), head) : null;
+    const byFleet = !!head && isYard(g, from) && (from.x !== head.x || from.y !== head.y);
+    // (Waiting on a lorry is not being short of money: the job is not stood for it.)
+    if (byFleet && lorries <= 0) continue;
     if (!spend(loadPrice(j))) {
       // STALLED only once the work has run out of what it has.
       if ((j.tm ?? j.t) >= materialTime(j) - 1e-6 && onWay === 0) { if (!j.stalled) changed = true; j.stalled += dt; }
@@ -82,9 +92,9 @@ export function stepRoadLoads(
     }
     if (j.stalled) { j.stalled = 0; changed = true; }
     if (!haul) { j.delivered++; changed = true; continue; }
-    const head = headOf(g, haul.net, j);
-    const from = head && depotFor(g, places ??= placesOf(g, haul.net), head);
-    if (!head || !from || !sendOnJob(haul.town, g, "truck", from, head, { site: j.id, role: "road-load" })) j.overland.push(OVERLAND);
+    // (From the yard, by the fleet: loaded under its crane, then sent. From the map's edge, sent as it was.)
+    if (byFleet) { queueYardLoad(g, haul.town, from!, head!, { site: j.id, role: "road-load" }, FLEET_TIPPER_COLOUR); lorries--; }
+    else if (!head || !from || !sendOnJob(haul.town, g, "truck", from, head, { site: j.id, role: "road-load" })) j.overland.push(OVERLAND);
     changed = true;
   }
   return changed;

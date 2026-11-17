@@ -104,7 +104,7 @@ export const lineAllowed = (j: LineJob) =>
  * A step of a job: loads sent for — `spend` pays for one and says whether it could — and arriving; the work as far
  * as the loads allow. Says whether anything that shows has changed.
  */
-export function stepLine(j: LineJob, dt: number, spend: (amount: number) => boolean, road?: { out: number; send: () => boolean }): boolean {
+export function stepLine(j: LineJob, dt: number, spend: (amount: number) => boolean, road?: { out: number; send: () => boolean; free?: () => boolean }): boolean {
   let changed = false;
   // (BY ROAD, where there is one: `road.out` lorries are on their way from the yard, and `road.send` sends another —
   // their loads are counted in when they get there, by whoever drives them. @see line-loads)
@@ -115,13 +115,14 @@ export function stepLine(j: LineJob, dt: number, spend: (amount: number) => bool
   }
   // THE NEXT LOAD sent for while what is on hand and coming is less than a load ahead of the pipe.
   const onWay = j.coming.length + out, ahead = (j.delivered + onWay) * LINE_LOAD - lineFront(j, LINE_LAYS[j.kind]);
-  if (j.delivered + onWay < j.deliveries && onWay < LINE_COMING && ahead < LINE_LOAD * LINE_AHEAD) {
+  // (With every lorry of the fleet out, the next is not sent for — nor paid for — till one is home. @see fleet)
+  if (j.delivered + onWay < j.deliveries && onWay < LINE_COMING && ahead < LINE_LOAD * LINE_AHEAD && (road?.free?.() ?? true)) {
     if (spend(lineLoadPrice(j))) { if (!road?.send()) j.coming.push(LINE_HAUL); j.stalled = 0; changed = true; }
   }
   const allowed = lineAllowed(j);
   if (j.t < allowed) { j.t = Math.min(allowed, j.t + dt, lineSeconds(j)); if (j.stalled) { j.stalled = 0; changed = true; } }
   // STOOD: the work has run out and nothing is coming, because nothing could be paid for.
-  else if (!j.coming.length && !out && !lineDone(j)) { if (!j.stalled) changed = true; j.stalled += dt; }
+  else if (!j.coming.length && !out && !lineDone(j) && (road?.free?.() ?? true)) { if (!j.stalled) changed = true; j.stalled += dt; }
   return changed;
 }
 

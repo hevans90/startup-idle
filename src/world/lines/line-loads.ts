@@ -8,7 +8,8 @@ import { idx, inBounds, type Grid } from "../grid";
 import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, type Mover, type Town } from "../agents/town";
 import { find, type Network } from "../roads/network";
-import { PIPE_EMPTY_COLOUR, PIPE_LORRY_COLOUR } from "../agents/cars/fleet";
+import { FLEET_TIPPER_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PIPE_EMPTY_COLOUR, PIPE_LORRY_COLOUR } from "../agents/cars/fleet";
+import { craneFree, fleetFree, isYard } from "../fleet/fleet";
 import { LINE_HAUL, LINE_LAYS, TRACK_SPEED, YARD_LOADING, lineFront, type LineJob } from "./jobs";
 
 /** The Garage and what it grows into: the yard a load comes from. @see works depotFor */
@@ -53,6 +54,8 @@ export function sendHome(town: Town, g: Grid, places: readonly Place[], m: Mover
   // (The same lorry: its model and its driver go by its number.)
   back.id = m.id;
   back.colour = m.colour;
+  // (One of the fleet goes home as it is: emptied — a bare bed, a tipper with nothing in it.)
+  if (m.fleet) { back.fleet = true; back.colour = m.colour === FLEET_TIPPER_COLOUR ? FLEET_TIPPER_EMPTY_COLOUR : PIPE_EMPTY_COLOUR; }
   return true;
 }
 
@@ -109,7 +112,7 @@ export function stepLineHaul(g: Grid, haul: { net: Network; town: Town }, dt: nu
       const n = find(haul.net, idx(g, j.head!.x, j.head!.y));
       const at: Place | null = n >= 0 ? { x: j.head!.x, y: j.head!.y, kind: "door", net: n } : null, home = at && yardFor(g, places ??= placesOf(g, haul.net), at);
       const m = at && home ? sendOnJob(haul.town, g, "truck", at, home, { site: j.id, role: "haul-back" }) : null;
-      if (m) m.colour = PIPE_EMPTY_COLOUR;
+      if (m) { m.colour = PIPE_EMPTY_COLOUR; m.fleet = true; }
     }
     // UNDER THE YARD'S CRANE, and off.
     for (let k = (j.yard?.length ?? 0) - 1; k >= 0; k--) {
@@ -120,7 +123,7 @@ export function stepLineHaul(g: Grid, haul: { net: Network; town: Town }, dt: nu
       const head = lineHead(g, haul.net, j), from = head && yardFor(g, places ??= placesOf(g, haul.net), head);
       // (Its road gone since it was loaded: it comes as a load does with none. @see LINE_HAUL)
       const m = head && from ? sendOnJob(haul.town, g, "truck", from, head, { site: j.id, role: "line-load" }) : null;
-      if (m) m.colour = PIPE_LORRY_COLOUR;
+      if (m) { m.colour = PIPE_LORRY_COLOUR; m.fleet = true; }
       else j.coming.push(LINE_HAUL);
     }
   }
@@ -134,10 +137,21 @@ export function stepLineHaul(g: Grid, haul: { net: Network; town: Town }, dt: nu
 export function sendLineLoad(g: Grid, haul: { net: Network; town: Town }, j: LineJob): boolean {
   const head = lineHead(g, haul.net, j);
   const from = head && yardFor(g, placesOf(g, haul.net), head);
-  if (!head || !from || (from.x === head.x && from.y === head.y)) return false;
+  // (From a yard only: with none built, a line's pipe comes unseen.)
+  if (!head || !isYard(g, from) || (from.x === head.x && from.y === head.y)) return false;
   j.head = { x: head.x, y: head.y };
   j.depot = from.structure;
   // (One at a time under the crane: the next is loaded when this one is.)
-  (j.yard ??= []).push(YARD_LOADING + (j.yard.length ? Math.max(...j.yard) : 0));
+  (j.yard ??= []).push(YARD_LOADING + craneFree(g, haul.town, from.structure!));
   return true;
+}
+
+/**
+ * Whether a line's next load may be sent for now: by road from a yard, only with a lorry of the fleet standing free
+ * — else it waits for one; with no road or no yard it comes unseen, and may always be. @see stepLine
+ */
+export function lineLorryFree(g: Grid, haul: { net: Network; town: Town }, j: LineJob): boolean {
+  const head = lineHead(g, haul.net, j);
+  const from = head && yardFor(g, placesOf(g, haul.net), head);
+  return !head || !isYard(g, from) || fleetFree(g, haul.town) > 0;
 }

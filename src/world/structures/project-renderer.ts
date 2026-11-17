@@ -381,6 +381,19 @@ function placeBaked(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numb
         ctx.bands.structureOf[bandOfTile(s, ctx, c, r)].addChild(sp);
         h.baked.push(sp);
       });
+      // ITS CANOPIES, over whatever the game stands on their tiles: a shed's roof over the lorries parked in it.
+      h.cells.forEach(({ c, r }) => {
+        const t = look!.over[r * s.w + c];
+        if (!t) return;
+        const sp = new Sprite(t.tex);
+        sp.eventMode = "none";
+        sp.anchor.set(t.anchor.x, t.anchor.y);
+        sp.position.set(at.wx, at.wy);
+        sp.scale.set(ctx.scale / sheet!.res);
+        sp.zIndex = 6;
+        ctx.bands.dynamicOf[bandOfTile(s, ctx, c, r)].addChild(sp);
+        h.baked.push(sp);
+      });
     }
   }
   return want;

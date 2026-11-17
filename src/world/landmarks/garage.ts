@@ -13,7 +13,7 @@ import type { Mat } from "../agents/cars/models";
 import { face, type V3 } from "../agents/cars/raster";
 import { lathe } from "../props/models";
 import type { Mass } from "../structures/projects/model";
-import { X, Y, Z, cb, fence, pallet, parked, tinted, tubeX, type Out } from "./models";
+import { X, Y, Z, canopy, cb, fence, pallet, parked, tinted, tubeX, type Out } from "./models";
 import { HOUSE_PLOT, YARD_PLOT } from "./models";
 import { YARD_GATE, YARD_STACK } from "./yard";
 
@@ -354,6 +354,7 @@ export function garageYard(o: Out, z: number) {
   cb(o, sx1, sx1 + 0.08, sy0, sy1 - 2.4, z + 0.2, z + eave + 0.2, 0x8f9aa3, "chrome");
   for (let b = sy0 + 0.1; b < sy1 - 2.5; b += 0.34) cb(o, sx1 + 0.08, sx1 + 0.115, b, b + 0.1, z + 0.2, z + eave + 0.15, 0x7d8891, "chrome");
   const rf = (a0: number, a1: number, colour: number, lift: number) => slab(o, [[a0, sy0 - 0.45, z + eave + lift], [a1, sy0 - 0.45, z + eave + lift], [a1, sy1 + 0.75, z + ridge + 0.07 + lift], [a0, sy1 + 0.75, z + ridge + 0.07 + lift]], [(a0 + a1) / 2, (sy0 + sy1) / 2, -5], colour, "chrome");
+  canopy(o, () => {
   rf(sx0 - 0.5, sx1 + 0.5, 0x8d98a1, 0);
   for (let a = sx0 - 0.5; a < sx1 + 0.4; a += 0.36) rf(a, a + 0.13, 0xa3aeb7, 0.035);
   // (Two sheets of it rusted, one patched; the gutter along its low side.)
@@ -364,8 +365,8 @@ export function garageYard(o: Out, z: number) {
   cb(o, sx0 - 0.5, sx1 + 0.5, sy1 + 0.4, sy1 + 0.68, z + ridge - 0.72, z + ridge - 0.24, GREEN, "paint");
   cb(o, sx0 + 0.6, sx0 + 4.4, sy1 + 0.68, sy1 + 0.7, z + ridge - 0.58, z + ridge - 0.38, CREAM, "linen");
   for (const a of [sx0 + 2.4, sx1 - 2.4]) cb(o, a - 0.3, a + 0.3, sy1 + 0.1, sy1 + 0.36, z + ridge - 0.5, z + ridge - 0.42, 0xfff1c4, "lamp");
-  // UNDER IT: the lorry, nose out; shelves on the back wall — tins, coils, boxes; a bench with a vice at its end.
-  parked(o, "flatbed", sx0 + 2.5, sy0 + 4.3, z, Math.PI / 2, 0x2e63b8);
+  });
+  // UNDER IT (the lorries are the game's own: the fleet, as many as are home): shelves on the back wall — tins, coils, boxes; a bench with a vice at its end.
   const shx = (sx0 + sx1) / 2 + 0.5;
   for (let s2 = 0; s2 < 3; s2++) {
     cb(o, shx, sx1 - 0.3, sy0 + 0.02, sy0 + 0.5, z + 0.75 + s2 * 0.75, z + 0.8 + s2 * 0.75, 0x9a7a52, "timber");

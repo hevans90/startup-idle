@@ -45,6 +45,11 @@ export function cb(o: Out, x0: number, x1: number, y0: number, y1: number, z0: n
   box(x0, x1, y0, y1, z0, z1, mat, o);
   for (let i = k; i < o.length; i++) o[i].c = c;
 }
+/**
+ * Whatever `make` adds, marked as CANOPY: baked apart and drawn over what the game stands under it — a shed's roof
+ * over the lorries parked in it. @see dev/bake-landmarks.ts, landmarks-sheet
+ */
+export function canopy(o: Out, make: () => void) { const k = o.length; make(); for (let i = k; i < o.length; i++) o[i].tag = 1; }
 /** Whatever `make` adds, of one colour. */
 export function tinted(o: Out, colour: number, make: () => void) { const k = o.length, c = rgb(colour); make(); for (let i = k; i < o.length; i++) o[i].c = c; }
 
@@ -149,7 +154,7 @@ function massTris(o: Out, m: Mass) {
 
 // ─── THE YARD ────────────────────────────────────────────────────────────────
 
-const STEEL = 0x6f7880, YELLOW = 0xe9a71b, BLOCK = 0xbdb8ad, LORRY_BLUE = 0x2e63b8;
+const STEEL = 0x6f7880, YELLOW = 0xe9a71b, BLOCK = 0xbdb8ad;
 
 /** A run of fence along `x` or `y`: posts and rails, or — a company that has made it — steel pales. */
 export function fence(o: Out, on: "x" | "y", at: number, a0: number, a1: number, z: number, tier: number) {
@@ -220,6 +225,7 @@ function yard(o: Out, tier: number, level: number) {
   }
   cb(o, sx0 - 0.1, sx1 + 0.1, sy0 - 0.12, sy0, z + 0.3, z + eave, clad, "paint");
   cb(o, sx1, sx1 + 0.12, sy0, sy1 - 2.2, z + 0.3, z + eave, clad, "paint");
+  canopy(o, () => {
   tinted(o, roofC, () => {
     face([[sx0 - 0.5, sy0 - 0.4, z + eave], [sx1 + 0.5, sy0 - 0.4, z + eave], [sx1 + 0.5, sy1 + 0.7, z + ridge + 0.05], [sx0 - 0.5, sy1 + 0.7, z + ridge + 0.05]], tier >= 3 ? "chrome" : "roofing", [mid, (sy0 + sy1) / 2, -5], o);
     face([[sx0 - 0.5, sy1 + 0.7, z + ridge - 0.25], [sx1 + 0.5, sy1 + 0.7, z + ridge - 0.25], [sx1 + 0.5, sy1 + 0.7, z + ridge + 0.05], [sx0 - 0.5, sy1 + 0.7, z + ridge + 0.05]], "roofing", [mid, sy0, z], o);
@@ -228,9 +234,8 @@ function yard(o: Out, tier: number, level: number) {
   // (Its fascia in the company's colour; a lamp under it at each bay.)
   cb(o, sx0 - 0.3, sx1 + 0.3, sy1 + 0.68, sy1 + 0.76, z + ridge - 0.7, z + ridge - 0.22, [0x2f6d4f, 0x2e63b8, 0xd8b04a, 0xd8b04a][tier], "livery");
   for (let k = 0; k < bays2; k++) cb(o, sx0 + (k + 0.5) * bw - 0.35, sx0 + (k + 0.5) * bw + 0.35, sy1 + 0.2, sy1 + 0.5, z + ridge - 0.5, z + ridge - 0.4, 0xfff1c4, "lamp");
-  // THE LORRIES under it, nose out: what the works are supplied with.
-  const fleet = ["flatbed", "tipper", "boxLorry", "flatbed"], tints = [LORRY_BLUE, YELLOW, 0xe8e2d0, LORRY_BLUE];
-  for (let k = 0; k < bays2; k++) parked(o, fleet[k], sx0 + (k + 0.5) * bw, sy0 + 4.4 + (k % 2) * 0.5, z, Math.PI / 2, tints[k]);
+  });
+  // (THE LORRIES under it are the game's own: the fleet, as many as are home. @see yard YARD_PARKING, line-works)
 
   // ALONG THE FRONT, inside the fence: pipe for the mains and the sewers; blocks on pallets; stone in a bay.
   const fy = y1 - 1.2;

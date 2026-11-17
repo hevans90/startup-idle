@@ -35,7 +35,9 @@ import type { Command } from "../edit/commands";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "../agents/roads";
 import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/town";
+import { FLEET_FLATBED_COLOUR } from "../agents/cars/fleet";
 import { sendHome as lorryHome } from "../lines/line-loads";
+import { fleetFree, isYard, queueYardLoad, stepYard, yardQueued } from "../fleet/fleet";
 import { notable } from "../../game/machine";
 import { cultureNow } from "../../game/culture-now";
 import { siteTrucks } from "../../game/site-trucks";
@@ -264,8 +266,14 @@ export function stepWorks(
   // LOADS ON THE WAY, counted from the trucks on the road and in the air,
   // not kept: one that never got there would hold its site's next load back
   // for good. @see Works.trucks
+  // THE YARDS: the company's lorries loaded under their cranes, and off. @see fleet
+  stepYard(town, g, dt);
   const onWay = new Map<number, number>();
   for (const m of town.movers) if (m.job?.role === "truck" && !town.arrived.includes(m)) onWay.set(m.job.site, (onWay.get(m.job.site) ?? 0) + 1);
+  // (And those being loaded in the yard. @see fleet)
+  for (const [site, n] of yardQueued(town, "truck")) onWay.set(site, (onWay.get(site) ?? 0) + n);
+  // THE FLEET: a load from the yard is a lorry of the company's, and with none standing free it waits for one.
+  let lorries = fleetFree(g, town);
   for (const a of w.airlifts) onWay.set(a.site, (onWay.get(a.site) ?? 0) + 1);
   w.trucks = onWay;
 
@@ -362,16 +370,24 @@ export function stepWorks(
       const from = door && ((convoyIsIn() && portDepot(g, places, s, door.net))
         || (strikeNow() === "edge" && pickGateway(places, door.net)) || depotFor(g, places, s, door.net, freight));
       let sent = 0, paid = 0;
-      for (let k = Math.min(haul.trucks + (freight ? CONVOY - 1 : 0), b.deliveries - b.delivered); k > 0 && spend(perLoad); k--) {
+      // (From the yard, by the fleet: loaded under its crane, then sent. From anywhere else, sent as it was.)
+      const byFleet = !!door && isYard(g, from) && !contract?.carried && (from.x !== door.x || from.y !== door.y);
+      let waits = false;
+      for (let k = Math.min(haul.trucks + (freight ? CONVOY - 1 : 0), b.deliveries - b.delivered); k > 0; k--) {
+        if (byFleet && lorries <= 0) { waits = true; break; }
+        if (!spend(perLoad)) break;
         paid++;
         // With no garage or road out of the map in its network, a load comes
         // by means unseen — it still has to be paid for.
         // (Nor does what a gang carries with it come by lorry. @see Contract.carried)
+        if (byFleet) { queueYardLoad(g, town, from as Place, door!, { site: s.id, role: "truck" }, freight ? AI_TRUCK_COLOUR : FLEET_FLATBED_COLOUR); lorries--; sent++; continue; }
         const m = door && from && !contract?.carried ? sendOnJob(town, g, "truck", from, door, { site: s.id, role: "truck" }) : null;
         if (m) { if (freight) m.colour = AI_TRUCK_COLOUR; sent++; }
         else b.delivered++;
       }
       if (paid) { w.trucks.set(s.id, sent); w.stalled.delete(s.id); w.rev++; }
+      // (Waiting on a lorry is not being short of money: nobody is told, and the gang is not stood down.)
+      else if (waits) w.stalled.delete(s.id);
       else if (caughtUp) {
         // STALLED only once the work has run out: short of money for the
         // next load with some of this one left is not yet a stall.

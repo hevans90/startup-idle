@@ -33,7 +33,8 @@ const tileAt = (x: number, y: number) => {
 };
 function bake(id: LandmarkId, res: number, back = false) {
   return bakeTris(landmarkTris(id, back), 0, res, {
-    layers: PW * PH, layerOf: () => 0, layerAt: (_m, p) => tileAt(p[0], p[1]),
+    // (Twice over: each tile's share of the building, then each tile's share of its canopies.)
+    layers: PW * PH * 2, layerOf: () => 0, layerAt: (_m, p, t) => tileAt(p[0], p[1]) + (t.tag ? PW * PH : 0),
     shadow: { hl: 1, hw: 1, edge: 0.1, soft: 0.4, strength: 0, reach: 0 },
   });
 }
@@ -88,9 +89,10 @@ const sheet: LandmarksSheet = { res: LANDMARK_RES, pages: [], marks: {} };
 const all: { piece: ReturnType<typeof crop>; set: (p: LandmarkPiece) => void }[] = [];
 // (Each twice: its yard to the front of its plot, and to the back — `id~back`.)
 for (const [id, back] of LANDMARK_IDS.flatMap((q) => [[q, false], [q, true]] as const)) {
-  const b = bake(id, LANDMARK_RES, back), tiles: LandmarkPiece[] = new Array(PW * PH).fill(null);
+  const b = bake(id, LANDMARK_RES, back), tiles: LandmarkPiece[] = new Array(PW * PH).fill(null), over: LandmarkPiece[] = new Array(PW * PH).fill(null);
   order.forEach((t, k) => all.push({ piece: crop(b.layers[k], b.ox, b.oy), set: (p) => { tiles[t.r * PW + t.c] = p; } }));
-  sheet.marks[back ? `${id}~back` : id] = { w: PW, h: PH, tiles };
+  order.forEach((t, k) => all.push({ piece: crop(b.layers[PW * PH + k], b.ox, b.oy), set: (p) => { over[t.r * PW + t.c] = p; } }));
+  sheet.marks[back ? `${id}~back` : id] = { w: PW, h: PH, tiles, over };
   console.log(`${id}: ${b.layers[0].w}×${b.layers[0].h}`);
 }
 for (const a of [...all].sort((p, q) => q.piece.img.h - p.piece.img.h)) {

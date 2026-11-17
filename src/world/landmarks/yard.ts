@@ -21,6 +21,17 @@ export const YARD_CRANE = { u: 3.98, v: 2.33 }, YARD_STACK = { u: 3.4, v: 2.62 }
 export const YARD_STACKS = [{ ...YARD_STACK, of: "main" }, { u: 3.4, v: 2.05, of: "drain" }] as const;
 
 /**
+ * WHERE THE FLEET STANDS WHEN IT IS HOME, nose out: under the shed first, a bay each, then in the open yard — as
+ * many places as each yard has. Its building's lorries past that many are in the back of the shed, unseen.
+ */
+export const YARD_PARKING: Readonly<Record<string, readonly { u: number; v: number }[]>> = {
+  garage: [{ u: 4.181, v: 0.5 }, { u: 4.406, v: 0.5 }, { u: 3.2, v: 1.3 }, { u: 3.5, v: 1.3 }],
+  hq: [{ u: 4.271, v: 0.504 }, { u: 4.685, v: 0.549 }, { u: 3.16, v: 1.35 }, { u: 3.42, v: 1.35 }, { u: 3.68, v: 1.35 }],
+  boardroom: [{ u: 3.857, v: 0.504 }, { u: 4.271, v: 0.549 }, { u: 4.685, v: 0.504 }, { u: 3.16, v: 1.42 }, { u: 3.42, v: 1.42 }, { u: 3.68, v: 1.42 }],
+  ipo: [{ u: 3.857, v: 0.504 }, { u: 4.271, v: 0.549 }, { u: 4.685, v: 0.504 }, { u: 3.16, v: 1.42 }, { u: 3.42, v: 1.42 }, { u: 3.68, v: 1.42 }],
+};
+
+/**
  * The road tile a yard's gate opens on: the one in front of its last tile — or, the yard turned to face the back
  * of its plot (`facing` "N"), the one behind it. A yard faces whichever has the road. @see place
  */

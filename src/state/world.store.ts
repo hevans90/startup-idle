@@ -78,7 +78,7 @@ import {
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import { GANGS, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
 import { stepRoadLoads } from "../world/roads/job-loads";
-import { lineLorriesOut, sendLineLoad, stepLineHaul } from "../world/lines/line-loads";
+import { lineLorriesOut, lineLorryFree, sendLineLoad, stepLineHaul } from "../world/lines/line-loads";
 import { LINE_LAYS, lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
 import { payForLoad } from "../world/projects/economy";
 import {
@@ -895,7 +895,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (haul && stepLineHaul(g, haul, dt)) changed = true;
     const out = haul && lineLorriesOut(haul.town, g);
     for (const j of [...g.lineJobs]) {
-      if (stepLine(j, dt, get().playing ? payForLoad : () => true, haul && { out: out?.get(j.id) ?? 0, send: () => sendLineLoad(g, haul, j) })) changed = true;
+      if (stepLine(j, dt, get().playing ? payForLoad : () => true, haul && { out: out?.get(j.id) ?? 0, send: () => sendLineLoad(g, haul, j), free: () => lineLorryFree(g, haul, j) })) changed = true;
       j.at = now;
       if (j.stalled > 0 && !j.told && get().playing) { j.told = true; report(`${LINE_NAME[j.kind]} has stopped: ${formatCurrency(lineLoadPrice(j))} for the next load.`, { title: "Works" }); }
       else if (!j.stalled && j.told) j.told = false;

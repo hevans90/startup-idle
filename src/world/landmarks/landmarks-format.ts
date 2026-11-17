@@ -10,6 +10,6 @@ export const LANDMARK_RES = 2;
 export type LandmarkPiece = [page: number, x: number, y: number, w: number, h: number, ox: number, oy: number] | null;
 
 /** A building: the plot it is baked for, and a piece for each tile of it, row by row. */
-export type LandmarkFrames = { w: number; h: number; tiles: LandmarkPiece[] };
+export type LandmarkFrames = { w: number; h: number; tiles: LandmarkPiece[]; /** Its canopies, a tile each as well: drawn over whatever the game stands on that tile. */ over: LandmarkPiece[] };
 
 export type LandmarksSheet = { res: number; pages: string[]; marks: Record<string, LandmarkFrames> };
