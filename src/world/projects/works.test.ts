@@ -16,6 +16,7 @@ import {
 } from "./works";
 import { placesOf } from "../agents/roads";
 import { setHaulageReader } from "../../game/site-trucks";
+import { CONTRACTS, contractBuild } from "./contracts";
 
 const STUDIO = projectDef("studio")!;
 
@@ -441,5 +442,55 @@ describe("a site's loads", () => {
     // Not while the garage is itself still going up.
     g.structures.get(id)!.build = { done: 0, need: 1, delivered: 0, deliveries: 1, cost: 0, priority: 2, updatedAt: 0 };
     expect(depot()?.kind).toBe("gateway");
+  });
+});
+
+describe("what a contractor builds", () => {
+  /** An office ordered as the game orders it: placed with a build record, nothing paid. */
+  function ordered(def: string, cost: number) {
+    const { g, history } = town();
+    const cmd = placeCommand(g, structureDef(def)!, 12, 6)!;
+    for (const s of cmd.structures!.added) s.build = contractBuild(def, cost, 0)!;
+    commit(g, history, cmd);
+    return { g, site: [...g.structures.values()].find((s) => s.def === def)! };
+  }
+
+  test("is a site: nothing paid at the order, its price paid a load at a time, and it opens in about its time — by a gang, nobody off a desk", () => {
+    const { g, site } = ordered("office-intern", 800);
+    const wallet = { money: 5000 }, c = CONTRACTS["office-intern"];
+    expect(site.build).toMatchObject({ done: 0, delivered: 0, deliveries: c.loads, cost: 800 });
+    // (One run of it: a town made again would lose the lorries on its roads, and pay for their loads twice.)
+    let away = 0, early = -1, frames = 0;
+    run(g, c.seconds * 5, wallet, { intern: 10 }, () => { frames++; if (frames === 20 * 30) early = site.build?.done ?? -1; });
+    expect(away).toBe(0);
+    // No sooner than its gang could do it — and done before long, its loads coming by road.
+    expect(early).toBeGreaterThan(0);
+    expect(early).toBeLessThanOrEqual(20 * c.gang + 1e-6);
+    expect(site.build).toBeUndefined();
+    // What it cost in all is what was paid: its price, in loads.
+    expect(5000 - wallet.money).toBeCloseTo(800, 6);
+  });
+
+  test("with no money for a load it stands, and nothing is lost; with money again it goes on", () => {
+    const { g, site } = ordered("rack", 300);
+    const wallet = { money: 0 };
+    run(g, 30, wallet);
+    expect(site.build).toMatchObject({ done: 0, delivered: 0 });
+    wallet.money = 1000;
+    run(g, CONTRACTS.rack.seconds * 6, wallet);
+    expect(site.build).toBeUndefined();
+    expect(wallet.money).toBeCloseTo(700, 6);
+  });
+
+  test("the time away is caught up as a project's is", () => {
+    const { g, site } = ordered("lab", 1200);
+    const wallet = { money: 5000 };
+    catchUpWorks(g, {}, (n) => (wallet.money >= n ? ((wallet.money -= n), true) : false), 3600 * 1000);
+    expect(site.build).toBeUndefined();
+    expect(wallet.money).toBeCloseTo(3800, 6);
+  });
+
+  test("everything a contractor builds has a look to be drawn going up", () => {
+    for (const def of Object.keys(CONTRACTS)) { expect(structureDef(def), def).toBeDefined(); expect(structureDef(def)!.render, def).toEqual({ kind: "custom", rendererId: "project" }); }
   });
 });

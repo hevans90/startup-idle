@@ -22,6 +22,7 @@
  * Time away is caught up all at once on load, as if the whole crew had been
  * there throughout. @see catchUpWorks
  */
+import { contractFor } from "./contracts";
 import { housedBy } from "../../game/housing";
 import {
   BUILDERS_PER_TILE, buildersFor, projectCost, projectDef, projectForStructure, tierBelow, tiersIn, type ProjectDef, type ProjectId,
@@ -298,8 +299,10 @@ export function stepWorks(
   const dc = [...g.structures.values()].find((st) => st.def === "datacentre" && !st.build);
 
   for (const s of sites) {
-    const b = s.build!, p = projectForStructure(s.def);
-    if (!p) continue;
+    // A PROJECT, built by the company's own; or a CONTRACT — an office, a rack, a wall — built by a gang that is
+    // the contractor's: there when the site is, and nobody's desk empty for it. @see contracts
+    const b = s.build!, p = projectForStructure(s.def), contract = p ? null : contractFor(s.def);
+    if (!p && !contract) continue;
     const door = places.find((pl) => pl.structure === s.id);
     let crew = w.crews.get(s.id);
     if (!crew) {
@@ -308,7 +311,7 @@ export function stepWorks(
       // A SITE ALREADY UNDER WAY when the map was loaded has its crew on it
       // still: they were there when you left. Walking them all back from home
       // made every reload cost a minute of work. Only a new site sends for them.
-      if (b.done > 0 && door) {
+      if (p && b.done > 0 && door) {
         for (let k = wantedCrew(w, s, p, owned); k > 0; k--) {
           crew.working++;
           putToWork(town, g, s, { ...placeholder, id: town.next, colour: SHIRTS[town.next % SHIRTS.length] } as Mover);
@@ -372,10 +375,12 @@ export function stepWorks(
       }
     }
 
-    // THE CREW: called up to what the priority asks for, sent home past it.
-    const want = door ? wantedCrew(w, s, p, owned) : 0;
+    // THE CREW: called up to what the priority asks for, sent home past it. (A contractor's gang is simply there,
+    // all of it, while there is anything to do — and stood down while the site waits for a load it cannot pay for.)
+    const want = !p ? ((w.stalled.get(s.id) ?? 0) > STALL_GRACE ? 0 : contract!.gang) : door ? wantedCrew(w, s, p, owned) : 0;
     crew.untilNext -= dt;
-    if (crew.walking + crew.working < want && crew.untilNext <= 0) {
+    if (!p) crew.working = want;
+    else if (crew.walking + crew.working < want && crew.untilNext <= 0) {
       // THE FOUNDER DRIVES IN, from where the road leaves the map — a walk
       // across it before there is a single employee was a minute of nothing.
       const homes = p.founderBuilds
@@ -387,7 +392,7 @@ export function stepWorks(
       else crew.working++;    // nowhere to walk from: they are simply there
       crew.untilNext = DISPATCH_EVERY;
     }
-    while (crew.working > 0 && crew.walking + crew.working > want) {
+    while (p && crew.working > 0 && crew.walking + crew.working > want) {
       crew.working--;
       sendHome(town, g, places, s, p, door);
     }
@@ -401,17 +406,17 @@ export function stepWorks(
     // AWAY FROM THEIR DESKS: everyone the site has called, from the moment it
     // calls them. Paused or lowered, they are back on the books at once —
     // anyone still walking there turns round when they arrive.
-    const split = want ? (w.plan.get(s.id)?.split ?? splitCrew(p, want, owned)) : {};
+    const split = p && want ? (w.plan.get(s.id)?.split ?? splitCrew(p, want, owned)) : {};
     for (const [id, n] of Object.entries(split)) w.away[id as GeneratorId] = (w.away[id as GeneratorId] ?? 0) + (n ?? 0);
 
     // OPENING.
     if (b.done >= b.need - 1e-6 && b.delivered >= b.deliveries) {
       delete s.build;
-      for (let k = crew.working; k > 0; k--) sendHome(town, g, places, s, p, door);
+      if (p) for (let k = crew.working; k > 0; k--) sendHome(town, g, places, s, p, door);
       w.crews.delete(s.id);
       w.trucks.delete(s.id);
       w.stalled.delete(s.id);
-      w.opened.push(p.id);
+      if (p) w.opened.push(p.id);
       w.rev++;
       // Its door is a door now, not a site's: the town looks again.
       town.placesAt = -1;
@@ -501,10 +506,10 @@ export function catchUpWorks(
   // The crews as they would have been, a share of whoever was free. @see crewPlan
   const plan = crewPlan(sitesOf(g), owned, () => false);
   for (const s of sitesOf(g)) {
-    const b = s.build!, p = projectForStructure(s.def);
-    if (!p) continue;
+    const b = s.build!, p = projectForStructure(s.def), contract = p ? null : contractFor(s.def);
+    if (!p && !contract) continue;
     let left = Math.min(maxSeconds, Math.max(0, (now - b.updatedAt) / 1000));
-    const crew = (plan.get(s.id)?.want ?? 0) * cultureNow().buildSpeed;
+    const crew = (p ? plan.get(s.id)?.want ?? 0 : contract!.gang) * cultureNow().buildSpeed;
     while (left > 0 && crew > 0) {
       const cap = materialCap(b);
       const toCap = (cap - b.done) / crew;
@@ -523,7 +528,7 @@ export function catchUpWorks(
     b.updatedAt = now;
     if (b.done >= b.need - 1e-6 && b.delivered >= b.deliveries) {
       delete s.build;
-      opened.push(p.id);
+      if (p) opened.push(p.id);
     }
   }
   return opened;

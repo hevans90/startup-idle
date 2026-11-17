@@ -7,6 +7,7 @@
  * would leave a save file holding employees with nowhere to live.
  * @see startAutosave, loadSaved
  */
+import { contractBuild } from "../world/projects/contracts";
 import { aiActing, aiDistrict, aiHoldsRoads, inDistrict } from "../world/ai/district";
 import { report } from "./comms.store";
 import { onAiSite, playerShare } from "../world/ai/arc-rules";
@@ -1779,9 +1780,15 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       // THE PARTNERSHIP: in its district the AI pays half, from its wallet. @see playerShare
       const share = full ? playerShare(st.grid, cmd.structures?.added ?? []) : 1;
       const price = full && share < 1 ? full.times(share) : full;
-      if (!spendForBuild(price)) { refuse(price ? `Not enough money: ${formatCurrency(price.toNumber())}` : "Not for sale"); return; }
+      // BUILT, NOT BOUGHT, in the game: what a contractor puts up is a site from here — nothing paid now, its price
+      // the cost of its loads, each paid as it is sent. @see contracts, plans/built-not-bought.md
+      const built = st.roadWorks && !upgrade && price ? contractBuild(target.id, price.toNumber(), Date.now()) : null;
+      if (built) for (const s of cmd.structures?.added ?? []) s.build = { ...built };
+      else {
+        if (!spendForBuild(price)) { refuse(price ? `Not enough money: ${formatCurrency(price.toNumber())}` : "Not for sale"); return; }
+        paid = price!.toNumber();
+      }
       if (full && share < 1) spendWallet(full.toNumber() * (1 - share));
-      paid = price!.toNumber();
     }
     // HOUSING IN THE GAME IS A LOT: zoned, and empty until somebody arrives
     // to live there. @see world/agents/arrivals
