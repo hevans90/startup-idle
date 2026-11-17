@@ -106,7 +106,8 @@ function drawLiveLayer(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
   h.live.clear();
   if (s.build || !h.model.live) return;
   const p = makePen(h.live, s.x - 0.5, s.y - 0.5, groundOf(s, ctx), ctx.scale, null);
-  drawLive(p, h.model.live, h.liveT, liveState(s.id));
+  // (A BAKED building has its roof's plant baked on it: no fan is drawn turning over that. Its lights still blink.)
+  drawLive(p, h.baked.length ? { ...h.model.live, fans: [] } : h.model.live, h.liveT, liveState(s.id));
 }
 
 /** What a column of a building draws with: projection, and boxes clipped to the column. */
