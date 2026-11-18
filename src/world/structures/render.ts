@@ -54,7 +54,14 @@ export type StructureRenderer = {
    * it down (@see render/raze-fx). A piece over one tile of the plot says which in {@link PIECE_TILE}.
    */
   pieces?(h: StructureHandle): Container[];
+  /**
+   * ITS MASSES, where it knows them — its wings and towers as boxes, and what each is clad in — for bringing it
+   * down as what it is (@see render/collapse-sim). One that does not say is taken a tile at a time from its picture.
+   */
+  massing?(h: StructureHandle, s: Structure): RazeMass[];
 };
+/** A mass of a building: its box — tiles from the plot's back corner, half steps up — a storey's height, and its cladding. */
+export type RazeMass = { u0: number; v0: number; u1: number; v1: number; z0: number; z1: number; storey: number; skin: "masonry" | "glass" | "sheet" | "concrete" };
 /** The tile of the map a piece of a building stands on, where its renderer knows: its footing, for bringing it down onto. */
 export const PIECE_TILE = new WeakMap<Container, { x: number; y: number }>();
 

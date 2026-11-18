@@ -1715,7 +1715,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         streetPropsRef.current = createStreetProps(bl);
         bridgePropsRef.current = createBridgeProps(bl);
         roadWorksRef.current = createRoadWorks(bl);
-        lineWorksRef.current = createLineWorks(bl);
+        lineWorksRef.current = createLineWorks(bl, app.renderer as unknown as Renderer);
         roadPlantRef.current = createRoadPlant(bl);
         woodsRef.current = createWoods(bl);
         signalsRef.current = createSignals(bl);

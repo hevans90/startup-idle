@@ -14,7 +14,7 @@
  * What is on the ground is drawn again only as a trade moves on; the machines
  * are units of the vehicles' sheet, moved by transform. @see plant-kit
  */
-import { Container, Graphics, Sprite, type Geometry, type Mesh, type Shader } from "pixi.js";
+import { Container, Graphics, Sprite, type Geometry, type Mesh, type Renderer, type Shader } from "pixi.js";
 
 import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-sheet";
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
@@ -138,7 +138,7 @@ const FINE = 10;
 
 export type LineWorks = { sync(g: Grid, rev: number, scale: number, t: number, depth?: (x: number, y: number) => number): void; destroy(): void };
 
-export function createLineWorks(bands: BandLayer): LineWorks {
+export function createLineWorks(bands: BandLayer, renderer: Renderer | null = null): LineWorks {
   let ground: Graphics[] = [], key = "", cars: CarSprites | null = null, asked = false, last = -1;
   const of = new Map<number, Graphics>(), units = new Map<string, Unit>(), clocks = new Map<number, number>();
   const barges = new Map<number, { c: Container; g: Graphics; band: number }>();
@@ -149,7 +149,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
   /** Where a demolition's digger and its low-loaders are, driving; and which are up on a low-loader. @see plant-kit shuttled */
   const razePoses = new Map<string, { x: number; y: number; heading: number }>(), razeAboard = new Set<string>();
   /** Where a demolition's lorry is, driving (@see plant-kit follow); and the building coming down (@see raze-fx). */
-  const razeStand = new Map<string, Standing>(), razeFx = createRazeFx(bands);
+  const razeStand = new Map<string, Standing>(), razeFx = createRazeFx(bands, renderer);
   const drop = (c: Container) => { c.parent?.removeChild(c); c.destroy({ children: true }); };
   /**
    * A main being laid: what moves over it each frame — a length in the slings, the concrete off a chute, the sparks;
@@ -963,7 +963,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         const at = came ? { x: Math.max(x0 + 0.18, Math.min(x1 - 0.18, came.x)), y: Math.max(y0 + 0.18, Math.min(y1 - 0.18, came.y)) } : { x: (x0 + x1) / 2, y: y1 - 0.18 };
         const standing = !j.down && !!g.structures.get(j.structure);
         const mounted = standing ? shownStructures()?.mounted.get(j.structure) : undefined;
-        const fx = standing && biting ? razeFx.sync(j.id, g, s, mounted?.renderer.pieces?.(mounted.handle) ?? [], p, at, scale, dt, j.need) : null;
+        const fx = standing && biting ? razeFx.sync(j.id, g, s, mounted?.renderer.pieces?.(mounted.handle) ?? [], (mounted && g.structures.get(j.structure) && mounted.renderer.massing?.(mounted.handle, g.structures.get(j.structure)!)) || null, p, at, scale, dt, j.need) : null;
         if (standing) seenFx.add(j.id);
         // THE DIGGER at the middle of its front, turned to it: a bite, a pull, and round to drop it.
         if (cars) {
