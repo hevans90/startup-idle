@@ -35,7 +35,6 @@ import type { Command } from "../edit/commands";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "../agents/roads";
 import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/town";
-import { FLEET_FLATBED_COLOUR } from "../agents/cars/fleet";
 import { sendHome as lorryHome } from "../lines/line-loads";
 import { fleetFree, isYard, queueYardLoad, stepYard, yardQueued } from "../fleet/fleet";
 import { notable } from "../../game/machine";
@@ -380,7 +379,7 @@ export function stepWorks(
         // With no garage or road out of the map in its network, a load comes
         // by means unseen — it still has to be paid for.
         // (Nor does what a gang carries with it come by lorry. @see Contract.carried)
-        if (byFleet) { queueYardLoad(g, town, from as Place, door!, { site: s.id, role: "truck" }, freight ? AI_TRUCK_COLOUR : FLEET_FLATBED_COLOUR); lorries--; sent++; continue; }
+        if (byFleet) { queueYardLoad(g, town, from as Place, door!, { site: s.id, role: "truck" }, "pallets"); lorries--; sent++; continue; }
         const m = door && from && !contract?.carried ? sendOnJob(town, g, "truck", from, door, { site: s.id, role: "truck" }) : null;
         if (m) { if (freight) m.colour = AI_TRUCK_COLOUR; sent++; }
         else b.delivered++;

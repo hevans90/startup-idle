@@ -11,7 +11,6 @@ import { sendOnJob, type Town } from "../agents/town";
 import { find, type Network } from "./network";
 import { sendHome } from "../lines/line-loads";
 import { fleetFree, isYard, queueYardLoad, yardQueued } from "../fleet/fleet";
-import { FLEET_TIPPER_COLOUR } from "../agents/cars/fleet";
 import { GANGS, OVERLAND, loadPrice, materialTime, wantsLoad, type RoadJob } from "./jobs";
 
 /** The Garage and what it grows into: the yard a load comes from. @see works depotFor */
@@ -93,7 +92,7 @@ export function stepRoadLoads(
     if (j.stalled) { j.stalled = 0; changed = true; }
     if (!haul) { j.delivered++; changed = true; continue; }
     // (From the yard, by the fleet: loaded under its crane, then sent. From the map's edge, sent as it was.)
-    if (byFleet) { queueYardLoad(g, haul.town, from!, head!, { site: j.id, role: "road-load" }, FLEET_TIPPER_COLOUR); lorries--; }
+    if (byFleet) { queueYardLoad(g, haul.town, from!, head!, { site: j.id, role: "road-load" }, "stone"); lorries--; }
     else if (!head || !from || !sendOnJob(haul.town, g, "truck", from, head, { site: j.id, role: "road-load" })) j.overland.push(OVERLAND);
     changed = true;
   }

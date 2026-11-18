@@ -46,15 +46,17 @@ export type LineJob = {
   head?: { x: number; y: number };
   depot?: number;
   yard?: number[];
-  drive?: { left: number; of: number }[];
-  back?: { left: number; of: number }[];
+  drive?: { left: number; of: number; id: number; at: { x: number; y: number; heading: number } }[];
+  back?: { left: number; of: number; id: number; to?: { x: number; y: number; heading: number } }[];
+  /** The lorries that have come to it, in the order they came: the fleet's numbers. */
+  ids?: number[];
   gone?: number;
   /**
    * ITS MACHINES, FROM THE YARD AND HOME (@see line-loads stepLinePlant): which are still to set off, and seconds till
    * the next does; whether they are all there — the job is not worked till they are; and, the job done, seconds since
    * and which are still to set off home. `false` with no yard or no road to bring them: they are simply there.
    */
-  plant?: false | { queue: PlantKind[]; t: number; here: boolean; leaving?: number; home?: PlantKind[] };
+  plant?: false | { queue: PlantKind[]; t: number; here: boolean; leaving?: number; home?: PlantKind[]; /** Where each stopped at the road as it came: by its paint. */ at?: { colour: number; x: number; y: number; heading: number }[]; /** Where the one setting off home now is to drive to: where its way on the road begins. */ to?: { kind: PlantKind; x: number; y: number; heading: number } };
 };
 /** A machine a line's job is done with, as it travels: the crane; a mixer; a low-loader, a digger or a roller on it; the gang's pickup. */
 export type PlantKind = "crane" | "mixer" | "loader" | "pickup";

@@ -227,6 +227,9 @@ export type Town = {
   arrived: Mover[];
   /** Loads being put on the company's lorries in its yards. @see fleet */
   yard: import("../fleet/fleet").YardLoad[];
+  /** The company's lorries, each one always somewhere; and the vehicles driving off the road. @see fleet, legs */
+  fleet: import("../fleet/fleet").FleetLorry[];
+  legs: import("../fleet/legs").Leg[];
   next: number;
   t: number;
   places: Place[];
@@ -239,7 +242,7 @@ export type Town = {
 };
 
 export const createTown = (): Town => ({
-  movers: [], parked: [], arrived: [], yard: [], next: 1, t: 0, places: [], placesAt: -1, untilCar: 0, untilPerson: 0, seed: 0x2f6e2b1,
+  movers: [], parked: [], arrived: [], yard: [], fleet: [], legs: [], next: 1, t: 0, places: [], placesAt: -1, untilCar: 0, untilPerson: 0, seed: 0x2f6e2b1,
 });
 
 /** A person's leg, half steps long, and how far it swings either side of straight down. */

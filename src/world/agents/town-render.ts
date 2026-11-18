@@ -33,6 +33,7 @@ import { crewFor } from "./cars/crew";
 import { makeRiders, poseRiders, type Riders } from "./cars/occupants";
 import { bakedPeople, peopleSprites, posePerson, type PeopleSprites, type PoseSet } from "./people/people-sheet";
 import { AI_TRUCK_COLOUR, atWork, HALF_STEP_IN_TILES, LEG, SWING, type Mover, type Town } from "./town";
+import { offRoad } from "../fleet/fleet";
 
 /** A car, tiles long and wide, and its body and cabin heights in half steps. */
 const CAR_L = 0.38;
@@ -389,7 +390,9 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
     }
     live = new Set<number>();
     // (The parked cars too, in their bays.)
-    for (const m of town.parked.length ? [...town.movers, ...town.parked] : town.movers) {
+    // (The parked cars too, in their bays; and the company's lorries off the road — in their yard, on a site. @see fleet)
+    const off = offRoad(town);
+    for (const m of town.parked.length || off.length ? [...town.movers, ...town.parked, ...off] : town.movers) {
       // A BUILDER AT WORK is drawn by the site, where the work is: on the
       // frame, on the scaffold, in the yard. Here they would only be stood
       // wherever they were put down. @see projects/crew
@@ -441,6 +444,8 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         if (d.key !== key) {
           d.key = key;
           d.parts[0].texture = P.paint[f]; d.parts[1].texture = P.trim[f];
+          // (Its paint as it is now: a lorry of the fleet is repainted as it is loaded and emptied — which is its model too.)
+          d.parts[0].tint = m.colour;
           d.parts[0].anchor.set(P.paintAnchor[f].x, P.paintAnchor[f].y);
           d.parts[1].anchor.set(P.trimAnchor[f].x, P.trimAnchor[f].y);
           for (const sp of d.parts) sp.scale.set(scale / sheet!.res);

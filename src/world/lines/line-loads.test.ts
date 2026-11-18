@@ -6,8 +6,9 @@ import { createGrid, fillTerrain, idx } from "../grid";
 import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
+import { stepYard } from "../fleet/fleet";
 import { lineDone, newLine, stepLine } from "./jobs";
-import { lineHead, lineLorriesOut, sendLineLoad, stepLineHaul, stepLinePlant } from "./line-loads";
+import { lineHead, lineLorriesOut, lineLorryFree, sendLineLoad, stepLineHaul, stepLinePlant } from "./line-loads";
 
 /** A road along row 5 edge to edge, the Garage on its north side; a line ordered south of it. */
 function yardAndLine(far = false) {
@@ -27,10 +28,11 @@ describe("a line's pipe, by road", () => {
     expect(lineHead(g, net, j)).toMatchObject({ x: 20, y: 5 });
     let sent = 0, back = false, yard = false, up = false;
     for (let t = 0; t < 400 && !lineDone(j); t += 1 / 30) {
+      stepYard(town, g, 1 / 30);
       stepLineHaul(g, haul, 1 / 30);
       const out = lineLorriesOut(town, g).get(j.id) ?? 0;
-      stepLine(j, 1 / 30, () => true, { out, send: () => { const ok = sendLineLoad(g, haul, j); if (ok) sent++; return ok; } });
-      yard ||= !!j.yard?.length;
+      stepLine(j, 1 / 30, () => true, { out, send: () => { const ok = sendLineLoad(g, haul, j); if (ok) sent++; return ok; }, free: () => lineLorryFree(g, haul, j) });
+      yard ||= town.yard.length > 0;
       up ||= !!j.drive?.length;
       back ||= town.movers.some((m) => m.job?.role === "haul-back");
       town.arrived.length = 0;
@@ -52,6 +54,7 @@ describe("a line's pipe, by road", () => {
     const seen: string[] = [];
     let out = 0, home = 0;
     for (let t = 0; t < 600; t += 1 / 30) {
+      stepYard(town, g, 1 / 30);
       stepLineHaul(g, haul, 1 / 30);
       const at = stepLinePlant(g, haul, j, 1 / 30);
       if (seen[seen.length - 1] !== at) seen.push(at);
@@ -61,7 +64,7 @@ describe("a line's pipe, by road", () => {
         if (lineDone(j) && j.plant) { j.plant.leaving = 0; j.plant.t = 0; }
       }
       out = Math.max(out, town.movers.filter((m) => m.job?.role === "plant" && m.job.site === j.id).length);
-      if (at === "leaving") home = Math.max(home, town.movers.filter((m) => m.job?.role === "plant").length);
+      if (at === "leaving") home = Math.max(home, town.movers.filter((m) => m.job?.role === "haul-back" && !m.fleet).length);
       town.arrived.length = 0;
       stepTown(town, g, net, 0, 1 / 30);
     }
