@@ -177,7 +177,9 @@ export const DEFAULT_GEN: GenParams = {
   rise: 2,
   wander: 7,
   roadWidth: 2,
-  lowland: 4,
+  // (As far down as the dial goes: off. The beach by the water is drawn by the ground itself now, where the water
+  // is, and sand laid by height came out as a strip a tile wide along every low terrace. @see render/ground-mesh.ts)
+  lowland: 24,
   upland: 8,
   rivers: 1,
   riverDepth: 6,

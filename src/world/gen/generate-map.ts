@@ -44,14 +44,6 @@ export type GenOptions = {
   params?: Partial<GenParams>;
 };
 
-/**
- * The drop to a neighbour that counts as a cliff, in half steps.
- *
- * Grass does not hold on a scarp, and the cliff faces under one are drawn in
- * earth already — so a grass top over an earth wall reads as a lawn laid on a
- * quarry. Four is two slabs: one slab is a step, two is a face.
- */
-const SCARP = 4;
 
 /** Tiles across one blotch of the material jitter. */
 const PATCH = 9;
@@ -229,17 +221,6 @@ export function touchesPaved(g: Grid, x: number, y: number): boolean {
     || (inBounds(g, x, y - 1) && g.paved[idx(g, x, y - 1)] !== 0);
 }
 
-/** The steepest drop or rise to a 4-neighbour, in half steps. */
-function relief(g: Grid, x: number, y: number): number {
-  const h = g.height[idx(g, x, y)];
-  let worst = 0;
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-    if (!inBounds(g, x + dx, y + dy)) continue;
-    worst = Math.max(worst, Math.abs(g.height[idx(g, x + dx, y + dy)] - h));
-  }
-  return worst;
-}
-
 /** Which palette index stands for what, once the fallbacks are resolved. */
 export type Materials = {
   grass: number;
@@ -254,19 +235,22 @@ export type Materials = {
 /**
  * Grass, earth and sand over ground that is already shaped.
  *
- * FOUR RULES, IN PRECEDENCE ORDER, and each says something the player can act
+ * THREE RULES, IN PRECEDENCE ORDER, and each says something the player can act
  * on rather than being decoration:
  *
  *  - **the verge is earth** — the cells touching the street, which are exactly
  *    the cells housing may be built on. The one place the art is allowed to
  *    give the rules away, because a player hunting for legal frontage by
  *    clicking around is a player reading a tooltip instead of a map;
- *  - **the brow of a cliff is earth** — a scarp's face is drawn in earth
- *    already (@see WALL_FRAME), and grass over a two-slab face reads as a lawn
- *    laid on a quarry;
  *  - **the high ground is earth** and **the low ground is sand** — the pair
  *    that makes elevation readable without counting slabs, and the sand marks
- *    where the water is and where it would go.
+ *    where the water is and where it would go. (Sand by height is OFF by
+ *    default — `lowland` at the end of its dial — since the ground draws its
+ *    own beach where the water is; the dial still lays it.)
+ *
+ * The brow of a cliff was earth once, a tile-wide strip along every scarp. A
+ * steep bank goes bare where it is drawn now, and a cliff's face is rock:
+ * @see render/ground-mesh.ts
  *
  * Everything else is grass. Separate from `generateMap` because it is a pure
  * function of a finished grid, which is the only way to test the rules on
@@ -288,7 +272,6 @@ export function paintGround(
 
       g.terrain[i] =
         g.paved[i] !== 0 || touchesPaved(g, x, y) ? m.dirt
-        : relief(g, x, y) >= SCARP ? m.dirt
         : h + wander > dirtLine ? m.dirt
         : h + wander < sandLine ? m.sand
         : m.grass;

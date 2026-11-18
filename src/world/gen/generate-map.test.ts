@@ -445,9 +445,12 @@ describe("grass, earth and sand", () => {
     expect(at(g, 6, 6)).toBe(M.grass);
   });
 
-  test("the low ground is sand — where the water is and where it would go", () => {
+  test("the low ground is sand where the dial says so — and by default it does not: the ground draws its own beach", () => {
+    const off = ground(-8);
+    paintGround(off, 7, 0, M);
+    expect(at(off, 6, 6)).toBe(M.grass);
     const g = ground(-8);
-    paintGround(g, 7, 0, M);
+    paintGround(g, 7, 0, M, { lowland: 4 });
     expect(at(g, 6, 6)).toBe(M.sand);
   });
 
@@ -474,19 +477,19 @@ describe("grass, earth and sand", () => {
   test("a verge in the low ground is still earth, not sand", () => {
     const g = ground(-8);
     for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 6)] = 1;
-    paintGround(g, 7, 0, M);
+    paintGround(g, 7, 0, M, { lowland: 4 });
     expect(at(g, 4, 5)).toBe(M.dirt);
     expect(at(g, 4, 2)).toBe(M.sand);
   });
 
-  /** A two-slab face is drawn in earth; grass over it is a lawn on a quarry. */
-  test("the brow of a cliff is earth", () => {
+  /** No strip of earth along a scarp: a steep bank goes bare where it is drawn, and a cliff's face is rock. */
+  test("the brow of a cliff is grass like the ground behind it", () => {
     const g = ground(2);
     for (let y = 0; y < g.h; y++) {
       for (let x = 7; x < g.w; x++) g.height[idx(g, x, y)] = -4;
     }
     paintGround(g, 7, 0, M);
-    expect(at(g, 6, 6)).toBe(M.dirt);                     // the brow
+    expect(at(g, 6, 6)).toBe(M.grass);                    // the brow
     expect(at(g, 3, 6)).toBe(M.grass);                    // well back from it
   });
 
