@@ -28,6 +28,9 @@ import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureOf, type Grid } 
 import { structureDef } from "../structures/def";
 import type { BandLayer } from "./bands";
 import { terrainName } from "../terrain-names";
+import { cornerZ, drawnCorner, drawnFlat, pinned } from "./drawn";
+
+export { cornerZ };
 
 /** What the shader draws a material as. 0 is nothing it knows. */
 export const GROUND = { none: 0, grass: 1, dirt: 2, sand: 3 } as const;
@@ -59,22 +62,8 @@ export function groundDraws(grid: Grid, palette: Palette, x: number, y: number):
 }
 
 /**
- * A cell's surface height at a corner `(u, v)` of it (each 0 or 1), in half
- * steps: its height, or on a ramp its height plus the rise toward the corner.
- * @see surfaceHeight in iso.ts, the same rule
- */
-export function cornerZ(grid: Grid, x: number, y: number, u: number, v: number): number {
-  const i = idx(grid, x, y), h = grid.height[i], r = grid.ramp[i];
-  const rise = rampRise(r);
-  if (!rise) return h;
-  const d = rampDir(r);
-  const t = d === RAMP.S ? u : d === RAMP.N ? 1 - u : d === RAMP.W ? v : 1 - v;
-  return h + rise * t;
-}
-
-/**
- * How far down a cell's face shows at one of its corners: to the surface of
- * the neighbour `(nx, ny)` in front, at that neighbour's own corner `(u, v)`.
+ * How far down a cell's face shows at one of its corners: to the DRAWN surface
+ * of the neighbour `(nx, ny)` in front, at that neighbour's own corner `(u, v)`.
  * Off the map, or over a void, at least one step below the cell's foot: the
  * plateau's own edge, as a tile's skirt showed it. Never above the top `z`.
  */
@@ -83,7 +72,7 @@ export function wallFoot(grid: Grid, x: number, y: number, nx: number, ny: numbe
   if (!inBounds(grid, nx, ny)) return Math.min(0, h - 2, z);
   const j = idx(grid, nx, ny);
   if (grid.terrain[j] === VOID) return Math.min(grid.height[j], h - 2, z);
-  return Math.min(cornerZ(grid, nx, ny, u, v), z);
+  return Math.min(drawnCorner(grid, nx, ny, u, v), z);
 }
 
 /**
@@ -98,6 +87,22 @@ export function slopeLight(packed: number): number {
   return (d === RAMP.S || d === RAMP.E ? 0.05 : -0.06) * rise;
 }
 
+/** Which way the light comes from along the ground, as the shader has it (`SUN`), and how much a half step a tile of slope toward it brightens. */
+const SUN_X = -0.94, SUN_Y = 0.34, SLOPE_LIT = 0.2;
+const litOf = (gx: number, gy: number) => Math.max(-0.42, Math.min(0.3, -(gx * SUN_X + gy * SUN_Y) * SLOPE_LIT));
+/**
+ * The light on a free cell's drawn top at its corner `(u, v)`: from the fall of its own two edges there, and of the
+ * edges that carry on from them in the cells it joins — so the cells round a corner say the same, and no facet shows.
+ */
+function cornerLight(grid: Grid, palette: Palette, x: number, y: number, u: number, v: number): number {
+  const at = drawnCorner(grid, x, y, u, v);
+  let gx = drawnCorner(grid, x, y, 1, v) - drawnCorner(grid, x, y, 0, v), gy = drawnCorner(grid, x, y, u, 1) - drawnCorner(grid, x, y, u, 0);
+  const nx = u ? x + 1 : x - 1, ny = v ? y + 1 : y - 1;
+  if (groundDraws(grid, palette, nx, y) && drawnCorner(grid, nx, y, 1 - u, v) === at) gx = (gx + drawnCorner(grid, nx, y, 1, v) - drawnCorner(grid, nx, y, 0, v)) / 2;
+  if (groundDraws(grid, palette, x, ny) && drawnCorner(grid, x, ny, u, 1 - v) === at) gy = (gy + drawnCorner(grid, x, ny, u, 1) - drawnCorner(grid, x, ny, u, 0)) / 2;
+  return litOf(gx, gy);
+}
+
 /** How far blade tips can stand over a back edge, in screen-shaped units (a cell's diamond is 2 across). */
 const FRINGE = 0.05;
 
@@ -105,7 +110,7 @@ const FRINGE = 0.05;
 function fringes(grid: Grid, palette: Palette, x: number, y: number): boolean {
   const i = idx(grid, x, y);
   return groundClassOf(palette, grid.terrain[i]) === GROUND.grass && !rampRise(grid.ramp[i])
-    && !grid.paved[i] && !structureOf(grid, x, y);
+    && !grid.paved[i] && !structureOf(grid, x, y) && drawnFlat(grid, x, y);
 }
 
 /**
@@ -136,6 +141,9 @@ export type GroundMesh = {
   /** A texel a cell: class, height + 128, flags (1 drawn, ramp direction × 2, rise in half steps × 16), 255. */
   cells: Uint8Array;
   source: BufferImageSource;
+  /** A texel a cell: its drawn corners (0,0), (1,0), (1,1) over its own height, (z + 4) × 30; 255. */
+  edges: Uint8Array;
+  edgeSource: BufferImageSource;
   uniforms: UniformGroup;
   meshes: Mesh<Geometry, Shader>[];
   /** Bands whose quads are out of date. */
@@ -157,12 +165,27 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
   for (let x = x0; x <= x1; x++) {
     const y = b - x;
     if (!groundDraws(grid, palette, x, y)) continue;
-    // THE TOP, corners round its edge: (x, y), (x+1, y), (x+1, y+1), (x, y+1).
-    // A ramp's is a plane tilted toward its high edge.
-    const z00 = cornerZ(grid, x, y, 0, 0), z10 = cornerZ(grid, x, y, 1, 0);
-    const z11 = cornerZ(grid, x, y, 1, 1), z01 = cornerZ(grid, x, y, 0, 1);
-    const lit = slopeLight(grid.ramp[idx(grid, x, y)]);
-    at(x, y, z00, 0, lit); at(x + 1, y, z10, 0, lit); at(x + 1, y + 1, z11, 0, lit); at(x, y + 1, z01, 0, lit);
+    // THE TOP, corners round its edge: (x, y), (x+1, y), (x+1, y+1), (x, y+1), each at its DRAWN height. A vertex of
+    // a top says the light on it where a wall says its kind (under a half either way), and its height. @see drawn.ts
+    const z00 = drawnCorner(grid, x, y, 0, 0), z10 = drawnCorner(grid, x, y, 1, 0);
+    const z11 = drawnCorner(grid, x, y, 1, 1), z01 = drawnCorner(grid, x, y, 0, 1);
+    const zm = grid.height[idx(grid, x, y)];
+    if (pinned(grid, x, y) || (z00 === zm && z10 === zm && z11 === zm && z01 === zm)) {
+      // Level, or a ramp: a plane tilted toward its high edge.
+      const lit = slopeLight(grid.ramp[idx(grid, x, y)]);
+      at(x, y, z00, lit, z00); at(x + 1, y, z10, lit, z10); at(x + 1, y + 1, z11, lit, z11); at(x, y + 1, z01, lit, z01);
+    } else {
+      // A BANK: a fan from its middle, at the cell's own height, to its corners — four triangles, each a quad with an end doubled.
+      const lm = litOf((z10 + z11 - z00 - z01) / 2, (z01 + z11 - z00 - z10) / 2);
+      const c: [number, number, number, number][] = [
+        [x, y, z00, cornerLight(grid, palette, x, y, 0, 0)], [x + 1, y, z10, cornerLight(grid, palette, x, y, 1, 0)],
+        [x + 1, y + 1, z11, cornerLight(grid, palette, x, y, 1, 1)], [x, y + 1, z01, cornerLight(grid, palette, x, y, 0, 1)],
+      ];
+      for (let k = 0; k < 4; k++) {
+        const p = c[k], q = c[(k + 1) % 4];
+        at(x + 0.5, y + 0.5, zm, lm, zm); at(p[0], p[1], p[2], p[3], p[2]); at(q[0], q[1], q[2], q[3], q[2]); at(q[0], q[1], q[2], q[3], q[2]);
+      }
+    }
     // THE FACE ALONG x+1, each end down to what is in front of it there: a
     // trapezoid where either side slopes.
     const fa = wallFoot(grid, x, y, x + 1, y, 0, 0, z10), fb = wallFoot(grid, x, y, x + 1, y, 0, 1, z11);
@@ -202,6 +225,14 @@ function writeCell(gm: GroundMesh, grid: Grid, palette: Palette, x: number, y: n
   // opaque: WebGL premultiplies on upload, and a texel of alpha 0 reads as nothing.
   gm.cells[o + 2] = (groundDraws(grid, palette, x, y) ? 1 : 0) | (rampDir(grid.ramp[i]) << 1) | (rampRise(grid.ramp[i]) << 4);
   gm.cells[o + 3] = 255;
+  writeEdges(gm, grid, x, y);
+}
+/** A cell's drawn corners (0,0), (1,0) and (1,1) over its own height, for the shadow's ray to meet. @see shadowAt */
+function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number) {
+  const i = idx(grid, x, y), o = i * 4, h = grid.height[i];
+  const put = (k: number, z: number) => { gm.edges[o + k] = Math.max(0, Math.min(255, Math.round((z - h + 4) * 30))); };
+  put(0, drawnCorner(grid, x, y, 0, 0)); put(1, drawnCorner(grid, x, y, 1, 0)); put(2, drawnCorner(grid, x, y, 1, 1));
+  gm.edges[o + 3] = 255;
 }
 
 export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale = 1): GroundMesh {
@@ -212,9 +243,12 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
     // there is, half steps: nothing higher can throw a shadow. @see shadowAt
     uMap: { value: new Float32Array([grid.w, grid.h, 1 / (HW * scale), grid.maxHeight + 2]), type: "vec4<f32>" },
   });
-  const gm: GroundMesh = { cells, source, uniforms, meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
+  const edges = new Uint8Array(grid.w * grid.h * 4);
+  const edgeSource = new BufferImageSource({ resource: edges, width: grid.w, height: grid.h, format: "rgba8unorm", scaleMode: "nearest" });
+  const gm: GroundMesh = { cells, source, edges, edgeSource, uniforms, meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
   for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) writeCell(gm, grid, palette, x, y);
   source.update();
+  edgeSource.update();
   const shader = groundShader(gm);
   for (let b = 0; b < bl.staticOf.length; b++) {
     const { verts, idx: ix } = bandQuads(grid, palette, b, scale);
@@ -241,10 +275,11 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
 export function markGround(gm: GroundMesh, grid: Grid, palette: Palette, x: number, y: number) {
   if (!inBounds(grid, x, y)) return;
   writeCell(gm, grid, palette, x, y);
-  // Its own band; the band behind, whose walls stand over it; the band in
-  // front, whose grass fringes over it.
+  // Every cell that shares a corner with it is drawn by its height too (@see drawn.ts), and the walls and fringes of
+  // the cells beside those: two bands either way.
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && inBounds(grid, x + dx, y + dy)) writeEdges(gm, grid, x + dx, y + dy);
   const b = bandOf(x, y);
-  for (const k of [b - 1, b, b + 1]) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
+  for (let k = b - 2; k <= b + 2; k++) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
 }
 
 /** Rebuild the bands marked, and send the texels. */
@@ -260,6 +295,7 @@ export function flushGround(gm: GroundMesh, grid: Grid, palette: Palette) {
   }
   gm.dirty.clear();
   gm.source.update();
+  gm.edgeSource.update();
   const map = gm.uniforms.uniforms.uMap as Float32Array;
   if (map[3] !== grid.maxHeight + 2) { map[3] = grid.maxHeight + 2; gm.uniforms.update(); }
 }
@@ -268,6 +304,7 @@ export function destroyGroundMesh(gm: GroundMesh) {
   for (const m of gm.meshes) { m.parent?.removeChild(m); m.geometry.destroy(true); m.destroy(); }
   gm.meshes.length = 0;
   gm.source.destroy();
+  gm.edgeSource.destroy();
 }
 
 // ─── THE SHADER ──────────────────────────────────────────────────────────────
@@ -283,7 +320,7 @@ function groundShader(gm: GroundMesh): Shader {
     }),
     gl: GlProgram.from({ vertex: GLSL_VERTEX, fragment: GLSL_FRAGMENT, name: "ground" }),
   };
-  return new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source } });
+  return new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source, uEdges: gm.edgeSource } });
 }
 
 /*
@@ -316,6 +353,7 @@ struct LocalUniforms {
 struct Ground { uMap: vec4<f32> };
 @group(2) @binding(0) var<uniform> ground : Ground;
 @group(2) @binding(1) var uCells : texture_2d<f32>;
+@group(2) @binding(2) var uEdges : texture_2d<f32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -370,6 +408,8 @@ const SUN = vec2<f32>(-0.94, 0.34);
 const SHADOW_RUN = 0.55;
 // A cell's height in half steps, a ramp's at its middle.
 fn topOf(c: vec4<f32>) -> f32 { return c.y - 128.0 + riseOf(c) * 0.5; }
+// A cell's drawn corners (0,0), (1,0), (1,1), half steps over its own height. @see writeEdges
+fn edgesAt(c: vec2<i32>) -> vec3<f32> { return textureLoad(uEdges, c, 0).xyz * 8.5 - 4.0; }
 // HOW MUCH OF THE SUN IS KEPT OFF a point at height h by the ground toward it: the ray walked a cell boundary at
 // a time, each cell it enters asked whether it stands over the ray there. Soft, and softer the further it falls.
 fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
@@ -381,18 +421,25 @@ fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
     let bx = cx - f32(i);
     let t = (p.x - bx) / -SUN.x;
     if (t > far) { break; }
-    let c = cellAt(vec2<i32>(i32(bx) - 1, i32(floor(p.y + SUN.y * t))));
+    // The cell the ray goes into there, and how high the edge it goes in by stands where it does.
+    let y = p.y + SUN.y * t;
+    let at = vec2<i32>(i32(bx) - 1, i32(floor(y)));
+    let c = cellAt(at);
     if (c.w < 0.5) { break; }
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (topOf(c) - h) * SHADOW_RUN - t));
+    let e = edgesAt(at);
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (c.y - 128.0 + mix(e.y, e.z, fract(y)) - h) * SHADOW_RUN - t));
   }
   let cy = floor(p.y);
   for (var j = 0; j < 2; j++) {
     let by = cy + 1.0 + f32(j);
     let t = (by - p.y) / SUN.y;
     if (t > far) { break; }
-    let c = cellAt(vec2<i32>(i32(floor(p.x + SUN.x * t)), i32(by)));
+    let x = p.x + SUN.x * t;
+    let at = vec2<i32>(i32(floor(x)), i32(by));
+    let c = cellAt(at);
     if (c.w < 0.5) { break; }
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (topOf(c) - h) * SHADOW_RUN - t));
+    let e = edgesAt(at);
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (c.y - 128.0 + mix(e.x, e.y, fract(x)) - h) * SHADOW_RUN - t));
   }
   return s;
 }
@@ -411,8 +458,9 @@ fn contactAt(p: vec2<f32>, h: f32) -> f32 {
       let n = cell + vec2<i32>(dx, dy);
       let c = cellAt(n);
       if (c.w < 0.5) { continue; }
+      // (Only under a cliff: a bank comes down to meet it.)
       let up = c.y - 128.0 - h;
-      if (up < 0.75) { continue; }
+      if (up < 3.5) { continue; }
       let lo = vec2<f32>(n);
       let d = length(p - clamp(p, lo, lo + 1.0));
       let reach = 0.16 + 0.05 * min(up, 6.0);
@@ -590,8 +638,8 @@ fn topColour(p: vec2<f32>, fp: f32) -> vec3<f32> {
       let n = cell + vec2<i32>(dx, dy);
       let c = cellAt(n);
       let k = i32(c.x + 0.5);
-      // Only ground it meets: a neighbour whose heights, ramp and all, touch these.
-      if (k < 1 || k > 3 || c.y > here.y + riseOf(here) + 0.5 || c.y + riseOf(c) < here.y - 0.5) { continue; }
+      // Only ground it meets: a neighbour within a bank of it, not one over a cliff.
+      if (k < 1 || k > 3 || c.y > here.y + riseOf(here) + 3.5 || c.y + riseOf(c) < here.y - 3.5) { continue; }
       let lo = vec2<f32>(n);
       let d = length(p - clamp(p, lo, lo + 1.0));
       let s = 1.0 - d / 0.42;
@@ -676,7 +724,8 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   gScreen = vWorld * ground.uMap.z;
   let fs = fwidth(gScreen);
   gScreenFp = max(fs.x, fs.y) * 1.5;
-  let fw = fwidth(vGround) + vec2<f32>(fwidth(vWall.y) * 0.5);
+  // (A wall's second word is how far down it; a top's is its height, which is no measure of a pixel.)
+  let fw = fwidth(vGround) + vec2<f32>(fwidth(vWall.y) * select(0.0, 0.5, vWall.x > 0.5));
   let fp = max(fw.x, fw.y);
   if (vWall.x > 2.5) {
     let f = fringeColour(vGround, vWall.y);
@@ -686,7 +735,7 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   var col: vec3<f32>;
   // A top's second word is the light on its slope, 0 on the level.
   if (vWall.x < 0.5) {
-    col = relit(topColour(vGround, fp) * (1.0 + vWall.y), vGround, topOf(cellAt(vec2<i32>(floor(vGround)))), true);
+    col = relit(topColour(vGround, fp) * (1.0 + vWall.x), vGround, vWall.y, true);
   } else {
     col = wallColour(vGround, vWall.x, vWall.y, fp);
     // A face toward the light can stand in the shadow of ground further toward it.
@@ -734,6 +783,7 @@ in vec2 vWorld;
 out vec4 finalColor;
 uniform vec4 uMap;
 uniform sampler2D uCells;
+uniform sampler2D uEdges;
 
 float hash(ivec2 p) {
   uint h = uint(p.x) * 1664525u + uint(p.y) * 1013904223u;
@@ -762,6 +812,7 @@ float riseOf(vec4 c) { return floor((c.z + 0.5) / 16.0); }
 const vec2 SUN = vec2(-0.94, 0.34);
 const float SHADOW_RUN = 0.55;
 float topOf(vec4 c) { return c.y - 128.0 + riseOf(c) * 0.5; }
+vec3 edgesAt(ivec2 c) { return texelFetch(uEdges, c, 0).xyz * 8.5 - 4.0; }
 float shadowAt(vec2 p, float h) {
   float s = 0.0;
   float far = (uMap.w - h) * SHADOW_RUN;
@@ -770,18 +821,24 @@ float shadowAt(vec2 p, float h) {
     float bx = cx - float(i);
     float t = (p.x - bx) / -SUN.x;
     if (t > far) break;
-    vec4 c = cellAt(ivec2(int(bx) - 1, int(floor(p.y + SUN.y * t))));
+    float y = p.y + SUN.y * t;
+    ivec2 at = ivec2(int(bx) - 1, int(floor(y)));
+    vec4 c = cellAt(at);
     if (c.w < 0.5) break;
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (topOf(c) - h) * SHADOW_RUN - t));
+    vec3 e = edgesAt(at);
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (c.y - 128.0 + mix(e.y, e.z, fract(y)) - h) * SHADOW_RUN - t));
   }
   float cy = floor(p.y);
   for (int j = 0; j < 2; j++) {
     float by = cy + 1.0 + float(j);
     float t = (by - p.y) / SUN.y;
     if (t > far) break;
-    vec4 c = cellAt(ivec2(int(floor(p.x + SUN.x * t)), int(by)));
+    float x = p.x + SUN.x * t;
+    ivec2 at = ivec2(int(floor(x)), int(by));
+    vec4 c = cellAt(at);
     if (c.w < 0.5) break;
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (topOf(c) - h) * SHADOW_RUN - t));
+    vec3 e = edgesAt(at);
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (c.y - 128.0 + mix(e.x, e.y, fract(x)) - h) * SHADOW_RUN - t));
   }
   return s;
 }
@@ -799,7 +856,7 @@ float contactAt(vec2 p, float h) {
       vec4 c = cellAt(n);
       if (c.w < 0.5) continue;
       float up = c.y - 128.0 - h;
-      if (up < 0.75) continue;
+      if (up < 3.5) continue;
       vec2 lo = vec2(n);
       float d = length(p - clamp(p, lo, lo + 1.0));
       float reach = 0.16 + 0.05 * min(up, 6.0);
@@ -942,7 +999,7 @@ vec3 topColour(vec2 p, float fp) {
       ivec2 n = cell + ivec2(dx, dy);
       vec4 c = cellAt(n);
       int k = int(c.x + 0.5);
-      if (k < 1 || k > 3 || c.y > here.y + riseOf(here) + 0.5 || c.y + riseOf(c) < here.y - 0.5) continue;
+      if (k < 1 || k > 3 || c.y > here.y + riseOf(here) + 3.5 || c.y + riseOf(c) < here.y - 3.5) continue;
       vec2 lo = vec2(n);
       float d = length(p - clamp(p, lo, lo + 1.0));
       float s = 1.0 - d / 0.42;
@@ -1018,7 +1075,7 @@ void main() {
   gScreen = vWorld * uMap.z;
   vec2 fs = fwidth(gScreen);
   gScreenFp = max(fs.x, fs.y) * 1.5;
-  vec2 fw = fwidth(vGround) + vec2(fwidth(vWall.y) * 0.5);
+  vec2 fw = fwidth(vGround) + vec2(fwidth(vWall.y) * (vWall.x > 0.5 ? 0.5 : 0.0));
   float fp = max(fw.x, fw.y);
   if (vWall.x > 2.5) {
     vec4 f = fringeColour(vGround, vWall.y);
@@ -1028,7 +1085,7 @@ void main() {
   }
   vec3 col;
   if (vWall.x < 0.5) {
-    col = relit(topColour(vGround, fp) * (1.0 + vWall.y), vGround, topOf(cellAt(ivec2(floor(vGround)))), true);
+    col = relit(topColour(vGround, fp) * (1.0 + vWall.x), vGround, vWall.y, true);
   } else {
     col = wallColour(vGround, vWall.x, vWall.y, fp);
     if (vWall.x > 1.5) {

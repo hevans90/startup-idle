@@ -13,9 +13,9 @@ function flat(w = 4, h = 4, mat = GRASS) {
   return grid;
 }
 
-/** The kinds (0 top, 1 face +x, 2 face +y) of a band's quads, in order. */
+/** The kinds (0 top — whose word there is the light on it, under a half — 1 face +x, 2 face +y, 3 fringe) of a band's quads, in order. */
 const kinds = (q: ReturnType<typeof bandQuads>) =>
-  Array.from({ length: q.quads }, (_, k) => q.verts[k * 4 * 6 + 4]);
+  Array.from({ length: q.quads }, (_, k) => { const w = q.verts[k * 4 * 6 + 4]; return w < 0.5 ? 0 : w; });
 
 describe("groundClassOf", () => {
   test("grass, dirt and sand by name, old names too; woods blend as grass; a frame the game no longer has is grass", () => {
@@ -43,7 +43,7 @@ describe("groundDraws", () => {
 describe("wallFoot", () => {
   test("down to a lower neighbour, never up to a higher one", () => {
     const grid = flat(2, 1);
-    setHeight(grid, 0, 0, 4);
+    setHeight(grid, 0, 0, 6);
     setHeight(grid, 1, 0, 1);
     expect(wallFoot(grid, 0, 0, 1, 0)).toBe(1);
     expect(wallFoot(grid, 1, 0, 0, 0)).toBe(1);
@@ -74,15 +74,27 @@ describe("bandQuads", () => {
 
   test("a raised cell walls down to its lower neighbours in front, its depth in half steps", () => {
     const grid = flat(3, 3);
-    setHeight(grid, 1, 1, 3);
+    setHeight(grid, 1, 1, 5); // a cliff: over a bank's reach, so it stands on walls
     const q = bandQuads(grid, PALETTE, 2);
     // (0, 2) walls off the map's front; (1, 1) down both faces, and fringes
     // over the lower ground behind it; (2, 0) off the map's side.
     expect(kinds(q)).toEqual([0, 2, 0, 1, 2, 3, 3, 0, 1]);
-    // (1, 1)'s +x face: its bottom corners sit 3 half steps below its top.
+    // (1, 1)'s +x face: its bottom corners sit 5 half steps below its top.
     const face = 3 * 4 * 6;
-    expect(q.verts[face + 2 * 6 + 5]).toBe(3);
-    expect(q.verts[face + 2 * 6 + 1] - q.verts[face + 1 * 6 + 1]).toBeCloseTo(3 * 16.5);
+    expect(q.verts[face + 2 * 6 + 5]).toBe(5);
+    expect(q.verts[face + 2 * 6 + 1] - q.verts[face + 1 * 6 + 1]).toBeCloseTo(5 * 16.5);
+  });
+
+  test("a step within a bank's reach is a slope: a fan of four, and no wall between the cells", () => {
+    const grid = flat(3, 3);
+    setHeight(grid, 1, 1, 2);
+    const q = bandQuads(grid, PALETTE, 2);
+    // (0, 2): a fan, and its wall off the map's front; (1, 1): a fan only; (2, 0): a fan and the map's side.
+    expect(kinds(q)).toEqual([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    // A top's last word is its height: (1, 1)'s middle at its own, its corners at the mean of the four cells there.
+    const fan = 5 * 4 * 6;
+    expect(q.verts[fan + 5]).toBe(2);
+    expect(q.verts[fan + 6 + 5]).toBe(0.5);
   });
 
   test("cells it does not draw leave no quads; an empty band is one quad at a point", () => {
@@ -115,16 +127,18 @@ describe("ramps", () => {
     expect(cornerZ(grid, 1, 1, 0, 1)).toBe(0);
   });
 
-  test("a ramp is drawn by the mesh, its walls trapezoids down to the level ground in front", () => {
+  test("a ramp is drawn by the mesh at its own plane, and the bare ground in front comes up to meet it", () => {
     const grid = flat(3, 3);
     setRamp(grid, 1, 1, RAMP.W); // high toward +y: its +y face is a full step, its +x face a wedge
     expect(groundDraws(grid, PALETTE, 1, 1)).toBe(true);
+    // The ground beside it comes up to meet it (@see drawn.ts): no wall at either face.
+    expect(wallFoot(grid, 1, 1, 2, 1, 0, 0, 0)).toBe(0);
+    expect(wallFoot(grid, 1, 1, 2, 1, 0, 1, 2)).toBe(2);
+    expect(wallFoot(grid, 1, 1, 1, 2, 0, 0, 2)).toBe(2);
+    expect(wallFoot(grid, 1, 1, 1, 2, 1, 0, 2)).toBe(2);
     const q = bandQuads(grid, PALETTE, 2);
-    expect(kinds(q)).toEqual([0, 2, 0, 1, 2, 0, 1]);
-    // (1, 1)'s +x face: depth 0 at its (x+1, y) end, 2 at its (x+1, y+1) end.
-    const face = 3 * 4 * 6;
-    expect(q.verts[face + 3 * 6 + 5]).toBe(0);
-    expect(q.verts[face + 2 * 6 + 5]).toBe(2);
+    // Only the map's own edges: (0, 2) off its front, (2, 0) off its side.
+    expect(kinds(q).filter((k) => k === 1 || k === 2)).toEqual([2, 1]);
   });
 
   test("a level cell's wall stops at the ramp in front where the ramp rises to meet it", () => {
@@ -134,7 +148,7 @@ describe("ramps", () => {
     setRamp(grid, 2, 1, RAMP.N);
     expect(wallFoot(grid, 1, 1, 2, 1, 0, 0, 2)).toBe(2);
     expect(wallFoot(grid, 1, 1, 2, 1, 0, 1, 2)).toBe(2);
-    expect(kinds(bandQuads(grid, PALETTE, 2))).toEqual([0, 2, 0, 2, 3, 3, 0, 1]);
+    expect(kinds(bandQuads(grid, PALETTE, 2)).filter((k) => k === 1)).toEqual([1]);
   });
 
   test("slopes facing the light are brighter, the others darker, level ones neither", () => {

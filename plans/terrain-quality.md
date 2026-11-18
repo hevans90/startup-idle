@@ -1,6 +1,6 @@
 # Terrain that looks like land: slopes, light, a real shore
 
-Status: **phases 0–1 built** (2026-11-18); 2 onward to do. Phase 1 measured +0.2 ms GPU close, +0.6 ms mid and far on the `terrain` fixture (budget was 0.5); roads and sprites do not take the shadow yet. The shore wedges of `abcb5e54` (`shorePieces`) are gone. Builds on `plans/procedural-ground.md` (the shaded ground mesh, phases 1–4 built).
+Status: **phases 0–2 built** (2026-11-18); 3 onward to do. Phase 2 as built: `CLIFF` is 3; cursor, picking, overlays, decals and machines crossing country still read the flat grid (off by up to a half step on a bank). Phase 1 measured +0.2 ms GPU close, +0.6 ms mid and far on the `terrain` fixture (budget was 0.5); roads and sprites do not take the shadow yet. The shore wedges of `abcb5e54` (`shorePieces`) are gone. Builds on `plans/procedural-ground.md` (the shaded ground mesh, phases 1–4 built).
 
 ## What is wrong now
 

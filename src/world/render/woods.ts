@@ -9,6 +9,7 @@
  * Kept a cell at a time: when the map changes, only cells whose wood or
  * height did are stood up again.
  */
+import { drawnCorner, drawnHeight } from "./drawn";
 import type { Container } from "pixi.js";
 
 import { VOID, idx, structureOf, type Grid } from "../grid";
@@ -74,11 +75,12 @@ export function createWoods(bands: BandLayer): Woods {
     cells.delete(i);
   };
   const stand = (P: PropSprites, g: Grid, x: number, y: number, n: number, scale: number): Container[] => {
-    const z = g.height[idx(g, x, y)], layer = bands.structureOf[bandOf(x, y)];
+    const layer = bands.structureOf[bandOf(x, y)];
     if (!layer) return [];
     const out: Container[] = [];
     for (const t of treesOf(x, y, n)) {
-      const c = propSprite(P, t.kind, t.turn, t.u, t.v, z, scale, t.tint, t.size);
+      // (Each where the ground is DRAWN under it: a bank is not at its cell's height. @see drawn.ts)
+      const c = propSprite(P, t.kind, t.turn, t.u, t.v, drawnHeight(g, t.u + 0.5, t.v + 0.5), scale, t.tint, t.size);
       if (!c) continue;
       layer.addChild(c);
       out.push(c);
@@ -100,7 +102,7 @@ export function createWoods(bands: BandLayer): Woods {
         // Nothing grows under a building. @see hidesTerrain
         if (!n || structureOf(g, x, y)) continue;
         seen.add(i);
-        const ck = `${n}|${g.height[i]}|${scale}`;
+        const ck = `${n}|${g.height[i]}|${scale}|${drawnCorner(g, x, y, 0, 0)},${drawnCorner(g, x, y, 1, 0)},${drawnCorner(g, x, y, 1, 1)},${drawnCorner(g, x, y, 0, 1)}`;
         if (cells.get(i)?.key === ck) continue;
         drop(i);
         cells.set(i, { key: ck, trees: stand(P, g, x, y, n, scale) });
