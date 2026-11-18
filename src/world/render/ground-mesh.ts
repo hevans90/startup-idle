@@ -762,6 +762,9 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   // (A wall's second word is how far down it; a top's is its height, which is no measure of a pixel.)
   let fw = fwidth(vGround) + vec2<f32>(fwidth(vWall.y) * select(0.0, 0.5, vWall.x > 0.5));
   let fp = max(fw.x, fw.y);
+  // How steep a top is here, half steps a tile: its height's change over the ground's.
+  let fg = fwidth(vGround);
+  let steep = fwidth(vWall.y) / max(max(fg.x, fg.y), 0.00001);
   if (vWall.x > 2.5) {
     let f = fringeColour(vGround, vWall.y);
     if (f.a <= 0.003) { discard; }
@@ -771,6 +774,11 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   // A top's second word is the light on its slope, 0 on the level.
   if (vWall.x < 0.5) {
     col = topColour(vGround, fp);
+    // A STEEP BANK IS BARE: the grass gives out to earth as the ground steepens, in patches.
+    if (steep > 1.2) {
+      let bare = smoothstep(1.9, 2.9, steep + (fbm(vGround * 4.0 + 3.0) - 0.5) * 1.4);
+      if (bare > 0.0) { col = mix(col, dirtAt(vGround, fp) * 0.88, bare * 0.85); }
+    }
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
     let level = textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).z;
     if (level > -900.0) {
@@ -1118,6 +1126,8 @@ void main() {
   gScreenFp = max(fs.x, fs.y) * 1.5;
   vec2 fw = fwidth(vGround) + vec2(fwidth(vWall.y) * (vWall.x > 0.5 ? 0.5 : 0.0));
   float fp = max(fw.x, fw.y);
+  vec2 fg = fwidth(vGround);
+  float steep = fwidth(vWall.y) / max(max(fg.x, fg.y), 0.00001);
   if (vWall.x > 2.5) {
     vec4 f = fringeColour(vGround, vWall.y);
     if (f.a <= 0.003) discard;
@@ -1127,6 +1137,10 @@ void main() {
   vec3 col;
   if (vWall.x < 0.5) {
     col = topColour(vGround, fp);
+    if (steep > 1.2) {
+      float bare = smoothstep(1.9, 2.9, steep + (fbm(vGround * 4.0 + 3.0) - 0.5) * 1.4);
+      if (bare > 0.0) col = mix(col, dirtAt(vGround, fp) * 0.88, bare * 0.85);
+    }
     float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;
     if (level > -900.0) {
       float over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
