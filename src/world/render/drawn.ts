@@ -302,8 +302,32 @@ const MEET = 0.5;
  * drawn to meet it at its edge: a cutting, an embankment. Pure.
  */
 export function smoothAt(grid: Grid, fx: number, fy: number): number {
+  // IT WANDERS: the bare ground is read a little to one side of the point, by a slow noise fixed to the map — so a
+  // crest, a cliff's line and a shore, ruled straight along a row of tiles of one height, are not straight. Level
+  // ground stays level; built ground and the meeting with it are where they are.
+  const ax = fx * (1 / 2.3), ay = fy * (1 / 2.3), bx = fx * (1 / 0.83), by = fy * (1 / 0.83);
+  return surface(grid, fx, fy,
+    fx + WANDER * noise(ax + 11.3, ay + 4.1) + WANDER_FINE * noise(bx + 50.7, by + 9.2),
+    fy + WANDER * noise(ax + 71.9, ay + 33.4) + WANDER_FINE * noise(bx + 3.3, by + 87.6));
+}
+/** The surface with no wander in it: through every cell's own height at its middle. @see smoothAt */
+export const smoothPlain = (grid: Grid, fx: number, fy: number): number => surface(grid, fx, fy, fx, fy);
+/** How far the bare ground is read to one side, tiles: a slow wander and a finer one over it. */
+const WANDER = 0.2, WANDER_FINE = 0.07;
+const hash = (x: number, y: number): number => {
+  let h = Math.imul(x, 374761393) + Math.imul(y, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 2147483648 - 1;
+};
+/** Smooth noise, −1…1, fixed to the map. */
+function noise(x: number, y: number): number {
+  const i = Math.floor(x), j = Math.floor(y), u = x - i, v = y - j, a = u * u * (3 - 2 * u), b = v * v * (3 - 2 * v);
+  return (hash(i, j) * (1 - a) + hash(i + 1, j) * a) * (1 - b) + (hash(i, j + 1) * (1 - a) + hash(i + 1, j + 1) * a) * b;
+}
+/** The surface at `(fx, fy)`, its bare ground read at `(qx, qy)`. */
+function surface(grid: Grid, fx: number, fy: number, qx: number, qy: number): number {
   const px = Math.max(0, Math.min(grid.w, fx)), py = Math.max(0, Math.min(grid.h, fy));
-  const gx = px - 0.5, gy = py - 0.5, i0 = Math.floor(gx), j0 = Math.floor(gy), tx = gx - i0, ty = gy - j0;
+  const gx = Math.max(0, Math.min(grid.w, qx)) - 0.5, gy = Math.max(0, Math.min(grid.h, qy)) - 0.5, i0 = Math.floor(gx), j0 = Math.floor(gy), tx = gx - i0, ty = gy - j0;
   for (let r = 0; r < 4; r++) {
     const j = j0 - 1 + r;
     row[r] = through(midOf(grid, i0 - 1, j), midOf(grid, i0, j), midOf(grid, i0 + 1, j), midOf(grid, i0 + 2, j), tx);
