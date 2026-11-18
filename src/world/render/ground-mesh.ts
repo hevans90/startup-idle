@@ -246,7 +246,7 @@ function writeCell(gm: GroundMesh, grid: Grid, palette: Palette, x: number, y: n
 }
 /**
  * THE DRAWN SURFACE AS A TEXTURE, two texels a cell, floats: its four corners (0,0), (1,0), (1,1), (0,1), half
- * steps; then its middle, whether it is a shelf, the level of the standing water on it or beside it (−999 with
+ * steps; then its middle, what it is to water (1 a shelf, 2 sloped), the level of the standing water on it or beside it (−999 with
  * none), and 2 where it has standing water of its own. The ground's shader reads it for shadows and the beach; the water's for where the shore cuts it.
  * One a grid, made by whichever asks first. @see drawn.ts, water-gpu.ts
  */
@@ -264,7 +264,8 @@ function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number) {
   const o = idx(grid, x, y) * 8, e = gm.edges;
   e[o] = drawnCorner(grid, x, y, 0, 0); e[o + 1] = drawnCorner(grid, x, y, 1, 0); e[o + 2] = drawnCorner(grid, x, y, 1, 1); e[o + 3] = drawnCorner(grid, x, y, 0, 1);
   e[o + 4] = drawnCentre(grid, x, y);
-  e[o + 5] = shelfOf(grid, x, y) === null ? 0 : 1;
+  // 1 a shelf; 2 bare ground that is not level, which thin water lies on as drawn. @see water-gpu.ts groundKind
+  e[o + 5] = shelfOf(grid, x, y) !== null ? 1 : !pinned(grid, x, y) && !drawnFlat(grid, x, y) ? 2 : 0;
   let level = -999;
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     if (!inBounds(grid, x + dx, y + dy)) continue;

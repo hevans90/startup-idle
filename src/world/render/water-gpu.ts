@@ -462,6 +462,9 @@ function quadListSource(list: QuadList): TextureSource {
  * and no fragments, the trade this whole path is built on.
  */
 
+/** How deep water on sloped ground still lies on it as it is drawn, half steps; by three times that it is level. */
+const THIN_ON_SLOPE = 0.5;
+
 const WGSL = /* wgsl */ `
 struct GlobalUniforms {
   uProjectionMatrix: mat3x3<f32>,
@@ -854,6 +857,29 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   return p;
 }
 
+// WHAT THE DRAWN GROUND OF A TILE IS to the water on it: 1 a SHELF (a shore, cut to the ground), 2 SLOPED bare
+// ground (thin water lies on it), 0 flat. The ground storey only. @see ground-mesh.ts surfaceOf
+fn groundKind(tx: i32, ty: i32, a: i32) -> i32 {
+  if (a != 0) { return 0; }
+  return i32(textureLoad(uShore, vec2<i32>(tx * 2 + 1, ty), 0).y + 0.5);
+}
+// The drawn ground of a tile at (u, v) of it, each 0 to 1: a fan from its middle to its corners. @see drawnHeight
+fn groundFan(tx: i32, ty: i32, u: f32, v: f32) -> f32 {
+  let c = textureLoad(uShore, vec2<i32>(tx * 2, ty), 0);
+  let m = textureLoad(uShore, vec2<i32>(tx * 2 + 1, ty), 0).x;
+  let f = vec2<f32>(u - 0.5, v - 0.5);
+  let t = 2.0 * max(abs(f.x), abs(f.y));
+  var ea = c.x; var eb = c.w; var s = 0.5;
+  if (abs(f.x) >= abs(f.y)) {
+    s = 0.5 + f.y / max(2.0 * abs(f.x), 0.0001);
+    if (f.x > 0.0) { ea = c.y; eb = c.z; }
+  } else {
+    s = 0.5 + f.x / max(2.0 * abs(f.y), 0.0001);
+    if (f.y > 0.0) { ea = c.w; eb = c.z; } else { eb = c.y; }
+  }
+  return m + t * (mix(ea, eb, s) - m);
+}
+
 @vertex
 fn mainVertex(
   @location(0) aVertexId: f32,
@@ -942,6 +968,7 @@ fn mainVertex(
   var fx = 0.0;
   var fy = 0.0;
   var h = 0.0;
+  var sloped = false;
   var rgb = vec3<f32>(0.0);
   var alpha = 0.0;
 
@@ -954,9 +981,12 @@ fn mainVertex(
     // about it, once, where every part asks.
     if (!facesOn()) { return out; }
     // (A shelf has no sides: its water is cut to the ground, not stood on a bed. @see mainFragment)
-    if (a == 0 && textureLoad(uShore, vec2<i32>((ocx / cpt) * 2 + 1, ocy / cpt), 0).y > 0.5) { return out; }
+    let okind = groundKind(ocx / cpt, ocy / cpt, a);
+    if (okind == 1) { return out; }
     let bd = depthAt(ocx, ocy, a);
     if (bd <= water.uBand.z) { return out; }
+    // (Thin water on sloped ground lies on it and has no sides: there is no step there for one to stand on.)
+    if (okind == 2 && bd < ${THIN_ON_SLOPE}) { return out; }
     if (!forward(ocx, ocy, part, cpt, a)) { return out; }
     let p = sidePart(ocx, ocy, part, corner,
       fx0 - select(0.0, step, part == 0), fy0 - select(step, 0.0, part == 0), step, bd, a);
@@ -994,23 +1024,36 @@ fn mainVertex(
     if (a == 0) {
       var shelf = false;
       var sum = 0.0;
+      sloped = false;
       var wets = 0.0;
       for (var k = 0; k < 4; k++) {
         let qx = vcx - (k % 2);
         let qy = vcy - (k / 2);
         if (!inside(qx, qy)) { continue; }
-        if (textureLoad(uShore, vec2<i32>((qx / cpt) * 2 + 1, qy / cpt), 0).y > 0.5) { shelf = true; }
+        let qk = groundKind(qx / cpt, qy / cpt, a);
+        if (qk == 1) { shelf = true; }
+        if (qk == 2) { sloped = true; }
         let qd = depthAt(qx, qy, a);
         if (wet(qd)) { sum += groundAt(qx, qy, a) + qd; wets += 1.0; }
       }
       if (shelf && wets > 0.0) { h = max(h, sum / wets); }
-      if (textureLoad(uShore, vec2<i32>((ccx / cpt) * 2 + 1, ccy / cpt), 0).y > 0.5) {
+      if (groundKind(ccx / cpt, ccy / cpt, a) == 1) {
         out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, 1.0);
       }
     }
 
     let e = cornerExtras(vcx, vcy, mine);
     let cd = e.x; let wash = e.y; let foam = e.z; let speed = e.w;
+    // THIN WATER LIES ON THE GROUND AS IT IS DRAWN. The solver's floor is the tile's, flat; the ground drawn under
+    // it may be a bank. So where any tile round this corner is sloped, the corner is put at the DRAWN ground there
+    // plus the depth of the water at it — and the deeper the water the less, till standing water is level as it
+    // was. Asked of the corner, with the drawn ground the same from every tile that meets there, so every column
+    // that shares the vertex agrees. @see render/drawn.ts
+    if (sloped) {
+      let tx0 = ccx / cpt; let ty0 = ccy / cpt;
+      let lie = 1.0 - smoothstep(${THIN_ON_SLOPE}, ${THIN_ON_SLOPE * 3}, cd);
+      h = mix(h, groundFan(tx0, ty0, f32(vcx - tx0 * cpt) / f32(cpt), f32(vcy - ty0 * cpt) / f32(cpt)) + cd, lie);
+    }
     // ZOOMED OUT AND WHOLE, the gradient off the columns; otherwise off the
     // sheet, as the column-by-column mesh and the host builder have it.
     // @see nearbyFlat
@@ -1041,7 +1084,9 @@ fn mainVertex(
     // Skipped where it is filed FORWARD instead — see PARTS.
     if (d <= water.uBand.z) { return out; }
     if (!facesOn()) { return out; }
-    if (a == 0 && textureLoad(uShore, vec2<i32>((cx / cpt) * 2 + 1, cy / cpt), 0).y > 0.5) { return out; }
+    let kind = groundKind(cx / cpt, cy / cpt, a);
+    if (kind == 1) { return out; }
+    if (kind == 2 && d < ${THIN_ON_SLOPE}) { return out; }
     let axis = part - 3;
     if (forward(cx, cy, axis, cpt, a)) { return out; }
     let p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d, a);
