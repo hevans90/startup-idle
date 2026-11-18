@@ -57,7 +57,7 @@ import {
 } from "./render/bands";
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
 import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
-import { destroyGroundMesh } from "./render/ground-mesh";
+import { destroyGroundMesh, surfaceOf } from "./render/ground-mesh";
 import { buildPaved, createPavedLayer, dressPaved, evictUnused, lodPaved, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
 import { lodFor } from "./render/road-paint";
 import { lookDirtyCells } from "./roads/looks";
@@ -661,7 +661,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // And room for a big map's uniforms on WebGPU. @see roomForUniforms
       if (app?.renderer) roomForUniforms(app.renderer);
       const fl = water && !onGpu ? createWaterLayer(water.columns, bl, scale) : null;
-      gpuRef.current = water && onGpu ? createGpuWaterLayer(water.columns, bl, scale) : null;
+      gpuRef.current = water && onGpu ? createGpuWaterLayer(water.columns, bl, scale, surfaceOf(grid).source) : null;
       // Between the surface and the drips: a fall is drawn over the water
       // it is leaving and under the drops coming off it.
       faRef.current = water ? createFallLayer(bl, scale) : null;

@@ -28,7 +28,7 @@ import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureOf, type Grid } 
 import { structureDef } from "../structures/def";
 import type { BandLayer } from "./bands";
 import { terrainName } from "../terrain-names";
-import { cornerZ, drawnCorner, drawnFlat, pinned } from "./drawn";
+import { cornerZ, drawnCentre, drawnCorner, drawnFlat, pinned, shelfOf } from "./drawn";
 
 export { cornerZ };
 
@@ -141,8 +141,9 @@ export type GroundMesh = {
   /** A texel a cell: class, height + 128, flags (1 drawn, ramp direction × 2, rise in half steps × 16), 255. */
   cells: Uint8Array;
   source: BufferImageSource;
-  /** A texel a cell: its drawn corners (0,0), (1,0), (1,1) over its own height, (z + 4) × 30; 255. */
-  edges: Uint8Array;
+  /** The drawn surface, two texels a cell. @see surfaceOf */
+  edges: Float32Array;
+  grid: Grid;
   edgeSource: BufferImageSource;
   uniforms: UniformGroup;
   meshes: Mesh<Geometry, Shader>[];
@@ -169,7 +170,7 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
     // a top says the light on it where a wall says its kind (under a half either way), and its height. @see drawn.ts
     const z00 = drawnCorner(grid, x, y, 0, 0), z10 = drawnCorner(grid, x, y, 1, 0);
     const z11 = drawnCorner(grid, x, y, 1, 1), z01 = drawnCorner(grid, x, y, 0, 1);
-    const zm = grid.height[idx(grid, x, y)];
+    const zm = drawnCentre(grid, x, y);
     if (pinned(grid, x, y) || (z00 === zm && z10 === zm && z11 === zm && z01 === zm)) {
       // Level, or a ramp: a plane tilted toward its high edge.
       const lit = slopeLight(grid.ramp[idx(grid, x, y)]);
@@ -227,12 +228,34 @@ function writeCell(gm: GroundMesh, grid: Grid, palette: Palette, x: number, y: n
   gm.cells[o + 3] = 255;
   writeEdges(gm, grid, x, y);
 }
-/** A cell's drawn corners (0,0), (1,0) and (1,1) over its own height, for the shadow's ray to meet. @see shadowAt */
+/**
+ * THE DRAWN SURFACE AS A TEXTURE, two texels a cell, floats: its four corners (0,0), (1,0), (1,1), (0,1), half
+ * steps; then its middle, whether it is a shelf, and the level of the standing water on it or beside it (−999 with
+ * none). The ground's shader reads it for shadows and the beach; the water's for where the shore cuts it.
+ * One a grid, made by whichever asks first. @see drawn.ts, water-gpu.ts
+ */
+const surfaces = new WeakMap<Grid, { data: Float32Array; source: BufferImageSource }>();
+export function surfaceOf(grid: Grid): { data: Float32Array; source: BufferImageSource } {
+  let s = surfaces.get(grid);
+  if (!s) {
+    const data = new Float32Array(grid.w * 2 * grid.h * 4).fill(-999);
+    s = { data, source: new BufferImageSource({ resource: data, width: grid.w * 2, height: grid.h, format: "rgba32float", scaleMode: "nearest" }) };
+    surfaces.set(grid, s);
+  }
+  return s;
+}
 function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number) {
-  const i = idx(grid, x, y), o = i * 4, h = grid.height[i];
-  const put = (k: number, z: number) => { gm.edges[o + k] = Math.max(0, Math.min(255, Math.round((z - h + 4) * 30))); };
-  put(0, drawnCorner(grid, x, y, 0, 0)); put(1, drawnCorner(grid, x, y, 1, 0)); put(2, drawnCorner(grid, x, y, 1, 1));
-  gm.edges[o + 3] = 255;
+  const o = idx(grid, x, y) * 8, e = gm.edges;
+  e[o] = drawnCorner(grid, x, y, 0, 0); e[o + 1] = drawnCorner(grid, x, y, 1, 0); e[o + 2] = drawnCorner(grid, x, y, 1, 1); e[o + 3] = drawnCorner(grid, x, y, 0, 1);
+  e[o + 4] = drawnCentre(grid, x, y);
+  e[o + 5] = shelfOf(grid, x, y) === null ? 0 : 1;
+  let level = -999;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    if (!inBounds(grid, x + dx, y + dy)) continue;
+    const j = idx(grid, x + dx, y + dy);
+    if (grid.pool[j] > 0) level = Math.max(level, grid.height[j] + grid.pool[j]);
+  }
+  e[o + 6] = level; e[o + 7] = 1;
 }
 
 export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale = 1): GroundMesh {
@@ -243,9 +266,8 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
     // there is, half steps: nothing higher can throw a shadow. @see shadowAt
     uMap: { value: new Float32Array([grid.w, grid.h, 1 / (HW * scale), grid.maxHeight + 2]), type: "vec4<f32>" },
   });
-  const edges = new Uint8Array(grid.w * grid.h * 4);
-  const edgeSource = new BufferImageSource({ resource: edges, width: grid.w, height: grid.h, format: "rgba8unorm", scaleMode: "nearest" });
-  const gm: GroundMesh = { cells, source, edges, edgeSource, uniforms, meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
+  const { data: edges, source: edgeSource } = surfaceOf(grid);
+  const gm: GroundMesh = { cells, source, edges, edgeSource, grid, uniforms, meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
   for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) writeCell(gm, grid, palette, x, y);
   source.update();
   edgeSource.update();
@@ -301,10 +323,13 @@ export function flushGround(gm: GroundMesh, grid: Grid, palette: Palette) {
 }
 
 export function destroyGroundMesh(gm: GroundMesh) {
+  if (surfaces.get(gm.grid)?.source === gm.edgeSource) surfaces.delete(gm.grid);
   for (const m of gm.meshes) { m.parent?.removeChild(m); m.geometry.destroy(true); m.destroy(); }
   gm.meshes.length = 0;
   gm.source.destroy();
-  gm.edgeSource.destroy();
+  // (The water's layer reads this too, and goes in the same teardown: destroyed once this frame is done with it.)
+  const shared = gm.edgeSource;
+  setTimeout(() => shared.destroy(), 500);
 }
 
 // ─── THE SHADER ──────────────────────────────────────────────────────────────
@@ -317,6 +342,18 @@ function groundShader(gm: GroundMesh): Shader {
       vertex: { source: WGSL, entryPoint: "mainVertex" },
       fragment: { source: WGSL, entryPoint: "mainFragment" },
       name: "ground",
+      // Written out, not left to Pixi, which would have every texture filterable: the drawn surface is floats,
+      // fetched and never filtered, and a filterable binding will not take it. @see water-gpu.ts gpuLayout
+      layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { ground: 0, uCells: 1, uEdges: 2 }],
+      gpuLayout: [
+        [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
+        [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
+        [
+          { binding: 0, visibility: 2, buffer: { type: "uniform" } },
+          { binding: 1, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+          { binding: 2, visibility: 2, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
+        ],
+      ],
     }),
     gl: GlProgram.from({ vertex: GLSL_VERTEX, fragment: GLSL_FRAGMENT, name: "ground" }),
   };
@@ -408,8 +445,8 @@ const SUN = vec2<f32>(-0.94, 0.34);
 const SHADOW_RUN = 0.55;
 // A cell's height in half steps, a ramp's at its middle.
 fn topOf(c: vec4<f32>) -> f32 { return c.y - 128.0 + riseOf(c) * 0.5; }
-// A cell's drawn corners (0,0), (1,0), (1,1), half steps over its own height. @see writeEdges
-fn edgesAt(c: vec2<i32>) -> vec3<f32> { return textureLoad(uEdges, c, 0).xyz * 8.5 - 4.0; }
+// A cell's drawn corners (0,0), (1,0), (1,1), (0,1), half steps. @see surfaceOf
+fn edgesAt(c: vec2<i32>) -> vec4<f32> { return textureLoad(uEdges, vec2<i32>(c.x * 2, c.y), 0); }
 // HOW MUCH OF THE SUN IS KEPT OFF a point at height h by the ground toward it: the ray walked a cell boundary at
 // a time, each cell it enters asked whether it stands over the ray there. Soft, and softer the further it falls.
 fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
@@ -424,10 +461,9 @@ fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
     // The cell the ray goes into there, and how high the edge it goes in by stands where it does.
     let y = p.y + SUN.y * t;
     let at = vec2<i32>(i32(bx) - 1, i32(floor(y)));
-    let c = cellAt(at);
-    if (c.w < 0.5) { break; }
+    if (at.x < 0 || at.y < 0 || at.y >= i32(ground.uMap.y)) { break; }
     let e = edgesAt(at);
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (c.y - 128.0 + mix(e.y, e.z, fract(y)) - h) * SHADOW_RUN - t));
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (mix(e.y, e.z, fract(y)) - h) * SHADOW_RUN - t));
   }
   let cy = floor(p.y);
   for (var j = 0; j < 2; j++) {
@@ -436,10 +472,9 @@ fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
     if (t > far) { break; }
     let x = p.x + SUN.x * t;
     let at = vec2<i32>(i32(floor(x)), i32(by));
-    let c = cellAt(at);
-    if (c.w < 0.5) { break; }
+    if (at.x < 0 || at.y < 0 || at.y >= i32(ground.uMap.y)) { break; }
     let e = edgesAt(at);
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (c.y - 128.0 + mix(e.x, e.y, fract(x)) - h) * SHADOW_RUN - t));
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (mix(e.x, e.y, fract(x)) - h) * SHADOW_RUN - t));
   }
   return s;
 }
@@ -735,7 +770,15 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   var col: vec3<f32>;
   // A top's second word is the light on its slope, 0 on the level.
   if (vWall.x < 0.5) {
-    col = relit(topColour(vGround, fp) * (1.0 + vWall.x), vGround, vWall.y, true);
+    col = topColour(vGround, fp);
+    // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
+    let level = textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).z;
+    if (level > -900.0) {
+      let over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
+      let beach = 1.0 - smoothstep(0.15, 0.6, over);
+      if (beach > 0.0) { col = mix(col, sandAt(vGround, fp) * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach); }
+    }
+    col = relit(col * (1.0 + vWall.x), vGround, vWall.y, true);
   } else {
     col = wallColour(vGround, vWall.x, vWall.y, fp);
     // A face toward the light can stand in the shadow of ground further toward it.
@@ -783,7 +826,7 @@ in vec2 vWorld;
 out vec4 finalColor;
 uniform vec4 uMap;
 uniform sampler2D uCells;
-uniform sampler2D uEdges;
+uniform highp sampler2D uEdges;
 
 float hash(ivec2 p) {
   uint h = uint(p.x) * 1664525u + uint(p.y) * 1013904223u;
@@ -812,7 +855,7 @@ float riseOf(vec4 c) { return floor((c.z + 0.5) / 16.0); }
 const vec2 SUN = vec2(-0.94, 0.34);
 const float SHADOW_RUN = 0.55;
 float topOf(vec4 c) { return c.y - 128.0 + riseOf(c) * 0.5; }
-vec3 edgesAt(ivec2 c) { return texelFetch(uEdges, c, 0).xyz * 8.5 - 4.0; }
+vec4 edgesAt(ivec2 c) { return texelFetch(uEdges, ivec2(c.x * 2, c.y), 0); }
 float shadowAt(vec2 p, float h) {
   float s = 0.0;
   float far = (uMap.w - h) * SHADOW_RUN;
@@ -823,10 +866,9 @@ float shadowAt(vec2 p, float h) {
     if (t > far) break;
     float y = p.y + SUN.y * t;
     ivec2 at = ivec2(int(bx) - 1, int(floor(y)));
-    vec4 c = cellAt(at);
-    if (c.w < 0.5) break;
-    vec3 e = edgesAt(at);
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (c.y - 128.0 + mix(e.y, e.z, fract(y)) - h) * SHADOW_RUN - t));
+    if (at.x < 0 || at.y < 0 || at.y >= int(uMap.y)) break;
+    vec4 e = edgesAt(at);
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (mix(e.y, e.z, fract(y)) - h) * SHADOW_RUN - t));
   }
   float cy = floor(p.y);
   for (int j = 0; j < 2; j++) {
@@ -835,10 +877,9 @@ float shadowAt(vec2 p, float h) {
     if (t > far) break;
     float x = p.x + SUN.x * t;
     ivec2 at = ivec2(int(floor(x)), int(by));
-    vec4 c = cellAt(at);
-    if (c.w < 0.5) break;
-    vec3 e = edgesAt(at);
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (c.y - 128.0 + mix(e.x, e.y, fract(x)) - h) * SHADOW_RUN - t));
+    if (at.x < 0 || at.y < 0 || at.y >= int(uMap.y)) break;
+    vec4 e = edgesAt(at);
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (mix(e.x, e.y, fract(x)) - h) * SHADOW_RUN - t));
   }
   return s;
 }
@@ -1085,7 +1126,14 @@ void main() {
   }
   vec3 col;
   if (vWall.x < 0.5) {
-    col = relit(topColour(vGround, fp) * (1.0 + vWall.x), vGround, vWall.y, true);
+    col = topColour(vGround, fp);
+    float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;
+    if (level > -900.0) {
+      float over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
+      float beach = 1.0 - smoothstep(0.15, 0.6, over);
+      if (beach > 0.0) col = mix(col, sandAt(vGround, fp) * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
+    }
+    col = relit(col * (1.0 + vWall.x), vGround, vWall.y, true);
   } else {
     col = wallColour(vGround, vWall.x, vWall.y, fp);
     if (vWall.x > 1.5) {

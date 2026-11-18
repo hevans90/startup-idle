@@ -513,10 +513,16 @@ struct Water {
 // it is in the resources. @see world/water/pollution
 @group(2) @binding(12) var uPollution : texture_2d<f32>;
 @group(2) @binding(13) var uQuads : texture_2d<u32>;
+// THE GROUND AS IT IS DRAWN, two texels a tile: its corners; then its middle and whether it is a SHELF — a tile
+// of standing water at a shore, where the drawn ground comes up through the surface and the water is cut to it.
+// @see render/drawn.ts, ground-mesh.ts surfaceOf
+@group(2) @binding(14) var uShore : texture_2d<f32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) vColor: vec4<f32>,
+  // Where on the ground (tiles, a tile covering x…x+1), the level of the water there, and whether to cut it to the shore.
+  @location(1) vShore: vec4<f32>,
 };
 
 /** How many STOREYS a column has. @see ColumnField.layers */
@@ -856,6 +862,7 @@ fn mainVertex(
   var out: VSOutput;
   out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
   out.vColor = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+  out.vShore = vec4<f32>(0.0);
   let cpt = i32(water.uGrid.z);
   let per = cpt * cpt;
   // ONE INSTANCE PER QUAD, four vertices each. The band's instance count is
@@ -946,6 +953,8 @@ fn mainVertex(
     // ocx/ocy ARE that column, and the tier gate above has already been asked
     // about it, once, where every part asks.
     if (!facesOn()) { return out; }
+    // (A shelf has no sides: its water is cut to the ground, not stood on a bed. @see mainFragment)
+    if (a == 0 && textureLoad(uShore, vec2<i32>((ocx / cpt) * 2 + 1, ocy / cpt), 0).y > 0.5) { return out; }
     let bd = depthAt(ocx, ocy, a);
     if (bd <= water.uBand.z) { return out; }
     if (!forward(ocx, ocy, part, cpt, a)) { return out; }
@@ -977,6 +986,13 @@ fn mainVertex(
     h = max(c.x, bed);
     fx = fx0 + f32(ox * span) * step;
     fy = fy0 + f32(oy * span) * step;
+    // AT A SHORE the surface stays level to the tile's edge — not drawn down to the bed there — and the fragment
+    // cuts it where the drawn ground comes up through it. @see mainFragment
+    if (a == 0 && textureLoad(uShore, vec2<i32>((ccx / cpt) * 2 + 1, ccy / cpt), 0).y > 0.5) {
+      let level = bed + depthAt(ccx, ccy, a);
+      h = max(h, level);
+      out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, level, 1.0);
+    }
 
     let e = cornerExtras(vcx, vcy, mine);
     let cd = e.x; let wash = e.y; let foam = e.z; let speed = e.w;
@@ -1010,6 +1026,7 @@ fn mainVertex(
     // Skipped where it is filed FORWARD instead — see PARTS.
     if (d <= water.uBand.z) { return out; }
     if (!facesOn()) { return out; }
+    if (a == 0 && textureLoad(uShore, vec2<i32>((cx / cpt) * 2 + 1, cy / cpt), 0).y > 0.5) { return out; }
     let axis = part - 3;
     if (forward(cx, cy, axis, cpt, a)) { return out; }
     let p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d, a);
@@ -1032,9 +1049,40 @@ fn mainVertex(
 `;
 
 const FRAGMENT_WGSL = /* wgsl */ `
+@group(2) @binding(14) var uShore : texture_2d<f32>;
+fn shoreHash(p: vec2<f32>) -> f32 { return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453); }
+fn shoreNoise(p: vec2<f32>) -> f32 {
+  let i = floor(p); let f = fract(p); let u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(shoreHash(i), shoreHash(i + vec2<f32>(1.0, 0.0)), u.x), mix(shoreHash(i + vec2<f32>(0.0, 1.0)), shoreHash(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
+}
 @fragment
-fn mainFragment(@location(0) vColor: vec4<f32>) -> @location(0) vec4<f32> {
-  return vColor;
+fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vShore: vec4<f32>) -> @location(0) vec4<f32> {
+  // THE SHORE: the drawn ground under this pixel — a fan from the tile's middle to its corners, as the ground's
+  // mesh has it — and the water only where it is over that; clear at the very edge, with a line of foam.
+  if (vShore.w < 0.5) { return vColor; }
+  let cell = vec2<i32>(floor(vShore.xy));
+  let c = textureLoad(uShore, vec2<i32>(cell.x * 2, cell.y), 0);
+  let m = textureLoad(uShore, vec2<i32>(cell.x * 2 + 1, cell.y), 0).x;
+  let f = vShore.xy - floor(vShore.xy) - 0.5;
+  let t = 2.0 * max(abs(f.x), abs(f.y));
+  // The two corners of the edge this pixel's triangle of the fan goes out to, and how far along it.
+  var ea = c.x; var eb = c.w; var s = 0.5;
+  if (abs(f.x) >= abs(f.y)) {
+    s = 0.5 + f.y / max(2.0 * abs(f.x), 0.0001);
+    if (f.x > 0.0) { ea = c.y; eb = c.z; }
+  } else {
+    s = 0.5 + f.x / max(2.0 * abs(f.y), 0.0001);
+    if (f.y > 0.0) { ea = c.w; eb = c.z; } else { eb = c.y; }
+  }
+  let deep = vShore.z - (m + t * (mix(ea, eb, s) - m));
+  if (deep <= 0.0) { discard; }
+  // How far from the waterline, in tiles along the ground: the depth over how fast that triangle falls.
+  let out = deep / max(length(vec2<f32>(ea + eb - 2.0 * m, eb - ea)), 0.05);
+  var col = vColor * mix(0.25, 1.0, smoothstep(0.0, 0.5, deep));
+  let reach = 0.035 + 0.05 * shoreNoise(vShore.xy * 5.0) * shoreNoise(vShore.xy * 13.0 + 7.0);
+  let foam = (1.0 - smoothstep(reach * 0.6, reach, out)) * (1.0 - smoothstep(0.12, 0.3, deep)) * 0.8;
+  col = mix(col, vec4<f32>(0.94, 0.97, 0.96, 1.0), foam);
+  return col;
 }
 `;
 
@@ -1468,7 +1516,8 @@ void main() { finalColor = vColor; }
  * noticed until somebody counted. Exposed so a test can count.
  */
 export const waterShaderSource = () => ({
-  wgsl: WGSL + FRAGMENT_WGSL,
+  // (As one module: the shore texture is declared once, not once a stage.)
+  wgsl: WGSL + FRAGMENT_WGSL.replace("@group(2) @binding(14) var uShore : texture_2d<f32>;", ""),
   glsl: VERTEX_GLSL + FRAGMENT_GLSL,
 });
 
@@ -1583,13 +1632,18 @@ function gpuLayout(): GPUBindGroupLayoutEntry[][] {
   UINT_FIELDS.forEach((_, k) => own.push(texture(
     1 + FLOAT_FIELDS.length + BYTE_FIELDS.length + k, "uint",
   )));
+  // The drawn ground, read by the vertex stage (is this tile a shelf) and the fragment (where the shore cuts it).
+  own.push({
+    binding: 1 + FLOAT_FIELDS.length + BYTE_FIELDS.length + UINT_FIELDS.length, visibility: VERTEX_STAGE | FRAGMENT_STAGE,
+    texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false },
+  });
   return [[uniform(0)], [uniform(0)], own];
 }
 
 /** Which group each named resource belongs to — the other half Pixi infers. */
 function nameLayout(): Record<string, number>[] {
   const own: Record<string, number> = { water: 0 };
-  [...FLOAT_FIELDS, ...BYTE_FIELDS, ...UINT_FIELDS]
+  [...FLOAT_FIELDS, ...BYTE_FIELDS, ...UINT_FIELDS, "uShore"]
     .forEach((n, k) => { own[n] = 1 + k; });
   return [{ globalUniforms: 0 }, { localUniforms: 0 }, own];
 }
@@ -1657,7 +1711,9 @@ const viewOf = (data: Float32Array, nx: number, ny: number) =>
  * the same bands, drawn at the deck's own level because that is where its
  * ground is. @see WaterField.over
  */
-export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scale = 1): GpuWaterLayer {
+export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scale = 1, shore?: BufferImageSource): GpuWaterLayer {
+  // (With no ground to cut to — a second storey's water, a test — a texture that says nowhere is a shore.)
+  const shoreTex = shore ?? new BufferImageSource({ resource: new Float32Array(8), width: 2, height: 1, format: "rgba32float", scaleMode: "nearest" });
   const { nx, ny } = columns;
   const { gpu, gl } = programs();
 
@@ -1769,7 +1825,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
         water,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
-        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads,
+        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex,
       },
     });
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
@@ -1805,7 +1861,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
         water: underWater,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
-        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads,
+        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex,
       },
     });
     const underMesh = new Mesh<Geometry, Shader>({ geometry: underGeom, shader: underShader });

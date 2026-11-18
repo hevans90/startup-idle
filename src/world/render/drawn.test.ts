@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { RAMP, createGrid, fillTerrain, idx, setHeight, setRamp } from "../grid";
-import { CLIFF, cornerZ, drawnCorner, drawnFlat, drawnHeight, pinned } from "./drawn";
+import { CLIFF, SHELF, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, pinned, shelfOf } from "./drawn";
 
 function flat(w = 4, h = 4) {
   const grid = createGrid(w, h);
@@ -68,13 +68,35 @@ describe("the drawn surface", () => {
     expect(drawnHeight(grid, 1.5, 1.5)).toBe(1);
   });
 
-  test("ground beside standing water comes down to its level at the tile's edge; the bed is flat", () => {
-    const grid = flat();
-    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) setHeight(grid, x, y, 4);
-    setHeight(grid, 1, 1, 0);
-    grid.pool[idx(grid, 1, 1)] = 2;
-    for (const [u, v] of CORNERS) expect(drawnCorner(grid, 1, 1, u, v)).toBe(0);
-    expect(drawnCorner(grid, 2, 1, 0, 0)).toBe(2);
-    expect(drawnCorner(grid, 2, 1, 1, 0)).toBe(4);
+  test("the shore: water beside low land is drawn on a shelf, and every corner they share stands over the water", () => {
+    const grid = flat(6, 6);
+    // Land at 4 where y < x (a 1:1 stepped bank), water over a bed at -4 to a level of 2 elsewhere.
+    for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) {
+      if (y < x) setHeight(grid, x, y, 4);
+      else { setHeight(grid, x, y, -4); grid.pool[idx(grid, x, y)] = 6; }
+    }
+    // A pocket of the bank, land on two sides: a shelf just under the water.
+    expect(shelfOf(grid, 2, 2)).toBeCloseTo(2 - SHELF);
+    expect(drawnCentre(grid, 2, 2)).toBeCloseTo(2 - SHELF);
+    // Out in the water: its bed.
+    expect(shelfOf(grid, 0, 4)).toBeNull();
+    expect(drawnCentre(grid, 0, 4)).toBe(-4);
+    // Every corner land and water share is over the water, from both sides alike.
+    for (let k = 1; k < 5; k++) {
+      expect(drawnCorner(grid, k, k, 0, 0)).toBeGreaterThan(2);
+      expect(drawnCorner(grid, k, k, 0, 0)).toBe(drawnCorner(grid, k, k - 1, 0, 1));
+      expect(drawnCorner(grid, k, k, 1, 0)).toBeGreaterThan(2);
+    }
+    // And the pocket's corner out in the water is under it: the shoreline crosses the tile.
+    expect(drawnCorner(grid, 2, 2, 0, 1)).toBeLessThan(2);
+  });
+
+  test("land too far over the water is a cliff into it: no shelf", () => {
+    const grid = flat(3, 1);
+    setHeight(grid, 0, 0, 9);
+    for (const x of [1, 2]) { setHeight(grid, x, 0, 0); grid.pool[idx(grid, x, 0)] = 2; }
+    expect(shelfOf(grid, 1, 0)).toBeNull();
+    expect(drawnCorner(grid, 1, 0, 0, 0)).toBe(0);
+    expect(drawnCorner(grid, 0, 0, 1, 0)).toBe(9);
   });
 });
