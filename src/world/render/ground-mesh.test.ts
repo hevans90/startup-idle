@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import { RAMP, VOID, createGrid, fillTerrain, packRamp, setHeight, setRamp, setTerrain, type RampDir } from "../grid";
 import { GROUND, bandQuads, cornerZ, groundClassOf, groundDraws, slopeLight, wallFoot } from "./ground-mesh";
+import { setGroundMode } from "./ground-mode";
+
+setGroundMode("banks");
 
 const GRASS = 1, DIRT = 2, SAND = 3, WOODS = 4, OTHER = 5;
 // The fifth is a frame from the old tile browser, as an old save's palette has it: grass now.

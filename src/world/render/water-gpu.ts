@@ -53,6 +53,7 @@
  */
 import { holdShown } from "./hold";
 import { fieldWater } from "./water-mode";
+import { groundMode } from "./ground-mode";
 import { PIECE, PIECE_STEP } from "./water-piece";
 import { MIN_TEXTURE_DIMENSION, heldGpu } from "./device";
 import {
@@ -883,8 +884,15 @@ fn pieceOf(cx: i32, cy: i32, qx: i32, qy: i32, vx: i32, vy: i32) -> bool {
   let cpt = i32(water.uGrid.z);
   let ax = cx / cpt; let ay = cy / cpt; let bx = qx / cpt; let by = qy / cpt;
   if (ax == bx && ay == by) { return true; }
-  let ga = tileGround(ax, ay, vx, vy);
-  let gb = tileGround(bx, by, vx, vy);
+  // (On ground drawn as one continuous surface there is no step in bare ground at all: only what is BUILT stands
+  // apart from what is beside it — a quay, a wall between two roads — by its floor, a clear step over.)
+  var ga = tileGround(ax, ay, vx, vy);
+  var gb = tileGround(bx, by, vx, vy);
+  if (water.uList.w > 0.5) {
+    ga = groundAt(cx, cy, 0);
+    gb = groundAt(qx, qy, 0);
+    if (abs(ga - gb) < ${PIECE}) { return true; }
+  }
   if (abs(ga - gb) < ${PIECE_STEP}) { return true; }
   // OR A STEP THE WATER STANDS OVER. A drop parts the water only where the water on the low side is under the
   // ground on the high side — a lip it falls from, a wall that holds it. Where both stand over both grounds the
@@ -2022,7 +2030,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       // A uniform rather than a lookup because a band already has its own
       // shader — the offset is as much a property of the band as its first
       // tile is. @see quadList
-      uList: { value: new Float32Array([list.offsets[b], LIST_W, fieldWater() ? 1 : 0, 0]), type: "vec4<f32>" },
+      uList: { value: new Float32Array([list.offsets[b], LIST_W, fieldWater() ? 1 : 0, groundMode() === "smooth" ? 1 : 0]), type: "vec4<f32>" },
       // HOW MANY STOREYS a column has, and the spare. @see ColumnField.layers
       //
       // LAST, because the struct it fills says last. Pixi lays a uniform group
@@ -2072,7 +2080,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       uIso: { value: new Float32Array([HW * scale, HH * scale, HEIGHT_UNIT * scale, 1]), type: "vec4<f32>" },
       uBand: { value: new Float32Array([b, tx0, columns.params.dryDepth, tiles]), type: "vec4<f32>" },
       // ITS OWN SLICE, in the roofed tier's copy of the list. @see QuadList.second
-      uList: { value: new Float32Array([list.second + list.offsets[b], LIST_W, fieldWater() ? 1 : 0, 0]), type: "vec4<f32>" },
+      uList: { value: new Float32Array([list.second + list.offsets[b], LIST_W, fieldWater() ? 1 : 0, groundMode() === "smooth" ? 1 : 0]), type: "vec4<f32>" },
       uSlots: { value: new Float32Array([layers, 1, 0, 0]), type: "vec4<f32>" },
     });
     const underGeom = new Geometry({

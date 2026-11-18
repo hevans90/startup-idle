@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test";
 import { RAMP, createGrid, fillTerrain, idx, setHeight, setRamp, surfaceSampler } from "../grid";
 import { HEIGHT_UNIT, HH, HW, pickCell } from "../iso";
 import { CLIFF, CLIFF_EASE, SHELF, cornerZ, drawnCentre, drawnCorner, drawnFlat, cornerShift, drawnHeight, drawnSampler, pinned, shelfOf } from "./drawn";
+import { setGroundMode } from "./ground-mode";
+
+setGroundMode("banks");
 
 function flat(w = 4, h = 4) {
   const grid = createGrid(w, h);

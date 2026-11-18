@@ -28,7 +28,8 @@ import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureOf, type Grid } 
 import { structureDef } from "../structures/def";
 import type { BandLayer } from "./bands";
 import { terrainName } from "../terrain-names";
-import { cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, pinned, shelfOf } from "./drawn";
+import { built, cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, pinned, shelfOf, smoothAt } from "./drawn";
+import { groundMode } from "./ground-mode";
 
 export { cornerZ };
 
@@ -175,6 +176,47 @@ export type GroundMesh = {
   h: number;
 };
 
+/** How finely a tile of the continuous surface is meshed, a side: the grid the water's solver works on. */
+const FINE = 4;
+const lattice = new Float64Array((FINE + 3) * (FINE + 3));
+/**
+ * A TILE OF THE CONTINUOUS SURFACE (@see drawn.ts smoothAt): `FINE` by `FINE` quads over it, each vertex at the
+ * surface's own height there, lit by its fall toward the sun and saying how steep it is — both from the surface
+ * either side of it, so neither turns at a quad's edge or a tile's. One quad where it is all level. No wall but at
+ * the map's edge or over a void: bare ground meets what is beside it of itself.
+ */
+function smoothCell(grid: Grid, x: number, y: number, at: (gu: number, gv: number, z: number, kind: number, depth: number, steep?: number) => void) {
+  const N = FINE + 3, L = lattice, q = 1 / FINE;
+  let flat = true;
+  for (let b = 0; b < N; b++) for (let a = 0; a < N; a++) {
+    const z = L[b * N + a] = smoothAt(grid, x + (a - 1) * q, y + (b - 1) * q);
+    if (z !== L[0]) flat = false;
+  }
+  const zAt = (a: number, b: number) => L[(b + 1) * N + a + 1];
+  if (flat) { const z = zAt(0, 0); at(x, y, z, 0, z); at(x + 1, y, z, 0, z); at(x + 1, y + 1, z, 0, z); at(x, y + 1, z, 0, z); }
+  else {
+    const put = (a: number, b: number) => {
+      // The fall across this vertex, half steps a tile, from the surface a quad's width either side.
+      const gx = (zAt(a + 1, b) - zAt(a - 1, b)) / (2 * q), gy = (zAt(a, b + 1) - zAt(a, b - 1)) / (2 * q), z = zAt(a, b);
+      at(x + a * q, y + b * q, z, litOf(gx, gy), z, Math.hypot(gx, gy));
+    };
+    for (let b = 0; b < FINE; b++) for (let a = 0; a < FINE; a++) { put(a, b); put(a + 1, b); put(a + 1, b + 1); put(a, b + 1); }
+  }
+  // THE MAP'S EDGE, and a void: a wall down to the map's underside, a quad a stretch of the edge.
+  const open = (nx: number, ny: number) => !inBounds(grid, nx, ny) || grid.terrain[idx(grid, nx, ny)] === VOID;
+  const foot = (nx: number, ny: number, z: number) => Math.min(inBounds(grid, nx, ny) ? grid.height[idx(grid, nx, ny)] : edgeBase(grid), z - 2);
+  for (let k = 0; k < FINE; k++) {
+    if (open(x + 1, y)) {
+      const za = zAt(FINE, k), zb = zAt(FINE, k + 1), fa = foot(x + 1, y, za), fb = foot(x + 1, y, zb);
+      at(x + 1, y + k * q, za, 1, 0); at(x + 1, y + (k + 1) * q, zb, 1, 0); at(x + 1, y + (k + 1) * q, fb, 1, zb - fb); at(x + 1, y + k * q, fa, 1, za - fa);
+    }
+    if (open(x, y + 1)) {
+      const za = zAt(k, FINE), zb = zAt(k + 1, FINE), fa = foot(x, y + 1, za), fb = foot(x, y + 1, zb);
+      at(x + k * q, y + 1, za, 2, 0); at(x + (k + 1) * q, y + 1, zb, 2, 0); at(x + (k + 1) * q, y + 1, fb, 2, zb - fb); at(x + k * q, y + 1, fa, 2, za - fa);
+    }
+  }
+}
+
 /** The quads of one band, as vertex floats and indices. Pure: for the mesh and for tests. */
 export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): { verts: Float32Array; idx: Uint32Array; quads: number } {
   const v: number[] = [];
@@ -192,6 +234,7 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
   for (let x = x0; x <= x1; x++) {
     const y = b - x;
     if (!groundDraws(grid, palette, x, y)) continue;
+    if (groundMode() === "smooth" && !built(grid, x, y)) { smoothCell(grid, x, y, at); continue; }
     // THE TOP, corners round its edge: (x, y), (x+1, y), (x+1, y+1), (x, y+1), each at its DRAWN height. A vertex of
     // a top says the light on it where a wall says its kind (under a half either way), and its height. @see drawn.ts
     const z00 = drawnCorner(grid, x, y, 0, 0), z10 = drawnCorner(grid, x, y, 1, 0);
@@ -317,6 +360,8 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
     // The map's size; world px to screen-shaped units, where a cell's diamond is 2 across; and the highest ground
     // there is, half steps: nothing higher can throw a shadow. @see shadowAt
     uMap: { value: new Float32Array([grid.w, grid.h, 1 / (HW * scale), grid.maxHeight + 2]), type: "vec4<f32>" },
+    // Whether the ground is one continuous surface (@see ground-mode.ts): it has no walls for shade to gather at the foot of.
+    uMode: { value: new Float32Array([groundMode() === "smooth" ? 1 : 0, 0, 0, 0]), type: "vec4<f32>" },
   });
   const { data: edges, source: edgeSource } = surfaceOf(grid);
   const gm: GroundMesh = { cells, source, edges, edgeSource, grid, uniforms, meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
@@ -352,9 +397,11 @@ export function markGround(gm: GroundMesh, grid: Grid, palette: Palette, x: numb
   writeCell(gm, grid, palette, x, y);
   // Every cell that shares a corner with it is drawn by its height too (@see drawn.ts), and the walls and fringes of
   // the cells beside those: two bands either way.
-  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && inBounds(grid, x + dx, y + dy)) writeEdges(gm, grid, x + dx, y + dy);
+  // (As one continuous surface a cell's height shapes the ground two cells out: further each way.)
+  const far = groundMode() === "smooth" ? 2 : 1;
+  for (let dy = -far; dy <= far; dy++) for (let dx = -far; dx <= far; dx++) if ((dx || dy) && inBounds(grid, x + dx, y + dy)) writeEdges(gm, grid, x + dx, y + dy);
   const b = bandOf(x, y);
-  for (let k = b - 3; k <= b + 3; k++) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
+  for (let k = b - 3 - far; k <= b + 3 + far; k++) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
 }
 
 /** Rebuild the bands marked, and send the texels. */
@@ -440,7 +487,7 @@ struct LocalUniforms {
   uRound: f32,
 };
 @group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
-struct Ground { uMap: vec4<f32> };
+struct Ground { uMap: vec4<f32>, uMode: vec4<f32> };
 @group(2) @binding(0) var<uniform> ground : Ground;
 @group(2) @binding(1) var uCells : texture_2d<f32>;
 @group(2) @binding(2) var uEdges : texture_2d<f32>;
@@ -565,7 +612,7 @@ fn contactAt(p: vec2<f32>, h: f32) -> f32 {
 }
 // A colour as the sun and the ground round it leave it.
 fn relit(col: vec3<f32>, p: vec2<f32>, h: f32, foot: bool) -> vec3<f32> {
-  var c = mix(col, col * vec3<f32>(0.60, 0.64, 0.74), shadowAt(p, h) * 0.72);
+  var c = mix(col, col * vec3<f32>(0.60, 0.64, 0.74), shadowAt(p, h) * mix(0.72, 0.5, ground.uMode.x));
   if (foot) { c = c * (1.0 - 0.34 * contactAt(p, h)); }
   return c;
 }
@@ -845,6 +892,13 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
       let bare = smoothstep(1.7, 3.4, steep + (fbm(vGround * 2.2 + 3.0) - 0.5) * 2.2);
       if (bare > 0.0) { col = mix(col, dirtAt(vGround, fp) * 0.88, bare * 0.85); }
     }
+    // A FACE TOO STEEP FOR EARTH IS ROCK — bedded by its height, so the beds run level across a cliff — coming
+    // through the bare earth as the ground steepens. (The continuous surface has no walls: this is its cliff.)
+    if (steep > 3.2) {
+      let rock = wallColour(vGround, select(1.0, 2.0, vWall.x > -0.05), 46.0 - vWall.y, fp);
+      // (Its two shades already say which way it faces: it is not darkened for that again below.)
+      col = mix(col, rock / (1.0 + vWall.x), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
+    }
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
     let level = textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).z;
     if (level > -900.0) {
@@ -852,7 +906,7 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
       let beach = 1.0 - smoothstep(0.15, 0.6, over);
       if (beach > 0.0) { col = mix(col, sandAt(vGround, fp) * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach); }
     }
-    col = relit(col * (1.0 + vWall.x), vGround, vWall.y, true);
+    col = relit(col * (1.0 + vWall.x), vGround, vWall.y, ground.uMode.x < 0.5);
   } else {
     col = wallColour(vGround, vWall.x, vWall.y, fp);
     // A face toward the light can stand in the shadow of ground further toward it.
@@ -903,6 +957,7 @@ in vec2 vWorld;
 in float vSteep;
 out vec4 finalColor;
 uniform vec4 uMap;
+uniform vec4 uMode;
 uniform sampler2D uCells;
 uniform highp sampler2D uEdges;
 
@@ -988,7 +1043,7 @@ float contactAt(vec2 p, float h) {
   return a;
 }
 vec3 relit(vec3 col, vec2 p, float h, bool foot) {
-  vec3 c = mix(col, col * vec3(0.60, 0.64, 0.74), shadowAt(p, h) * 0.72);
+  vec3 c = mix(col, col * vec3(0.60, 0.64, 0.74), shadowAt(p, h) * mix(0.72, 0.5, uMode.x));
   if (foot) c *= 1.0 - 0.34 * contactAt(p, h);
   return c;
 }
@@ -1220,13 +1275,17 @@ void main() {
       float bare = smoothstep(1.7, 3.4, steep + (fbm(vGround * 2.2 + 3.0) - 0.5) * 2.2);
       if (bare > 0.0) col = mix(col, dirtAt(vGround, fp) * 0.88, bare * 0.85);
     }
+    if (steep > 3.2) {
+      vec3 rock = wallColour(vGround, vWall.x > -0.05 ? 2.0 : 1.0, 46.0 - vWall.y, fp);
+      col = mix(col, rock / (1.0 + vWall.x), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
+    }
     float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;
     if (level > -900.0) {
       float over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
       float beach = 1.0 - smoothstep(0.15, 0.6, over);
       if (beach > 0.0) col = mix(col, sandAt(vGround, fp) * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
     }
-    col = relit(col * (1.0 + vWall.x), vGround, vWall.y, true);
+    col = relit(col * (1.0 + vWall.x), vGround, vWall.y, uMode.x < 0.5);
   } else {
     col = wallColour(vGround, vWall.x, vWall.y, fp);
     if (vWall.x > 1.5) {

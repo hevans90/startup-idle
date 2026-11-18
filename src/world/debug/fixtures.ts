@@ -31,7 +31,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -1202,13 +1202,43 @@ export function buildTerrain(g: Grid, material: number) {
 }
 
 /**
+ * GROUND AS A HAND LEAVES IT: tiles raised and lowered one at a time and in clumps, by a little and by a lot, with
+ * no thought for their neighbours — lone spikes, pits, a ridge a tile wide, plateaus with ragged edges — a pond in
+ * the middle of it and a road across. What a way of drawing the ground has to survive. @see plans/terrain-quality.md
+ */
+export function buildRough(g: Grid, material: number) {
+  clear(g, material);
+  let seed = 12345;
+  const rnd = () => (seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) set(g, x, y, 4);
+  // Clumps, raised and sunk; then single tiles on top of them.
+  for (let k = 0; k < 40; k++) {
+    const cx = Math.floor(rnd() * g.w), cy = Math.floor(rnd() * g.h), r = 1 + Math.floor(rnd() * 4), dz = Math.round((rnd() - 0.4) * 14);
+    for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
+      if (inBounds(g, x, y) && rnd() < 0.8) set(g, x, y, Math.max(-6, Math.min(24, g.height[idx(g, x, y)] + dz)));
+    }
+  }
+  for (let k = 0; k < 160; k++) {
+    const x = Math.floor(rnd() * g.w), y = Math.floor(rnd() * g.h);
+    set(g, x, y, Math.max(-6, Math.min(26, g.height[idx(g, x, y)] + Math.round((rnd() - 0.5) * 10))));
+  }
+  // A ridge a tile wide, and a trench.
+  for (let x = 6; x < 20; x++) { set(g, x, 8, 14); set(g, x, 12, -4); }
+  // A pond, filled to a level; and a road across the lot, at one height.
+  for (let y = 26; y < 36; y++) for (let x = 26; x < 38; x++) set(g, x, y, Math.hypot(x - 32, y - 31) < 4.5 ? -2 : g.height[idx(g, x, y)]);
+  pond(g, 3, 1, 26, 26, 38, 36);
+  for (let x = 0; x < g.w; x++) { set(g, x, 40, 6); pave(g, x, 40); }
+  edited(g);
+}
+
+/**
  * Fixtures that want a map of their own size, rather than the one on screen.
  *
  * A rig is a size as much as it is a shape: `brink` is five tiles because five
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1220,7 +1250,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1268,6 +1298,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "junctions": buildJunctions(g, material); recomputeHeightRange(g); return;
     case "demolition": buildDemolition(g, material); recomputeHeightRange(g); return;
     case "terrain": buildTerrain(g, material); recomputeHeightRange(g); return;
+    case "rough": buildRough(g, material); recomputeHeightRange(g); return;
   }
 }
 

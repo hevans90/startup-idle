@@ -7,10 +7,13 @@
  * a mesh joined column to column by rule. One switch, read by the solver's
  * floor and by the drawing, so the two cannot disagree. @see plans/terrain-quality.md
  */
+import { groundMode } from "./ground-mode";
+
 /** What the address bar asks for; nothing, with no address bar (a test, a headless run). */
 const asked = (): boolean =>
   typeof location !== "undefined" && new URLSearchParams(location.search).get("water") === "field";
 let on = asked();
-export const fieldWater = (): boolean => on;
+/** Asked for; or the ground is one continuous surface, which the water as it was — a flat floor a tile — cannot lie on. */
+export const fieldWater = (): boolean => on || groundMode() === "smooth";
 /** For a test that wants it. */
 export const setFieldWater = (v: boolean): void => { on = v; };

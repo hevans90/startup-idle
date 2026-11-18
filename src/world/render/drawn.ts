@@ -21,6 +21,7 @@
  *
  * Pure: a corner is worked out from the cells round it and nothing kept.
  */
+import { groundMode } from "./ground-mode";
 import { fieldWater } from "./water-mode";
 import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureAt, type Grid } from "../grid";
 import type { SurfaceAt } from "../iso";
@@ -51,6 +52,11 @@ const SHELF_DROP = 2.5;
 
 /** Whether a cell is drawn flat at its own height (or its ramp's plane): something on it needs that. */
 export function pinned(grid: Grid, x: number, y: number): boolean {
+  // (With the ground drawn as the grid is — steps — every cell is.)
+  return groundMode() === "steps" || built(grid, x, y);
+}
+/** Whether something stands on a cell that was made for flat ground: paving, a ramp, a deck, a main, a building. */
+export function built(grid: Grid, x: number, y: number): boolean {
   const i = idx(grid, x, y);
   return !!grid.paved[i] || !!rampRise(grid.ramp[i]) || grid.deck[i] !== 0 || !!grid.main[i] || structureAt(grid, x, y) >= 0;
 }
@@ -75,6 +81,8 @@ function lipAt(grid: Grid, x: number, y: number): boolean {
  * that land, so every corner they share stays over the water. Null for any other cell.
  */
 export function shelfOf(grid: Grid, x: number, y: number): number | null {
+  // (As one continuous surface the bed needs no shelf: it comes up to the bank of itself.)
+  if (groundMode() !== "banks") return null;
   const i = idx(grid, x, y);
   if (!wet(grid, i) || pinned(grid, x, y)) return null;
   const level = grid.height[i] + grid.pool[i];
@@ -108,6 +116,7 @@ const near = [0, 0, 0, 0], reach = [0, 0, 0, 0], beds = [0, 0, 0, 0], wets = [fa
 /** The drawn height of cell `(x, y)` at its corner `(u, v)`, half steps. */
 export function drawnCorner(grid: Grid, x: number, y: number, u: number, v: number): number {
   if (pinned(grid, x, y)) return cornerZ(grid, x, y, u, v);
+  if (groundMode() === "smooth") return smoothAt(grid, x + u, y + v);
   // Its own middle; and what it is JOINED by — a shelf joins as the land a step over its water would, so the bank
   // beside it comes down to it and the deep bed beyond does not.
   const shelf = shelfOf(grid, x, y), h = shelf ?? grid.height[idx(grid, x, y)];
@@ -179,6 +188,7 @@ export function drawnHeight(grid: Grid, fx: number, fy: number): number {
   const a = Math.max(0, Math.min(1, fx - x)), b = Math.max(0, Math.min(1, fy - y));
   const c00 = drawnCorner(grid, x, y, 0, 0), c10 = drawnCorner(grid, x, y, 1, 0), c11 = drawnCorner(grid, x, y, 1, 1), c01 = drawnCorner(grid, x, y, 0, 1);
   if (pinned(grid, x, y)) return (c00 * (1 - a) + c10 * a) * (1 - b) + (c01 * (1 - a) + c11 * a) * b;
+  if (groundMode() === "smooth") return smoothAt(grid, fx, fy);
   const h = drawnCentre(grid, x, y), da = a - 0.5, db = b - 0.5, t = 2 * Math.max(Math.abs(da), Math.abs(db));
   if (t <= 0) return h;
   // Out along the ray from the middle to the edge it meets, and how far along that edge.
@@ -222,6 +232,7 @@ const shiftOut: [number, number] = [0, 0];
  */
 export function cornerShift(grid: Grid, X: number, Y: number): readonly [number, number] {
   shiftOut[0] = 0; shiftOut[1] = 0;
+  if (groundMode() !== "banks") return shiftOut;
   if (X <= 0 || Y <= 0 || X >= grid.w || Y >= grid.h) return shiftOut;
   let lo = Infinity, hi = -Infinity;
   const z = [0, 0, 0, 0];
@@ -264,4 +275,53 @@ export function fanHeight(fan: Float32Array, o: number, a: number, b: number): n
   if (Math.abs(da) >= Math.abs(db)) { const s = 0.5 + db / (2 * Math.abs(da)); edge = da > 0 ? c10 + (c11 - c10) * s : c00 + (c01 - c00) * s; }
   else { const s = 0.5 + da / (2 * Math.abs(db)); edge = db > 0 ? c01 + (c11 - c01) * s : c00 + (c10 - c00) * s; }
   return h + t * (edge - h);
+}
+
+// ─── ONE CONTINUOUS SURFACE ──────────────────────────────────────────────────
+
+/** A cell's height at its middle, as the surface is drawn through it: its own, a ramp's at its middle. Off the map or void, the nearest cell's. */
+function midOf(grid: Grid, x: number, y: number): number {
+  const cx = Math.max(0, Math.min(grid.w - 1, x)), cy = Math.max(0, Math.min(grid.h - 1, y)), i = idx(grid, cx, cy);
+  return grid.height[i] + rampRise(grid.ramp[i]) / 2;
+}
+/** The slope a curve takes through a point between two differences either side of it: none at a crest or a foot, and never more than the gentler asks — so it does not overshoot. */
+const lean = (a: number, b: number) => (a * b <= 0 ? 0 : (2 * a * b) / (a + b));
+/** A curve through p1 (t = 0) and p2 (t = 1), carrying on from p0 and toward p3: straight on an even slope, level on a level, an S down a step. */
+function through(p0: number, p1: number, p2: number, p3: number, t: number): number {
+  const m1 = lean(p1 - p0, p2 - p1), m2 = lean(p2 - p1, p3 - p2), t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * p1 + (t3 - 2 * t2 + t) * m1 + (-2 * t3 + 3 * t2) * p2 + (t3 - t2) * m2;
+}
+const row = [0, 0, 0, 0];
+/** How near built ground a point of bare ground starts to be drawn to meet it, tiles. */
+const MEET = 0.5;
+/**
+ * THE GROUND AS ONE CONTINUOUS SURFACE, at a point `(fx, fy)` (cells; a cell covers x…x+1), half steps. It goes
+ * through every cell's own height at its middle and curves between them — along each row of middles, then across
+ * the rows — with no choice anywhere between joining and parting: a big step is a steep face, a lone raised tile a
+ * round hill. BUILT ground is flat (a ramp its plane) across its whole tile, and bare ground within `MEET` of it is
+ * drawn to meet it at its edge: a cutting, an embankment. Pure.
+ */
+export function smoothAt(grid: Grid, fx: number, fy: number): number {
+  const px = Math.max(0, Math.min(grid.w, fx)), py = Math.max(0, Math.min(grid.h, fy));
+  const gx = px - 0.5, gy = py - 0.5, i0 = Math.floor(gx), j0 = Math.floor(gy), tx = gx - i0, ty = gy - j0;
+  for (let r = 0; r < 4; r++) {
+    const j = j0 - 1 + r;
+    row[r] = through(midOf(grid, i0 - 1, j), midOf(grid, i0, j), midOf(grid, i0 + 1, j), midOf(grid, i0 + 2, j), tx);
+  }
+  let z = through(row[0], row[1], row[2], row[3], ty);
+  // BUILT GROUND NEAR BY: each such tile's own height at its nearest point, the nearer counting for far more.
+  const cx = Math.floor(px), cy = Math.floor(py);
+  let near = 0, sum = 0, weight = 0;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const x = cx + dx, y = cy + dy;
+    if (!inBounds(grid, x, y) || grid.terrain[idx(grid, x, y)] === VOID || !built(grid, x, y)) continue;
+    const nx = Math.max(x, Math.min(x + 1, px)), ny = Math.max(y, Math.min(y + 1, py)), d = Math.hypot(px - nx, py - ny);
+    if (d >= MEET) continue;
+    const a = nx - x, b = ny - y;
+    const v = (cornerZ(grid, x, y, 0, 0) * (1 - a) + cornerZ(grid, x, y, 1, 0) * a) * (1 - b) + (cornerZ(grid, x, y, 0, 1) * (1 - a) + cornerZ(grid, x, y, 1, 1) * a) * b;
+    const s = 1 - d / MEET, w = s * s * (3 - 2 * s), k = 1 / (d * d + 1e-6);
+    near = Math.max(near, w); sum += v * k; weight += k;
+  }
+  if (weight > 0) z += (sum / weight - z) * near;
+  return z;
 }
