@@ -125,29 +125,6 @@ ${wgsl
 }
 
 ${wgsl
-    ? "fn skirtTo(cx: i32, cy: i32, qx: i32, qy: i32, a: i32) -> bool {"
-    : "bool skirtTo(int cx, int cy, int qx, int qy, int a) {"}
-  // WHETHER DRY COLUMN c IS A BANK TO THE WATER OF COLUMN q: its ground not standing over that water — that is a
-  // wall, and the water lies against it — nor well below its bed, which is a drop the water goes over.
-  ${NUM} g = groundAt(cx, cy, a);
-  ${NUM} gq = groundAt(qx, qy, a);
-  return g < gq + depthAt(qx, qy, a) + 0.3 && g > gq - 0.5;
-}
-
-${wgsl
-    ? "fn skirtAt(cx: i32, cy: i32, a: i32) -> bool {"
-    : "bool skirtAt(int cx, int cy, int a) {"}
-  // WHETHER ANY COLUMN ROUND THIS ONE, corner to corner, is a surface it is a bank to. The ground storey only.
-  if (a != 0) { return false; }
-  for (${wgsl ? "var" : "int"} k = 0; k < 9; k++) {
-    ${INT} qx = cx + (k % 3) - 1;
-    ${INT} qy = cy + (k / 3) - 1;
-    if (k != 4 && inside(qx, qy) && shows(qx, qy, a) && skirtTo(cx, cy, qx, qy, a)) { return true; }
-  }
-  return false;
-}
-
-${wgsl
     ? "fn quadDraws(cx: i32, cy: i32, part: i32, cpt: i32, faces: bool, a: i32) -> bool {"
     : "bool quadDraws(int cx, int cy, int part, int cpt, bool faces, int a) {"}
   if (!inside(cx, cy)) { return false; }
@@ -170,9 +147,7 @@ ${wgsl
   // Whether a NEIGHBOUR'S water hides a face is a different question and stays
   // wetJ: a face hung into the channel under a span would be a pane beneath
   // the deck's edge. @see shows
-  // OR A DRY COLUMN BESIDE WATER, on the ground storey: the water's edge is cut along a line that runs through
-  // it, so it draws a surface for that line to be on. @see water-gpu's vCover, skirtAt
-  if (part == 2) { return shows(cx, cy, a) || skirtAt(cx, cy, a); }
+  if (part == 2) { return shows(cx, cy, a); }
   if (!faces) { return false; }
   // A SIDE OF THIS COLUMN, unless it is filed forward into the band in front.
   if (!shows(cx, cy, a)) { return false; }
