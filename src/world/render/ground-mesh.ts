@@ -357,17 +357,22 @@ export function surfaceOf(grid: Grid): { data: Float32Array; source: BufferImage
   }
   return s;
 }
+/** How many cells from standing water the ground is still told its level, for the beach; and how much lower it is told it for each cell past the first, half steps. */
+const BEACH_REACH = 4, BEACH_FADE = 0.35;
 function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number) {
   const o = idx(grid, x, y) * 8, e = gm.edges;
   e[o] = drawnCorner(grid, x, y, 0, 0); e[o + 1] = drawnCorner(grid, x, y, 1, 0); e[o + 2] = drawnCorner(grid, x, y, 1, 1); e[o + 3] = drawnCorner(grid, x, y, 0, 1);
   e[o + 4] = drawnCentre(grid, x, y);
   // 1 a shelf; 2 bare ground that is not level, which thin water lies on as drawn. @see water-gpu.ts groundKind
   e[o + 5] = shelfOf(grid, x, y) !== null ? 1 : !pinned(grid, x, y) && !drawnFlat(grid, x, y) ? 2 : 0;
+  // THE WATER'S LEVEL, FOR THE BEACH: of the standing water nearest, out to `BEACH_REACH` cells — and told a little
+  // lower for each cell further off, so the sand gives out by height as it gets away from the water and does not
+  // stop dead at the edge of the last cell that was told. (−999: no water near.)
   let level = -999;
-  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+  for (let dy = -BEACH_REACH; dy <= BEACH_REACH; dy++) for (let dx = -BEACH_REACH; dx <= BEACH_REACH; dx++) {
     if (!inBounds(grid, x + dx, y + dy)) continue;
     const j = idx(grid, x + dx, y + dy);
-    if (grid.pool[j] > 0) level = Math.max(level, grid.height[j] + grid.pool[j]);
+    if (grid.pool[j] > 0) level = Math.max(level, grid.height[j] + grid.pool[j] - BEACH_FADE * Math.max(0, Math.max(Math.abs(dx), Math.abs(dy)) - 1));
   }
   // The last: 1, or 2 with standing water of its own; and 4 and 8 more where its drawn edge toward +x and +y is the
   // next cell's own — they are ONE PIECE of ground there, no cliff or wall between; and 16 more where it is BUILT
@@ -503,7 +508,8 @@ export function markGround(gm: GroundMesh, grid: Grid, palette: Palette, x: numb
   // the cells beside those: two bands either way.
   // (As one continuous surface a cell's height shapes the ground two cells out: further each way.)
   const far = groundMode() === "smooth" ? 2 : 1;
-  for (let dy = -far; dy <= far; dy++) for (let dx = -far; dx <= far; dx++) if ((dx || dy) && inBounds(grid, x + dx, y + dy)) writeEdges(gm, grid, x + dx, y + dy);
+  // (The edges out as far as a cell is told the water's level for the beach — the level is the ground's height and its water's.)
+  for (let dy = -BEACH_REACH; dy <= BEACH_REACH; dy++) for (let dx = -BEACH_REACH; dx <= BEACH_REACH; dx++) if ((dx || dy) && inBounds(grid, x + dx, y + dy)) writeEdges(gm, grid, x + dx, y + dy);
   const b = bandOf(x, y);
   for (let k = b - 3 - far; k <= b + 3 + far; k++) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
 }
@@ -663,6 +669,12 @@ fn edgesAt(c: vec2<i32>) -> vec4<f32> { return textureLoad(uEdges, vec2<i32>(c.x
 // HOW MUCH OF THE SUN IS KEPT OFF a point at height h by the ground toward it: the ray walked a cell boundary at
 // a time, each cell it enters asked whether it stands over the ray there. Soft, and softer the further it falls;
 // and only from ground that stands well over the point — a bank's own fall is lit by its slope, not shadowed in wedges.
+// The water's level a cell was told for the beach; one told none, a little under the asker's own. @see writeEdges
+fn levelAt(c: vec2<i32>, own: f32) -> f32 {
+  let n = vec2<i32>(i32(ground.uMap.x), i32(ground.uMap.y));
+  let v = textureLoad(uEdges, vec2<i32>(clamp(c.x, 0, n.x - 1) * 2 + 1, clamp(c.y, 0, n.y - 1)), 0).z;
+  return select(own - 0.35, v, v > -900.0);
+}
 fn shadeAt(c: vec2<i32>, n: vec2<i32>) -> f32 { return textureLoad(uShade, clamp(c, vec2<i32>(0), n - vec2<i32>(1)), 0).r; }
 fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
   // Worked out when the ground was (@see bakeShade): the four answers round the point, blended.
@@ -870,11 +882,26 @@ fn topColour(p: vec2<f32>, fp: f32) -> vec3<f32> {
   // How strongly each material claims this point: its nearest cell at the
   // same height, near is strong, ragged by noise of its own.
   var claim = vec3<f32>(-9.0);
+  // ON THE CONTINUOUS SURFACE a border is not a tile's edge: how much of each material lies round the point, the
+  // nine cells weighed by a smooth bell about it, and the border where two are even — a stair of tiles a line
+  // that wanders, a lone tile a round patch.
+  let soft = ground.uMode.x > 0.5;
+  let bf = p - floor(p);
+  var bx = vec3<f32>(0.5 * (1.0 - bf.x) * (1.0 - bf.x), 0.75 - (bf.x - 0.5) * (bf.x - 0.5), 0.5 * bf.x * bf.x);
+  var by = vec3<f32>(0.5 * (1.0 - bf.y) * (1.0 - bf.y), 0.75 - (bf.y - 0.5) * (bf.y - 0.5), 0.5 * bf.y * bf.y);
+  var cover = vec3<f32>(0.0);
   for (var dy = -1; dy <= 1; dy++) {
     for (var dx = -1; dx <= 1; dx++) {
       let n = cell + vec2<i32>(dx, dy);
       let c = cellAt(n);
       let k = i32(c.x + 0.5);
+      if (soft) {
+        let w = bx[dx + 1] * by[dy + 1];
+        if (k == 1) { cover.x = cover.x + w; }
+        if (k == 2) { cover.y = cover.y + w; }
+        if (k == 3) { cover.z = cover.z + w; }
+        continue;
+      }
       // Only ground it meets: a neighbour within a bank of it, not one over a cliff.
       if (k < 1 || k > 3 || c.y > here.y + riseOf(here) + 3.5 || c.y + riseOf(c) < here.y - 3.5) { continue; }
       let lo = vec2<f32>(n);
@@ -884,6 +911,10 @@ fn topColour(p: vec2<f32>, fp: f32) -> vec3<f32> {
       if (k == 2) { claim.y = max(claim.y, s); }
       if (k == 3) { claim.z = max(claim.z, s); }
     }
+  }
+  if (soft) {
+    let all = max(cover.x + cover.y + cover.z, 0.0001);
+    claim = select(vec3<f32>(-9.0), (cover / all * 2.0 - 1.0) * 1.2, cover > vec3<f32>(0.0));
   }
   // (Ragged only where two of them meet: a field of one thing has no border to be ragged, and most ground is that.)
   let met = step(-8.0, claim.x) + step(-8.0, claim.y) + step(-8.0, claim.z);
@@ -1029,8 +1060,14 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
       col = mix(col, rockAt(vGround, vWall.y, fp), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
     }
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
-    let level = textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).z;
+    var level = textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).z;
     if (level > -900.0) {
+      // (Blended between the cells round the point — one that was told none taken as a little lower than this one —
+      // so the sand's line does not step at a cell's edge.)
+      let lq = vGround - 0.5; let lc = vec2<i32>(floor(lq)); let lf = lq - floor(lq);
+      let l00 = levelAt(lc, level); let l10 = levelAt(lc + vec2<i32>(1, 0), level);
+      let l01 = levelAt(lc + vec2<i32>(0, 1), level); let l11 = levelAt(lc + vec2<i32>(1, 1), level);
+      level = mix(mix(l00, l10, lf.x), mix(l01, l11, lf.x), lf.y);
       let over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
       let beach = 1.0 - smoothstep(0.15, 0.6, over);
       if (beach > 0.0) { col = mix(col, sandAt(vGround, fp) * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach); }
@@ -1120,6 +1157,11 @@ const vec2 SUN = vec2(-0.94, 0.34);
 const float SHADOW_RUN = 0.55;
 float topOf(vec4 c) { return c.y - 128.0 + riseOf(c) * 0.5; }
 vec4 edgesAt(ivec2 c) { return texelFetch(uEdges, ivec2(c.x * 2, c.y), 0); }
+float levelAt(ivec2 c, float own) {
+  ivec2 n = ivec2(int(uMap.x), int(uMap.y));
+  float v = texelFetch(uEdges, ivec2(clamp(c.x, 0, n.x - 1) * 2 + 1, clamp(c.y, 0, n.y - 1)), 0).z;
+  return v > -900.0 ? v : own - 0.35;
+}
 float shadeAt(ivec2 c, ivec2 n) { return texelFetch(uShade, clamp(c, ivec2(0), n - ivec2(1)), 0).r; }
 float shadowAt(vec2 p, float h) {
   ivec2 n = ivec2(int(uMap.x), int(uMap.y)) * ${SHADE};
@@ -1287,11 +1329,23 @@ vec3 topColour(vec2 p, float fp) {
     if (kind == 3) return sandAt(p, fp);
   }
   vec3 claim = vec3(-9.0);
+  bool soft = uMode.x > 0.5;
+  vec2 bf = p - floor(p);
+  vec3 bx = vec3(0.5 * (1.0 - bf.x) * (1.0 - bf.x), 0.75 - (bf.x - 0.5) * (bf.x - 0.5), 0.5 * bf.x * bf.x);
+  vec3 by = vec3(0.5 * (1.0 - bf.y) * (1.0 - bf.y), 0.75 - (bf.y - 0.5) * (bf.y - 0.5), 0.5 * bf.y * bf.y);
+  vec3 cover = vec3(0.0);
   for (int dy = -1; dy <= 1; dy++) {
     for (int dx = -1; dx <= 1; dx++) {
       ivec2 n = cell + ivec2(dx, dy);
       vec4 c = cellAt(n);
       int k = int(c.x + 0.5);
+      if (soft) {
+        float w = bx[dx + 1] * by[dy + 1];
+        if (k == 1) cover.x += w;
+        if (k == 2) cover.y += w;
+        if (k == 3) cover.z += w;
+        continue;
+      }
       if (k < 1 || k > 3 || c.y > here.y + riseOf(here) + 3.5 || c.y + riseOf(c) < here.y - 3.5) continue;
       vec2 lo = vec2(n);
       float d = length(p - clamp(p, lo, lo + 1.0));
@@ -1300,6 +1354,10 @@ vec3 topColour(vec2 p, float fp) {
       if (k == 2) claim.y = max(claim.y, s);
       if (k == 3) claim.z = max(claim.z, s);
     }
+  }
+  if (soft) {
+    vec3 share = (cover / max(cover.x + cover.y + cover.z, 0.0001) * 2.0 - 1.0) * 1.2;
+    claim = vec3(cover.x > 0.0 ? share.x : -9.0, cover.y > 0.0 ? share.y : -9.0, cover.z > 0.0 ? share.z : -9.0);
   }
   float met = step(-8.0, claim.x) + step(-8.0, claim.y) + step(-8.0, claim.z);
   if (met > 1.5) {
@@ -1422,6 +1480,8 @@ void main() {
     }
     float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;
     if (level > -900.0) {
+      vec2 lq = vGround - 0.5; ivec2 lc = ivec2(floor(lq)); vec2 lf = lq - floor(lq);
+      level = mix(mix(levelAt(lc, level), levelAt(lc + ivec2(1, 0), level), lf.x), mix(levelAt(lc + ivec2(0, 1), level), levelAt(lc + ivec2(1, 1), level), lf.x), lf.y);
       float over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
       float beach = 1.0 - smoothstep(0.15, 0.6, over);
       if (beach > 0.0) col = mix(col, sandAt(vGround, fp) * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
