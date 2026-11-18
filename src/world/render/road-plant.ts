@@ -24,6 +24,7 @@
  * changing parent only as it crosses into another band. All of it stands
  * still while the job stands for want of a load. @see roads/jobs frontAt
  */
+import { drawnHeight } from "./drawn";
 import { Container, Graphics, Sprite } from "pixi.js";
 
 import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-sheet";
@@ -180,7 +181,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
           if (!plant || plant.here) work(j, plant, rest);
           if (plant) {
             // WHAT IS NOT AT WORK STANDS BY THE ROAD; and the low-loaders that brought the tracked ones, bare, till they take them home.
-            const z = g.height[idx(g, Math.max(0, Math.min(g.w - 1, Math.round(hd.x))), Math.max(0, Math.min(g.h - 1, Math.round(hd.y))))];
+            const z = drawnHeight(g, hd.x + 0.5, hd.y + 0.5);
             const stand = (name: string, looks: { look: string; tint: number; heading?: number }[], li: number, low: boolean) => {
               const id = `${j.id}:${name}`;
               if (seenU.has(id)) return;
@@ -219,8 +220,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               const fo = follow(poses, id, plant, ROAD_PLANT, mine.kind, mine.li, PLANT_COLOUR[mine.kind], mine, at, rest, dt);
               kept.set(id, { looks, at });
               if (!fo.at) return null;
-              const cx = Math.max(0, Math.min(g.w - 1, Math.round(fo.at.x))), cy = Math.max(0, Math.min(g.h - 1, Math.round(fo.at.y)));
-              if (fo.away) { at = { ...at, ...fo.at, z: g.height[idx(g, cx, cy)], pitch: 0 }; looks = looks.map((l) => (l.heading !== undefined ? { ...l, heading: fo.at!.heading } : l)); }
+              if (fo.away) { at = { ...at, ...fo.at, z: drawnHeight(g, fo.at.x + 0.5, fo.at.y + 0.5), pitch: 0 }; looks = looks.map((l) => (l.heading !== undefined ? { ...l, heading: fo.at!.heading } : l)); }
               else at = { ...at, ...fo.at };
               if (fo.loaded) looks = [{ look: "lowLoader", tint: YELLOW }];
             }

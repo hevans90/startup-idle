@@ -14,6 +14,7 @@
  * What is on the ground is drawn again only as a trade moves on; the machines
  * are units of the vehicles' sheet, moved by transform. @see plant-kit
  */
+import { drawnHeight } from "./drawn";
 import { Container, Graphics, Sprite, type Geometry, type Mesh, type Renderer, type Shader } from "pixi.js";
 
 import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-sheet";
@@ -480,7 +481,8 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
     };
     /** How far along the track a place along the line is abreast of. */
     const uOf = (p: number) => { const q = Math.max(0, Math.min(n - 1, p - 0.5)), k = Math.min(n - 2, Math.floor(q)); return n < 2 ? PL.uCell[0] : PL.uCell[k] + (PL.uCell[k + 1] - PL.uCell[k]) * (q - k); };
-    const cellH = (x: number, y: number) => { const cx = Math.max(0, Math.min(g.w - 1, Math.round(x))), cy = Math.max(0, Math.min(g.h - 1, Math.round(y))); return g.height[idx(g, cx, cy)]; };
+    // (Where the ground is DRAWN under a point: a machine crossing a bank stands on the bank. @see drawn.ts)
+    const cellH = (x: number, y: number) => drawnHeight(g, x + 0.5, y + 0.5);
 
     // WHERE THE WORK IS: which piece is the crane's, and how far through its turn; the trip that piece came on.
     const turnF = f[MAIN.set] * 2 - 1, turn = Math.floor(turnF);
@@ -720,7 +722,7 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
       if (q && q.key !== key) { destroyPipeDrawable(q.mesh); M_.loose.delete(name); q = undefined; }
       if (!q) { q = { mesh: saddleMesh(sd.along, scale, stuff.r), key, band: -1 }; M_.loose.set(name, q); }
       seenL.add(name);
-      const [x, y] = pt(scale, sd.x, sd.y, g.height[sd.i]), band = Math.max(0, Math.min(bands.dynamicOf.length - 1, bandOf(Math.round(sd.x), Math.round(sd.y))));
+      const [x, y] = pt(scale, sd.x, sd.y, drawnHeight(g, sd.x + 0.5, sd.y + 0.5)), band = Math.max(0, Math.min(bands.dynamicOf.length - 1, bandOf(Math.round(sd.x), Math.round(sd.y))));
       q.mesh.position.set(x, y);
       if (band !== q.band || !q.mesh.parent) { q.mesh.zIndex = sd.x + sd.y - band + 0.05; bands.dynamicOf[band]?.addChild(q.mesh); q.band = band; }
     }
@@ -874,13 +876,13 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
           // WHAT IS NOT AT WORK STANDS BY THE ROAD: a machine whose trade has not begun, or is over, drives there and waits.
           for (const [id, st] of poses) if (id.startsWith(`${j.id}:`) && !seen.has(id)) { const name = id.slice(id.indexOf(":") + 1), at = PLANT_UNIT[name] === "loader" ? parkAt(7 + (LOADER_IDX[name] ?? 0)) : parkAt(st.k); drive(name, id, at.x, at.y, st.heading, st.h, st.looks); }
           // (Every one of them from when they came — one whose trade has not begun yet stands and waits, as it will after.)
-          const hz = g.height[idx(g, Math.round(hd.x), Math.round(hd.y))], dig = [{ look: "exTracks", tint: YELLOW }, { look: "exLift", tint: YELLOW, heading: 0 }];
+          const hz = drawnHeight(g, hd.x + 0.5, hd.y + 0.5), dig = [{ look: "exTracks", tint: YELLOW }, { look: "exLift", tint: YELLOW, heading: 0 }];
           const stood: [string, { look: string; tint: number; heading?: number }[]][] = j.kind === "sewer"
             ? [["digger", dig], ["filler", dig], ["roller", [{ look: "roller", tint: YELLOW }]], ["crane", [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[0], tint: YELLOW, heading: 0 }]], ["welder", [{ look: "pickup", tint: YELLOW }]]]
             : [["footer", dig], ["mixer", [{ look: "mixer", tint: DRUM }]], ["crane", [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[0], tint: YELLOW, heading: 0 }]], ["welder", [{ look: "pickup", tint: YELLOW }]]];
           for (const [q, [name, looks]] of stood.entries()) if (!seen.has(`${j.id}:${name}`)) { const at = PLANT_UNIT[name] === "loader" ? parkAt(7 + (LOADER_IDX[name] ?? 0)) : parkAt(q); drive(name, `${j.id}:${name}`, at.x, at.y, Math.atan2(dyh, dxh), hz, looks); }
           // AND THE LOW-LOADERS that brought the tracked ones: bare by the road till they take them home.
-          for (let q = 0; q < loaders; q++) { const at = parkAt(7 + q); drive(`low${q}`, `${j.id}:low${q}`, at.x, at.y, Math.atan2(dyh, dxh), g.height[idx(g, Math.round(hd.x), Math.round(hd.y))], [{ look: "lowLoaderEmpty", tint: YELLOW }]); }
+          for (let q = 0; q < loaders; q++) { const at = parkAt(7 + q); drive(`low${q}`, `${j.id}:low${q}`, at.x, at.y, Math.atan2(dyh, dxh), drawnHeight(g, at.x + 0.5, at.y + 0.5), [{ look: "lowLoaderEmpty", tint: YELLOW }]); }
         }
         const sail = j.barge || null, voyage = !!sail && (sail.out || sail.s < sail.path.length - 1);
         if (j.kind === "dredge" && (f0 < n || voyage)) {
@@ -993,7 +995,7 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
               let u = units.get(`${id}:spoil`);
               if (!u) { u = makeUnit(1); units.set(`${id}:spoil`, u); }
               seen.add(`${id}:spoil`);
-              const hz = g.height[idx(g, Math.max(0, Math.min(g.w - 1, Math.round(lo.at.x))), Math.max(0, Math.min(g.h - 1, Math.round(lo.at.y))))];
+              const hz = drawnHeight(g, lo.at.x + 0.5, lo.at.y + 0.5);
               const base = poseUnit(u, cars, [{ look: SPOIL_LOOKS[Math.max(0, Math.min(CAP, Math.round(full * CAP)))], tint: BLUE }], { x: lo.at.x, y: lo.at.y, z: hz, heading: lo.at.heading, pitch: 0 }, scale, P ? { people: P, id: j.id * 5 + 1 } : null);
               u.band = into(u.c, u.band, lo.at.x, lo.at.y, base);
             }
@@ -1009,7 +1011,7 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
             const work = biting && !fo.away && !!fx && fx.phase !== "done", clearing = fx?.phase === "clear";
             const pose = !work ? "exLift" : q < DIG.dig * 0.45 ? "exDig" : q < DIG.dig ? "exDig2" : q < DIG.dig + DIG.lift + DIG.out ? "exLift" : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? "exDump" : "exLift";
             const slew = q < DIG.dig + DIG.lift ? 0 : q < DIG.dig + DIG.lift + DIG.out ? (q - DIG.dig - DIG.lift) / DIG.out : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? 1 : 1 - (q - DIG.dig - DIG.lift - DIG.out - DIG.tip) / DIG.back;
-            const hz = g.height[idx(g, Math.max(0, Math.min(g.w - 1, Math.round(fo.at.x))), Math.max(0, Math.min(g.h - 1, Math.round(fo.at.y))))];
+            const hz = drawnHeight(g, fo.at.x + 0.5, fo.at.y + 0.5);
             const base = poseUnit(u, cars, [{ look: "exTracks", tint: YELLOW }, { look: pose, tint: YELLOW, heading: work ? (clearing ? face + Math.atan2(Math.sin(tipAt - face), Math.cos(tipAt - face)) * (slew * slew * (3 - 2 * slew)) : face + 0.9 * (slew * slew * (3 - 2 * slew))) : fo.at.heading }], { x: fo.at.x, y: fo.at.y, z: work ? h : hz, heading: fo.at.heading, pitch: 0 }, scale, P ? { people: P, id: j.id * 5 } : null);
             u.band = into(u.c, u.band, fo.at.x, fo.at.y, base);
           }
@@ -1017,7 +1019,7 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
             let u = units.get(l.id);
             if (!u) { u = makeUnit(1); units.set(l.id, u); }
             seen.add(l.id);
-            const hz = g.height[idx(g, Math.max(0, Math.min(g.w - 1, Math.round(l.x))), Math.max(0, Math.min(g.h - 1, Math.round(l.y))))];
+            const hz = drawnHeight(g, l.x + 0.5, l.y + 0.5);
             const base = poseUnit(u, cars, [{ look: l.loaded ? "lowLoader" : "lowLoaderEmpty", tint: YELLOW }], { x: l.x, y: l.y, z: hz, heading: l.heading, pitch: 0 }, scale, null);
             u.band = into(u.c, u.band, l.x, l.y, base);
           }
