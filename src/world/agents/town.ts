@@ -809,6 +809,17 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
   const d = m.drive!;
   const G = T.G;
   const v = m.speed, half = halfLength(m);
+  // OFF THE LANES BUT IN THE WAY: one turning off the road into a yard or a site, or pulling out onto it (a leg; @see
+  // fleet/legs), on its line ahead — behind it as behind anything.
+  if (t.legs.length) {
+    const cx = Math.cos(m.heading), cy = Math.sin(m.heading);
+    for (const l of t.legs) {
+      const o = l.m;
+      if (o.id === m.id) continue;
+      const dx = o.x - m.x, dy = o.y - m.y, along = dx * cx + dy * cy;
+      if (along > 0 && along < FOLLOW + 1 && Math.abs(dx * cy - dy * cx) < 0.3) follow(A, v, along - spacing(m, o) + GAP, 0, GAP);
+    }
+  }
   // PULLED IN for an emergency vehicle: to a stop at the kerb.
   if (m.pullAt !== undefined) follow(A, v, m.pullAt - m.s, 0, 0);
   // GOING ACROSS to the lane beside: still behind whoever is ahead in the one it is leaving, till clear of it.

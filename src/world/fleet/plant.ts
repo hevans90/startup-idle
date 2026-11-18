@@ -15,7 +15,9 @@ import { placesOf, type Place } from "../agents/roads";
 import { setOff, type Mover, type Town } from "../agents/town";
 import type { Grid } from "../grid";
 import type { Network } from "../roads/network";
+import { halfLength } from "../agents/cars/fleet";
 import { isYard, plantComing, plantOut } from "./fleet";
+import { roomOrWaited } from "./legs";
 
 /** A machine as it travels: the crane; a mixer; a low-loader, with a digger or a roller or a paver on it; the gang's pickup; a tipper, empty. */
 export type PlantKind = "crane" | "mixer" | "loader" | "pickup" | "tipper";
@@ -102,6 +104,8 @@ export function stepPlant(
     low.go = (low.go ?? 0) - dt;
     if (low.go > 0) return;
     const next = turning.get(key2);
+    // (Onto the road when there is room on it: never down on top of another.)
+    if (next && !roomOrWaited(haul.town, key2, next, halfLength({ ...next, colour: PLANT_LOADER_EMPTY_COLOUR }), dt)) return;
     turning.delete(key2);
     if (next) { next.colour = PLANT_LOADER_EMPTY_COLOUR; next.job = { site: key.id, role: "haul-back" }; haul.town.movers.push(next); }
     low.gone = true;
@@ -129,14 +133,18 @@ export function stepPlant(
     if (p.leaving >= PLANT_GATHER && p.home.length && !hold) {
       if (!p.to) {
         // THE NEXT OF THEM OFF: its way home found, and where that begins is where it drives to from where it stands.
+        // (When the one before has got clear of where it sets off from: they go one behind another, not one through another.)
+        p.t -= dt;
+        if (p.t > 0) return "leaving";
         const kind = p.home[0], next = ok ? setOff(haul.town, g, "truck", head!, from!) : null;
+        if (next && !roomOrWaited(haul.town, `${name}:from`, next, halfLength({ ...next, colour: PLANT_COLOUR[kind] }), 0.4)) { p.t = 0.4; return "leaving"; }
         if (next) going.set(name, next); else going.delete(name);
         p.to = { kind, x: next?.x ?? p.head?.x ?? 0, y: next?.y ?? p.head?.y ?? 0, heading: next?.heading ?? 0 };
         p.t = PLANT_GAP;
       } else {
         p.t -= dt;
-        if (p.t <= 0) {
-          const next = going.get(name);
+        const next = going.get(name);
+        if (p.t <= 0 && (!next || roomOrWaited(haul.town, `${name}:on`, next, halfLength({ ...next, colour: PLANT_COLOUR[p.to.kind] }), dt))) {
           going.delete(name);
           if (next) { next.colour = PLANT_COLOUR[p.to.kind]; next.job = { site: key.id, role: "haul-back" }; haul.town.movers.push(next); }
           p.home.shift();

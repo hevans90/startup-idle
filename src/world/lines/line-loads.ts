@@ -8,7 +8,8 @@ import { idx, inBounds, type Grid } from "../grid";
 import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, setOff, type Mover, type Town } from "../agents/town";
 import { find, type Network } from "../roads/network";
-import { FLEET_TIPPER_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PIPE_EMPTY_COLOUR } from "../agents/cars/fleet";
+import { FLEET_TIPPER_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PIPE_EMPTY_COLOUR, halfLength } from "../agents/cars/fleet";
+import { roomOrWaited } from "../fleet/legs";
 import { isYard, lorryFor, lorryLost, queueYardLoad, yardQueued } from "../fleet/fleet";
 import { stepPlant } from "../fleet/plant";
 import { LINE_LAYS, LINE_PLANT, TRACK_SPEED, lineFront, type LineJob } from "./jobs";
@@ -108,9 +109,10 @@ export function stepLineHaul(g: Grid, haul: { net: Network; town: Town }, dt: nu
       const b = j.back![k];
       b.left -= dt;
       if (b.left > 0) continue;
-      j.back!.splice(k, 1);
-      // AT THE ROAD: the same lorry, the town's traffic again. (With no way home, it is simply back.)
+      // AT THE ROAD: the same lorry, the town's traffic again — when there is room on it. (With no way home, it is simply back.)
       const next = leaving.get(`${j.id}:${b.id}`);
+      if (next && !roomOrWaited(haul.town, `line:${j.id}:${b.id}`, next, halfLength({ ...next, colour: PIPE_EMPTY_COLOUR }), dt)) { b.left = 0; continue; }
+      j.back!.splice(k, 1);
       leaving.delete(`${j.id}:${b.id}`);
       if (!next) { lorryLost(g, haul.town, b.id); continue; }
       next.id = b.id; next.colour = PIPE_EMPTY_COLOUR; next.fleet = true; next.job = { site: j.id, role: "haul-back" };
