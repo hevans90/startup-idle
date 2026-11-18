@@ -883,7 +883,17 @@ fn pieceOf(cx: i32, cy: i32, qx: i32, qy: i32, vx: i32, vy: i32) -> bool {
   let cpt = i32(water.uGrid.z);
   let ax = cx / cpt; let ay = cy / cpt; let bx = qx / cpt; let by = qy / cpt;
   if (ax == bx && ay == by) { return true; }
-  return abs(tileGround(ax, ay, vx, vy) - tileGround(bx, by, vx, vy)) < ${PIECE_STEP};
+  let ga = tileGround(ax, ay, vx, vy);
+  let gb = tileGround(bx, by, vx, vy);
+  if (abs(ga - gb) < ${PIECE_STEP}) { return true; }
+  // OR A STEP THE WATER STANDS OVER. A drop parts the water only where the water on the low side is under the
+  // ground on the high side — a lip it falls from, a wall that holds it. Where both stand over both grounds the
+  // step is drowned, and the water above it is one level sheet whatever the bed does.
+  let da = depthAt(cx, cy, 0);
+  let db = depthAt(qx, qy, 0);
+  let sa = groundAt(cx, cy, 0) + select(0.0, da, wet(da));
+  let sb = groundAt(qx, qy, 0) + select(0.0, db, wet(db));
+  return min(sa, sb) > max(ga, gb) + 0.1;
 }
 // The water at a corner, as the piece column (cx, cy) is on has it — its surface, and its depth: the mean over the
 // columns of that piece that meet there. For the slope its light is taken from.
