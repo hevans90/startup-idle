@@ -52,6 +52,8 @@
  * @see createSheet, gatherQuads
  */
 import { holdShown } from "./hold";
+import { fieldWater } from "./water-mode";
+import { PIECE } from "./water-piece";
 import { MIN_TEXTURE_DIMENSION, heldGpu } from "./device";
 import {
   Buffer, BufferImageSource, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh,
@@ -526,6 +528,9 @@ struct VSOutput {
   @location(0) vColor: vec4<f32>,
   // Where on the ground (tiles, a tile covering x…x+1), the level of the water there, and whether to cut it to the shore.
   @location(1) vShore: vec4<f32>,
+  // AS ONE SMOOTH FIELD: how much of what is round this corner is water, 0 to 1. The surface is cut along a line
+  // of it and not along the columns' sides. 1 everywhere on the mesh joined by rule. @see fieldCorner, mainFragment
+  @location(2) vCover: f32,
 };
 
 /** How many STOREYS a column has. @see ColumnField.layers */
@@ -857,6 +862,70 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   return p;
 }
 
+// ─── THE WATER AS ONE SMOOTH FIELD ───────────────────────────────────────────
+// @see render/water-mode.ts. The solver's floor is the ground as it is drawn, a column at a time; and every corner
+// of the surface is worked out from WHERE IT IS — the columns round it — and from nothing about which column asks:
+// so every quad that has the corner puts it in one place, and the mesh cannot tear.
+fn fieldOn() -> bool { return water.uList.z > 0.5; }
+fn skirtOn() -> bool { return water.uList.z > 0.5; }
+// Whether two columns are of ONE PIECE of ground: their floors within a bank of each other. Across a cliff or a
+// wall they are not, and neither's water has anything to do with the other's.
+fn onePiece(g: f32, gq: f32) -> bool { return abs(g - gq) < ${PIECE}; }
+// Whether two columns are of one piece, by what the ground's own mesh says of their tiles: the same tile; or
+// tiles side by side whose drawn edge is shared; or corner to corner, by either way round. @see surfaceOf
+fn tileBits(tx: i32, ty: i32) -> i32 { return i32(textureLoad(uShore, vec2<i32>(tx * 2 + 1, ty), 0).w + 0.5); }
+fn sideJoined(ax: i32, ay: i32, bx: i32, by: i32) -> bool {
+  if (ax != bx) { return (tileBits(min(ax, bx), ay) & 4) != 0; }
+  return (tileBits(ax, min(ay, by)) & 8) != 0;
+}
+fn pieceOf(cx: i32, cy: i32, qx: i32, qy: i32) -> bool {
+  let cpt = i32(water.uGrid.z);
+  let ax = cx / cpt; let ay = cy / cpt; let bx = qx / cpt; let by = qy / cpt;
+  if (ax == bx && ay == by) { return true; }
+  if (ax == bx || ay == by) { return sideJoined(ax, ay, bx, by); }
+  return (sideJoined(ax, ay, bx, ay) && sideJoined(bx, ay, bx, by)) || (sideJoined(ax, ay, ax, by) && sideJoined(ax, by, bx, by));
+}
+struct FieldCorner { g: f32, d: f32, foam: f32, wash: f32, speed: f32, cover: f32, hx: i32, hy: i32 };
+// A corner of the grid of columns, as the piece of ground column (cx, cy) is on has it: the ground there and the
+// water's depth there — the mean over the columns of that piece that meet at it, a dry one counting as none — and
+// what the water carries; and which wet column to colour it by.
+fn fieldCorner(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> FieldCorner {
+  var o: FieldCorner;
+  var n = 0.0; var wets = 0.0; var g = 0.0; var d = 0.0;
+  var vel = vec2<f32>(0.0, 0.0);
+  o.hx = cx; o.hy = cy;
+  for (var k = 0; k < 4; k++) {
+    let qx = vx - 1 + (k % 2);
+    let qy = vy - 1 + (k / 2);
+    if (!inside(qx, qy)) { continue; }
+    if (!pieceOf(cx, cy, qx, qy)) { continue; }
+    n += 1.0; g += groundAt(qx, qy, a);
+    let dq = depthAt(qx, qy, a);
+    if (!wet(dq)) { continue; }
+    if (wets == 0.0) { o.hx = qx; o.hy = qy; }
+    wets += 1.0; d += dq;
+    o.wash += textureLoad(uWash, vec2<i32>(qx, qy), 0).r;
+    o.foam += textureLoad(uFoam, vec2<i32>(qx, slotRow(qy, a)), 0).r;
+    vel += flowAt(qx, qy, dq, a);
+  }
+  o.g = g / max(n, 1.0);
+  o.d = d / max(n, 1.0);
+  if (wets > 0.0) { o.wash = o.wash / wets; o.foam = o.foam / wets; o.speed = length(vel / wets); }
+  // HOW MUCH ROUND IT IS WATER, smoothed over the sixteen columns round the corner, the near ones counting for
+  // more: so the line the surface is cut along bends round a front. Off the map, and any other piece of ground —
+  // a wall that holds the water, a drop it goes over — count as water: those are not its edge.
+  var cover = 0.0;
+  for (var j = 0; j < 16; j++) {
+    let qx = vx - 2 + (j % 4);
+    let qy = vy - 2 + (j / 4);
+    let wgt = select(1.0, 3.0, (j % 4) == 1 || (j % 4) == 2) * select(1.0, 3.0, (j / 4) == 1 || (j / 4) == 2);
+    if (!inside(qx, qy)) { cover += wgt; continue; }
+    if (wet(depthAt(qx, qy, a)) || !pieceOf(cx, cy, qx, qy)) { cover += wgt; }
+  }
+  o.cover = cover / 64.0;
+  return o;
+}
+
 // WHAT THE DRAWN GROUND OF A TILE IS to the water on it: 1 a SHELF (a shore, cut to the ground), 2 SLOPED bare
 // ground (thin water lies on it), 0 flat. The ground storey only. @see ground-mesh.ts surfaceOf
 fn groundKind(tx: i32, ty: i32, a: i32) -> i32 {
@@ -889,6 +958,7 @@ fn mainVertex(
   out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
   out.vColor = vec4<f32>(0.0, 0.0, 0.0, 0.0);
   out.vShore = vec4<f32>(0.0);
+  out.vCover = 1.0;
   let cpt = i32(water.uGrid.z);
   let per = cpt * cpt;
   // ONE INSTANCE PER QUAD, four vertices each. The band's instance count is
@@ -980,6 +1050,8 @@ fn mainVertex(
     // ocx/ocy ARE that column, and the tier gate above has already been asked
     // about it, once, where every part asks.
     if (!facesOn()) { return out; }
+    // (As one smooth field the water has no sides but at the map's edge, and those are the column's own.)
+    if (fieldOn() && a == 0) { return out; }
     // (A shelf has no sides: its water is cut to the ground, not stood on a bed. @see mainFragment)
     let okind = groundKind(ocx / cpt, ocy / cpt, a);
     if (okind == 1) { return out; }
@@ -992,6 +1064,28 @@ fn mainVertex(
       fx0 - select(0.0, step, part == 0), fy0 - select(step, 0.0, part == 0), step, bd, a);
     if (!p.ok) { return out; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
+  } else if (part == 2 && fieldOn() && a == 0) {
+    // THE SURFACE, AS ONE SMOOTH FIELD: of a wet column, or of a dry one beside water (its edge runs through it).
+    let ox = ((corner + 1) >> 1) & 1;
+    let oy = corner >> 1;
+    let span = select(1, cpt, whole);
+    let ccx = cx + ox * (span - 1);
+    let ccy = cy + oy * (span - 1);
+    let c = fieldCorner(ccx + ox, ccy + oy, ccx, ccy, a);
+    fx = fx0 + f32(ox * span) * step;
+    fy = fy0 + f32(oy * span) * step;
+    h = c.g + c.d;
+    out.vCover = c.cover;
+    out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, 0.0);
+    let shown = min(1.0, c.speed / ${STREAK_SPEED});
+    let lit = 0.5 + c.wash * (0.2 + 0.8 * shown) * 0.3;
+    let base = clamp(lit, 0.0, 1.0) * ${TINTS - 1}.0;
+    let shade = base + c.foam * (${SHADES - 1}.0 - base);
+    let fade = min(1.0, c.d / ${SHOW_DEPTH});
+    let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, c.d / ${OPAQUE_DEPTH}.0)) * fade;
+    alpha = body + (1.0 - body) * c.foam * ${FOAM_COVER} * fade;
+    let mat = i32(textureLoad(uMaterial, vec2<i32>(c.hx, slotRow(c.hy, a)), 0).r * 255.0 + 0.5);
+    rgb = fouled(textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb, c.hx, c.hy, a);
   } else if (part == 2) {
     // THE SURFACE.
     if (d <= water.uBand.z) { return out; }
@@ -1084,6 +1178,24 @@ fn mainVertex(
     // Skipped where it is filed FORWARD instead — see PARTS.
     if (d <= water.uBand.z) { return out; }
     if (!facesOn()) { return out; }
+    if (fieldOn() && a == 0) {
+      // THE MAP'S EDGE cuts the water through: a face from its surface down to the ground, corner for corner.
+      let axis = part - 3;
+      let jx = cx + select(0, 1, axis == 0);
+      let jy = cy + select(1, 0, axis == 0);
+      if (inside(jx, jy)) { return out; }
+      // Along the edge: its two ends, each at the top (corners 0, 1) or the foot (2, 3).
+      let far = corner == 1 || corner == 2;
+      let vx = cx + select(select(0, 1, far), 1, axis == 0);
+      let vy = cy + select(1, select(0, 1, far), axis == 0);
+      let c = fieldCorner(vx, vy, cx, cy, a);
+      fx = f32(tx) - 0.5 + f32(vx - tx * cpt) * step;
+      fy = f32(ty) - 0.5 + f32(vy - ty * cpt) * step;
+      h = c.g + select(c.d, 0.0, corner >= 2);
+      alpha = 0.72;
+      let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
+      rgb = fouled(textureLoad(uTint, vec2<i32>(${Math.round((TINTS - 1) * 0.3)}, mat), 0).rgb, cx, cy, a);
+    } else {
     let kind = groundKind(cx / cpt, cy / cpt, a);
     if (kind == 1) { return out; }
     if (kind == 2 && d < ${THIN_ON_SLOPE}) { return out; }
@@ -1092,6 +1204,7 @@ fn mainVertex(
     let p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d, a);
     if (!p.ok) { return out; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
+    }
   }
 
   let px = (fx - fy) * water.uIso.x;
@@ -1116,7 +1229,16 @@ fn shoreNoise(p: vec2<f32>) -> f32 {
   return mix(mix(shoreHash(i), shoreHash(i + vec2<f32>(1.0, 0.0)), u.x), mix(shoreHash(i + vec2<f32>(0.0, 1.0)), shoreHash(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
 }
 @fragment
-fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vShore: vec4<f32>) -> @location(0) vec4<f32> {
+fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vShore: vec4<f32>, @location(2) vCover: f32) -> @location(0) vec4<f32> {
+  // AS ONE SMOOTH FIELD, THE WATER'S EDGE: along a line of how much round each point is water, soft, with a faint
+  // broken line of foam. @see fieldCorner
+  if (vCover < 0.999) {
+    if (vCover < 0.36) { discard; }
+    var body = vColor * smoothstep(0.36, 0.46, vCover);
+    let lace = (1.0 - smoothstep(0.38, 0.54, vCover)) * (0.1 + 0.3 * smoothstep(0.35, 0.7, shoreNoise(vShore.xy * 1.7 + 3.0)));
+    body = mix(body, vec4<f32>(0.94, 0.97, 0.96, 1.0), lace * body.a);
+    return body;
+  }
   // THE SHORE: the drawn ground under this pixel — a fan from the tile's middle to its corners, as the ground's
   // mesh has it — and the water only where it is over that; clear at the very edge, with a line of foam.
   if (vShore.w < 0.5) { return vColor; }
@@ -1227,6 +1349,9 @@ int bitOf(int k) { return 1 << k; }
 int bitAt(int m, int k) { return (m >> k) & 1; }
 // Whether the brink texture was filled this frame. See brink-gpu.
 bool brinkOn() { return uSlots.z > 0.5; }
+// (The water as one smooth field is the device's: here a dry column draws nothing. @see quad-rule's skirtAt)
+bool skirtOn() { return false; }
+bool onePiece(float g, float gq) { return abs(g - gq) < ${PIECE}; }
 float fallMin() { return ${FALL_MIN}.0; }
 float fallStop() { return ${FALL_STOP}.0; }
 // Whether the solver's latch says this edge is already falling — see the WGSL
@@ -1859,7 +1984,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       // A uniform rather than a lookup because a band already has its own
       // shader — the offset is as much a property of the band as its first
       // tile is. @see quadList
-      uList: { value: new Float32Array([list.offsets[b], LIST_W, 0, 0]), type: "vec4<f32>" },
+      uList: { value: new Float32Array([list.offsets[b], LIST_W, fieldWater() ? 1 : 0, 0]), type: "vec4<f32>" },
       // HOW MANY STOREYS a column has, and the spare. @see ColumnField.layers
       //
       // LAST, because the struct it fills says last. Pixi lays a uniform group
@@ -1909,7 +2034,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       uIso: { value: new Float32Array([HW * scale, HH * scale, HEIGHT_UNIT * scale, 1]), type: "vec4<f32>" },
       uBand: { value: new Float32Array([b, tx0, columns.params.dryDepth, tiles]), type: "vec4<f32>" },
       // ITS OWN SLICE, in the roofed tier's copy of the list. @see QuadList.second
-      uList: { value: new Float32Array([list.second + list.offsets[b], LIST_W, 0, 0]), type: "vec4<f32>" },
+      uList: { value: new Float32Array([list.second + list.offsets[b], LIST_W, fieldWater() ? 1 : 0, 0]), type: "vec4<f32>" },
       uSlots: { value: new Float32Array([layers, 1, 0, 0]), type: "vec4<f32>" },
     });
     const underGeom = new Geometry({

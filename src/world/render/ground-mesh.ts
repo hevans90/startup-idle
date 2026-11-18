@@ -295,7 +295,12 @@ function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number) {
     const j = idx(grid, x + dx, y + dy);
     if (grid.pool[j] > 0) level = Math.max(level, grid.height[j] + grid.pool[j]);
   }
-  e[o + 6] = level; e[o + 7] = grid.pool[idx(grid, x, y)] > 0 ? 2 : 1;
+  // The last: 1, or 2 with standing water of its own; and 4 and 8 more where its drawn edge toward +x and +y is the
+  // next cell's own — they are ONE PIECE of ground there, no cliff or wall between. @see water-gpu.ts pieceOf
+  const same = (a: number, b: number) => Math.abs(a - b) < 1e-3;
+  const jx = inBounds(grid, x + 1, y) && same(e[o + 1], drawnCorner(grid, x + 1, y, 0, 0)) && same(e[o + 2], drawnCorner(grid, x + 1, y, 0, 1));
+  const jy = inBounds(grid, x, y + 1) && same(e[o + 3], drawnCorner(grid, x, y + 1, 0, 0)) && same(e[o + 2], drawnCorner(grid, x, y + 1, 1, 0));
+  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0);
 }
 
 export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale = 1): GroundMesh {
@@ -770,7 +775,7 @@ fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
   let strand = hash(vec2<i32>(i32(floor(along * 60.0)), 41));
   let lipDepth = 0.6 + (vnoise(vec2<f32>(along * 9.0, 3.0)) - 0.5) * 0.4 + (strand - 0.5) * 0.3 * shows(60.0, fp);
   // (Under standing water there is no turf to hang over the edge: its bed's wall is bare.)
-  let under = textureLoad(uEdges, vec2<i32>(i32(floor((p - back).x)) * 2 + 1, i32(floor((p - back).y))), 0).w > 1.5;
+  let under = i32(textureLoad(uEdges, vec2<i32>(i32(floor((p - back).x)) * 2 + 1, i32(floor((p - back).y))), 0).w + 0.5) % 4 == 2;
   var col = earth;
   // ROCK below the soil: beds of it, each its own tone, a dark joint between, cracked down here and there.
   let soil = select(2.6, 3.4, k == 3) + (vnoise(vec2<f32>(along * 1.3, 9.0)) - 0.5) * 1.6;
@@ -1147,7 +1152,7 @@ vec3 wallColour(vec2 p, float kind, float depth, float fp) {
   float strand = hash(ivec2(int(floor(along * 60.0)), 41));
   float lipDepth = 0.6 + (vnoise(vec2(along * 9.0, 3.0)) - 0.5) * 0.4 + (strand - 0.5) * 0.3 * shows(60.0, fp);
   ivec2 uc = ivec2(floor(p - back));
-  bool under = texelFetch(uEdges, ivec2(uc.x * 2 + 1, uc.y), 0).w > 1.5;
+  bool under = (int(texelFetch(uEdges, ivec2(uc.x * 2 + 1, uc.y), 0).w + 0.5) & 3) == 2;
   vec3 col = earth;
   float soil = (k == 3 ? 3.4 : 2.6) + (vnoise(vec2(along * 1.3, 9.0)) - 0.5) * 1.6;
   if (depth > soil - 0.3) {

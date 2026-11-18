@@ -15,6 +15,8 @@
  * surface somewhere to vary within a tile, which is what stops a lake reading
  * as a row of flat plates, and it gives the flow room to turn.
  */
+import { drawnFan, fanHeight } from "../render/drawn";
+import { fieldWater } from "../render/water-mode";
 import {
   FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, emptyColumn, rimAt, rimLength,
   setMaterialDrag, setOpenEdge, setRim, stepFlow, surfaceAt, totalWater,
@@ -201,6 +203,7 @@ export const columnOf = (tx: number) => tx * COLUMNS_PER_TILE;
  * steps deep is two half steps deep everywhere on it, not half a step in each
  * quarter. The solver takes it from there and it is level within a frame.
  */
+const fan = new Float32Array(6), EMPTY = new Float32Array(0), NONE = new Uint8Array(0);
 export function fillPools(field: WaterField, grid: Grid) {
   for (let y = 0; y < grid.h; y++) {
     for (let x = 0; x < grid.w; x++) {
@@ -225,10 +228,15 @@ export function fillPools(field: WaterField, grid: Grid) {
       // over it does not catch it on the way in. Routed through the pour it
       // did exactly that: a map that opened with a river under a bridge put
       // that stretch of it on top of the bridge instead. @see pourAt
+      // (As one smooth field: TO ITS LEVEL over the ground as drawn, so by a shore it is as shallow as the bank
+      // under it, and there is none where the ground stands over it.)
       const material = grid.fluid[i] || 1;
+      const smooth = fieldWater() && structureAt(grid, x, y) < 0;
+      if (smooth) drawnFan(grid, x, y, fan, 0);
       for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) {
         for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
-          addWater(field.columns, columnOf(x) + dx, columnOf(y) + dy, deep, material);
+          const over = smooth ? grid.height[i] + deep - fanHeight(fan, 0, (dx + 0.5) / COLUMNS_PER_TILE, (dy + 0.5) / COLUMNS_PER_TILE) : deep;
+          if (over > 0) addWater(field.columns, columnOf(x) + dx, columnOf(y) + dy, over, material);
         }
       }
     }
@@ -336,6 +344,8 @@ export function syncSlots(field: WaterField, grid: Grid) {
   const displaced: number[] = [];
   let volume = 0;
   const byMaterial = new Map<number, number>();
+  const smooth = fieldWater();
+  const fans = smooth ? new Float32Array(grid.w * grid.h * 6) : EMPTY, shaped = smooth ? new Uint8Array(grid.w * grid.h) : NONE;
   for (let cy = 0; cy < ny; cy++) {
     const ty = tileOf(cy);
     for (let cx = 0; cx < nx; cx++) {
@@ -358,7 +368,15 @@ export function syncSlots(field: WaterField, grid: Grid) {
       // A BUILDING IS A BLOCK to the water, and a pit is a hole in the ground.
       const sid = structureAt(grid, tx, ty);
       const basin = sid >= 0 ? basinOf(grid, sid) : 0;
-      const floor = sid < 0 ? grid.height[t] : basin > 0 ? grid.height[t] - basin : grid.height[t] + SOLID_LIFT;
+      // AS ONE SMOOTH FIELD (@see render/water-mode.ts), bare ground is as it is DRAWN — a surface, not steps: each
+      // column's floor is the drawn height at its own middle, so water runs down a bank and lies on it. (A tile's
+      // shape worked out once, for its sixteen columns.)
+      let bare = grid.height[t];
+      if (smooth && sid < 0) {
+        if (!shaped[t]) { drawnFan(grid, tx, ty, fans, t * 6); shaped[t] = 1; }
+        bare = fanHeight(fans, t * 6, (cx - tx * COLUMNS_PER_TILE + 0.5) / COLUMNS_PER_TILE, (cy - ty * COLUMNS_PER_TILE + 0.5) / COLUMNS_PER_TILE);
+      }
+      const floor = sid < 0 ? bare : basin > 0 ? grid.height[t] - basin : grid.height[t] + SOLID_LIFT;
       // A BUILDING PUT DOWN IN WATER pushes the water out of its way. Left
       // in the column it stood on top of the block the building is to the
       // water, `SOLID_LIFT` up, and went over every side of it at once: a

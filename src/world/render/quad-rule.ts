@@ -125,6 +125,20 @@ ${wgsl
 }
 
 ${wgsl
+    ? "fn skirtAt(cx: i32, cy: i32, a: i32) -> bool {"
+    : "bool skirtAt(int cx, int cy, int a) {"}
+  // WHETHER ANY COLUMN ROUND THIS ONE, corner to corner, is a surface on the same piece of ground. Ground storey only.
+  if (a != 0) { return false; }
+  ${NUM} g = groundAt(cx, cy, a);
+  for (${wgsl ? "var" : "int"} k = 0; k < 9; k++) {
+    ${INT} qx = cx + (k % 3) - 1;
+    ${INT} qy = cy + (k / 3) - 1;
+    if (k != 4 && inside(qx, qy) && shows(qx, qy, a) && onePiece(g, groundAt(qx, qy, a))) { return true; }
+  }
+  return false;
+}
+
+${wgsl
     ? "fn quadDraws(cx: i32, cy: i32, part: i32, cpt: i32, faces: bool, a: i32) -> bool {"
     : "bool quadDraws(int cx, int cy, int part, int cpt, bool faces, int a) {"}
   if (!inside(cx, cy)) { return false; }
@@ -147,7 +161,9 @@ ${wgsl
   // Whether a NEIGHBOUR'S water hides a face is a different question and stays
   // wetJ: a face hung into the channel under a span would be a pane beneath
   // the deck's edge. @see shows
-  if (part == 2) { return shows(cx, cy, a); }
+  // OR, AS ONE SMOOTH FIELD, A DRY COLUMN BESIDE WATER on its own piece of ground: the water's edge is cut along
+  // a line that runs through it, so it draws a surface for that line to be on. @see water-gpu's fieldCorner
+  if (part == 2) { return shows(cx, cy, a) || (skirtOn() && skirtAt(cx, cy, a)); }
   if (!faces) { return false; }
   // A SIDE OF THIS COLUMN, unless it is filed forward into the band in front.
   if (!shows(cx, cy, a)) { return false; }

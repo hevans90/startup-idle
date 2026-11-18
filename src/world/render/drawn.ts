@@ -21,6 +21,7 @@
  *
  * Pure: a corner is worked out from the cells round it and nothing kept.
  */
+import { fieldWater } from "./water-mode";
 import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureAt, type Grid } from "../grid";
 import type { SurfaceAt } from "../iso";
 
@@ -102,7 +103,7 @@ export function drawnCentre(grid: Grid, x: number, y: number): number {
   return (drawnCorner(grid, x, y, 0, 0) + drawnCorner(grid, x, y, 1, 0) + drawnCorner(grid, x, y, 1, 1) + drawnCorner(grid, x, y, 0, 1)) / 4;
 }
 
-const near = [0, 0, 0, 0], reach = [0, 0, 0, 0], beds = [0, 0, 0, 0];
+const near = [0, 0, 0, 0], reach = [0, 0, 0, 0], beds = [0, 0, 0, 0], wets = [false, false, false, false];
 
 /** The drawn height of cell `(x, y)` at its corner `(u, v)`, half steps. */
 export function drawnCorner(grid: Grid, x: number, y: number, u: number, v: number): number {
@@ -124,11 +125,20 @@ export function drawnCorner(grid: Grid, x: number, y: number, u: number, v: numb
       const j = idx(grid, cx, cy), sh = shelfOf(grid, cx, cy);
       near[n] = sh ?? grid.height[j];
       beds[n] = grid.height[j];
+      wets[n] = wet(grid, j);
       reach[n++] = sh === null ? grid.height[j] : grid.height[j] + grid.pool[j] + 1;
     }
   }
   // Beside something pinned within reach: the free cell takes the whole slope.
   if (!Number.isNaN(held)) return held;
+  // AS ONE SMOOTH FIELD (@see water-mode.ts) THE BED UNDER STANDING WATER IS ONE SURFACE: where no land meets a
+  // corner, every wet cell there — on a shelf or out in the deep — puts it at the mean of their beds, so the shelf
+  // runs down into the deep with no ledge under the water for it to break over.
+  if (fieldWater() && wet(grid, idx(grid, x, y))) {
+    let dry = false, sum = 0, m = 0;
+    for (let k = 0; k < n; k++) { if (wets[k]) { sum += beds[k]; m++; } else if (Math.abs(reach[k] - own) <= CLIFF) dry = true; }
+    if (!dry && m) return sum / m;
+  }
   // Else the mean of the free cells that join it: its own, and any reached from it by steps no bigger than a cliff.
   let lo = own, hi = own, grew = true;
   while (grew) {
@@ -231,4 +241,27 @@ export function cornerShift(grid: Grid, X: number, Y: number): readonly [number,
   shiftOut[0] = lone & 1 ? -CLIFF_EASE : CLIFF_EASE;
   shiftOut[1] = lone >> 1 ? -CLIFF_EASE : CLIFF_EASE;
   return shiftOut;
+}
+
+/**
+ * A cell's drawn shape, worked out once for many points on it: its corners (0,0), (1,0), (1,1), (0,1), its middle,
+ * and whether it is a plane (pinned) — into `out` at `o`. @see fanHeight
+ */
+export function drawnFan(grid: Grid, x: number, y: number, out: Float32Array, o: number): void {
+  out[o] = drawnCorner(grid, x, y, 0, 0); out[o + 1] = drawnCorner(grid, x, y, 1, 0);
+  out[o + 2] = drawnCorner(grid, x, y, 1, 1); out[o + 3] = drawnCorner(grid, x, y, 0, 1);
+  const flat = pinned(grid, x, y);
+  out[o + 4] = flat ? 0 : drawnCentre(grid, x, y);
+  out[o + 5] = flat ? 1 : 0;
+}
+/** The drawn height at `(a, b)` of a cell (each 0…1) whose shape is at `o` in `fan`. The same rule as `drawnHeight`. */
+export function fanHeight(fan: Float32Array, o: number, a: number, b: number): number {
+  const c00 = fan[o], c10 = fan[o + 1], c11 = fan[o + 2], c01 = fan[o + 3];
+  if (fan[o + 5]) return (c00 * (1 - a) + c10 * a) * (1 - b) + (c01 * (1 - a) + c11 * a) * b;
+  const h = fan[o + 4], da = a - 0.5, db = b - 0.5, t = 2 * Math.max(Math.abs(da), Math.abs(db));
+  if (t <= 0) return h;
+  let edge: number;
+  if (Math.abs(da) >= Math.abs(db)) { const s = 0.5 + db / (2 * Math.abs(da)); edge = da > 0 ? c10 + (c11 - c10) * s : c00 + (c01 - c00) * s; }
+  else { const s = 0.5 + da / (2 * Math.abs(db)); edge = db > 0 ? c01 + (c11 - c01) * s : c00 + (c10 - c00) * s; }
+  return h + t * (edge - h);
 }
