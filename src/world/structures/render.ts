@@ -61,7 +61,7 @@ export type StructureRenderer = {
   massing?(h: StructureHandle, s: Structure): RazeMass[];
 };
 /** A mass of a building: its box — tiles from the plot's back corner, half steps up — a storey's height, and its cladding. */
-export type RazeMass = { u0: number; v0: number; u1: number; v1: number; z0: number; z1: number; storey: number; skin: "masonry" | "glass" | "sheet" | "concrete" };
+export type RazeMass = { u0: number; v0: number; u1: number; v1: number; z0: number; z1: number; storey: number; skin: "masonry" | "glass" | "sheet" | "concrete"; /** What its walls are the colour of: their broken edges and insides are that, darker. */ colour?: number };
 /** The tile of the map a piece of a building stands on, where its renderer knows: its footing, for bringing it down onto. */
 export const PIECE_TILE = new WeakMap<Container, { x: number; y: number }>();
 

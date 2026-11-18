@@ -594,7 +594,7 @@ registerCustomRenderer("project", {
   // (Glass on a frame; louvres and blank walls on a shed's portal; the rest, masonry.)
   massing(h) {
     return (h as ProjectHandle).model.masses.map((m) => ({
-      u0: m.u0, v0: m.v0, u1: m.u1, v1: m.v1, z0: m.z0, z1: m.z1, storey: m.storey,
+      u0: m.u0, v0: m.v0, u1: m.u1, v1: m.v1, z0: m.z0, z1: m.z1, storey: m.storey, colour: m.wall,
       skin: m.facade.kind === "curtain" || m.facade.kind === "ribbon" || m.facade.kind === "fins" ? "glass" as const : m.facade.kind === "louvres" ? "sheet" as const : "masonry" as const,
     }));
   },

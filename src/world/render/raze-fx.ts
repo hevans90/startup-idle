@@ -42,7 +42,7 @@ const QUADS = 6500, SWATCH = 6, CELLPX = 5;
 /** Quads a band's layer starts with room for: it grows as it needs, and is never sent bigger than it is. */
 const ROOM = 192;
 /** How far a mass is taken to reach past its own box, tiles, sideways and up: its cornice, its parapet, what stands on its roof — all of its picture goes with its pieces, and none of it is left hanging. */
-const GROW = 0.09, GROW_UP = 0.2;
+const GROW = 0.05, GROW_UP = 0.1;
 
 type Puff = { x: number; y: number; vx: number; vy: number; r: number; grow: number; age: number; life: number; colour: number };
 type Bit = { x: number; y: number; vx: number; vy: number; ground: number; age: number; size: number };
@@ -52,7 +52,7 @@ type Job = {
   frame: { x: number; y: number; w: number; h: number }; flat: Map<number, [number, number]>;
   bandsOf: Map<number, BandMesh>; back: Mesh | null; air: Graphics; puffs: Puff[]; bits: Bit[]; keys: Float32Array;
   /** What its pieces were when they were last drawn — how many stand, how many lie: unchanged, with none in the air, they are not drawn again. */
-  sig: number; airy: boolean;
+  sig: number; airy: boolean; founds: { mesh: Mesh; m: number }[];
   ox: number; oy: number; h0: number; lo: number; hi: number;
 };
 
@@ -108,6 +108,7 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
     for (const [n, a] of job.kept) if (!n.destroyed) n.alpha = a;
     for (const b of job.bandsOf.values()) if (b.mesh) drop(b.mesh);
     if (job.back) drop(job.back);
+    for (const f of job.founds) drop(f.mesh);
     drop(job.air);
     if (job.tex) trash.push({ tex: job.tex, left: 4 });
   };
@@ -123,7 +124,7 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
         air.eventMode = "none"; air.context.batchMode = "batch"; air.zIndex = 3;
         const hi = bandOf(plot.x + plot.w - 1, plot.y + plot.h - 1), lo = bandOf(plot.x, plot.y);
         bands.dynamicOf[Math.max(0, Math.min(bands.dynamicOf.length - 1, hi))]?.addChild(air);
-        J = { kept: new Map(), sim: null, t: 0, tex: null, frame: { x: 0, y: 0, w: 1, h: 1 }, flat: new Map(), bandsOf: new Map(), back: null, air, puffs: [], bits: [], keys: new Float32Array(0), sig: -1, airy: false, ox: plot.x - 0.5, oy: plot.y - 0.5, h0: g.height[idx(g, plot.x, plot.y)], lo, hi };
+        J = { kept: new Map(), sim: null, t: 0, tex: null, frame: { x: 0, y: 0, w: 1, h: 1 }, flat: new Map(), bandsOf: new Map(), back: null, air, puffs: [], bits: [], keys: new Float32Array(0), sig: -1, airy: false, founds: [], ox: plot.x - 0.5, oy: plot.y - 0.5, h0: g.height[idx(g, plot.x, plot.y)], lo, hi };
         jobs.set(id, J);
       }
       const job = J;
@@ -135,7 +136,7 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
       if (!job.sim && p >= RAZE.first && renderer) {
         const live = nodes.filter((n) => !n.destroyed);
         // ITS MASSES: its renderer's, or — a house, a port — a box a tile, as high as that tile's part of the picture.
-        let masses: MassIn[] = (told ?? []).map((m) => ({ u0: m.u0 - GROW, v0: m.v0 - GROW, u1: m.u1 + GROW, v1: m.v1 + GROW, w0: m.z0 / ZT, w1: m.z1 / ZT + GROW_UP, storey: m.storey / ZT, skin: m.skin }));
+        let masses: MassIn[] = (told ?? []).map((m) => ({ u0: m.u0 - GROW, v0: m.v0 - GROW, u1: m.u1 + GROW, v1: m.v1 + GROW, w0: m.z0 / ZT, w1: m.z1 / ZT + GROW_UP, storey: m.storey / ZT, skin: m.skin, pad: { side: GROW, up: GROW_UP } }));
         if (!masses.length) {
           const tops = new Map<number, number>();
           for (const n of live) {
@@ -166,6 +167,9 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
         else {
           const sw = new Graphics(), cols: number[] = [FOUNDATION];
           for (const s of SKINS) for (const k of SHADES) cols.push(shade(BARE[s], k));
+          // (And each mass's own wall, a little darker — the inside of a wall is the wall — lit the four ways.)
+          const own = (told ?? []).map((m) => (m.colour === undefined ? undefined : shade(m.colour, 0.82)));
+          for (const c of new Set(own)) if (c !== undefined) for (const k of SHADES) cols.push(shade(c, k));
           cols.forEach((c, k) => { sw.rect(fx0 + 1 + k * (SWATCH + 2), fy0 + fh + 2, SWATCH, SWATCH).fill({ color: c }); });
           stage.addChild(sw);
           const frame = new Rectangle(fx0, fy0, Math.max(fw, cols.length * (SWATCH + 2) + 2), fh + SWATCH + 4);
@@ -177,6 +181,7 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
           const uvOf = (x: number, y: number): [number, number] => [(x - job.frame.x) / job.frame.w, (y - job.frame.y) / job.frame.h];
           const K = Math.max(2.5, (RAZE.down - RAZE.first) * seconds - 2.2);
           job.sim = createCollapse(masses, plot, { u: fu, v: fv }, K, id);
+          if (told && told.length === masses.length) for (const c of job.sim.chunks) if (c.part === "wall" && c.skin !== "glass" && c.skin !== "concrete") c.bare = own[c.m - 1];
           // EACH OUTSIDE FACE takes the part of the picture it is — unless another mass stood in front of it: bare.
           for (const c of job.sim.chunks) {
             for (let f = 0; f < 6; f++) {
@@ -199,7 +204,22 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
           const pos: number[] = [], uvs: number[] = [];
           const quad = (pts: [number, number][], uv?: [number, number]) => { for (const [x, y] of pts) { pos.push(x, y); const t = uv ?? uvOf(x, y); uvs.push(t[0], t[1]); } };
           const found = job.flat.get(FOUNDATION)!;
-          for (const m of masses) if (m.w0 < 0.05 && !m.hollow) quad([px(m.u0, m.v0, 0), px(m.u1, m.v0, 0), px(m.u1, m.v1, 0), px(m.u0, m.v1, 0)], found);
+          // (Each mass's footing a layer of its own, not shown till something of that mass has gone.)
+          masses.forEach((m, k) => {
+            // (One that stands on the ground, or on its plinth: not one stood on another.)
+            if (m.w0 >= 0.3 || m.hollow) return;
+            // (A tile of the plot at a time, each with that tile's band: over that tile's ground, under what is nearer.)
+            for (let r = 0; r < plot.h; r++) for (let c = 0; c < plot.w; c++) {
+              const a0 = Math.max(m.u0 + GROW, c), a1 = Math.min(m.u1 - GROW, c + 1), b0 = Math.max(m.v0 + GROW, r), b1 = Math.min(m.v1 - GROW, r + 1);
+              if (a1 - a0 < 0.02 || b1 - b0 < 0.02) continue;
+              const fp: number[] = [], fuv: number[] = [];
+              for (const [x, y] of [px(a0, b0, 0), px(a1, b0, 0), px(a1, b1, 0), px(a0, b1, 0)]) { fp.push(x, y); fuv.push(found[0], found[1]); }
+              const fm = new Mesh({ geometry: new MeshGeometry({ positions: new Float32Array(fp), uvs: new Float32Array(fuv), indices: new Uint32Array([0, 1, 2, 0, 2, 3]) }), texture: job.tex! });
+              fm.eventMode = "none"; fm.visible = false; fm.zIndex = -1;
+              layer(plot.x + c + plot.y + r)?.addChildAt(fm, 0);
+              job.founds.push({ mesh: fm, m: k + 1 });
+            }
+          });
           /** Where on the plot's ground a point of the picture is. */
           const groundOf = (x: number, y: number) => { const a = x / (HW * scale), s = (y + job.h0 * HEIGHT_UNIT * scale) / (HH * scale); return [(a + s) / 2 - job.ox, (s - a) / 2 - job.oy, 0]; };
           const inMass = (x: number, y: number) => { const q = groundOf(x, y); return masses.some((m) => through(q, m)); };
@@ -245,12 +265,14 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
         if (phase !== "knock") sim.clear(clearing);
       }
 
+      for (const f of job.founds) if (!f.mesh.visible && sim.opened[f.m]) f.mesh.visible = true;
       // ── ITS PIECES, far to near, each with the band of the tile it is over ───────────────
       // (Only when any of them has moved, gone or come to rest: a building standing, and a heap lying, are drawn once.)
       const chunks = sim.chunks;
       let stand = 0, lie = 0, fly = 0;
-      for (const c of chunks) { if (c.state === 0) stand++; else if (c.state === 2) lie++; else if (c.state === 1) fly++; }
-      const sig = stand * 100003 + lie * 7 + chunks.length;
+      let seen = 0;
+      for (const c of chunks) { if (c.state === 0) { stand++; if (c.seen) seen++; } else if (c.state === 2) lie++; else if (c.state === 1) fly++; }
+      const sig = stand * 100003 + lie * 7 + chunks.length + seen * 31;
       if (fly > 0 || sig !== job.sig || job.airy) {
         job.sig = sig; job.airy = fly > 0;
         for (const b of job.bandsOf.values()) b.list.length = 0;
@@ -332,13 +354,14 @@ const SGN = [0, 0, 0], LOC = [0, 0, 0];
 function writeChunk(c: Chunk, B: BandMesh, q: number, px: (u: number, v: number, w: number) => [number, number], flat: Map<number, [number, number]>): number {
   // WHAT IS NOT MOVING IS WORKED OUT ONCE: a piece standing, or lying, is copied in as it was last drawn.
   const kept = STILL.get(c);
-  if (kept && kept.st === c.state && c.state !== 1) {
+  const st = c.state + (c.seen ? 10 : 0);
+  if (kept && kept.st === st && c.state !== 1) {
     B.pos.set(kept.pos, q * 8); B.uv.set(kept.uv, q * 8);
     return q + kept.pos.length / 8;
   }
   const q0 = q;
   q = projectChunk(c, B, q, px, flat);
-  if (c.state !== 1) STILL.set(c, { st: c.state, pos: B.pos.slice(q0 * 8, q * 8), uv: B.uv.slice(q0 * 8, q * 8) });
+  if (c.state !== 1) STILL.set(c, { st, pos: B.pos.slice(q0 * 8, q * 8), uv: B.uv.slice(q0 * 8, q * 8) });
   return q;
 }
 const STILL = new WeakMap<Chunk, { st: number; pos: Float32Array; uv: Float32Array }>();
@@ -350,7 +373,10 @@ function projectChunk(c: Chunk, B: BandMesh, q: number, px: (u: number, v: numbe
     // (Of a box put round a picture, only the picture: a piece of it shows the same from behind, and what carried none of it is not there.)
     const b = (a + 1) % 3, cc = (a + 2) % 3, tex = c.tex[f] ?? (c.hollow && c.state !== 0 ? c.tex[f ^ 1] : null), o = q * 8;
     if (!tex && c.hollow) continue;
-    const bare = tex ? null : flat.get(shade(BARE[c.skin], SHADES[f === 4 ? 0 : f === 0 ? 1 : f === 2 ? 2 : 3]));
+    // (A bare face of a piece still standing is not to be seen till what stood in front of it has gone: nothing
+    // appears that was not in the picture.)
+    if (!tex && c.state === 0 && !c.seen) continue;
+    const bare = tex ? null : flat.get(shade(c.bare ?? BARE[c.skin], SHADES[f === 4 ? 0 : f === 0 ? 1 : f === 2 ? 2 : 3]));
     for (let k = 0; k < 4; k++) {
       SGN[a] = sg; SGN[b] = CORNERS[k][0]; SGN[cc] = CORNERS[k][1];
       cornerOf(c, SGN[0], SGN[1], SGN[2], LOC);

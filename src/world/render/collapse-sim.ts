@@ -28,7 +28,9 @@
 
 export type Skin = "masonry" | "glass" | "sheet" | "concrete";
 /** A mass of a building as it is to be broken: its box, tiles; how high a storey of it is; what it is clad in. */
-export type MassIn = { u0: number; v0: number; u1: number; v1: number; w0: number; w1: number; storey: number; skin: Skin; /** A box put round a picture, not the building's own shape: its inside is not to be seen till it is broken. */ hollow?: boolean };
+export type MassIn = { u0: number; v0: number; u1: number; v1: number; w0: number; w1: number; storey: number; skin: Skin; /** A box put round a picture, not the building's own shape: its inside is not to be seen till it is broken. */ hollow?: boolean;
+  /** The box is given a little bigger than the building, to carry what overhangs it in its picture: by so much sideways and up. Its two far walls — which carry no picture — are built where the building's own are, and as high. */
+  pad?: { side: number; up: number } };
 
 export type V3 = [number, number, number];
 /** What a piece is: a wall panel on one of its mass's four sides, or a plate of floor or roof. */
@@ -53,6 +55,10 @@ export type Chunk = {
   kick?: V3;
   /** Going over, stood on an edge: how fast, and which way. */
   tip?: number;
+  /** Which of the building's masses it is of; and — standing — that something which stood between it and the camera has gone: its bare faces are to be seen now, and were not before. */
+  m: number; seen?: boolean;
+  /** What its bare faces are the colour of, where its drawer says: its building's own wall. */
+  bare?: number;
   /**
    * ITS OUTLINE: no piece is a rectangle. `ma` is its thin axis; `shape`, the four corners of its face across that —
    * along the two axes after `ma`, from its middle: (−,−), (+,−), (+,+), (−,+) — jagged where it was broken from
@@ -72,29 +78,32 @@ const CUT: Record<Skin, { panel: number; plate: number }> = { masonry: { panel: 
 /** How hard a piece must land to break in two, tiles a second; never, for what does not break. */
 const BREAKS: Record<Skin, number> = { masonry: 0.85, concrete: 1.15, glass: 0, sheet: Infinity };
 const CELL = 0.25, MARGIN = 1;
+/** How far up the picture a tile of height is, in the picture's own half-tiles: for what is in front of what. */
+const RISE = 2.45;
 
 const hash = (n: number) => { const s = Math.sin(n * 12.9898 + 4.1414) * 43758.5453; return s - Math.floor(s); };
 
 /** A building's masses, broken into the pieces it falls in, each knowing what it stands on. */
 export function fracture(masses: readonly MassIn[]): Chunk[] {
   const out: Chunk[] = [];
-  let hollow = false;
+  let hollow = false, mi = 0;
   const add = (c: V3, e: V3, skin: Skin, part: Part, floor: number, outer: number): number => {
     const ma = part === "plate" ? 2 : e[0] < e[1] ? 0 : 1, bm = (ma + 1) % 3, cm = (ma + 2) % 3;
-    out.push({ hollow, ma, shape: new Float32Array([-e[bm], -e[cm], e[bm], -e[cm], e[bm], e[cm], -e[bm], e[cm]]), c, e, q: [0, 0, 0, 1], v: [0, 0, 0], om: [0, 0, 0], skin, part, mass: 8 * e[0] * e[1] * e[2] * (skin === "glass" ? 0.6 : skin === "sheet" ? 0.4 : 1), floor, state: 0, due: Infinity, sup: [], dep: [], had: 0, gen: 0, tex: [null, null, null, null, null, null], outer });
+    out.push({ hollow, m: mi, ma, shape: new Float32Array([-e[bm], -e[cm], e[bm], -e[cm], e[bm], e[cm], -e[bm], e[cm]]), c, e, q: [0, 0, 0, 1], v: [0, 0, 0], om: [0, 0, 0], skin, part, mass: 8 * e[0] * e[1] * e[2] * (skin === "glass" ? 0.6 : skin === "sheet" ? 0.4 : 1), floor, state: 0, due: Infinity, sup: [], dep: [], had: 0, gen: 0, tex: [null, null, null, null, null, null], outer });
     return out.length - 1;
   };
   const rests = (on: number, what: number) => { out[what].sup.push(on); out[on].dep.push(what); };
-  let mi = 0;
+  /** Each mass's lowest pieces and its roof's, for standing one mass on another. */
+  const feet: number[][] = [], tops: number[][] = [];
   for (const m of masses) {
-    mi++;
+    mi++; feet[mi] = []; tops[mi] = [];
     const du = m.u1 - m.u0, dv = m.v1 - m.v0, dw = m.w1 - m.w0;
     if (du < 0.12 || dv < 0.12 || dw < 0.06) continue;
     hollow = !!m.hollow;
     const n = Math.max(1, Math.round(dw / Math.max(0.2, m.storey))), fh = dw / n, cut = CUT[m.skin];
     // (Glass hangs on a frame: it holds nothing up. Everything else's walls carry what is over them.)
     const bearing = m.skin !== "glass";
-    let under: { plates: number[] } | null = null, below: number[][] | null = null;
+    let under: { plates: number[] } | null = null, below: number[][] | null = null, colsUnder: number[] | null = null, walls0: number[][] = [];
     for (let k = 0; k < n; k++) {
       const wa = m.w0 + k * fh, wb = wa + fh, top = k === n - 1;
       // ITS FOUR WALLS, in courses: the two toward the camera (+u, +v) carry its picture; the two behind are bare.
@@ -104,15 +113,18 @@ export function fracture(masses: readonly MassIn[]): Chunk[] {
       for (let r = 0; r < rows; r++) {
         const gr = k * rows + r, course: number[][] = [];
         for (const [side, len] of [[0, dv], [1, dv], [2, du], [3, du]] as const) {
-          const cnt = Math.max(1, Math.round(len / cut.panel)), ids: number[] = [], rh = fh / rows;
+          // (A far wall is the building's own: in from the padded box, and no higher than the building.)
+          const far = side === 1 || side === 3, ps = far ? m.pad?.side ?? 0 : 0, pe = m.pad?.side ?? 0;
+          const cnt = Math.max(1, Math.round(len / cut.panel)), ids: number[] = [], rh = (dw - (far ? m.pad?.up ?? 0 : 0)) / all;
+          const along = (a: number) => ps + (a * (len - ps - (far ? pe : 0))) / len;
           /** A corner of the wall's grid: how far along the wall, and how high. */
           const at = (ci: number, ri: number): [number, number] => [
-            (len * ci) / cnt + (ci > 0 && ci < cnt ? (hash(mi * 91.7 + side * 13.1 + ci * 7.3 + ri * 3.9) - 0.5) * 0.55 * (len / cnt) : 0),
+            along((len * ci) / cnt + (ci > 0 && ci < cnt ? (hash(mi * 91.7 + side * 13.1 + ci * 7.3 + ri * 3.9) - 0.5) * 0.55 * (len / cnt) : 0)),
             m.w0 + rh * ri + (ri > 0 && ri < all ? (hash(mi * 57.3 + side * 5.7 + ci * 2.3 + ri * 11.1) - 0.5) * 0.55 * rh : 0),
           ];
           for (let i = 0; i < cnt; i++) {
-            const mid = (len * (i + 0.5)) / cnt, half = len / cnt / 2, zc = m.w0 + rh * (gr + 0.5);
-            const c: V3 = side === 0 ? [m.u1 - WALL / 2, m.v0 + mid, zc] : side === 1 ? [m.u0 + WALL / 2, m.v0 + mid, zc] : side === 2 ? [m.u0 + mid, m.v1 - WALL / 2, zc] : [m.u0 + mid, m.v0 + WALL / 2, zc];
+            const mid = along((len * (i + 0.5)) / cnt), half = (len - ps - (far ? pe : 0)) / cnt / 2, zc = m.w0 + rh * (gr + 0.5);
+            const c: V3 = side === 0 ? [m.u1 - WALL / 2, m.v0 + mid, zc] : side === 1 ? [m.u0 + ps + WALL / 2, m.v0 + mid, zc] : side === 2 ? [m.u0 + mid, m.v1 - WALL / 2, zc] : [m.u0 + mid, m.v0 + ps + WALL / 2, zc];
             const e: V3 = side < 2 ? [WALL / 2, half, rh / 2] : [half, WALL / 2, rh / 2];
             const id = add(c, e, m.skin, "wall", k, side === 0 ? 1 : side === 2 ? 4 : 0);
             const A = at(i, gr), B = at(i + 1, gr), C2 = at(i + 1, gr + 1), D = at(i, gr + 1), sh = out[id].shape;
@@ -126,20 +138,48 @@ export function fracture(masses: readonly MassIn[]): Chunk[] {
           course.push(ids);
         }
         below = course; walls = course;
+        if (gr === 0) walls0 = course;
       }
+      // GLASS HANGS ON A FRAME: columns round the edge of every floor of it, which are what carry the floor over.
+      let carry: number[][] = walls;
+      if (!bearing) {
+        const cols: number[] = [], per = (len: number) => Math.max(1, Math.round(len / 0.55)), IN = 0.09, ch = (fh - PLATE) / 2;
+        const spots: [number, number][] = [];
+        for (let i = 0; i <= per(du); i++) for (const v of [m.v0 + IN, m.v1 - IN]) spots.push([m.u0 + IN + ((du - 2 * IN) * i) / per(du), v]);
+        for (let j = 1; j < per(dv); j++) for (const u of [m.u0 + IN, m.u1 - IN]) spots.push([u, m.v0 + IN + ((dv - 2 * IN) * j) / per(dv)]);
+        spots.forEach(([u, v], q) => {
+          const id = add([u, v, wa + ch], [0.028, 0.03, ch], "concrete", "wall", k, 0);
+          if (colsUnder) rests(colsUnder[q], id);
+          cols.push(id);
+        });
+        colsUnder = cols; carry = [cols];
+        if (k === 0) feet[mi].push(...cols);
+      }
+      if (k === 0) for (const ids of walls0) feet[mi].push(...ids);
       // ITS FLOOR OVER IT — the roof, on the top storey, which carries the picture of the roof.
       const nu = Math.max(1, Math.round(du / cut.plate)), nv = Math.max(1, Math.round(dv / cut.plate)), plates: number[] = [];
       for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
         const c: V3 = [m.u0 + (du * (i + 0.5)) / nu, m.v0 + (dv * (j + 0.5)) / nv, wb - PLATE / 2];
         const id = add(c, [du / nu / 2, dv / nv / 2, PLATE / 2], m.skin === "sheet" ? "sheet" : "concrete", "plate", k, top ? 16 : 0);
         // ON THE WALLS ROUND IT, where they carry anything; and on the plate under it, which is its columns.
-        if (bearing) for (const ids of walls) for (const wid of ids) { const p = out[wid]; if (Math.abs(p.c[0] - c[0]) < du / nu / 2 + 0.3 && Math.abs(p.c[1] - c[1]) < dv / nv / 2 + 0.3) rests(wid, id); }
+        for (const ids of carry) for (const wid of ids) { const p = out[wid]; if (Math.abs(p.c[0] - c[0]) < du / nu / 2 + 0.3 && Math.abs(p.c[1] - c[1]) < dv / nv / 2 + 0.3) rests(wid, id); }
         if (under) rests(under.plates[i * nv + j], id);
         plates.push(id);
+        if (top) tops[mi].push(id);
       }
       under = { plates };
     }
   }
+  // A MASS STOOD ON ANOTHER — a tower on its podium — stands on that one's roof: its lowest pieces on the plates under them.
+  masses.forEach((m, k) => {
+    if (m.w0 < 0.08) return;
+    for (const id of feet[k + 1] ?? []) {
+      const c = out[id];
+      let best = -1, bd = 0.6;
+      masses.forEach((o, j) => { if (j !== k && Math.abs(o.w1 - m.w0) < 0.3) for (const pid of tops[j + 1] ?? []) { const d = Math.hypot(out[pid].c[0] - c.c[0], out[pid].c[1] - c.c[1]); if (d < bd) { bd = d; best = pid; } } });
+      if (best >= 0) rests(best, id);
+    }
+  });
   for (const c of out) c.had = c.sup.length;
   return out;
 }
@@ -167,6 +207,8 @@ export type Collapse = {
   clear(share: number): void;
   /** Where the work is: the middle of whatever went last. */
   at: V3;
+  /** Which masses have had anything go from them, by number (from one): their footings are to be seen. */
+  opened: boolean[];
 };
 
 /**
@@ -182,11 +224,12 @@ export function createCollapse(masses: readonly MassIn[], plot: { w: number; h: 
   chunks.forEach((c, i) => {
     const r = hash(seed * 7.7 + i * 1.31), far = Math.hypot(c.c[0] - from.u, c.c[1] - from.v), out = Math.hypot(c.c[0] - cu, c.c[1] - cv);
     // GLAZING GOES FIRST, a storey at a time from the top: a frame stripped before it is brought down.
-    if (c.skin === "glass" && c.part === "wall") { c.due = K * (0.02 + 0.2 * (1 - c.c[2] / Math.max(0.01, top))) + r * 0.35; return; }
+    // (Not the ground floor's: that is there till the building comes down, and goes with it.)
+    if (c.skin === "glass" && c.part === "wall" && c.c[2] > 0.66) { c.due = K * (0.02 + 0.2 * (1 - c.c[2] / Math.max(0.01, top))) + r * 0.35; return; }
     if (style === "implode") {
       // THE LOWEST STOREY BLOWN, from its middle outward — and a third and two thirds of the way up, a beat after: it
       // comes down through itself.
-      const lvl = c.floor, floors = Math.max(1, Math.round(top / 0.63));
+      const lvl = Math.floor(c.c[2] / 0.63), floors = Math.max(1, Math.round(top / 0.63));
       const charge = lvl === 0 ? 0 : lvl === Math.floor(floors / 3) ? 0.35 : lvl === Math.floor((2 * floors) / 3) ? 0.6 : -1;
       if (charge >= 0) c.due = K * 0.3 + charge + out * 0.22 + r * 0.08;
     } else if (style === "shed") {
@@ -223,6 +266,7 @@ export function createCollapse(masses: readonly MassIn[], plot: { w: number; h: 
   const gw = Math.ceil((plot.w + 2 * MARGIN) / CELL), gh = Math.ceil((plot.h + 2 * MARGIN) / CELL), heap = new Float32Array(gw * gh);
   const cell = (u: number, v: number) => Math.max(0, Math.min(gw - 1, Math.floor((u + MARGIN) / CELL))) + gw * Math.max(0, Math.min(gh - 1, Math.floor((v + MARGIN) / CELL)));
   let cleared = 0;
+  const opened: boolean[] = [];
   /**
    * A piece BROKEN IN TWO across its length, where it has landed at `hit`: each half flung a little, turning; each
    * keeps its half of what picture it carried — or, some of the time, loses it: what breaks shows its inside.
@@ -260,7 +304,7 @@ export function createCollapse(masses: readonly MassIn[], plot: { w: number; h: 
     return true;
   };
   const C: Collapse = {
-    chunks, style, at: [cu, cv, top],
+    chunks, style, opened, at: [cu, cv, top],
     standing: () => chunks.reduce((n, c) => n + (c.state === 0 ? 1 : 0), 0),
     falling: () => chunks.reduce((n, c) => n + (c.state === 1 ? 1 : 0), 0),
     finish(t) { chunks.forEach((c, i) => { if (c.state === 0 && c.due > t + 1.2) c.due = t + (1 - c.c[2] / Math.max(0.01, top)) * 0.8 + hash(i * 3.7) * 0.3; }); },
@@ -288,6 +332,16 @@ export function createCollapse(masses: readonly MassIn[], plot: { w: number; h: 
             if (left * 2 < o.had) o.due = Math.min(o.due, style === "implode" ? t : t + 0.03 + hash(d * 5.3 + seed) * 0.08);
           }
           C.at = [c.c[0], c.c[1], c.c[2]];
+          // WHAT STOOD BEHIND IT IS SEEN NOW: every piece still standing that it was in front of, from where the camera is.
+          {
+            const sx = c.c[0] - c.c[1], sy = c.c[0] + c.c[1] - RISE * c.c[2], dep = c.c[0] + c.c[1] + 0.816 * c.c[2];
+            const rx = c.e[0] + c.e[1] + 0.12, ry = c.e[0] + c.e[1] + RISE * c.e[2] + 0.12;
+            for (const o of chunks) {
+              if (o.state !== 0 || o.seen) continue;
+              if (Math.abs(o.c[0] - o.c[1] - sx) < rx + o.e[0] + o.e[1] && Math.abs(o.c[0] + o.c[1] - RISE * o.c[2] - sy) < ry + o.e[0] + o.e[1] + RISE * o.e[2] && o.c[0] + o.c[1] + 0.816 * o.c[2] < dep + 0.05) o.seen = true;
+            }
+            opened[c.m] = true;
+          }
           if (c.skin === "glass" && c.part === "wall") { c.state = 3; said.push({ kind: "shatter", at: [c.c[0], c.c[1], c.c[2]], size: Math.max(c.e[0], c.e[1]) + c.e[2], skin: c.skin }); continue; }
           c.state = 1;
           const r = hash(i * 9.1 + seed), r2 = hash(i * 4.3 + seed * 2);
