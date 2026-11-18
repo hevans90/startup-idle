@@ -113,14 +113,15 @@ const litOf = (gx: number, gy: number) => Math.max(-0.42, Math.min(0.3, -(gx * S
 /**
  * The light on a free cell's drawn top at its corner `(u, v)`: from the fall of its own two edges there, and of the
  * edges that carry on from them in the cells it joins — so the cells round a corner say the same, and no facet shows.
+ * And how steep it is there, half steps a tile.
  */
-function cornerLight(grid: Grid, palette: Palette, x: number, y: number, u: number, v: number): number {
+function cornerLight(grid: Grid, palette: Palette, x: number, y: number, u: number, v: number): [number, number] {
   const at = drawnCorner(grid, x, y, u, v);
   let gx = drawnCorner(grid, x, y, 1, v) - drawnCorner(grid, x, y, 0, v), gy = drawnCorner(grid, x, y, u, 1) - drawnCorner(grid, x, y, u, 0);
   const nx = u ? x + 1 : x - 1, ny = v ? y + 1 : y - 1;
   if (groundDraws(grid, palette, nx, y) && drawnCorner(grid, nx, y, 1 - u, v) === at) gx = (gx + drawnCorner(grid, nx, y, 1, v) - drawnCorner(grid, nx, y, 0, v)) / 2;
   if (groundDraws(grid, palette, x, ny) && drawnCorner(grid, x, ny, u, 1 - v) === at) gy = (gy + drawnCorner(grid, x, ny, u, 1) - drawnCorner(grid, x, ny, u, 0)) / 2;
-  return litOf(gx, gy);
+  return [litOf(gx, gy), Math.hypot(gx, gy)];
 }
 
 /** How far blade tips can stand over a back edge, in screen-shaped units (a cell's diamond is 2 across). */
@@ -154,7 +155,7 @@ function fringeBehind(grid: Grid, palette: Palette, nx: number, ny: number, z: n
  * below the top in half steps, for a fringe its height. A fringe's ground is
  * its cell's corner (x, y), the same at every vertex.
  */
-const WORDS = 6;
+const WORDS = 7;
 const STRIDE = WORDS * 4;
 
 export type GroundMesh = {
@@ -177,13 +178,15 @@ export type GroundMesh = {
 /** The quads of one band, as vertex floats and indices. Pure: for the mesh and for tests. */
 export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): { verts: Float32Array; idx: Uint32Array; quads: number } {
   const v: number[] = [];
-  const at = (gu: number, gv: number, z: number, kind: number, depth: number) => {
+  // (The last word of a vertex is HOW STEEP the ground is there, half steps a tile — worked out a corner at a time
+  // and carried across the face, so what the shader lays by steepness does not change at every triangle's edge.)
+  const at = (gu: number, gv: number, z: number, kind: number, depth: number, steep = 0) => {
     // A ground point (cells) at height z, where cellToWorld puts cell centres at +0.5. A corner of the grid on a
     // stepped cliff is DRAWN a little off where it is, to straighten the cliff's line (@see cornerShift) — but says
     // where it IS to the shader, which finds its cell by that.
     let cx = gu - 0.5, cy = gv - 0.5;
     if (Number.isInteger(gu) && Number.isInteger(gv)) { const s = cornerShift(grid, gu, gv); cx += s[0]; cy += s[1]; }
-    v.push((cx - cy) * HW * scale, ((cx + cy) * HH - z * HEIGHT_UNIT) * scale, gu, gv, kind, depth);
+    v.push((cx - cy) * HW * scale, ((cx + cy) * HH - z * HEIGHT_UNIT) * scale, gu, gv, kind, depth, steep);
   };
   const x0 = Math.max(0, b - (grid.h - 1)), x1 = Math.min(grid.w - 1, b);
   for (let x = x0; x <= x1; x++) {
@@ -200,14 +203,18 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
       at(x, y, z00, lit, z00); at(x + 1, y, z10, lit, z10); at(x + 1, y + 1, z11, lit, z11); at(x, y + 1, z01, lit, z01);
     } else {
       // A BANK: a fan from its middle, at the cell's own height, to its corners — four triangles, each a quad with an end doubled.
-      const lm = litOf((z10 + z11 - z00 - z01) / 2, (z01 + z11 - z00 - z10) / 2);
-      const c: [number, number, number, number][] = [
-        [x, y, z00, cornerLight(grid, palette, x, y, 0, 0)], [x + 1, y, z10, cornerLight(grid, palette, x, y, 1, 0)],
-        [x + 1, y + 1, z11, cornerLight(grid, palette, x, y, 1, 1)], [x, y + 1, z01, cornerLight(grid, palette, x, y, 0, 1)],
+      const mx = (z10 + z11 - z00 - z01) / 2, my = (z01 + z11 - z00 - z10) / 2;
+      const lm = litOf(mx, my);
+      const l00 = cornerLight(grid, palette, x, y, 0, 0), l10 = cornerLight(grid, palette, x, y, 1, 0);
+      const l11 = cornerLight(grid, palette, x, y, 1, 1), l01 = cornerLight(grid, palette, x, y, 0, 1);
+      // (The middle is as steep as its corners are, taken together: a fan's own point is no measure of the bank.)
+      const sm = Math.max(Math.hypot(mx, my), (l00[1] + l10[1] + l11[1] + l01[1]) / 4);
+      const c: [number, number, number, number, number][] = [
+        [x, y, z00, l00[0], l00[1]], [x + 1, y, z10, l10[0], l10[1]], [x + 1, y + 1, z11, l11[0], l11[1]], [x, y + 1, z01, l01[0], l01[1]],
       ];
       for (let k = 0; k < 4; k++) {
         const p = c[k], q = c[(k + 1) % 4];
-        at(x + 0.5, y + 0.5, zm, lm, zm); at(p[0], p[1], p[2], p[3], p[2]); at(q[0], q[1], q[2], q[3], q[2]); at(q[0], q[1], q[2], q[3], q[2]);
+        at(x + 0.5, y + 0.5, zm, lm, zm, sm); at(p[0], p[1], p[2], p[3], p[2], p[4]); at(q[0], q[1], q[2], q[3], q[2], q[4]); at(q[0], q[1], q[2], q[3], q[2], q[4]);
       }
     }
     // THE FACE ALONG x+1, each end down to what is in front of it there: a
@@ -239,14 +246,14 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
     if (fringes(grid, palette, x, y)) {
       const fr = (gu: number, gv: number, lift: number) => {
         const s = cornerShift(grid, gu, gv), cx = gu + s[0] - 0.5, cy = gv + s[1] - 0.5;
-        v.push((cx - cy) * HW * scale, ((cx + cy) * HH - z00 * HEIGHT_UNIT - lift * HW) * scale, x, y, 3, z00);
+        v.push((cx - cy) * HW * scale, ((cx + cy) * HH - z00 * HEIGHT_UNIT - lift * HW) * scale, x, y, 3, z00, 0);
       };
       if (fringeBehind(grid, palette, x, y - 1, z00)) { fr(x, y, 0); fr(x + 1, y, 0); fr(x + 1, y, FRINGE); fr(x, y, FRINGE); }
       if (fringeBehind(grid, palette, x - 1, y, z00)) { fr(x, y + 1, 0); fr(x, y, 0); fr(x, y, FRINGE); fr(x, y + 1, FRINGE); }
     }
   }
   // Never empty: a buffer of nothing is no buffer at all to some drivers. One quad at a point draws nothing.
-  if (!v.length) for (let k = 0; k < 4; k++) v.push(0, 0, 0, 0, 0, 0);
+  if (!v.length) for (let k = 0; k < 4; k++) v.push(0, 0, 0, 0, 0, 0, 0);
   const quads = v.length / WORDS / 4;
   const ix = new Uint32Array(quads * 6);
   for (let q = 0; q < quads; q++) {
@@ -326,6 +333,7 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
         aPosition: { buffer: vb, format: "float32x2", stride: STRIDE, offset: 0 },
         aGround: { buffer: vb, format: "float32x2", stride: STRIDE, offset: 8 },
         aWall: { buffer: vb, format: "float32x2", stride: STRIDE, offset: 16 },
+        aSteep: { buffer: vb, format: "float32", stride: STRIDE, offset: 24 },
       },
       indexBuffer: ib,
     });
@@ -443,16 +451,18 @@ struct VSOutput {
   @location(1) vWall: vec2<f32>,
   @location(2) vTint: vec4<f32>,
   @location(3) vWorld: vec2<f32>,
+  @location(4) vSteep: f32,
 };
 
 @vertex
-fn mainVertex(@location(0) aPosition: vec2<f32>, @location(1) aGround: vec2<f32>, @location(2) aWall: vec2<f32>) -> VSOutput {
+fn mainVertex(@location(0) aPosition: vec2<f32>, @location(1) aGround: vec2<f32>, @location(2) aWall: vec2<f32>, @location(3) aSteep: f32) -> VSOutput {
   let mvp = globalUniforms.uProjectionMatrix * globalUniforms.uWorldTransformMatrix * localUniforms.uTransformMatrix;
   var out: VSOutput;
   out.position = vec4<f32>((mvp * vec3<f32>(aPosition, 1.0)).xy, 0.0, 1.0);
   out.vGround = aGround;
   out.vWorld = aPosition;
   out.vWall = aWall;
+  out.vSteep = aSteep;
   out.vTint = localUniforms.uColor * globalUniforms.uWorldColorAlpha;
   return out;
 }
@@ -805,16 +815,16 @@ fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
 }
 
 @fragment
-fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, @location(2) vTint: vec4<f32>, @location(3) vWorld: vec2<f32>) -> @location(0) vec4<f32> {
+fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, @location(2) vTint: vec4<f32>, @location(3) vWorld: vec2<f32>, @location(4) vSteep: f32) -> @location(0) vec4<f32> {
   gScreen = vWorld * ground.uMap.z;
   let fs = fwidth(gScreen);
   gScreenFp = max(fs.x, fs.y) * 1.5;
   // (A wall's second word is how far down it; a top's is its height, which is no measure of a pixel.)
   let fw = fwidth(vGround) + vec2<f32>(fwidth(vWall.y) * select(0.0, 0.5, vWall.x > 0.5));
   let fp = max(fw.x, fw.y);
-  // How steep a top is here, half steps a tile: its height's change over the ground's.
-  let fg = fwidth(vGround);
-  let steep = fwidth(vWall.y) / max(max(fg.x, fg.y), 0.00001);
+  // How steep a top is here, half steps a tile: worked out a corner at a time and carried across the face, so
+  // what is laid by it does not turn at every triangle's edge.
+  let steep = vSteep;
   // THE WATER'S CUT FACE at the map's edge: its second word is how far under the surface.
   if (vWall.x > 4.5) {
     let a = 0.62 + 0.2 * smoothstep(0.0, 3.0, vWall.y);
@@ -832,7 +842,7 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
     col = topColour(vGround, fp);
     // A STEEP BANK IS BARE: the grass gives out to earth as the ground steepens, in patches.
     if (steep > 1.2) {
-      let bare = smoothstep(1.9, 2.9, steep + (fbm(vGround * 4.0 + 3.0) - 0.5) * 1.4);
+      let bare = smoothstep(1.7, 3.4, steep + (fbm(vGround * 2.2 + 3.0) - 0.5) * 2.2);
       if (bare > 0.0) { col = mix(col, dirtAt(vGround, fp) * 0.88, bare * 0.85); }
     }
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
@@ -860,6 +870,8 @@ const GLSL_VERTEX = /* glsl */ `#version 300 es
 in vec2 aPosition;
 in vec2 aGround;
 in vec2 aWall;
+in float aSteep;
+out float vSteep;
 out vec2 vGround;
 out vec2 vWall;
 out vec4 vTint;
@@ -876,6 +888,7 @@ void main() {
   vGround = aGround;
   vWorld = aPosition;
   vWall = aWall;
+  vSteep = aSteep;
   vTint = uColor * uWorldColorAlpha;
 }
 `;
@@ -887,6 +900,7 @@ in vec2 vGround;
 in vec2 vWall;
 in vec4 vTint;
 in vec2 vWorld;
+in float vSteep;
 out vec4 finalColor;
 uniform vec4 uMap;
 uniform sampler2D uCells;
@@ -1186,8 +1200,7 @@ void main() {
   gScreenFp = max(fs.x, fs.y) * 1.5;
   vec2 fw = fwidth(vGround) + vec2(fwidth(vWall.y) * (vWall.x > 0.5 ? 0.5 : 0.0));
   float fp = max(fw.x, fw.y);
-  vec2 fg = fwidth(vGround);
-  float steep = fwidth(vWall.y) / max(max(fg.x, fg.y), 0.00001);
+  float steep = vSteep;
   if (vWall.x > 4.5) {
     float a = 0.62 + 0.2 * smoothstep(0.0, 3.0, vWall.y);
     vec3 c = mix(vec3(0.33, 0.53, 0.68), vec3(0.19, 0.37, 0.54), smoothstep(0.0, 5.0, vWall.y));
@@ -1204,7 +1217,7 @@ void main() {
   if (vWall.x < 0.5) {
     col = topColour(vGround, fp);
     if (steep > 1.2) {
-      float bare = smoothstep(1.9, 2.9, steep + (fbm(vGround * 4.0 + 3.0) - 0.5) * 1.4);
+      float bare = smoothstep(1.7, 3.4, steep + (fbm(vGround * 2.2 + 3.0) - 0.5) * 2.2);
       if (bare > 0.0) col = mix(col, dirtAt(vGround, fp) * 0.88, bare * 0.85);
     }
     float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;

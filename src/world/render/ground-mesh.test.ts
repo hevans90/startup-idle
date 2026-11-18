@@ -15,7 +15,7 @@ function flat(w = 4, h = 4, mat = GRASS) {
 
 /** The kinds (0 top — whose word there is the light on it, under a half — 1 face +x, 2 face +y, 3 fringe) of a band's quads, in order. */
 const kinds = (q: ReturnType<typeof bandQuads>) =>
-  Array.from({ length: q.quads }, (_, k) => { const w = q.verts[k * 4 * 6 + 4]; return w < 0.5 ? 0 : w; });
+  Array.from({ length: q.quads }, (_, k) => { const w = q.verts[k * 4 * 7 + 4]; return w < 0.5 ? 0 : w; });
 
 describe("groundClassOf", () => {
   test("grass, dirt and sand by name, old names too; woods blend as grass; a frame the game no longer has is grass", () => {
@@ -81,9 +81,9 @@ describe("bandQuads", () => {
     // over the lower ground behind it; (2, 0) off the map's side.
     expect(kinds(q)).toEqual([0, 2, 0, 1, 2, 3, 3, 0, 1]);
     // (1, 1)'s +x face: its bottom corners sit 5 half steps below its top.
-    const face = 3 * 4 * 6;
-    expect(q.verts[face + 2 * 6 + 5]).toBe(5);
-    expect(q.verts[face + 2 * 6 + 1] - q.verts[face + 1 * 6 + 1]).toBeCloseTo(5 * 16.5);
+    const face = 3 * 4 * 7;
+    expect(q.verts[face + 2 * 7 + 5]).toBe(5);
+    expect(q.verts[face + 2 * 7 + 1] - q.verts[face + 1 * 7 + 1]).toBeCloseTo(5 * 16.5);
   });
 
   test("a step within a bank's reach is a slope: a fan of four, and no wall between the cells", () => {
@@ -93,9 +93,9 @@ describe("bandQuads", () => {
     // (0, 2): a fan, and its wall off the map's front; (1, 1): a fan only; (2, 0): a fan and the map's side.
     expect(kinds(q)).toEqual([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
     // A top's last word is its height: (1, 1)'s middle at its own, its corners at the mean of the four cells there.
-    const fan = 5 * 4 * 6;
+    const fan = 5 * 4 * 7;
     expect(q.verts[fan + 5]).toBe(2);
-    expect(q.verts[fan + 6 + 5]).toBe(0.5);
+    expect(q.verts[fan + 7 + 5]).toBe(0.5);
   });
 
   test("cells it does not draw leave no quads; an empty band is one quad at a point", () => {
@@ -108,7 +108,7 @@ describe("bandQuads", () => {
   test("the top's corners land on the cell's diamond, as cellToWorld puts its centre", () => {
     const grid = flat(3, 3);
     const q = bandQuads(grid, PALETTE, 0, 1);
-    const xs = [0, 1, 2, 3].map((k) => q.verts[k * 6]), ys = [0, 1, 2, 3].map((k) => q.verts[k * 6 + 1]);
+    const xs = [0, 1, 2, 3].map((k) => q.verts[k * 7]), ys = [0, 1, 2, 3].map((k) => q.verts[k * 7 + 1]);
     // Diamond round cell 0's centre at the origin: top, right, bottom, left.
     expect(xs).toEqual([0, 66, 0, -66]);
     expect(ys).toEqual([-33, 0, 33, 0]);
@@ -171,7 +171,7 @@ describe("fringe", () => {
     const q = bandQuads(grid, PALETTE, 2);
     expect(kinds(q)).toEqual([0, 2, 3, 0, 3, 0, 1]);
     // A fringe's ground is its cell, its last word its height.
-    const f = 4 * 4 * 6;
+    const f = 4 * 4 * 7;
     expect([q.verts[f + 2], q.verts[f + 3], q.verts[f + 5]]).toEqual([1, 1, 0]);
   });
 
