@@ -58,6 +58,7 @@ import {
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
 import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
 import { destroyGroundMesh, surfaceOf } from "./render/ground-mesh";
+import { CLIFF, drawnSampler } from "./render/drawn";
 import { buildPaved, createPavedLayer, dressPaved, evictUnused, lodPaved, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
 import { lodFor } from "./render/road-paint";
 import { lookDirtyCells } from "./roads/looks";
@@ -351,7 +352,8 @@ const pointsAtWater = (st: { tool: string; structureDefId: string }) =>
 /** The cell under a point: the ground, or the standing water over it for a tool that points at water. @see wetSurfaceSampler */
 function pickSeen(g: Grid, wx: number, wy: number, scale: number) {
   const wet = pointsAtWater(useWorldStore.getState());
-  return pickCell(wx, wy, wet ? wetSurfaceSampler(g) : surfaceSampler(g), { min: g.minHeight, max: g.maxHeight }, scale);
+  // (Against the ground AS DRAWN — a bank is a fan, not a level top — and with room for a bank's corners over its cell.)
+  return pickCell(wx, wy, drawnSampler(g, wet ? wetSurfaceSampler(g) : surfaceSampler(g)), { min: g.minHeight - CLIFF, max: g.maxHeight + CLIFF }, scale);
 }
 
 /**

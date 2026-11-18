@@ -13,6 +13,7 @@ import { Container, Graphics, MeshSimple, Texture } from "pixi.js";
 import { HEIGHT_UNIT, HH, HW, cellToWorld, type Cell } from "../iso";
 import { VOID, idx, inBounds, surfaceHeightAt, type Grid } from "../grid";
 import { cellDiamond, drawDeckPiers } from "../render/overlays";
+import { bankCorners } from "../render/drawn";
 import type { ToolId } from "./tools";
 
 /** Green when placeable, red when not. Per CELL, never per footprint. */
@@ -73,6 +74,17 @@ function levelAt(grid: Grid, x: number, y: number, wet = false): number {
 }
 
 /**
+ * A cell's corners where the ground under the cursor is DRAWN as a bank (@see render/drawn.ts) and the cursor is
+ * on that ground — not at a level it was told, nor on the water over it: the outline lies on the bank.
+ */
+function bankTilt(grid: Grid, x: number, y: number, wet = false, level?: (x: number, y: number) => number | undefined): Tilt | undefined {
+  if (!inBounds(grid, x, y) || level?.(x, y) !== undefined) return undefined;
+  const i = idx(grid, x, y);
+  if (grid.deck[i] !== 0 || (wet && grid.pool[i] > 0)) return undefined;
+  return bankCorners(grid, x, y);
+}
+
+/**
  * Outer boundary of a footprint as world-space segments.
  *
  * An edge is on the perimeter when the cell across it is not in the footprint.
@@ -106,7 +118,7 @@ export function footprintPerimeter(
     // AN INTERIOR CELL HAS NO EDGE TO DRAW, and is most of a big footprint:
     // asked first, so only the rim works out its corners.
     if (EDGES.every((e) => has(c.x + e.dx, c.y + e.dy))) continue;
-    const v = vertices(c.x, c.y, level?.(c.x, c.y) ?? levelAt(grid, c.x, c.y, wet), scale, tilt?.(c.x, c.y));
+    const v = vertices(c.x, c.y, level?.(c.x, c.y) ?? levelAt(grid, c.x, c.y, wet), scale, tilt?.(c.x, c.y) ?? bankTilt(grid, c.x, c.y, wet, level));
     for (const e of EDGES) {
       if (has(c.x + e.dx, c.y + e.dy)) continue;
       out.push([v[e.a][0], v[e.a][1], v[e.b][0], v[e.b][1]]);
@@ -163,7 +175,7 @@ export function cursorSignature(grid: Grid, input: CursorInput, valid: Validator
     // the ground would call that the same picture and skip the redraw.
     const on = inBounds(grid, c.x, c.y);
     const h = on ? input.level?.(c.x, c.y) ?? levelAt(grid, c.x, c.y, input.wet) : 0;
-    const t = on ? input.tilt?.(c.x, c.y) : undefined;
+    const t = on ? input.tilt?.(c.x, c.y) ?? bankTilt(grid, c.x, c.y, input.wet, input.level) : undefined;
     if (t) for (const z of t) mix(Math.round(z * 64));
     const d = on ? grid.deck[idx(grid, c.x, c.y)] : 0;
     mix(c.x); mix(c.y); mix(Math.round(h * 64)); mix(d);
@@ -294,7 +306,7 @@ export function createBuildCursor(overlay: Container): BuildCursor {
         if (oks[n] !== want) continue;
         const c = input.cells[n];
         // cellDiamond's four corners, written straight into the array; each at its own height on a ramp to be.
-        const t = input.tilt?.(c.x, c.y);
+        const t = input.tilt?.(c.x, c.y) ?? bankTilt(grid, c.x, c.y, input.wet, input.level);
         const { wx, wy } = cellToWorld(c.x, c.y, t ? 0 : heights[n], input.scale);
         const up = (k: number) => (t ? t[k] * HEIGHT_UNIT * input.scale : 0);
         const o = q * 8;

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { RAMP, createGrid, fillTerrain, idx, setHeight, setRamp } from "../grid";
-import { CLIFF, SHELF, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, pinned, shelfOf } from "./drawn";
+import { RAMP, createGrid, fillTerrain, idx, setHeight, setRamp, surfaceSampler } from "../grid";
+import { HEIGHT_UNIT, HH, HW, pickCell } from "../iso";
+import { CLIFF, SHELF, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, drawnSampler, pinned, shelfOf } from "./drawn";
 
 function flat(w = 4, h = 4) {
   const grid = createGrid(w, h);
@@ -112,5 +113,22 @@ describe("the drawn surface", () => {
     expect(shelfOf(grid, 1, 0)).toBeNull();
     expect(drawnCorner(grid, 1, 0, 0, 0)).toBe(0);
     expect(drawnCorner(grid, 0, 0, 1, 0)).toBe(9);
+  });
+
+  test("what is pointed at on a bank is the cell drawn there: a point of each cell's drawn face picks that cell", () => {
+    const grid = flat(10, 10);
+    // Ground falling toward the eye, a half step a tile each way and a little uneven: banks everywhere, none behind another.
+    for (let y = 0; y < 10; y++) for (let x = 0; x < 10; x++) setHeight(grid, x, y, 24 - x - y - ((x * 7 + y * 3) % 2));
+    const at = drawnSampler(grid, surfaceSampler(grid));
+    let banks = 0;
+    for (let Y = 2; Y < 8; Y++) for (let X = 2; X < 8; X++) {
+      if (at(X, Y)?.fan) banks++;
+      for (const [u, v] of [[0.5, 0.5], [0.2, 0.3], [0.8, 0.25], [0.7, 0.85], [0.15, 0.8], [0.5, 0.1], [0.9, 0.5]]) {
+        const z = drawnHeight(grid, X + u, Y + v);
+        const wx = (X + u - (Y + v)) * HW, wy = (X + u + Y + v - 1) * HH - z * HEIGHT_UNIT;
+        expect(pickCell(wx, wy, at, { min: -3, max: 27 })).toEqual({ x: X, y: Y });
+      }
+    }
+    expect(banks).toBeGreaterThan(20);
   });
 });

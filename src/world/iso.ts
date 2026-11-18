@@ -168,7 +168,14 @@ export const MAX_RISE = 2;
  * ramp joins a cell at `h` to a neighbour at `h + rise` across that edge —
  * which is the direction you think in when building a ramp up to a plateau.
  */
-export type Surface = { height: number; ramp: number; rise: number };
+export type Surface = {
+  height: number; ramp: number; rise: number;
+  /**
+   * Where the ground is DRAWN as a bank and not a level top: its corners (0,0), (1,0), (1,1), (0,1) and its middle,
+   * half steps — a fan of four triangles. @see render/drawn.ts
+   */
+  fan?: readonly [number, number, number, number, number];
+};
 
 /** Surface of a cell, or null off-map. */
 export type SurfaceAt = (x: number, y: number) => Surface | null;
@@ -218,6 +225,7 @@ export function faceCoords(
   const m = k - (X - Y);
   if (m <= -1 || m >= 1) return null;      // wrong diagonal column entirely
 
+  if (surf.fan) return fanCoords(wy + hhs - (X + Y) * hhs, m, surf.fan, hhs, unit);
   const rise = surf.ramp === RAMP.NONE ? 0 : surf.rise;
   // t = a + b·v, where t is 0 at the low edge and 1 at the named (high) edge
   let a = 0, b = 0;
@@ -235,6 +243,36 @@ export function faceCoords(
   const u = snapEdge(v + m);
   if (v < 0 || v >= 1 || u < 0 || u >= 1) return null;
   return { u, v };
+}
+
+/** The corners (u, v) of a fan's four triangles, in the order its heights are given; the fifth point is its middle. */
+const FAN_UV: readonly (readonly [number, number])[] = [[0, 0], [1, 0], [1, 1], [0, 1]];
+/**
+ * {@link faceCoords} for a face drawn as a FAN: each triangle is a plane of its own, so the point is solved for
+ * on each in turn and is on the face where it comes out inside the triangle it was solved on. `w` is the point's
+ * shifted height on the screen less the cell's own; `m` is u − v.
+ */
+function fanCoords(w: number, m: number, fan: NonNullable<Surface["fan"]>, hhs: number, unit: number): { u: number; v: number } | null {
+  const zc = fan[4];
+  for (let k = 0; k < 4; k++) {
+    const [ua, va] = FAN_UV[k], [ub, vb] = FAN_UV[(k + 1) % 4], za = fan[k], zb = fan[(k + 1) % 4];
+    // The plane z = α + βu·u + βv·v through the middle and the two corners.
+    const d = (ua - 0.5) * (vb - 0.5) - (ub - 0.5) * (va - 0.5);
+    const bu = ((za - zc) * (vb - 0.5) - (zb - zc) * (va - 0.5)) / d;
+    const bv = ((ua - 0.5) * (zb - zc) - (ub - 0.5) * (za - zc)) / d;
+    const al = zc - 0.5 * (bu + bv);
+    // On the screen: w = (2v + m)·hhs − z·unit, with u = v + m.
+    const denom = 2 * hhs - (bu + bv) * unit;
+    if (denom <= 0) continue;                // a face turned away from the eye: nothing of it shows
+    const v = snapEdge((w - m * hhs + (al + bu * m) * unit) / denom);
+    const u = snapEdge(v + m);
+    if (v < 0 || v >= 1 || u < 0 || u >= 1) continue;
+    // Inside this triangle: on the middle's side of the edge, between the two spokes.
+    const pu = u - 0.5, pv = v - 0.5;
+    const s1 = (ua - 0.5) * pv - (va - 0.5) * pu, s2 = pu * (vb - 0.5) - pv * (ub - 0.5);
+    if (s1 * d >= 0 && s2 * d >= 0) return { u, v };
+  }
+  return null;
 }
 
 /** Height of a cell's surface at face coordinates, in half steps. */

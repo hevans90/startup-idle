@@ -22,6 +22,7 @@
  * Pure: a corner is worked out from the cells round it and nothing kept.
  */
 import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureAt, type Grid } from "../grid";
+import type { SurfaceAt } from "../iso";
 
 /** The biggest step, in half steps, drawn as a bank. Over it is a cliff. */
 export const CLIFF = 3;
@@ -176,3 +177,24 @@ export function drawnHeight(grid: Grid, fx: number, fy: number): number {
   else { const s = 0.5 + da / (2 * Math.abs(db)); edge = db > 0 ? c01 + (c11 - c01) * s : c00 + (c10 - c00) * s; }
   return h + t * (edge - h);
 }
+
+/**
+ * A cell's drawn corners where it is a bank — (0,0), (1,0), (1,1), (0,1), the order a cursor's tilt takes them (its
+ * top, right, bottom and left) — or undefined where it is drawn level: what is outlined on bare ground follows it.
+ */
+export function bankCorners(grid: Grid, x: number, y: number): readonly [number, number, number, number] | undefined {
+  if (!inBounds(grid, x, y) || pinned(grid, x, y) || drawnFlat(grid, x, y)) return undefined;
+  return [drawnCorner(grid, x, y, 0, 0), drawnCorner(grid, x, y, 1, 0), drawnCorner(grid, x, y, 1, 1), drawnCorner(grid, x, y, 0, 1)];
+}
+
+/**
+ * A SURFACE SAMPLER THAT KNOWS THE BANKS: `base`'s answer for a cell, with the fan the ground is drawn as where
+ * that is a bank and `base` says the ground itself (not a deck, nor the water over it) — so what is pointed at is
+ * what is seen. @see iso.ts pickCell
+ */
+export const drawnSampler = (grid: Grid, base: SurfaceAt): SurfaceAt => (x, y) => {
+  const surf = base(x, y);
+  if (!surf || surf.height !== grid.height[idx(grid, x, y)]) return surf;
+  const c = bankCorners(grid, x, y);
+  return c ? { ...surf, fan: [c[0], c[1], c[2], c[3], drawnCentre(grid, x, y)] } : surf;
+};
