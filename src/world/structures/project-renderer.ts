@@ -22,7 +22,7 @@ import { propSprite, propSprites, propsLoaded } from "../props/props-sheet";
 import { GROUND, groundClassOf, groundDraws } from "../render/ground-mesh";
 import type { Mover } from "../agents/town";
 import { idx, inBounds, type Structure } from "../grid";
-import { HEIGHT_UNIT, HH, HW, cellToWorld } from "../iso";
+import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld } from "../iso";
 import { drawLive, liveState } from "./projects/ai-live";
 import { crewAt } from "./projects/crew";
 import { lookOf } from "./projects/looks";
@@ -311,11 +311,17 @@ function drawPlant(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numbe
   const b = s.build;
   if (!b || !bakedCars()) { syncSitePlant(h.plant, null, groundPlan(h.model, { w: s.w, h: s.h }), null, 0, 0); return; }
   const site = siteAt(h.model, Math.min(1, b.done / b.need), groundShare(b.deliveries, s.def));
-  if (site.ground && !plantCars) { if (!plantAsked) { plantAsked = true; void loadCarSprites().then((c) => { plantCars = c; }); } return; }
+  if (!plantCars) { if ((site.ground || b.plant) && !plantAsked) { plantAsked = true; void loadCarSprites().then((c) => { plantCars = c; }); } if (site.ground || b.plant) return; }
   const f = { w: s.w, h: s.h };
   syncSitePlant(h.plant, site, groundPlan(h.model, f), {
-    cars: plantCars!, people: bakedPeople() ? peopleLoaded() : null, id: s.id, ox: s.x - 0.5, oy: s.y - 0.5, z: ground, scale: ctx.scale,
+    cars: plantCars!, people: bakedPeople() ? peopleLoaded() : null, id: s.id, ox: s.x - 0.5, oy: s.y - 0.5, z: ground, scale: ctx.scale, w: s.w, h: s.h, plant: b.plant || null,
     layer: (u, v) => ctx.bands.dynamicOf[bandOfTile(s, ctx, Math.max(0, Math.min(s.w - 1, Math.floor(u))), Math.max(0, Math.min(s.h - 1, Math.floor(v))))],
+    road: (x, y, base) => {
+      let band = -Infinity;
+      for (const p of base) band = Math.max(band, bandOf(Math.round(x + p.u), Math.round(y + p.v)));
+      band = Math.max(0, Math.min(ctx.bands.dynamicOf.length - 1, band));
+      return { layer: ctx.bands.dynamicOf[band], z: x + y - band };
+    },
   }, h.t, dt);
 }
 

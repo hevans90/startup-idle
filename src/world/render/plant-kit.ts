@@ -156,7 +156,9 @@ export function follow(
   kinds: readonly string[], kind: string, li: number, paint: number, o: { tracked?: boolean; low?: boolean },
   want: { x: number; y: number; heading: number } | null, rest: (k: number) => { x: number; y: number }, dt: number,
 ): Following {
-  if (!plant.here) return { at: null, away: false, loaded: false };
+  // (Not come yet: one that has stands by the road where it turned off, while the rest of them come.)
+  const came = (plant.at ?? []).filter((a) => a.colour === paint);
+  if (!plant.here && came.length <= li) return { at: null, away: false, loaded: false };
   const all = kinds.filter((q) => q === kind).length, left = plant.home ? plant.home.filter((q) => q === kind).length : all, sent = all - left;
   // (Gone home already; or — a tracked one whose low-loader is setting off — up on it, and it carries it.)
   const going = plant.to && plant.to.kind === kind && li === sent ? plant.to : null;
@@ -166,7 +168,7 @@ export function follow(
     // (Where it turned off the road is where it starts from: the very place its mover stopped.)
     let k = 0; const job = id.slice(0, id.indexOf(":") + 1);
     for (const key of poses.keys()) if (key.startsWith(job)) k++;
-    const came = (plant.at ?? []).filter((a) => a.colour === paint), from = came[Math.min(came.length - 1, li)];
+    const from = came[Math.min(came.length - 1, li)];
     st = from ? { x: from.x, y: from.y, heading: from.heading, k } : { ...rest(k), heading: want?.heading ?? 0, k };
     poses.set(id, st);
   }

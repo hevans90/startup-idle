@@ -36,6 +36,9 @@ import type { Network } from "../roads/network";
 import { placesOf, type Place } from "../agents/roads";
 import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/town";
 import { yardFor } from "../lines/line-loads";
+import { stepPlant } from "../fleet/plant";
+import { sitePlantOf } from "../structures/projects/groundworks";
+import { GROUND, groundShare } from "../structures/projects/schedule";
 import { fleetFree, isYard, lorryLost, queueYardLoad, stepYard, unloadAt, yardQueued } from "../fleet/fleet";
 import { notable } from "../../game/machine";
 import { cultureNow } from "../../game/culture-now";
@@ -267,6 +270,20 @@ export function stepWorks(
   // for good. @see Works.trucks
   // THE YARDS: the company's lorries loaded under their cranes, and off. @see fleet
   stepYard(town, g, dt);
+  // EACH SITE'S MACHINES: from the yard before its ground is broken, and home when its ground is done — the building
+  // going up meanwhile. (Before the arrivals below are gone through: those of them that are machines are taken here.)
+  const plantAt = new Map<number, ReturnType<typeof stepPlant>>();
+  for (const s of sites) {
+    const b = s.build!, door = places.find((pl) => pl.structure === s.id);
+    // (Nothing a gang carries in on its own van wants a digger: a rack, a wall, a lot.)
+    if (!door || (!projectForStructure(s.def) && (!contractFor(s.def) || contractFor(s.def)!.carried))) continue;
+    const ground = b.need * groundShare(b.deliveries, s.def), inGround = b.done < ground - 1e-9;
+    // (Loaded with its ground done already: there are none on it.)
+    if (b.plant === undefined && !inGround) b.plant = false;
+    const at = stepPlant(g, { net, town }, b, { id: s.id, role: "site-plant" }, door, sitePlantOf(s), b.done > ground * GROUND.set[1] + 1e-6, dt, false, 2.5 + (s.w + s.h) / 1.8);
+    if (at === "work" && !inGround && b.plant) { b.plant.leaving ??= 0; b.plant.t = 0; }
+    plantAt.set(s.id, at);
+  }
   const onWay = new Map<number, number>();
   for (const m of town.movers) if (m.job?.role === "truck" && !town.arrived.includes(m)) onWay.set(m.job.site, (onWay.get(m.job.site) ?? 0) + 1);
   // (And those being loaded in the yard. @see fleet)
@@ -427,7 +444,9 @@ export function stepWorks(
     // Crews as fast as the culture deck drives them — and under Ship It
     // Fridays' rule, ahead of the loads, which still have to come. @see CARDS
     const deck = cultureNow();
-    b.done = Math.min(deck.noMaterialWait ? b.need : materialCap(b), b.done + crew.working * dt * deck.buildSpeed);
+    // (Till its machines have come, only the setting out: pegs and tape want no digger.)
+    const noPlant = plantAt.get(s.id) === "wait" ? Math.max(b.done, b.need * groundShare(b.deliveries, s.def) * GROUND.set[1]) : Infinity;
+    b.done = Math.min(deck.noMaterialWait ? b.need : materialCap(b), noPlant, b.done + crew.working * dt * deck.buildSpeed);
     b.updatedAt = now;
     // AWAY FROM THEIR DESKS: everyone the site has called, from the moment it
     // calls them. Paused or lowered, they are back on the books at once —

@@ -172,12 +172,12 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
           if (!cars) return;
           // ITS MACHINES, by the road: none of them on it till they have come from the yard. @see fleet/plant
           const plant = j.plant || null;
-          if (plant && !plant.here) return;
           const hd = plant?.head ?? j.cells[0], c0 = j.cells[Math.min(j.cells.length - 1, 1)] ?? j.cells[0], dl = Math.hypot(c0.x - hd.x, c0.y - hd.y) || 1;
           const flat = Math.hypot(c0.x - hd.x, c0.y - hd.y) < 0.5, dxh = flat ? 1 : (c0.x - hd.x) / dl, dyh = flat ? 0 : (c0.y - hd.y) / dl;
           /** Where a machine stands by the road when its trade is not at work: off the line, in rows of five. */
           const rest = (k: number) => ({ x: hd.x + dxh * (0.8 + 0.8 * Math.floor(k / 5)) + dyh * (1.05 + 0.6 * (k % 5)), y: hd.y + dyh * (0.8 + 0.8 * Math.floor(k / 5)) - dxh * (1.05 + 0.6 * (k % 5)) });
-          work(j, plant, rest);
+          // (None of them at work till the last has come: those that have stand by the road. @see plant-kit follow)
+          if (!plant || plant.here) work(j, plant, rest);
           if (plant) {
             // WHAT IS NOT AT WORK STANDS BY THE ROAD; and the low-loaders that brought the tracked ones, bare, till they take them home.
             const z = g.height[idx(g, Math.max(0, Math.min(g.w - 1, Math.round(hd.x))), Math.max(0, Math.min(g.h - 1, Math.round(hd.y))))];

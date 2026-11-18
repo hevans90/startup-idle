@@ -18,8 +18,7 @@
 import { siteTrucks } from "../../game/site-trucks";
 import {
   FLEET_FLATBED_COLOUR, FLEET_TIPPER_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PIPE_EMPTY_COLOUR, PIPE_LORRY_COLOUR,
-  PLANT_CRANE_COLOUR, PLANT_LOADER_COLOUR, PLANT_MIXER_COLOUR, PLANT_PICKUP_COLOUR,
-} from "../agents/cars/fleet";
+  PLANT_CRANE_COLOUR, PLANT_LOADER_COLOUR, PLANT_MIXER_COLOUR, PLANT_PICKUP_COLOUR, PLANT_LOADER_EMPTY_COLOUR } from "../agents/cars/fleet";
 import type { Place } from "../agents/roads";
 import { setOff, type Mover, type Town } from "../agents/town";
 import type { Grid, Structure } from "../grid";
@@ -215,7 +214,7 @@ export function lorryLost(g: Grid, town: Town, id: number): void {
 }
 
 /** The paint of a job's machine on the road: the crane travelling, a mixer, a low-loader, the gang's pickup. */
-const PLANT_PAINT: ReadonlySet<number> = new Set([PLANT_CRANE_COLOUR, PLANT_MIXER_COLOUR, PLANT_LOADER_COLOUR, PLANT_PICKUP_COLOUR]);
+const PLANT_PAINT: ReadonlySet<number> = new Set([PLANT_CRANE_COLOUR, PLANT_MIXER_COLOUR, PLANT_LOADER_COLOUR, PLANT_PICKUP_COLOUR, PLANT_LOADER_EMPTY_COLOUR]);
 /** Machines on their way out of a yard to a job, by the job: not on the road yet. */
 const plantLegs = new Map<string, number>();
 export const plantComing = (_town: Town, job: string) => (plantLegs.get(job) ?? 0) > 0;

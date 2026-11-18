@@ -27,6 +27,14 @@ export type Ground = {
   pour: Spot;
 };
 
+/**
+ * A SITE'S MACHINES, as they come from the yard and go home (@see fleet/plant): the digger on a low-loader, the
+ * lorry it loads, the rig on another, the mixer — and on a plot with no room for a lorry in its gate, the digger
+ * and the rig alone.
+ */
+export const SITE_PLANT = ["loader", "tipper", "loader", "mixer"] as const, SITE_PLANT_SMALL = ["loader", "loader"] as const;
+export const sitePlantOf = (f: Footprint) => (f.w >= 2 && f.h >= 2 ? SITE_PLANT : SITE_PLANT_SMALL);
+
 /** The way the rig faces at every pile: its leader to the left of it on the screen, clear of its house. */
 export const RIG_HEADING = Math.PI * 0.75;
 /** How far ahead of its middle a rig's pile is, tiles. @see models rigAt */

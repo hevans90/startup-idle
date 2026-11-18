@@ -93,6 +93,8 @@ export type Build = {
   priority: 0 | 1 | 2 | 3;
   /** When it was last worked on, ms since the epoch — for the time away. */
   updatedAt: number;
+  /** Its ground's machines, from the yard and home again; false, with none to come by road. @see fleet/plant, projects/works */
+  plant?: false | import("./fleet/plant").Plant;
 };
 export type Grid = {
   readonly w: number;
