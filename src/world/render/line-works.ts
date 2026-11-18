@@ -28,11 +28,13 @@ import { getTown } from "../../state/world.store";
 import { PIPE_EMPTY_COLOUR } from "../agents/cars/fleet";
 import type { BandLayer } from "./bands";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, shuttled, type Unit } from "./plant-kit";
+import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, follow, makeUnit, mixerLook, poseUnit, shuttled, type Standing, type Unit } from "./plant-kit";
+import { RAZE, createRazeFx } from "./raze-fx";
+import { shownStructures } from "../structures/layer";
 import { walkRound, type Walker } from "./road-plant";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
 import { BEND_R, CHEEK, CONCRETE, FLANGE_R, FLANGE_T, MATERIAL, SADDLE, ZT, box as meshBox, darker, disc, elbowPath, flange, quad as meshQuad, footing, made, pipeMesh, solid, sweep, tube as meshTube } from "./pipe-mesh";
-import { CRANE_LOOKS, CRANE_REACH, craneTip } from "../agents/cars/models";
+import { CRANE_LOOKS, CRANE_REACH, SPOIL_LOOKS, craneTip } from "../agents/cars/models";
 
 /** How high a main's middle lies off the ground, half steps. @see mains-layer LIFT */
 const LIFT = 1.1;
@@ -146,6 +148,8 @@ export function createLineWorks(bands: BandLayer): LineWorks {
   const razing = new Map<number, { g: Graphics; band: number }>();
   /** Where a demolition's digger and its low-loaders are, driving; and which are up on a low-loader. @see plant-kit shuttled */
   const razePoses = new Map<string, { x: number; y: number; heading: number }>(), razeAboard = new Set<string>();
+  /** Where a demolition's lorry is, driving (@see plant-kit follow); and the building coming down (@see raze-fx). */
+  const razeStand = new Map<string, Standing>(), razeFx = createRazeFx(bands);
   const drop = (c: Container) => { c.parent?.removeChild(c); c.destroy({ children: true }); };
   /**
    * A main being laid: what moves over it each frame — a length in the slings, the concrete off a chute, the sparks;
@@ -927,7 +931,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         }
       }
       // ── WHAT IS BEING PULLED DOWN: taped off, a digger at its front pulling at it, dust over it, rubble heaping at its foot ──
-      const seenR = new Set<number>();
+      const seenR = new Set<number>(), seenFx = new Set<number>();
       for (const j of g.razeJobs) {
         // (Down, the job is only its digger's going: drawn on the plot the building stood on.)
         const s = g.structures.get(j.structure) ?? j.plot;
@@ -952,22 +956,38 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           }
         }
         if (!j.down) for (const [u, v] of [[x0, y1], [x1, y1], [x1, y0]]) { const [px, py] = pt(scale, u, v, h); G.rect(px - scale, py - 6 * scale, 2 * scale, 6 * scale).fill({ color: 0xf4efe2 }); }
-        // Rubble at its foot, more of it as it comes down.
-        if (!j.down) for (let q = 0; q < Math.round(p * 9); q++) {
-          const [px, py] = pt(scale, x0 + (((q * 0.37) % 1) * (x1 - x0)), y1 - 0.08 - ((q * 0.61) % 1) * 0.25, h);
-          G.poly([px - 5 * scale, py, px + 5 * scale, py, px + 2 * scale, py - (3 + (q % 3)) * scale, px - 3 * scale, py - (2 + (q % 2)) * scale]).fill({ color: q % 2 ? 0x8f8b84 : 0x7a5a3c });
-        }
-        // Dust, rising off it where the bucket is pulling.
-        if (biting) for (let q = 0; q < 7; q++) {
-          const ph = (w * 0.45 + q / 7) % 1, [px, py] = pt(scale, x0 + ((q * 0.29 + 0.2) % 1) * (x1 - x0), y0 + ((q * 0.53 + 0.4) % 1) * (y1 - y0), h + 1 + ph * 3);
-          G.circle(px, py, (5 + ph * 11) * scale).fill({ color: 0xc9bfae, alpha: 0.42 * (1 - ph) });
-        }
+        // IT COMES DOWN A SECTION AT A TIME, from the digger's side: each shaken, gone onto its footing, masonry thrown and
+        // dust up, a heap left where it stood — and the heaps then cleared into the lorry. @see raze-fx
+        const came = rp?.at?.[0];
+        // (The digger on the plot's own edge, never out in the road: the side it came to by road — it does not drive through the building to get round it — or, simply there, its front.)
+        const at = came ? { x: Math.max(x0 + 0.18, Math.min(x1 - 0.18, came.x)), y: Math.max(y0 + 0.18, Math.min(y1 - 0.18, came.y)) } : { x: (x0 + x1) / 2, y: y1 - 0.18 };
+        const standing = !j.down && !!g.structures.get(j.structure);
+        const mounted = standing ? shownStructures()?.mounted.get(j.structure) : undefined;
+        const fx = standing && biting ? razeFx.sync(j.id, g, s, mounted?.renderer.pieces?.(mounted.handle) ?? [], p, at, scale, dt, j.need) : null;
+        if (standing) seenFx.add(j.id);
         // THE DIGGER at the middle of its front, turned to it: a bite, a pull, and round to drop it.
         if (cars) {
-          const id = `raze:${j.id}`, q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL, came = rp?.at?.[0];
-          // (On the plot's own edge, never out in the road: the side it came to by road — it does not drive through the building to get round it — or, simply there, its front.)
-          const at = came ? { x: Math.max(x0 + 0.18, Math.min(x1 - 0.18, came.x)), y: Math.max(y0 + 0.18, Math.min(y1 - 0.18, came.y)) } : { x: (x0 + x1) / 2, y: y1 - 0.18 };
-          const face = came ? Math.atan2((y0 + y1) / 2 - at.y, (x0 + x1) / 2 - at.x) : -Math.PI / 2;
+          const id = `raze:${j.id}`, q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL;
+          // (Turned to the section it is pulling at, or the heap it is clearing.)
+          const aim = fx?.target && Math.hypot(fx.target.x - at.x, fx.target.y - at.y) > 0.05 ? fx.target : { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
+          const face = Math.hypot(aim.x - at.x, aim.y - at.y) > 0.05 ? Math.atan2(aim.y - at.y, aim.x - at.x) : -Math.PI / 2;
+          // THE LORRY IT FILLS, stood beside it along the plot's edge: come empty, and away with the rubble.
+          const nx = came ? came.x - at.x : 0, ny = came ? came.y - at.y : 1, nl = Math.hypot(nx, ny) || 1, tx = -ny / nl, ty = nx / nl;
+          const inside = (sg: number) => at.x + tx * 0.85 * sg > x0 + 0.1 && at.x + tx * 0.85 * sg < x1 - 0.1 && at.y + ty * 0.85 * sg > y0 + 0.1 && at.y + ty * 0.85 * sg < y1 - 0.1;
+          const side = inside(1) || !inside(-1) ? 1 : -1, lorryAt = { x: at.x + tx * 0.85 * side, y: at.y + ty * 0.85 * side, heading: Math.atan2(ty * side, tx * side) };
+          const tipAt = Math.atan2(lorryAt.y - at.y, lorryAt.x - at.x), CAP = SPOIL_LOOKS.length - 1;
+          const full = j.down || p >= RAZE.cleared ? 1 : fx?.phase === "clear" ? fx.loaded : 0;
+          {
+            const lo = rp ? follow(razeStand, `${id}:spoil`, rp, RAZE_PLANT, "spoil", 0, PLANT_COLOUR.spoil, {}, lorryAt, () => lorryAt, dt) : { at: lorryAt, away: false, loaded: false };
+            if (lo.at) {
+              let u = units.get(`${id}:spoil`);
+              if (!u) { u = makeUnit(1); units.set(`${id}:spoil`, u); }
+              seen.add(`${id}:spoil`);
+              const hz = g.height[idx(g, Math.max(0, Math.min(g.w - 1, Math.round(lo.at.x))), Math.max(0, Math.min(g.h - 1, Math.round(lo.at.y))))];
+              const base = poseUnit(u, cars, [{ look: SPOIL_LOOKS[Math.max(0, Math.min(CAP, Math.round(full * CAP)))], tint: BLUE }], { x: lo.at.x, y: lo.at.y, z: hz, heading: lo.at.heading, pitch: 0 }, scale, P ? { people: P, id: j.id * 5 + 1 } : null);
+              u.band = into(u.c, u.band, lo.at.x, lo.at.y, base);
+            }
+          }
           // IT CAME ON A LOW-LOADER, which did not wait (@see fleet/plant shuttle): driven off it where that stopped, to the
           // building's front; and, the building down, to the one come back for it and up onto it.
           const sh = rp ? shuttled(razePoses, razeAboard, id, rp, RAZE_PLANT, PLANT_COLOUR.loader, () => at, dt) : null;
@@ -976,11 +996,11 @@ export function createLineWorks(bands: BandLayer): LineWorks {
             let u = units.get(id);
             if (!u) { u = makeUnit(2); units.set(id, u); }
             seen.add(id);
-            const work = biting && !fo.away;
+            const work = biting && !fo.away && !!fx && fx.phase !== "done", clearing = fx?.phase === "clear";
             const pose = !work ? "exLift" : q < DIG.dig * 0.45 ? "exDig" : q < DIG.dig ? "exDig2" : q < DIG.dig + DIG.lift + DIG.out ? "exLift" : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? "exDump" : "exLift";
             const slew = q < DIG.dig + DIG.lift ? 0 : q < DIG.dig + DIG.lift + DIG.out ? (q - DIG.dig - DIG.lift) / DIG.out : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? 1 : 1 - (q - DIG.dig - DIG.lift - DIG.out - DIG.tip) / DIG.back;
             const hz = g.height[idx(g, Math.max(0, Math.min(g.w - 1, Math.round(fo.at.x))), Math.max(0, Math.min(g.h - 1, Math.round(fo.at.y))))];
-            const base = poseUnit(u, cars, [{ look: "exTracks", tint: YELLOW }, { look: pose, tint: YELLOW, heading: work ? face + 1.1 * (slew * slew * (3 - 2 * slew)) : fo.at.heading }], { x: fo.at.x, y: fo.at.y, z: work ? h : hz, heading: fo.at.heading, pitch: 0 }, scale, P ? { people: P, id: j.id * 5 } : null);
+            const base = poseUnit(u, cars, [{ look: "exTracks", tint: YELLOW }, { look: pose, tint: YELLOW, heading: work ? (clearing ? face + Math.atan2(Math.sin(tipAt - face), Math.cos(tipAt - face)) * (slew * slew * (3 - 2 * slew)) : face + 0.9 * (slew * slew * (3 - 2 * slew))) : fo.at.heading }], { x: fo.at.x, y: fo.at.y, z: work ? h : hz, heading: fo.at.heading, pitch: 0 }, scale, P ? { people: P, id: j.id * 5 } : null);
             u.band = into(u.c, u.band, fo.at.x, fo.at.y, base);
           }
           for (const l of sh?.lows() ?? []) {
@@ -993,7 +1013,8 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           }
         }
       }
-      for (const [id, r] of razing) if (!seenR.has(id)) { drop(r.g); razing.delete(id); for (const k of [...razePoses.keys()]) if (k.startsWith(`raze:${id}:`)) razePoses.delete(k); for (const k of [...razeAboard]) if (k.startsWith(`raze:${id}:`)) razeAboard.delete(k); }
+      razeFx.keep(seenFx);
+      for (const [id, r] of razing) if (!seenR.has(id)) { for (const k of [...razeStand.keys()]) if (k.startsWith(`raze:${id}:`)) razeStand.delete(k); drop(r.g); razing.delete(id); for (const k of [...razePoses.keys()]) if (k.startsWith(`raze:${id}:`)) razePoses.delete(k); for (const k of [...razeAboard]) if (k.startsWith(`raze:${id}:`)) razeAboard.delete(k); }
       // ── THE YARD'S CRANE: at the company's own building, between its stacks of pipe and its gate ──
       // It stands there always. A load sent for is a lorry drawn up beside it: three pieces off the stack, each
       // hooked, lifted, slewed over and set on the bed; then the lorry out of the gate, and onto the road.
@@ -1110,6 +1131,6 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       for (const [id, m] of mains) if (!seenM.has(id)) { dropMain(m); mains.delete(id); }
       for (const id of clocks.keys()) if (id >= 0 ? !jobs.some((j) => j.id === id) : !g.razeJobs.some((j) => j.id === -id)) clocks.delete(id);
     },
-    destroy() { for (const m of yardLoose.values()) destroyPipeDrawable(m.mesh); yardLoose.clear(); for (const G of yardRopes.values()) drop(G); yardRopes.clear(); for (const m of mains.values()) dropMain(m); mains.clear(); clear(); for (const r of razing.values()) drop(r.g); razing.clear(); for (const u of units.values()) drop(u.c); for (const b of barges.values()) drop(b.c); units.clear(); barges.clear(); clocks.clear(); },
+    destroy() { razeFx.destroy(); for (const m of yardLoose.values()) destroyPipeDrawable(m.mesh); yardLoose.clear(); for (const G of yardRopes.values()) drop(G); yardRopes.clear(); for (const m of mains.values()) dropMain(m); mains.clear(); clear(); for (const r of razing.values()) drop(r.g); razing.clear(); for (const u of units.values()) drop(u.c); for (const b of barges.values()) drop(b.c); units.clear(); barges.clear(); clocks.clear(); },
   };
 }

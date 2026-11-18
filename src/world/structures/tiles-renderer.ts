@@ -16,7 +16,7 @@ import { footprintCells, idx, inBounds, type Grid, type Structure } from "../gri
 import { bandOf, cellToWorld } from "../iso";
 import { housePieces, housesLoaded, houseTint } from "../houses/houses-sheet";
 import { kitFloors, type StructureDef } from "./def";
-import { registerRenderer, type RenderCtx, type StructureHandle, type StructureRenderer } from "./render";
+import { PIECE_TILE, registerRenderer, type RenderCtx, type StructureHandle, type StructureRenderer } from "./render";
 
 type TilesHandle = StructureHandle & {
   sprites: Container[];
@@ -169,6 +169,7 @@ function buildSprites(
       if (p.walls) sp.tint = tint;
       sp.eventMode = "none";
       parent.addChild(sp);
+      PIECE_TILE.set(sp, cell);
       out.push(sp);
     }
   }
@@ -267,6 +268,7 @@ export const tilesRenderer: StructureRenderer = {
   unmount(h) {
     h.destroy();
   },
+  pieces(h) { const handle = h as TilesHandle; return handle.scaffold ? [...handle.sprites, handle.scaffold] : [...handle.sprites]; },
 };
 
 registerRenderer("tiles", tilesRenderer);

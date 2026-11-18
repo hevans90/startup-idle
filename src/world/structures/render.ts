@@ -11,6 +11,8 @@
  * band containers are retained: a structure's sprites persist between frames
  * and are reconciled in place, the same as terrain and roads.
  */
+import type { Container } from "pixi.js";
+
 import type { Grid, Structure } from "../grid";
 import type { BandLayer } from "../render/bands";
 import type { RenderSpec, StructureDef } from "./def";
@@ -47,7 +49,14 @@ export type StructureRenderer = {
    */
   tick?(h: StructureHandle, s: Structure, def: StructureDef, ctx: RenderCtx, dt: number): void;
   unmount(h: StructureHandle): void;
+  /**
+   * WHAT IT IS DRAWN WITH, piece by piece: every display object of it that stands on its plot, for whoever pulls
+   * it down (@see render/raze-fx). A piece over one tile of the plot says which in {@link PIECE_TILE}.
+   */
+  pieces?(h: StructureHandle): Container[];
 };
+/** The tile of the map a piece of a building stands on, where its renderer knows: its footing, for bringing it down onto. */
+export const PIECE_TILE = new WeakMap<Container, { x: number; y: number }>();
 
 const byKind = new Map<RenderSpec["kind"], StructureRenderer>();
 const byCustomId = new Map<string, StructureRenderer>();

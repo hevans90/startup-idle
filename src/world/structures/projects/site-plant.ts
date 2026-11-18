@@ -31,7 +31,7 @@ type Look = { look: string; tint: number; heading?: number };
 /** A site's machines by the mover that brings each (@see groundworks SITE_PLANT): the digger and the rig on low-loaders, the lorry, the mixer. */
 const SITE_UNITS: Readonly<Record<string, { kind: PlantKind; li: number; tracked?: boolean }>> = {
   digger: { kind: "loader", li: 0, tracked: true }, rig: { kind: "loader", li: 1, tracked: true },
-  spoil: { kind: "tipper", li: 0 }, mixer: { kind: "mixer", li: 0 },
+  spoil: { kind: "spoil", li: 0 }, mixer: { kind: "mixer", li: 0 },
 };
 /** Each as it stands before its trade has begun. */
 const SITE_STOOD: Readonly<Record<string, Look[]>> = {

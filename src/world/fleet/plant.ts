@@ -9,7 +9,7 @@
  * the very place its mover stopped. Nothing is set down; nothing taken up.
  */
 import {
-  FLEET_TIPPER_EMPTY_COLOUR, PLANT_CRANE_COLOUR, PLANT_LOADER_COLOUR, PLANT_LOADER_EMPTY_COLOUR, PLANT_MIXER_COLOUR, PLANT_PICKUP_COLOUR,
+  FLEET_SPOIL_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PLANT_CRANE_COLOUR, PLANT_LOADER_COLOUR, PLANT_LOADER_EMPTY_COLOUR, PLANT_MIXER_COLOUR, PLANT_PICKUP_COLOUR,
 } from "../agents/cars/fleet";
 import { placesOf, type Place } from "../agents/roads";
 import { setOff, type Mover, type Town } from "../agents/town";
@@ -20,7 +20,7 @@ import { isYard, plantComing, plantOut } from "./fleet";
 import { roomOrWaited } from "./legs";
 
 /** A machine as it travels: the crane; a mixer; a low-loader, with a digger or a roller or a paver on it; the gang's pickup; a tipper, empty. */
-export type PlantKind = "crane" | "mixer" | "loader" | "pickup" | "tipper";
+export type PlantKind = "crane" | "mixer" | "loader" | "pickup" | "tipper" | "spoil";
 /**
  * A job's machines: which are still to set off, and seconds till the next does; whether they are all there; and,
  * the job done, seconds since and which are still to set off home. Where each stopped at the road as it came, by
@@ -43,8 +43,11 @@ export type Plant = {
 };
 /** Each kind's paint on the road: its model, and how one that has come is told. @see cars/fleet */
 export const PLANT_COLOUR: Readonly<Record<PlantKind, number>> = {
-  crane: PLANT_CRANE_COLOUR, mixer: PLANT_MIXER_COLOUR, loader: PLANT_LOADER_COLOUR, pickup: PLANT_PICKUP_COLOUR, tipper: FLEET_TIPPER_EMPTY_COLOUR,
+  crane: PLANT_CRANE_COLOUR, mixer: PLANT_MIXER_COLOUR, loader: PLANT_LOADER_COLOUR, pickup: PLANT_PICKUP_COLOUR, tipper: FLEET_TIPPER_EMPTY_COLOUR, spoil: FLEET_TIPPER_EMPTY_COLOUR,
 };
+/** What a kind goes home as, where that is not what it came as: a tipper that came empty to be filled (`spoil`) goes home full. */
+const HOME_COLOUR: Partial<Record<PlantKind, number>> = { spoil: FLEET_SPOIL_COLOUR };
+const homeColour = (kind: PlantKind) => HOME_COLOUR[kind] ?? PLANT_COLOUR[kind];
 /** Seconds between one machine setting off and the next; seconds a finished job's machines take to gather at the road before the first goes home. */
 export const PLANT_GAP = 1.8, PLANT_GATHER = 6;
 /** Which job a machine is for: a line's, a road's, a site's. Their numbers are their own, so the kind is told too. */
@@ -137,16 +140,16 @@ export function stepPlant(
         p.t -= dt;
         if (p.t > 0) return "leaving";
         const kind = p.home[0], next = ok ? setOff(haul.town, g, "truck", head!, from!) : null;
-        if (next && !roomOrWaited(haul.town, `${name}:from`, next, halfLength({ ...next, colour: PLANT_COLOUR[kind] }), 0.4)) { p.t = 0.4; return "leaving"; }
+        if (next && !roomOrWaited(haul.town, `${name}:from`, next, halfLength({ ...next, colour: homeColour(kind) }), 0.4)) { p.t = 0.4; return "leaving"; }
         if (next) going.set(name, next); else going.delete(name);
         p.to = { kind, x: next?.x ?? p.head?.x ?? 0, y: next?.y ?? p.head?.y ?? 0, heading: next?.heading ?? 0 };
         p.t = PLANT_GAP;
       } else {
         p.t -= dt;
         const next = going.get(name);
-        if (p.t <= 0 && (!next || roomOrWaited(haul.town, `${name}:on`, next, halfLength({ ...next, colour: PLANT_COLOUR[p.to.kind] }), dt))) {
+        if (p.t <= 0 && (!next || roomOrWaited(haul.town, `${name}:on`, next, halfLength({ ...next, colour: homeColour(p.to.kind) }), dt))) {
           going.delete(name);
-          if (next) { next.colour = PLANT_COLOUR[p.to.kind]; next.job = { site: key.id, role: "haul-back" }; haul.town.movers.push(next); }
+          if (next) { next.colour = homeColour(p.to.kind); next.job = { site: key.id, role: "haul-back" }; haul.town.movers.push(next); }
           p.home.shift();
           p.to = undefined;
         }

@@ -164,7 +164,7 @@ export type RazeJob = {
   /** Its digger, from the yard on a low-loader and home on one (@see fleet/plant, `RAZE_PLANT`); that the building is down, and only its digger's going is left; and the plot it stood on, for drawing that. */
   plant?: false | Plant; down?: boolean; plot?: { x: number; y: number; w: number; h: number };
 };
-/** What pulls a building down: a digger, come on a low-loader that does not wait for it. */
-export const RAZE_PLANT: readonly PlantKind[] = ["loader"];
+/** What pulls a building down: a digger, come on a low-loader that does not wait for it; and a tipper, which comes empty and goes home with the rubble. */
+export const RAZE_PLANT: readonly PlantKind[] = ["loader", "spoil"];
 /** Seconds to pull down a building of so many tiles: a few bites a tile, and never long. */
 export const razeSeconds = (tiles: number) => Math.min(30, 5 + 3 * tiles);

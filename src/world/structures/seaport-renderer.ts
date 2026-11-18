@@ -1054,4 +1054,5 @@ registerCustomRenderer("seaport", {
   },
   tick,
   unmount(h) { h.destroy(); },
+  pieces(h) { return isSite(h) ? [...h.cols] : [...(h as SeaportHandle).nodes]; },
 });

@@ -36,7 +36,7 @@ import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-s
 import {
   OPENING, craneHeight, cranePose, craneRest, drawConfetti, drawFinished, drawSite, drawSky, jibLength,
 } from "./projects/site";
-import { registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
+import { PIECE_TILE, registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
 
 type ProjectHandle = StructureHandle & {
   /** A Graphics a TILE of the footprint, each in its tile's band; `cells` says which. @see makePen */
@@ -439,6 +439,7 @@ function placeBaked(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numb
         sp.position.set(at.wx, at.wy);
         sp.scale.set(ctx.scale / sheet!.res);
         ctx.bands.structureOf[bandOfTile(s, ctx, c, r)].addChild(sp);
+        PIECE_TILE.set(sp, { x: s.x + c, y: s.y + r });
         h.baked.push(sp);
       });
       // ITS CANOPIES, over whatever the game stands on their tiles: a shed's roof over the lorries parked in it.
@@ -452,6 +453,7 @@ function placeBaked(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numb
         sp.scale.set(ctx.scale / sheet!.res);
         sp.zIndex = 6;
         ctx.bands.dynamicOf[bandOfTile(s, ctx, c, r)].addChild(sp);
+        PIECE_TILE.set(sp, { x: s.x + c, y: s.y + r });
         h.baked.push(sp);
       });
     }
@@ -509,6 +511,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
       const g = new Graphics();
       g.eventMode = "none";
       ctx.bands.structureOf[bandOfTile(s, ctx, c, r)].addChild(g);
+      PIECE_TILE.set(g, { x: s.x + c, y: s.y + r });
       columns.push(g);
       cells.push({ c, r });
     }
@@ -587,4 +590,5 @@ registerCustomRenderer("project", {
     }
   },
   unmount(h) { h.destroy(); },
+  pieces(h) { const handle = h as ProjectHandle; return [...handle.columns, ...handle.baked, ...handle.props, handle.live]; },
 });
