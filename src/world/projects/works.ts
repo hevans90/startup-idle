@@ -35,8 +35,8 @@ import type { Command } from "../edit/commands";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "../agents/roads";
 import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/town";
-import { sendHome as lorryHome } from "../lines/line-loads";
-import { fleetFree, isYard, queueYardLoad, stepYard, yardQueued } from "../fleet/fleet";
+import { yardFor } from "../lines/line-loads";
+import { fleetFree, isYard, lorryLost, queueYardLoad, stepYard, unloadAt, yardQueued } from "../fleet/fleet";
 import { notable } from "../../game/machine";
 import { cultureNow } from "../../game/culture-now";
 import { siteTrucks } from "../../game/site-trucks";
@@ -284,9 +284,15 @@ export function stepWorks(
     const crew = w.crews.get(job.site);
     if (job.role === "truck") {
       if (s?.build) { s.build.delivered = Math.min(s.build.deliveries, s.build.delivered + 1); w.rev++; }
-      // Unloaded, the lorry drives home to the yard: it does not vanish at the gate. @see line-loads sendHome
-      const here = s && !m.gone ? placesOf(g, net).find((pl) => pl.structure === s.id) : undefined;
-      if (here) lorryHome(town, g, placesOf(g, net), m, here);
+      // IT PULLS IN, IS UNLOADED AND GOES HOME: its nose in at the site's edge, stood while it is emptied, backed out
+      // and away — to its yard, or, not the fleet's, out of the map. Never taken off the road at the gate. @see fleet unloadAt
+      const all = placesOf(g, net), here = s && !m.gone ? all.find((pl) => pl.structure === s.id) : undefined;
+      if (here && s) {
+        // (In towards the nearest of the site from the road it stands on.)
+        const cx = Math.max(s.x, Math.min(s.x + s.w - 1, here.x)), cy = Math.max(s.y, Math.min(s.y + s.h - 1, here.y)), dl = Math.hypot(cx - here.x, cy - here.y) || 1;
+        const home = m.fleet ? yardFor(g, all, here) : all.find((pl) => pl.kind === "gateway" && pl.net === here.net) ?? yardFor(g, all, here);
+        unloadAt(g, town, m, here, { x: here.x + ((cx - here.x) / dl) * 0.62, y: here.y + ((cy - here.y) / dl) * 0.62 }, home, s.id);
+      } else if (m.fleet) lorryLost(g, town, m.id);
     } else if (job.role === "builder" && crew) {
       crew.walking = Math.max(0, crew.walking - 1);
       // Arrived to a site that wants fewer now — paused, or lowered — and

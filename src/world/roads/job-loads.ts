@@ -9,8 +9,8 @@ import { idx, inBounds, type Grid } from "../grid";
 import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, type Town } from "../agents/town";
 import { find, type Network } from "./network";
-import { sendHome } from "../lines/line-loads";
-import { fleetFree, isYard, queueYardLoad, yardQueued } from "../fleet/fleet";
+import { yardFor } from "../lines/line-loads";
+import { fleetFree, isYard, lorryLost, queueYardLoad, unloadAt, yardQueued } from "../fleet/fleet";
 import { GANGS, OVERLAND, loadPrice, materialTime, wantsLoad, type RoadJob } from "./jobs";
 
 /** The Garage and what it grows into: the yard a load comes from. @see works depotFor */
@@ -67,9 +67,15 @@ export function stepRoadLoads(
       haul.town.arrived.splice(k, 1);
       const j = g.roadJobs.find((q) => q.id === m.job!.site);
       if (j) { j.delivered = Math.min(j.deliveries, j.delivered + 1); changed = true; }
-      // Unloaded, the lorry drives home to the yard: it does not vanish at the works. @see line-loads sendHome
+      // IT PULLS IN AT THE HEAD OF THE WORKS, IS UNLOADED AND GOES HOME: its nose in onto the length being built, stood
+      // while it is emptied, backed out and away. Never taken off the road where it stopped. @see fleet unloadAt
       const head = j && !m.gone ? headOf(g, haul.net, j) : null;
-      if (head) sendHome(haul.town, g, placesOf(g, haul.net), m, head);
+      if (head && j) {
+        const all = placesOf(g, haul.net), to = j.cells.find((c) => g.paved[idx(g, c.x, c.y)] === 0 && Math.abs(c.x - head.x) + Math.abs(c.y - head.y) <= 2) ?? j.cells[Math.min(j.cells.length - 1, j.opened)];
+        const dl = Math.hypot(to.x - head.x, to.y - head.y) || 1;
+        const home = m.fleet ? yardFor(g, all, head) : all.find((pl) => pl.kind === "gateway" && pl.net === head.net && (pl.x !== head.x || pl.y !== head.y)) ?? yardFor(g, all, head);
+        unloadAt(g, haul.town, m, head, { x: head.x + ((to.x - head.x) / dl) * 0.7, y: head.y + ((to.y - head.y) / dl) * 0.7 }, home, j.id);
+      } else if (m.fleet) lorryLost(g, haul.town, m.id);
     }
   }
   const out = haul ? lorriesOut(haul.town) : new Map<number, number>();

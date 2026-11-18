@@ -160,7 +160,8 @@ export function stepYard(town: Town, g: Grid, dt: number): void {
   for (let k = town.arrived.length - 1; k >= 0; k--) {
     const m = town.arrived[k];
     // (A job's machine, home: in and under the shed.)
-    if (m.job?.role === "haul-back" && !m.fleet && PLANT_PAINT.has(m.colour)) { town.arrived.splice(k, 1); if (!m.gone) plantHome(g, town, m); continue; }
+    // (Or a lorry that is not the fleet's, come back to a yard: likewise. One gone off the map's edge is gone.)
+    if (m.job?.role === "haul-back" && !m.fleet) { town.arrived.splice(k, 1); if (!m.gone && (PLANT_PAINT.has(m.colour) || nearYard(g, m))) plantHome(g, town, m); continue; }
     if (m.job?.role !== "haul-back" || !m.fleet) continue;
     const f = town.fleet.find((q) => q.m.id === m.id);
     town.arrived.splice(k, 1);
@@ -234,6 +235,8 @@ export function plantOut(g: Grid, town: Town, from: Place, to: Place, job: NonNu
     plantLegs.set(job.site, Math.max(0, (plantLegs.get(job.site) ?? 1) - 1));
   }, up);
 }
+/** Whether a vehicle stands at a yard's gate. */
+const nearYard = (g: Grid, m: Mover) => { for (const s of g.structures.values()) if (!s.build && hasYard(s)) { const gate = inYardAt(s, YARD_GATE.u, GATE_V + 0.5); if (Math.hypot(gate.x - m.x, gate.y - m.y) < 1.3) return true; } return false; };
 /** A job's machine home again: in at the gate and under the shed, where it is put away. */
 function plantHome(g: Grid, town: Town, m: Mover): void {
   let yard: Structure | null = null, best = Infinity;
@@ -241,4 +244,26 @@ function plantHome(g: Grid, town: Town, m: Mover): void {
   if (!yard) return;
   const up = levelOf(yard), at = bayOf(yard, 0);
   startLeg(town, m, [{ ...inYardAt(yard, YARD_GATE.u, GATE_V + 0.25), up: 0 }, { ...inYardAt(yard, YARD_GATE.u, GATE_V - 0.1), up }, { ...inYardAt(yard, 4.42, 1.75), up }, { ...inYardAt(yard, at.u, 1.3), up }, { x: at.x, y: at.y, up }], undefined, 0);
+}
+
+/** Seconds a lorry stands at a site or at a road's works while it is unloaded. */
+export const UNLOADING = 3.5;
+
+/**
+ * A LORRY THAT HAS COME WITH ITS LOAD PULLS IN, IS UNLOADED, AND GOES: off the road where it stopped, its nose in
+ * at `spot` — the edge of the site, the head of the works — stood there while it is emptied; backed out onto the
+ * road again; and away, to `home` (its yard, or out of the map): the same lorry, the town's traffic once more.
+ * With no way home it stays where it backed out to, and — one of the fleet — is simply back in its bay.
+ */
+export function unloadAt(g: Grid, town: Town, m: Mover, at: Place, spot: { x: number; y: number }, home: Place | null, site: number): void {
+  const from = { x: m.x, y: m.y }, empty = m.fleet ? (m.colour === FLEET_TIPPER_COLOUR ? FLEET_TIPPER_EMPTY_COLOUR : PIPE_EMPTY_COLOUR) : m.colour;
+  const next = home ? setOff(town, g, "truck", at, home) : null;
+  const pts: LegPoint[] = [{ x: spot.x, y: spot.y, stop: UNLOADING, colour: empty }, { x: from.x, y: from.y, rev: true }];
+  if (next) pts.push({ x: next.x, y: next.y });
+  startLeg(town, m, pts, () => {
+    if (!next) { if (m.fleet) lorryLost(g, town, m.id); return; }
+    next.id = m.id; next.colour = m.colour; next.job = { site, role: "haul-back" }; next.heading = m.heading;
+    if (m.fleet) next.fleet = true;
+    town.movers.push(next);
+  });
 }
