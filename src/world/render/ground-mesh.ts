@@ -28,7 +28,7 @@ import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureOf, type Grid } 
 import { structureDef } from "../structures/def";
 import type { BandLayer } from "./bands";
 import { terrainName } from "../terrain-names";
-import { built, cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, pinned, shelfOf, smoothAt } from "./drawn";
+import { built, cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, pinned, shelfOf, smoothAt } from "./drawn";
 import { groundMode } from "./ground-mode";
 
 export { cornerZ };
@@ -166,6 +166,14 @@ export type GroundMesh = {
   /** The drawn surface, two texels a cell. @see surfaceOf */
   edges: Float32Array;
   grid: Grid;
+  /** The drawn ground's height at the middle of every quarter of a tile, half steps; and the shadow the ground throws there, 0–255. @see bakeShade */
+  heights: Float32Array;
+  shade: Uint8Array;
+  shadeSource: BufferImageSource;
+  /** The grass's own green, field by field. @see bakeTint */
+  tintSource: BufferImageSource;
+  /** The tiles whose heights are out of date, as a box (x0 > x1: none). */
+  stale: [number, number, number, number];
   edgeSource: BufferImageSource;
   uniforms: UniformGroup;
   meshes: Mesh<Geometry, Shader>[];
@@ -200,7 +208,14 @@ function smoothCell(grid: Grid, x: number, y: number, at: (gu: number, gv: numbe
       const gx = (zAt(a + 1, b) - zAt(a - 1, b)) / (2 * q), gy = (zAt(a, b + 1) - zAt(a, b - 1)) / (2 * q), z = zAt(a, b);
       at(x + a * q, y + b * q, z, litOf(gx, gy), z, Math.hypot(gx, gy));
     };
-    for (let b = 0; b < FINE; b++) for (let a = 0; a < FINE; a++) { put(a, b); put(a + 1, b); put(a + 1, b + 1); put(a, b + 1); }
+    // (A quad turned away from the eye is not sent: on one continuous surface what faces away is behind what
+    // faces toward, always — and it was being shaded a pixel at a time only to be drawn over.)
+    const sy = (a: number, b: number) => (a + b) * q * HH - zAt(a, b) * HEIGHT_UNIT, sx = (a: number, b: number) => (a - b) * q * HW;
+    for (let b = 0; b < FINE; b++) for (let a = 0; a < FINE; a++) {
+      const ax = sx(a + 1, b + 1) - sx(a, b), ay = sy(a + 1, b + 1) - sy(a, b), bx = sx(a, b + 1) - sx(a + 1, b), by = sy(a, b + 1) - sy(a + 1, b);
+      if (ax * by - ay * bx <= 0) continue;
+      put(a, b); put(a + 1, b); put(a + 1, b + 1); put(a, b + 1);
+    }
   }
   // THE MAP'S EDGE, and a void: a wall down to the map's underside, a quad a stretch of the edge.
   const open = (nx: number, ny: number) => !inBounds(grid, nx, ny) || grid.terrain[idx(grid, nx, ny)] === VOID;
@@ -313,7 +328,16 @@ function writeCell(gm: GroundMesh, grid: Grid, palette: Palette, x: number, y: n
   gm.cells[o + 1] = Math.max(0, Math.min(255, grid.height[i] + 128));
   // Flags: 1 drawn; the ramp's direction × 2; its rise × 16. Alpha stays
   // opaque: WebGL premultiplies on upload, and a texel of alpha 0 reads as nothing.
-  gm.cells[o + 2] = (groundDraws(grid, palette, x, y) ? 1 : 0) | (rampDir(grid.ramp[i]) << 1) | (rampRise(grid.ramp[i]) << 4);
+  // And 128 where it is PLAIN: every cell round it is the same stuff (or nothing the shader knows), so there is no
+  // border within reach and the shader need not look for one — nine cells a pixel, on most of the map.
+  let plain = 128;
+  const own = gm.cells[o];
+  for (let dy = -1; dy <= 1 && plain; dy++) for (let dx = -1; dx <= 1; dx++) {
+    if (!inBounds(grid, x + dx, y + dy)) continue;
+    const k = groundClassOf(palette, grid.terrain[idx(grid, x + dx, y + dy)]);
+    if (k !== GROUND.none && k !== own) { plain = 0; break; }
+  }
+  gm.cells[o + 2] = (groundDraws(grid, palette, x, y) ? 1 : 0) | (rampDir(grid.ramp[i]) << 1) | (rampRise(grid.ramp[i]) << 4) | plain;
   gm.cells[o + 3] = 255;
   writeEdges(gm, grid, x, y);
 }
@@ -365,10 +389,14 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
     uMode: { value: new Float32Array([groundMode() === "smooth" ? 1 : 0, 0, 0, 0]), type: "vec4<f32>" },
   });
   const { data: edges, source: edgeSource } = surfaceOf(grid);
-  const gm: GroundMesh = { cells, source, edges, edgeSource, grid, uniforms, meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
+  const shade = new Uint8Array(grid.w * SHADE * grid.h * SHADE);
+  const shadeSource = new BufferImageSource({ resource: shade, width: grid.w * SHADE, height: grid.h * SHADE, format: "r8unorm", scaleMode: "nearest" });
+  const tintSource = new BufferImageSource({ resource: bakeTint(grid.w, grid.h), width: grid.w * SHADE, height: grid.h * SHADE, format: "rgba8unorm", scaleMode: "nearest" });
+  const gm: GroundMesh = { cells, source, edges, edgeSource, grid, heights: new Float32Array(shade.length), shade, shadeSource, tintSource, stale: [0, 0, grid.w - 1, grid.h - 1], uniforms, meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
   for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) writeCell(gm, grid, palette, x, y);
   source.update();
   edgeSource.update();
+  bakeShade(gm, grid);
   const shader = groundShader(gm);
   for (let b = 0; b < bl.staticOf.length; b++) {
     const { verts, idx: ix } = bandQuads(grid, palette, b, scale);
@@ -392,10 +420,85 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
   return gm;
 }
 
+// The shader's own noise, here: for what of the ground's look is too broad to need working out a pixel at a time.
+const hashOf = (x: number, y: number) => {
+  let h = (Math.imul(x, 1664525) + Math.imul(y, 1013904223)) | 0;
+  h ^= h >>> 16; h = Math.imul(h, 0x7feb352d); h ^= h >>> 15; h = Math.imul(h, 0x846ca68b); h ^= h >>> 16;
+  return (h >>> 0) / 4294967295;
+};
+const noiseOf = (x: number, y: number) => {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * fx * (fx * (fx * 6 - 15) + 10), uy = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
+  const a = hashOf(ix, iy), b = hashOf(ix + 1, iy), c = hashOf(ix, iy + 1), d = hashOf(ix + 1, iy + 1);
+  return (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy;
+};
+const fbmOf = (x: number, y: number) =>
+  noiseOf(x, y) * 0.5 + noiseOf((x * 0.8 - y * 0.6) * 2.03 + 17, (x * 0.6 + y * 0.8) * 2.03 + 17) * 0.3 + noiseOf((x * 0.28 + y * 0.96) * 4.1 + 41, (y * 0.28 - x * 0.96) * 4.1 + 41) * 0.2;
+const stepOf = (a: number, b: number, v: number) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+/**
+ * THE GRASS'S OWN GREEN, FIELD BY FIELD, as a texture: worn and dry here, damp and dark there, lusher in patches —
+ * all of it far broader than a pixel, and it was worked out afresh at every one. Once a map, `SHADE` texels a tile
+ * a side; the shader blends the four round a point.
+ */
+function bakeTint(w: number, h: number): Uint8Array {
+  const W = w * SHADE, H = h * SHADE, out = new Uint8Array(W * H * 4);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const x = (i + 0.5) / SHADE, y = (j + 0.5) / SHADE;
+    let r = 112 / 255, g = 156 / 255, b = 68 / 255;
+    const mixTo = (tr: number, tg: number, tb: number, k: number) => { r += (tr - r) * k; g += (tg - g) * k; b += (tb - b) * k; };
+    mixTo(0.55, 0.62, 0.30, stepOf(0.45, 0.8, noiseOf((x * 0.8 - y * 0.6) * 0.17 + 3, (x * 0.6 + y * 0.8) * 0.17 + 3)) * 0.5);
+    mixTo(0.31, 0.49, 0.24, stepOf(0.45, 0.8, noiseOf(x * 0.11 + 61, y * 0.11 + 61)) * 0.5);
+    mixTo(0.60, 0.70, 0.30, stepOf(0.55, 0.85, fbmOf(x * 0.45, y * 0.45)) * 0.25);
+    const k = 0.96 + 0.08 * noiseOf(x * 0.9 + 5, y * 0.9 + 5), o = (j * W + i) * 4;
+    out[o] = Math.round(Math.min(1, r * k) * 255); out[o + 1] = Math.round(Math.min(1, g * k) * 255); out[o + 2] = Math.round(Math.min(1, b * k) * 255); out[o + 3] = 255;
+  }
+  return out;
+}
+
+/** How finely the ground's shadow is kept, a side of a tile: the grid the continuous surface is meshed on. */
+const SHADE = 4;
+/** Toward the light along the ground, and the tiles of shadow a half step of height throws: the shader's own (`SUN`, `SHADOW_RUN`). */
+const SHADOW_RUN = 0.55;
+/**
+ * THE SHADOW THE GROUND THROWS ON ITSELF, worked out here and not a pixel at a time: the drawn ground's height at
+ * the middle of every quarter of a tile (only where it has changed), then from each a walk toward the sun, a
+ * quarter of a tile a step, asking whether what stands there stands over the ray — soft, softer the further it
+ * falls, and only from ground well over the point (a bank's own fall is lit by its slope). The shader reads the
+ * answer, four texels a pixel, where it walked ten cells of the map for it. @see shadowAt
+ */
+function bakeShade(gm: GroundMesh, grid: Grid) {
+  const W = grid.w * SHADE, H = grid.h * SHADE, hs = gm.heights, st = gm.stale;
+  if (st[0] <= st[2]) {
+    // (A cell's height shapes the ground two cells out, and one more for good measure.)
+    const x0 = Math.max(0, st[0] - 3) * SHADE, y0 = Math.max(0, st[1] - 3) * SHADE, x1 = Math.min(grid.w, st[2] + 4) * SHADE, y1 = Math.min(grid.h, st[3] + 4) * SHADE;
+    for (let j = y0; j < y1; j++) for (let i = x0; i < x1; i++) hs[j * W + i] = drawnHeight(grid, (i + 0.5) / SHADE, (j + 0.5) / SHADE);
+    st[0] = 1; st[2] = 0;
+  }
+  const top = grid.maxHeight + 2, step = 1 / SHADE, out = gm.shade;
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const h = hs[j * W + i], far = (top - h) * SHADOW_RUN;
+    let s = 0;
+    for (let k = 1, t = step; t <= far && k <= 48; k++, t += step) {
+      const qi = Math.round(i + SUN_X * k), qj = Math.round(j + SUN_Y * k);
+      if (qi < 0 || qj < 0 || qi >= W || qj >= H) break;
+      const up = hs[qj * W + qi] - h, over = up * SHADOW_RUN - t;
+      if (over <= 0 || up <= 0.7) continue;
+      const a = Math.min(1, over / (0.06 + t * 0.22)), b = Math.min(1, (up - 0.7) / 1.5);
+      const v = a * a * (3 - 2 * a) * (b * b * (3 - 2 * b));
+      if (v > s) { s = v; if (s >= 1) break; }
+    }
+    out[j * W + i] = Math.round(s * 255);
+  }
+  gm.shadeSource.update();
+}
+
 /** A cell changed: its texel now, and the bands whose quads it can touch at the next flush. */
 export function markGround(gm: GroundMesh, grid: Grid, palette: Palette, x: number, y: number) {
   if (!inBounds(grid, x, y)) return;
-  writeCell(gm, grid, palette, x, y);
+  // (Itself and the cells round it: whether each is plain is by its neighbours.)
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(grid, x + dx, y + dy)) writeCell(gm, grid, palette, x + dx, y + dy);
+  const st = gm.stale;
+  if (st[0] > st[2]) { st[0] = st[2] = x; st[1] = st[3] = y; } else { st[0] = Math.min(st[0], x); st[1] = Math.min(st[1], y); st[2] = Math.max(st[2], x); st[3] = Math.max(st[3], y); }
   // Every cell that shares a corner with it is drawn by its height too (@see drawn.ts), and the walls and fringes of
   // the cells beside those: two bands either way.
   // (As one continuous surface a cell's height shapes the ground two cells out: further each way.)
@@ -419,6 +522,7 @@ export function flushGround(gm: GroundMesh, grid: Grid, palette: Palette) {
   gm.dirty.clear();
   gm.source.update();
   gm.edgeSource.update();
+  bakeShade(gm, grid);
   const map = gm.uniforms.uniforms.uMap as Float32Array;
   if (map[3] !== grid.maxHeight + 2) { map[3] = grid.maxHeight + 2; gm.uniforms.update(); }
 }
@@ -428,6 +532,8 @@ export function destroyGroundMesh(gm: GroundMesh) {
   for (const m of gm.meshes) { m.parent?.removeChild(m); m.geometry.destroy(true); m.destroy(); }
   gm.meshes.length = 0;
   gm.source.destroy();
+  gm.shadeSource.destroy();
+  gm.tintSource.destroy();
   // (The water's layer reads this too, and goes in the same teardown: destroyed once this frame is done with it.)
   const shared = gm.edgeSource;
   setTimeout(() => shared.destroy(), 500);
@@ -445,7 +551,7 @@ function groundShader(gm: GroundMesh): Shader {
       name: "ground",
       // Written out, not left to Pixi, which would have every texture filterable: the drawn surface is floats,
       // fetched and never filtered, and a filterable binding will not take it. @see water-gpu.ts gpuLayout
-      layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { ground: 0, uCells: 1, uEdges: 2 }],
+      layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { ground: 0, uCells: 1, uEdges: 2, uShade: 3, uTint: 4 }],
       gpuLayout: [
         [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
         [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
@@ -453,12 +559,14 @@ function groundShader(gm: GroundMesh): Shader {
           { binding: 0, visibility: 2, buffer: { type: "uniform" } },
           { binding: 1, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
           { binding: 2, visibility: 2, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
+          { binding: 3, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+          { binding: 4, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
         ],
       ],
     }),
     gl: GlProgram.from({ vertex: GLSL_VERTEX, fragment: GLSL_FRAGMENT, name: "ground" }),
   };
-  return new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source, uEdges: gm.edgeSource } });
+  return new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source, uEdges: gm.edgeSource, uShade: gm.shadeSource, uTint: gm.tintSource } });
 }
 
 /*
@@ -492,6 +600,8 @@ struct Ground { uMap: vec4<f32>, uMode: vec4<f32> };
 @group(2) @binding(0) var<uniform> ground : Ground;
 @group(2) @binding(1) var uCells : texture_2d<f32>;
 @group(2) @binding(2) var uEdges : texture_2d<f32>;
+@group(2) @binding(3) var uShade : texture_2d<f32>;
+@group(2) @binding(4) var uTint : texture_2d<f32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -540,7 +650,7 @@ fn cellAt(c: vec2<i32>) -> vec4<f32> {
   return textureLoad(uCells, c, 0) * 255.0;
 }
 // A cell's ramp rise in half steps, from its flags.
-fn riseOf(c: vec4<f32>) -> f32 { return floor((c.z + 0.5) / 16.0); }
+fn riseOf(c: vec4<f32>) -> f32 { return floor((c.z - 128.0 * step(127.5, c.z) + 0.5) / 16.0); }
 
 // THE SUN: which way the light comes from, along the ground — from the screen's left and a little above it, as
 // every baked thing is lit — and how many tiles of shadow a half step of height throws.
@@ -553,36 +663,13 @@ fn edgesAt(c: vec2<i32>) -> vec4<f32> { return textureLoad(uEdges, vec2<i32>(c.x
 // HOW MUCH OF THE SUN IS KEPT OFF a point at height h by the ground toward it: the ray walked a cell boundary at
 // a time, each cell it enters asked whether it stands over the ray there. Soft, and softer the further it falls;
 // and only from ground that stands well over the point — a bank's own fall is lit by its slope, not shadowed in wedges.
+fn shadeAt(c: vec2<i32>, n: vec2<i32>) -> f32 { return textureLoad(uShade, clamp(c, vec2<i32>(0), n - vec2<i32>(1)), 0).r; }
 fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
-  var s = 0.0;
-  // (As far as the highest ground on the map could throw one, and no further.)
-  let far = (ground.uMap.w - h) * SHADOW_RUN;
-  let cx = floor(p.x);
-  for (var i = 0; i < 8; i++) {
-    let bx = cx - f32(i);
-    let t = (p.x - bx) / -SUN.x;
-    if (t > far) { break; }
-    // The cell the ray goes into there, and how high the edge it goes in by stands where it does.
-    let y = p.y + SUN.y * t;
-    let at = vec2<i32>(i32(bx) - 1, i32(floor(y)));
-    if (at.x < 0 || at.y < 0 || at.y >= i32(ground.uMap.y)) { break; }
-    let e = edgesAt(at);
-    let up = mix(e.y, e.z, fract(y)) - h;
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, up * SHADOW_RUN - t) * smoothstep(0.7, 2.2, up));
-  }
-  let cy = floor(p.y);
-  for (var j = 0; j < 2; j++) {
-    let by = cy + 1.0 + f32(j);
-    let t = (by - p.y) / SUN.y;
-    if (t > far) { break; }
-    let x = p.x + SUN.x * t;
-    let at = vec2<i32>(i32(floor(x)), i32(by));
-    if (at.x < 0 || at.y < 0 || at.y >= i32(ground.uMap.y)) { break; }
-    let e = edgesAt(at);
-    let up = mix(e.x, e.y, fract(x)) - h;
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, up * SHADOW_RUN - t) * smoothstep(0.7, 2.2, up));
-  }
-  return s;
+  // Worked out when the ground was (@see bakeShade): the four answers round the point, blended.
+  let n = vec2<i32>(i32(ground.uMap.x), i32(ground.uMap.y)) * ${SHADE};
+  let q = p * ${SHADE}.0 - 0.5;
+  let c = vec2<i32>(floor(q)); let f = q - floor(q);
+  return mix(mix(shadeAt(c, n), shadeAt(c + vec2<i32>(1, 0), n), f.x), mix(shadeAt(c + vec2<i32>(0, 1), n), shadeAt(c + vec2<i32>(1, 1), n), f.x), f.y);
 }
 // THE SHADE AT THE FOOT OF HIGHER GROUND: darker close under it, and the more the higher it stands.
 fn contactAt(p: vec2<f32>, h: f32) -> f32 {
@@ -617,12 +704,13 @@ fn relit(col: vec3<f32>, p: vec2<f32>, h: f32, foot: bool) -> vec3<f32> {
   if (foot) { c = c * (1.0 - 0.34 * contactAt(p, h)); }
   return c;
 }
+fn tintAt(c: vec2<i32>, n: vec2<i32>) -> vec3<f32> { return textureLoad(uTint, clamp(c, vec2<i32>(0), n - vec2<i32>(1)), 0).rgb; }
+// The grass's own green here, field by field: worked out once a map (@see bakeTint), the four answers round the point blended.
 fn grassBase(p: vec2<f32>) -> vec3<f32> {
-  var c = vec3<f32>(112.0, 156.0, 68.0) / 255.0;
-  // Whole fields differ: worn and dry here, damp and dark there.
-  c = mix(c, vec3<f32>(0.55, 0.62, 0.30), smoothstep(0.45, 0.8, vnoise(vec2<f32>(p.x * 0.8 - p.y * 0.6, p.x * 0.6 + p.y * 0.8) * 0.17 + 3.0)) * 0.5);
-  c = mix(c, vec3<f32>(0.31, 0.49, 0.24), smoothstep(0.45, 0.8, vnoise(p * 0.11 + 61.0)) * 0.5);
-  return c;
+  let n = vec2<i32>(i32(ground.uMap.x), i32(ground.uMap.y)) * ${SHADE};
+  let q = p * ${SHADE}.0 - 0.5;
+  let c = vec2<i32>(floor(q)); let f = q - floor(q);
+  return mix(mix(tintAt(c, n), tintAt(c + vec2<i32>(1, 0), n), f.x), mix(tintAt(c + vec2<i32>(0, 1), n), tintAt(c + vec2<i32>(1, 1), n), f.x), f.y);
 }
 
 // Blade lattice, in screen-shaped units (a cell's diamond is 2 across), and the frequency they fade in at.
@@ -689,18 +777,21 @@ fn blades(base: vec3<f32>, tuft: f32, dens: f32, under: vec3<f32>, fringe: bool,
 // Grass at density dens (1 a lawn, 0 none) over under, the ground it thins out onto.
 fn grassAt(p: vec2<f32>, fp: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
   var c = grassBase(p);
-  // Broad patches: lusher and drier.
-  let m = fbm(p * 0.45);
-  c = mix(c, vec3<f32>(0.60, 0.70, 0.30), smoothstep(0.55, 0.85, m) * 0.25);
-  c = c * (0.96 + 0.08 * fbm(p * 0.9 + 5.0));
-  // Clumps: tufts, a ridge of noise rather than a blur of it.
-  let t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0);
-  c = c * (1.0 + (t - 0.6) * 0.12 * shows(9.0, fp));
+  // Clumps: tufts, a ridge of noise rather than a blur of it. (Only as near as they can be seen: what cannot show
+  // at this zoom is not worked out — most of what the ground costs to draw was detail too small for its pixels.)
+  var t = 0.6;
+  let tufts = shows(9.0, fp);
+  if (tufts > 0.0 || shows(BLADE_F, gScreenFp) > 0.0) { t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0); }
+  c = c * (1.0 + (t - 0.6) * 0.12 * tufts);
   // Far off, thinning grass is a speckled fade onto the soil; close up, sparser blades.
-  let speck = vnoise(p * 18.0 + 7.0);
-  var out = mix(under, c, smoothstep(0.35, 0.7, dens + (speck - 0.5) * 0.7 * shows(18.0, fp)));
+  var out = c;
+  if (dens < 0.999) {
+    let speck = vnoise(p * 18.0 + 7.0);
+    out = mix(under, c, smoothstep(0.35, 0.7, dens + (speck - 0.5) * 0.7 * shows(18.0, fp)));
+  }
   // Grain: the grass too fine to see blade by blade, streaked up the screen.
-  out = out * (1.0 + (vnoise(vec2<f32>(gScreen.x * 90.0, gScreen.y * 25.0)) - 0.5) * 0.18 * shows(30.0, gScreenFp) * dens);
+  let grain = shows(30.0, gScreenFp);
+  if (grain > 0.0) { out = out * (1.0 + (vnoise(vec2<f32>(gScreen.x * 90.0, gScreen.y * 25.0)) - 0.5) * 0.18 * grain * dens); }
   let bf = shows(BLADE_F, gScreenFp);
   if (bf > 0.0) { out = mix(out, blades(c, t, dens, under, false, vec2<f32>(0.0), 0.0).rgb, bf); }
   c = out;
@@ -719,7 +810,7 @@ fn grassAt(p: vec2<f32>, fp: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
 }
 fn dirtAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
   var c = vec3<f32>(186.0, 140.0, 93.0) / 255.0;
-  c = c * (0.93 + 0.14 * fbm(p * 0.8 + 11.0));
+  c = c * (0.93 + 0.14 * vnoise(p * 0.8 + 11.0));
   c = c * (1.0 + (vnoise(p * 9.0 + 3.0) - 0.5) * 0.12 * shows(9.0, fp));
   // Pebbles, each lit from the up-left.
   let g = p * 11.0; let gi = vec2<i32>(floor(g));
@@ -738,10 +829,10 @@ fn dirtAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
 }
 fn sandAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
   var c = vec3<f32>(216.0, 209.0, 158.0) / 255.0;
-  c = c * (0.95 + 0.08 * fbm(p * 0.6 + 23.0));
-  // Ripples, wandering.
-  let w = (p.x * 0.8 + p.y * 0.35 + fbm(p * 1.5) * 1.2) * 9.0;
-  c = c * (1.0 + sin(w) * 0.035 * shows(9.0, fp));
+  c = c * (0.95 + 0.08 * vnoise(p * 0.6 + 23.0));
+  // Ripples, wandering — as near as they show.
+  let ripple = shows(9.0, fp);
+  if (ripple > 0.0) { c = c * (1.0 + sin((p.x * 0.8 + p.y * 0.35 + fbm(p * 1.5) * 1.2) * 9.0) * 0.035 * ripple); }
   // Grains, and a shell here and there.
   c = c * (1.0 + (hash(vec2<i32>(floor(p * 120.0))) - 0.5) * 0.09 * shows(120.0, fp));
   let g = p * 8.0; let gi = vec2<i32>(floor(g));
@@ -760,8 +851,6 @@ fn fringeColour(lo: vec2<f32>, z: f32) -> vec4<f32> {
   if (bf <= 0.0) { return vec4<f32>(0.0); }
   let p = groundAt(gScreen, z);
   var c = grassBase(p);
-  c = mix(c, vec3<f32>(0.60, 0.70, 0.30), smoothstep(0.55, 0.85, fbm(p * 0.45)) * 0.25);
-  c = c * (0.96 + 0.08 * fbm(p * 0.9 + 5.0));
   let t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0);
   c = c * (1.0 + (t - 0.6) * 0.12);
   let r = blades(c, t, 1.0, c, true, lo, z);
@@ -771,6 +860,13 @@ fn fringeColour(lo: vec2<f32>, z: f32) -> vec4<f32> {
 fn topColour(p: vec2<f32>, fp: f32) -> vec3<f32> {
   let cell = vec2<i32>(floor(p));
   let here = cellAt(cell);
+  // PLAIN GROUND, the same stuff all round: no border within reach to look for. @see writeCell
+  if (here.z > 127.5) {
+    let kind = i32(here.x + 0.5);
+    if (kind == 1) { return grassAt(p, fp, 1.0, vec3<f32>(0.0)); }
+    if (kind == 2) { return dirtAt(p, fp); }
+    if (kind == 3) { return sandAt(p, fp); }
+  }
   // How strongly each material claims this point: its nearest cell at the
   // same height, near is strong, ragged by noise of its own.
   var claim = vec3<f32>(-9.0);
@@ -789,11 +885,15 @@ fn topColour(p: vec2<f32>, fp: f32) -> vec3<f32> {
       if (k == 3) { claim.z = max(claim.z, s); }
     }
   }
-  claim = claim + vec3<f32>(
-    (fbm(p * 3.1) - 0.5) * 0.7 + 0.05,
-    (fbm(p * 2.7 + 31.0) - 0.5) * 0.7,
-    (fbm(p * 1.9 + 77.0) - 0.5) * 0.6
-  );
+  // (Ragged only where two of them meet: a field of one thing has no border to be ragged, and most ground is that.)
+  let met = step(-8.0, claim.x) + step(-8.0, claim.y) + step(-8.0, claim.z);
+  if (met > 1.5) {
+    claim = claim + vec3<f32>(
+      (fbm(p * 3.1) - 0.5) * 0.7 + 0.05,
+      (fbm(p * 2.7 + 31.0) - 0.5) * 0.7,
+      (fbm(p * 1.9 + 77.0) - 0.5) * 0.6
+    );
+  }
   // Dirt and sand meet edge to edge. Grass does not: it thins out over
   // them, reaching a little past its border and letting the soil show
   // through a little inside it.
@@ -828,7 +928,9 @@ fn rockAt(p: vec2<f32>, z: f32, fp: f32) -> vec3<f32> {
   // BLOCKS: the nearest of a scatter of points and the next nearest; a crack where the two are as near, some places.
   let g = q * vec2<f32>(1.5, 2.3) + (vec2<f32>(vnoise(q * 1.1 + 7.0), vnoise(q * 1.1 + 19.0)) - 0.5) * 1.3 + vec2<f32>(hash(vec2<i32>(i32(bed), 5)) * 7.0, bed * 0.37);
   let gi = vec2<i32>(floor(g)); let gf = fract(g);
-  var f1 = 9.0; var f2 = 9.0; var id = 0.0;
+  var f1 = 9.0; var f2 = 9.0; var id = 0.5;
+  let near = shows(5.0, fp);
+  if (near > 0.0) {
   for (var dy = -1; dy <= 1; dy++) {
     for (var dx = -1; dx <= 1; dx++) {
       let cell = gi + vec2<i32>(dx, dy);
@@ -837,12 +939,14 @@ fn rockAt(p: vec2<f32>, z: f32, fp: f32) -> vec3<f32> {
       if (d < f1) { f2 = f1; f1 = d; id = hash(cell + vec2<i32>(5, 9)); } else if (d < f2) { f2 = d; }
     }
   }
-  c = c * (0.92 + 0.16 * id);
-  let split = smoothstep(0.42, 0.62, fbm(q * 0.8 + 47.0));
-  c = c * mix(1.0, 0.7, (1.0 - smoothstep(0.0, 0.06, sqrt(f2) - sqrt(f1))) * split * shows(7.0, fp));
+  c = c * mix(1.0, 0.92 + 0.16 * id, near);
+  let cracks = shows(7.0, fp);
+  if (cracks > 0.0) { c = c * mix(1.0, 0.7, (1.0 - smoothstep(0.0, 0.06, sqrt(f2) - sqrt(f1))) * smoothstep(0.42, 0.62, fbm(q * 0.8 + 47.0)) * cracks); }
+  }
   // STAINS run down it.
   c = c * (1.0 - 0.1 * smoothstep(0.6, 0.92, vnoise(vec2<f32>(q.x * 2.3 + vnoise(q * 0.6 + 71.0) * 1.7, q.y * 0.4) + 3.0)) * smoothstep(0.35, 0.7, fbm(q * 0.35 + 83.0)));
-  c = c * (1.0 + (vnoise(q * 31.0) - 0.5) * 0.09 * shows(31.0, fp));
+  let fine = shows(31.0, fp);
+  if (fine > 0.0) { c = c * (1.0 + (vnoise(q * 31.0) - 0.5) * 0.09 * fine); }
   return c;
 }
 
@@ -985,6 +1089,8 @@ uniform vec4 uMap;
 uniform vec4 uMode;
 uniform sampler2D uCells;
 uniform highp sampler2D uEdges;
+uniform sampler2D uShade;
+uniform sampler2D uTint;
 
 float hash(ivec2 p) {
   uint h = uint(p.x) * 1664525u + uint(p.y) * 1013904223u;
@@ -1008,40 +1114,18 @@ vec4 cellAt(ivec2 c) {
   if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) return vec4(0.0);
   return texelFetch(uCells, c, 0) * 255.0;
 }
-float riseOf(vec4 c) { return floor((c.z + 0.5) / 16.0); }
+float riseOf(vec4 c) { return floor((c.z - 128.0 * step(127.5, c.z) + 0.5) / 16.0); }
 
 const vec2 SUN = vec2(-0.94, 0.34);
 const float SHADOW_RUN = 0.55;
 float topOf(vec4 c) { return c.y - 128.0 + riseOf(c) * 0.5; }
 vec4 edgesAt(ivec2 c) { return texelFetch(uEdges, ivec2(c.x * 2, c.y), 0); }
+float shadeAt(ivec2 c, ivec2 n) { return texelFetch(uShade, clamp(c, ivec2(0), n - ivec2(1)), 0).r; }
 float shadowAt(vec2 p, float h) {
-  float s = 0.0;
-  float far = (uMap.w - h) * SHADOW_RUN;
-  float cx = floor(p.x);
-  for (int i = 0; i < 8; i++) {
-    float bx = cx - float(i);
-    float t = (p.x - bx) / -SUN.x;
-    if (t > far) break;
-    float y = p.y + SUN.y * t;
-    ivec2 at = ivec2(int(bx) - 1, int(floor(y)));
-    if (at.x < 0 || at.y < 0 || at.y >= int(uMap.y)) break;
-    vec4 e = edgesAt(at);
-    float up = mix(e.y, e.z, fract(y)) - h;
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, up * SHADOW_RUN - t) * smoothstep(0.7, 2.2, up));
-  }
-  float cy = floor(p.y);
-  for (int j = 0; j < 2; j++) {
-    float by = cy + 1.0 + float(j);
-    float t = (by - p.y) / SUN.y;
-    if (t > far) break;
-    float x = p.x + SUN.x * t;
-    ivec2 at = ivec2(int(floor(x)), int(by));
-    if (at.x < 0 || at.y < 0 || at.y >= int(uMap.y)) break;
-    vec4 e = edgesAt(at);
-    float up = mix(e.x, e.y, fract(x)) - h;
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, up * SHADOW_RUN - t) * smoothstep(0.7, 2.2, up));
-  }
-  return s;
+  ivec2 n = ivec2(int(uMap.x), int(uMap.y)) * ${SHADE};
+  vec2 q = p * ${SHADE}.0 - 0.5;
+  ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
+  return mix(mix(shadeAt(c, n), shadeAt(c + ivec2(1, 0), n), f.x), mix(shadeAt(c + ivec2(0, 1), n), shadeAt(c + ivec2(1, 1), n), f.x), f.y);
 }
 float contactAt(vec2 p, float h) {
   ivec2 cell = ivec2(floor(p));
@@ -1072,11 +1156,12 @@ vec3 relit(vec3 col, vec2 p, float h, bool foot) {
   if (foot) c *= 1.0 - 0.34 * contactAt(p, h);
   return c;
 }
+vec3 tintAt(ivec2 c, ivec2 n) { return texelFetch(uTint, clamp(c, ivec2(0), n - ivec2(1)), 0).rgb; }
 vec3 grassBase(vec2 p) {
-  vec3 c = vec3(112.0, 156.0, 68.0) / 255.0;
-  c = mix(c, vec3(0.55, 0.62, 0.30), smoothstep(0.45, 0.8, vnoise(vec2(p.x * 0.8 - p.y * 0.6, p.x * 0.6 + p.y * 0.8) * 0.17 + 3.0)) * 0.5);
-  c = mix(c, vec3(0.31, 0.49, 0.24), smoothstep(0.45, 0.8, vnoise(p * 0.11 + 61.0)) * 0.5);
-  return c;
+  ivec2 n = ivec2(int(uMap.x), int(uMap.y)) * ${SHADE};
+  vec2 q = p * ${SHADE}.0 - 0.5;
+  ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
+  return mix(mix(tintAt(c, n), tintAt(c + ivec2(1, 0), n), f.x), mix(tintAt(c + ivec2(0, 1), n), tintAt(c + ivec2(1, 1), n), f.x), f.y);
 }
 
 const float BLADE_W = 0.007;
@@ -1122,14 +1207,17 @@ vec4 blades(vec3 base, float tuft, float dens, vec3 under, bool fringe, vec2 lo,
 }
 vec3 grassAt(vec2 p, float fp, float dens, vec3 under) {
   vec3 c = grassBase(p);
-  float m = fbm(p * 0.45);
-  c = mix(c, vec3(0.60, 0.70, 0.30), smoothstep(0.55, 0.85, m) * 0.25);
-  c *= 0.96 + 0.08 * fbm(p * 0.9 + 5.0);
-  float t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0);
-  c *= 1.0 + (t - 0.6) * 0.12 * shows(9.0, fp);
-  float speck = vnoise(p * 18.0 + 7.0);
-  vec3 out_ = mix(under, c, smoothstep(0.35, 0.7, dens + (speck - 0.5) * 0.7 * shows(18.0, fp)));
-  out_ *= 1.0 + (vnoise(vec2(gScreen.x * 90.0, gScreen.y * 25.0)) - 0.5) * 0.18 * shows(30.0, gScreenFp) * dens;
+  float t = 0.6;
+  float tufts = shows(9.0, fp);
+  if (tufts > 0.0 || shows(BLADE_F, gScreenFp) > 0.0) t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0);
+  c *= 1.0 + (t - 0.6) * 0.12 * tufts;
+  vec3 out_ = c;
+  if (dens < 0.999) {
+    float speck = vnoise(p * 18.0 + 7.0);
+    out_ = mix(under, c, smoothstep(0.35, 0.7, dens + (speck - 0.5) * 0.7 * shows(18.0, fp)));
+  }
+  float grain = shows(30.0, gScreenFp);
+  if (grain > 0.0) out_ *= 1.0 + (vnoise(vec2(gScreen.x * 90.0, gScreen.y * 25.0)) - 0.5) * 0.18 * grain * dens;
   float bf = shows(BLADE_F, gScreenFp);
   if (bf > 0.0) out_ = mix(out_, blades(c, t, dens, under, false, vec2(0.0), 0.0).rgb, bf);
   c = out_;
@@ -1147,7 +1235,7 @@ vec3 grassAt(vec2 p, float fp, float dens, vec3 under) {
 }
 vec3 dirtAt(vec2 p, float fp) {
   vec3 c = vec3(186.0, 140.0, 93.0) / 255.0;
-  c *= 0.93 + 0.14 * fbm(p * 0.8 + 11.0);
+  c *= 0.93 + 0.14 * vnoise(p * 0.8 + 11.0);
   c *= 1.0 + (vnoise(p * 9.0 + 3.0) - 0.5) * 0.12 * shows(9.0, fp);
   vec2 g = p * 11.0; ivec2 gi = ivec2(floor(g));
   float r = hash(gi);
@@ -1165,9 +1253,9 @@ vec3 dirtAt(vec2 p, float fp) {
 }
 vec3 sandAt(vec2 p, float fp) {
   vec3 c = vec3(216.0, 209.0, 158.0) / 255.0;
-  c *= 0.95 + 0.08 * fbm(p * 0.6 + 23.0);
-  float w = (p.x * 0.8 + p.y * 0.35 + fbm(p * 1.5) * 1.2) * 9.0;
-  c *= 1.0 + sin(w) * 0.035 * shows(9.0, fp);
+  c *= 0.95 + 0.08 * vnoise(p * 0.6 + 23.0);
+  float ripple = shows(9.0, fp);
+  if (ripple > 0.0) c *= 1.0 + sin((p.x * 0.8 + p.y * 0.35 + fbm(p * 1.5) * 1.2) * 9.0) * 0.035 * ripple;
   c *= 1.0 + (hash(ivec2(floor(p * 120.0))) - 0.5) * 0.09 * shows(120.0, fp);
   vec2 g = p * 8.0; ivec2 gi = ivec2(floor(g));
   if (hash(gi + ivec2(13, 2)) > 0.97) {
@@ -1183,8 +1271,6 @@ vec4 fringeColour(vec2 lo, float z) {
   if (bf <= 0.0) return vec4(0.0);
   vec2 p = groundAt(gScreen, z);
   vec3 c = grassBase(p);
-  c = mix(c, vec3(0.60, 0.70, 0.30), smoothstep(0.55, 0.85, fbm(p * 0.45)) * 0.25);
-  c *= 0.96 + 0.08 * fbm(p * 0.9 + 5.0);
   float t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0);
   c *= 1.0 + (t - 0.6) * 0.12;
   vec4 r = blades(c, t, 1.0, c, true, lo, z);
@@ -1194,6 +1280,12 @@ vec4 fringeColour(vec2 lo, float z) {
 vec3 topColour(vec2 p, float fp) {
   ivec2 cell = ivec2(floor(p));
   vec4 here = cellAt(cell);
+  if (here.z > 127.5) {
+    int kind = int(here.x + 0.5);
+    if (kind == 1) return grassAt(p, fp, 1.0, vec3(0.0));
+    if (kind == 2) return dirtAt(p, fp);
+    if (kind == 3) return sandAt(p, fp);
+  }
   vec3 claim = vec3(-9.0);
   for (int dy = -1; dy <= 1; dy++) {
     for (int dx = -1; dx <= 1; dx++) {
@@ -1209,11 +1301,14 @@ vec3 topColour(vec2 p, float fp) {
       if (k == 3) claim.z = max(claim.z, s);
     }
   }
-  claim += vec3(
-    (fbm(p * 3.1) - 0.5) * 0.7 + 0.05,
-    (fbm(p * 2.7 + 31.0) - 0.5) * 0.7,
-    (fbm(p * 1.9 + 77.0) - 0.5) * 0.6
-  );
+  float met = step(-8.0, claim.x) + step(-8.0, claim.y) + step(-8.0, claim.z);
+  if (met > 1.5) {
+    claim += vec3(
+      (fbm(p * 3.1) - 0.5) * 0.7 + 0.05,
+      (fbm(p * 2.7 + 31.0) - 0.5) * 0.7,
+      (fbm(p * 1.9 + 77.0) - 0.5) * 0.6
+    );
+  }
   float other = max(claim.y, claim.z);
   float dens = other < -1.0 ? 1.0 : smoothstep(-0.35, 0.15, claim.x - other);
   vec3 under = grassBase(p) * 0.8;
@@ -1239,7 +1334,9 @@ vec3 rockAt(vec2 p, float z, float fp) {
   c *= 1.0 + 0.07 * (1.0 - smoothstep(0.0, 0.18, bf)) * shows(3.0, fp);
   vec2 g = q * vec2(1.5, 2.3) + (vec2(vnoise(q * 1.1 + 7.0), vnoise(q * 1.1 + 19.0)) - 0.5) * 1.3 + vec2(hash(ivec2(int(bed), 5)) * 7.0, bed * 0.37);
   ivec2 gi = ivec2(floor(g)); vec2 gf = fract(g);
-  float f1 = 9.0; float f2 = 9.0; float id = 0.0;
+  float f1 = 9.0; float f2 = 9.0; float id = 0.5;
+  float near = shows(5.0, fp);
+  if (near > 0.0) {
   for (int dy = -1; dy <= 1; dy++) {
     for (int dx = -1; dx <= 1; dx++) {
       ivec2 cell = gi + ivec2(dx, dy);
@@ -1248,11 +1345,13 @@ vec3 rockAt(vec2 p, float z, float fp) {
       if (d < f1) { f2 = f1; f1 = d; id = hash(cell + ivec2(5, 9)); } else if (d < f2) { f2 = d; }
     }
   }
-  c *= 0.92 + 0.16 * id;
-  float split = smoothstep(0.42, 0.62, fbm(q * 0.8 + 47.0));
-  c *= mix(1.0, 0.7, (1.0 - smoothstep(0.0, 0.06, sqrt(f2) - sqrt(f1))) * split * shows(7.0, fp));
+  c *= mix(1.0, 0.92 + 0.16 * id, near);
+  float cracks = shows(7.0, fp);
+  if (cracks > 0.0) c *= mix(1.0, 0.7, (1.0 - smoothstep(0.0, 0.06, sqrt(f2) - sqrt(f1))) * smoothstep(0.42, 0.62, fbm(q * 0.8 + 47.0)) * cracks);
+  }
   c *= 1.0 - 0.1 * smoothstep(0.6, 0.92, vnoise(vec2(q.x * 2.3 + vnoise(q * 0.6 + 71.0) * 1.7, q.y * 0.4) + 3.0)) * smoothstep(0.35, 0.7, fbm(q * 0.35 + 83.0));
-  c *= 1.0 + (vnoise(q * 31.0) - 0.5) * 0.09 * shows(31.0, fp);
+  float fine = shows(31.0, fp);
+  if (fine > 0.0) c *= 1.0 + (vnoise(q * 31.0) - 0.5) * 0.09 * fine;
   return c;
 }
 
