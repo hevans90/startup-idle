@@ -77,7 +77,9 @@ describe("the drawn surface", () => {
     }
     // A pocket of the bank, land on two sides: a shelf just under the water.
     expect(shelfOf(grid, 2, 2)).toBeCloseTo(2 - SHELF);
-    expect(drawnCentre(grid, 2, 2)).toBeCloseTo(2 - SHELF);
+    // Its middle is the mean of its corners, so it is as near a plane as they allow.
+    expect(drawnCentre(grid, 2, 2)).toBeCloseTo((drawnCorner(grid, 2, 2, 0, 0) + drawnCorner(grid, 2, 2, 1, 0) + drawnCorner(grid, 2, 2, 1, 1) + drawnCorner(grid, 2, 2, 0, 1)) / 4);
+    expect(drawnCentre(grid, 2, 2)).toBeLessThan(2);
     // Out in the water: its bed.
     expect(shelfOf(grid, 0, 4)).toBeNull();
     expect(drawnCentre(grid, 0, 4)).toBe(-4);

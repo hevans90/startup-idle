@@ -1093,7 +1093,7 @@ fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vShore: vec4<f32>) 
   if (deep <= 0.0) { discard; }
   // How far from the waterline, in tiles along the ground: the depth over how fast that triangle falls.
   let out = deep / max(length(vec2<f32>(ea + eb - 2.0 * m, eb - ea)), 0.05);
-  var col = vColor * mix(0.25, 1.0, smoothstep(0.0, 0.5, deep));
+  var col = vColor * mix(0.4, 1.0, smoothstep(0.0, 0.25, deep));
   // A thin line of it, and broken: here and there, not a white rim round every bank.
   let patchy = smoothstep(0.35, 0.7, shoreNoise(vShore.xy * 1.7 + 3.0));
   let reach = 0.012 + 0.02 * shoreNoise(vShore.xy * 9.0 + 7.0);

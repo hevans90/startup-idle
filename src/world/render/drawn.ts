@@ -43,7 +43,7 @@ export function cornerZ(grid: Grid, x: number, y: number, u: number, v: number):
 /** Standing water on a cell. */
 const wet = (grid: Grid, i: number) => grid.pool[i] > 0;
 /** How far over water's level bare land may stand and still come down to it as a shore, half steps; how far under it a shelf's middle lies at most. */
-export const SHORE = 4, SHELF = 0.6;
+export const SHORE = 4, SHELF = 1.2;
 /** How far under the water a shelf's corners are where it meets no land, half steps (or its bed, if that is nearer). */
 const SHELF_DROP = 2.5;
 
@@ -88,11 +88,17 @@ export function shelfOf(grid: Grid, x: number, y: number): number | null {
     const up = grid.height[j] - level;
     if (up > 0 && up <= SHORE && up < low) low = up;
   }
-  return low === Infinity ? null : level - Math.min(SHELF, grid.pool[i], low * 0.3);
+  // (Deep enough that the water over it is water, not a bar of sand showing through it from bank to bank; never
+  // deeper than the land is high, so the edge they share stays over the water.)
+  return low === Infinity ? null : level - Math.min(SHELF, grid.pool[i], low * 0.9);
 }
-/** The drawn height of a free cell's middle: its own, or its shelf's. */
+/**
+ * The drawn height of a free cell's middle: its own; or, on a shelf, the mean of its corners — so a shelf is as
+ * near a plane as its corners allow and the waterline crosses it straight, not in a tooth a tile.
+ */
 export function drawnCentre(grid: Grid, x: number, y: number): number {
-  return shelfOf(grid, x, y) ?? grid.height[idx(grid, x, y)];
+  if (shelfOf(grid, x, y) === null) return grid.height[idx(grid, x, y)];
+  return (drawnCorner(grid, x, y, 0, 0) + drawnCorner(grid, x, y, 1, 0) + drawnCorner(grid, x, y, 1, 1) + drawnCorner(grid, x, y, 0, 1)) / 4;
 }
 
 const near = [0, 0, 0, 0], reach = [0, 0, 0, 0], beds = [0, 0, 0, 0];
@@ -139,7 +145,7 @@ export function drawnCorner(grid: Grid, x: number, y: number, u: number, v: numb
   }
   const land = lands > 0;
   // (The tip of a point of land, water on three sides: just under the water, or a spur of it stands out along the tiles' edge.)
-  if (lands === 1 && m === 4) return Math.min(sum / m, level - 0.15);
+  if (lands === 1 && m === 4) return level - 0.15;
   // A shelf's corners out in the water, where no land meets it, go on down: the shelf is a slope into the deep, not a ledge.
   // (No lower than the highest bed of the shelves that meet there, so they all say the same.)
   if (shelf !== null && !land) return Math.max(bed, own - 1 - SHELF_DROP);
