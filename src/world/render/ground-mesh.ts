@@ -61,15 +61,35 @@ export function groundDraws(grid: Grid, palette: Palette, x: number, y: number):
   return grid.terrain[i] !== VOID && !!classOf(palette[grid.terrain[i]]) && !hidden(grid, x, y);
 }
 
+const bases = new WeakMap<Grid, { rev: number; base: number }>();
+/** How thick the map may be drawn at its edge, half steps: a deep river's bed may hang below that. */
+const EDGE_THICK = 24;
+/**
+ * THE MAP'S UNDERSIDE AT ITS EDGE, half steps: one level every wall on the edge goes down to, so the cut through
+ * the map has one bottom line and not a step at every change of ground — a little under the lowest ground on the
+ * edge, but no more than `EDGE_THICK` under the highest.
+ */
+export function edgeBase(grid: Grid): number {
+  const got = bases.get(grid);
+  if (got && got.rev === grid.rev) return got.base;
+  let lo = Infinity, hi = -Infinity;
+  const see = (x: number, y: number) => { const i = idx(grid, x, y); if (grid.terrain[i] !== VOID) { lo = Math.min(lo, grid.height[i]); hi = Math.max(hi, grid.height[i]); } };
+  for (let x = 0; x < grid.w; x++) { see(x, 0); see(x, grid.h - 1); }
+  for (let y = 0; y < grid.h; y++) { see(0, y); see(grid.w - 1, y); }
+  const base = lo === Infinity ? 0 : Math.max(lo - 3, hi - EDGE_THICK);
+  bases.set(grid, { rev: grid.rev, base });
+  return base;
+}
+
 /**
  * How far down a cell's face shows at one of its corners: to the DRAWN surface
  * of the neighbour `(nx, ny)` in front, at that neighbour's own corner `(u, v)`.
- * Off the map, or over a void, at least one step below the cell's foot: the
- * plateau's own edge, as a tile's skirt showed it. Never above the top `z`.
+ * Off the map, down to the map's one underside (@see edgeBase); over a void,
+ * at least one step below the cell's foot. Never above the top `z`.
  */
 export function wallFoot(grid: Grid, x: number, y: number, nx: number, ny: number, u = 0, v = 0, z = grid.height[idx(grid, x, y)]): number {
   const h = grid.height[idx(grid, x, y)];
-  if (!inBounds(grid, nx, ny)) return Math.min(0, h - 2, z);
+  if (!inBounds(grid, nx, ny)) return Math.min(edgeBase(grid), h - 2, z);
   const j = idx(grid, nx, ny);
   if (grid.terrain[j] === VOID) return Math.min(grid.height[j], h - 2, z);
   return Math.min(drawnCorner(grid, nx, ny, u, v), z);

@@ -51,7 +51,8 @@ describe("wallFoot", () => {
 
   test("off the map or over a void, at least a step down", () => {
     const grid = flat(2, 1);
-    expect(wallFoot(grid, 1, 0, 2, 0)).toBe(-2);
+    // Off the map: the map's one underside, a little under the lowest ground on its edge.
+    expect(wallFoot(grid, 1, 0, 2, 0)).toBe(-3);
     setHeight(grid, 0, 0, 6);
     setTerrain(grid, 1, 0, VOID);
     expect(wallFoot(grid, 0, 0, 1, 0)).toBe(0);
