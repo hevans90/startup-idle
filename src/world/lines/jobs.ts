@@ -163,6 +163,8 @@ export type RazeJob = {
   id: number; structure: number; x: number; y: number; t: number; need: number; at: number;
   /** Its digger, from the yard on a low-loader and home on one (@see fleet/plant, `RAZE_PLANT`); that the building is down, and only its digger's going is left; and the plot it stood on, for drawing that. */
   plant?: false | Plant; down?: boolean; plot?: { x: number; y: number; w: number; h: number };
+  /** To be watched, not done: its time up, it starts again and the building stands. @see debug/fixtures buildDemolition */
+  loop?: boolean;
 };
 /** What pulls a building down: a digger, come on a low-loader that does not wait for it; and a tipper, which comes empty and goes home with the rubble. */
 export const RAZE_PLANT: readonly PlantKind[] = ["loader", "spoil"];

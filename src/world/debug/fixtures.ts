@@ -31,7 +31,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -1152,7 +1152,7 @@ export function buildIslands(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1164,7 +1164,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1210,6 +1210,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "traffic": buildTraffic(g, material); recomputeHeightRange(g); return;
     case "hills": buildHills(g, material); recomputeHeightRange(g); return;
     case "junctions": buildJunctions(g, material); recomputeHeightRange(g); return;
+    case "demolition": buildDemolition(g, material); recomputeHeightRange(g); return;
   }
 }
 
@@ -1275,6 +1276,38 @@ export function buildProjects(g: Grid, material: number) {
     put(def, rx, ry, 1);
     rx += def.footprint.w + GAP;
     if (rx > g.w - 6) { rx = 2 + GALLERY_STAGES.length * (4 + GAP) + 2; ry += 4 + GAP; }
+  }
+}
+
+/**
+ * EVERY BUILDING, BEING PULLED DOWN, to look at (`?world=1&fixture=demolition`): one of each — the landmarks' every
+ * tier, an office, a service, the lab, houses of a few sizes — in rows, each with a demolition of its own that
+ * starts a few seconds after the one before it and, when it is done, STARTS AGAIN: nothing is taken off the map
+ * (`RazeJob.loop`). No roads and no yard: each digger and its lorry are simply there.
+ */
+export function buildDemolition(g: Grid, material: number) {
+  clear(g, material);
+  g.razeJobs = [];
+  const history = createHistory();
+  const houses = ["kit:intern.t1", "kit:intern.t2", "kit:intern.t3"].map((id) => structureDef(id)).filter((d): d is StructureDef => !!d);
+  const all = [...PROJECT_BUILDINGS, ...OFFICES.slice(0, 2), ...SERVICES.slice(0, 2), LAB, ...houses];
+  let x = 3, y = 3, row = 0, k = 0;
+  for (const def of all) {
+    if (x + def.footprint.w > g.w - 3) { x = 3; y += row + 3; row = 0; }
+    if (y + def.footprint.h > g.h - 3) break;
+    const cmd = placeCommand(g, { ...def, placement: undefined }, x, y);
+    const s = cmd?.structures?.added[0];
+    if (cmd && s) {
+      commit(g, history, cmd);
+      const live = g.structures.get(s.id);
+      if (live) {
+        delete live.residents;
+        // (Long enough to watch, whatever its size; each a little after the last.)
+        g.razeJobs.push({ id: g.nextLineJob++, structure: live.id, x: live.x, y: live.y, t: -1.5 - k * 2.5, need: 16 + Math.min(14, live.w * live.h), at: Date.now(), loop: true });
+        k++;
+      }
+    }
+    x += def.footprint.w + 3; row = Math.max(row, def.footprint.h);
   }
 }
 

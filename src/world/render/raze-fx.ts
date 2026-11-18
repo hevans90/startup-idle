@@ -112,6 +112,8 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
   return {
     sync(id, g, plot, nodes, told, p, from, scale, dt, seconds) {
       let J = jobs.get(id);
+      // (Begun again — a demolition only to be watched: the building shown as it was, and brought down afresh.)
+      if (J && J.sim && p < RAZE.first) { end(J); jobs.delete(id); J = undefined; }
       if (!J) {
         const air = new Graphics();
         air.eventMode = "none"; air.context.batchMode = "batch"; air.zIndex = 3;

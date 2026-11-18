@@ -898,6 +898,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       if (j.down) { if (plant !== "leaving") { g.razeJobs = g.razeJobs.filter((q) => q !== j); razeDoors.delete(j.id); changed = true; } continue; }
       if (plant === "wait") continue;
       j.t += dt;
+      // (One only to be watched: over, it stands a moment as bare ground and begins again.)
+      if (j.loop) { if (j.t >= j.need + 2.5) j.t = -2.5; changed = true; continue; }
       if (there && j.t < j.need) continue;
       // (Down: the job stays only while its digger is got away.)
       if (there && plant === "work" && j.plant) { j.plot = { x: there.x, y: there.y, w: there.w, h: there.h }; j.plant.leaving = 0; j.plant.t = 0; j.down = true; }
