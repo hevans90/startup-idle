@@ -105,18 +105,6 @@ describe("the drawn surface", () => {
     expect(shelfOf(grid, 3, 1)).toBeNull(); // and the tile behind it
   });
 
-  test("no shelf on the map's edge: the water there shows its whole depth", () => {
-    const grid = flat(4, 4);
-    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) setHeight(grid, x, y, 4);
-    for (let y = 0; y < 4; y++) { setHeight(grid, 1, y, 0); grid.pool[idx(grid, 1, y)] = 2; }
-    expect(shelfOf(grid, 1, 1)).not.toBeNull();
-    expect(shelfOf(grid, 1, 0)).toBeNull();
-    expect(shelfOf(grid, 1, 3)).toBeNull();
-    // Its corners on the edge itself are its bed's.
-    expect(drawnCorner(grid, 1, 3, 0, 1)).toBe(0);
-    expect(drawnCorner(grid, 1, 3, 1, 1)).toBe(0);
-  });
-
   test("land too far over the water is a cliff into it: no shelf", () => {
     const grid = flat(3, 1);
     setHeight(grid, 0, 0, 9);

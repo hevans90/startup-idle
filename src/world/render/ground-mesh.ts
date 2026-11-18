@@ -194,6 +194,22 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
     // AND ALONG y+1.
     const ga = wallFoot(grid, x, y, x, y + 1, 0, 0, z01), gb = wallFoot(grid, x, y, x, y + 1, 1, 0, z11);
     if (ga < z01 || gb < z11) { at(x, y + 1, z01, 2, 0); at(x + 1, y + 1, z11, 2, 0); at(x + 1, y + 1, gb, 2, z11 - gb); at(x, y + 1, ga, 2, z01 - ga); }
+    // AT THE MAP'S EDGE A SHORE IS CUT THROUGH: over the wall, which is the bank's own profile, the water's cut
+    // face — from its level down to the drawn ground along that edge, and no further along it than the ground is
+    // under the water. (Elsewhere the water's own mesh draws its sides; a shelf has none. @see water-gpu.ts)
+    if (shelfOf(grid, x, y) !== null) {
+      const level = grid.height[idx(grid, x, y)] + grid.pool[idx(grid, x, y)];
+      const cut = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+        if (az >= level && bz >= level) return;
+        // The stretch of the edge under water: all of it, or from the low end to where the ground comes up through.
+        let x0 = ax, y0 = ay, z0 = az, x1 = bx, y1 = by, z1 = bz;
+        if (az >= level) { const t = (az - level) / (az - bz); x0 = ax + (bx - ax) * t; y0 = ay + (by - ay) * t; z0 = level; }
+        if (bz >= level) { const t = (level - az) / (bz - az); x1 = ax + (bx - ax) * t; y1 = ay + (by - ay) * t; z1 = level; }
+        at(x0, y0, level, 5, 0); at(x1, y1, level, 5, 0); at(x1, y1, z1, 5, level - z1); at(x0, y0, z0, 5, level - z0);
+      };
+      if (!inBounds(grid, x + 1, y)) cut(x + 1, y, z10, x + 1, y + 1, z11);
+      if (!inBounds(grid, x, y + 1)) cut(x, y + 1, z01, x + 1, y + 1, z11);
+    }
     // THE FRINGE over each back edge where something else is behind it, for
     // the tips of this cell's blades to stand over. Ground (x, y) is the cell,
     // the second word its height. @see fringeColour
@@ -230,8 +246,8 @@ function writeCell(gm: GroundMesh, grid: Grid, palette: Palette, x: number, y: n
 }
 /**
  * THE DRAWN SURFACE AS A TEXTURE, two texels a cell, floats: its four corners (0,0), (1,0), (1,1), (0,1), half
- * steps; then its middle, whether it is a shelf, and the level of the standing water on it or beside it (−999 with
- * none). The ground's shader reads it for shadows and the beach; the water's for where the shore cuts it.
+ * steps; then its middle, whether it is a shelf, the level of the standing water on it or beside it (−999 with
+ * none), and 2 where it has standing water of its own. The ground's shader reads it for shadows and the beach; the water's for where the shore cuts it.
  * One a grid, made by whichever asks first. @see drawn.ts, water-gpu.ts
  */
 const surfaces = new WeakMap<Grid, { data: Float32Array; source: BufferImageSource }>();
@@ -255,7 +271,7 @@ function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number) {
     const j = idx(grid, x + dx, y + dy);
     if (grid.pool[j] > 0) level = Math.max(level, grid.height[j] + grid.pool[j]);
   }
-  e[o + 6] = level; e[o + 7] = 1;
+  e[o + 6] = level; e[o + 7] = grid.pool[idx(grid, x, y)] > 0 ? 2 : 1;
 }
 
 export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale = 1): GroundMesh {
@@ -726,6 +742,8 @@ fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
   // Strands hang over the edge: a jagged hem, one strand to a column.
   let strand = hash(vec2<i32>(i32(floor(along * 60.0)), 41));
   let lipDepth = 0.6 + (vnoise(vec2<f32>(along * 9.0, 3.0)) - 0.5) * 0.4 + (strand - 0.5) * 0.3 * shows(60.0, fp);
+  // (Under standing water there is no turf to hang over the edge: its bed's wall is bare.)
+  let under = textureLoad(uEdges, vec2<i32>(i32(floor((p - back).x)) * 2 + 1, i32(floor((p - back).y))), 0).w > 1.5;
   var col = earth;
   // ROCK below the soil: beds of it, each its own tone, a dark joint between, cracked down here and there.
   let soil = select(2.6, 3.4, k == 3) + (vnoise(vec2<f32>(along * 1.3, 9.0)) - 0.5) * 1.6;
@@ -742,13 +760,13 @@ fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
     if (crack) { rock = rock * (1.0 - 0.32 * (1.0 - smoothstep(0.0, 0.07, fract(u))) * shows(12.0, fp)); }
     col = mix(earth, rock, smoothstep(soil - 0.3, soil + 0.15, depth + (vnoise(vec2<f32>(along * 14.0, depth * 3.0)) - 0.5) * 0.5));
   }
-  if (k == 1 && depth < lipDepth) {
+  if (k == 1 && depth < lipDepth && !under) {
     col = select(vec3<f32>(80.0, 112.0, 48.0), vec3<f32>(102.0, 140.0, 60.0), lit) / 255.0;
     col = col * mix(1.08, 0.8, depth / lipDepth);
     col = col * (1.0 + (vnoise(vec2<f32>(along * 70.0, depth * 1.2)) - 0.5) * 0.35 * shows(70.0, fp));
   } else if (k == 3 && depth < lipDepth) {
     col = select(vec3<f32>(160.0, 154.0, 115.0), vec3<f32>(194.0, 188.0, 142.0), lit) / 255.0;
-  } else if (k == 1 && depth < lipDepth + 0.25) {
+  } else if (k == 1 && depth < lipDepth + 0.25 && !under) {
     col = earth * 0.72;
   }
   return col;
@@ -765,6 +783,12 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   // How steep a top is here, half steps a tile: its height's change over the ground's.
   let fg = fwidth(vGround);
   let steep = fwidth(vWall.y) / max(max(fg.x, fg.y), 0.00001);
+  // THE WATER'S CUT FACE at the map's edge: its second word is how far under the surface.
+  if (vWall.x > 4.5) {
+    let a = 0.62 + 0.2 * smoothstep(0.0, 3.0, vWall.y);
+    let c = mix(vec3<f32>(0.33, 0.53, 0.68), vec3<f32>(0.19, 0.37, 0.54), smoothstep(0.0, 5.0, vWall.y));
+    return vec4<f32>(c * a, a) * vTint;
+  }
   if (vWall.x > 2.5) {
     let f = fringeColour(vGround, vWall.y);
     if (f.a <= 0.003) { discard; }
@@ -1093,6 +1117,8 @@ vec3 wallColour(vec2 p, float kind, float depth, float fp) {
   }
   float strand = hash(ivec2(int(floor(along * 60.0)), 41));
   float lipDepth = 0.6 + (vnoise(vec2(along * 9.0, 3.0)) - 0.5) * 0.4 + (strand - 0.5) * 0.3 * shows(60.0, fp);
+  ivec2 uc = ivec2(floor(p - back));
+  bool under = texelFetch(uEdges, ivec2(uc.x * 2 + 1, uc.y), 0).w > 1.5;
   vec3 col = earth;
   float soil = (k == 3 ? 3.4 : 2.6) + (vnoise(vec2(along * 1.3, 9.0)) - 0.5) * 1.6;
   if (depth > soil - 0.3) {
@@ -1108,13 +1134,13 @@ vec3 wallColour(vec2 p, float kind, float depth, float fp) {
     if (crack) rock *= 1.0 - 0.32 * (1.0 - smoothstep(0.0, 0.07, fract(u))) * shows(12.0, fp);
     col = mix(earth, rock, smoothstep(soil - 0.3, soil + 0.15, depth + (vnoise(vec2(along * 14.0, depth * 3.0)) - 0.5) * 0.5));
   }
-  if (k == 1 && depth < lipDepth) {
+  if (k == 1 && depth < lipDepth && !under) {
     col = (lit ? vec3(102.0, 140.0, 60.0) : vec3(80.0, 112.0, 48.0)) / 255.0;
     col *= mix(1.08, 0.8, depth / lipDepth);
     col *= 1.0 + (vnoise(vec2(along * 70.0, depth * 1.2)) - 0.5) * 0.35 * shows(70.0, fp);
   } else if (k == 3 && depth < lipDepth) {
     col = (lit ? vec3(194.0, 188.0, 142.0) : vec3(160.0, 154.0, 115.0)) / 255.0;
-  } else if (k == 1 && depth < lipDepth + 0.25) {
+  } else if (k == 1 && depth < lipDepth + 0.25 && !under) {
     col = earth * 0.72;
   }
   return col;
@@ -1128,6 +1154,12 @@ void main() {
   float fp = max(fw.x, fw.y);
   vec2 fg = fwidth(vGround);
   float steep = fwidth(vWall.y) / max(max(fg.x, fg.y), 0.00001);
+  if (vWall.x > 4.5) {
+    float a = 0.62 + 0.2 * smoothstep(0.0, 3.0, vWall.y);
+    vec3 c = mix(vec3(0.33, 0.53, 0.68), vec3(0.19, 0.37, 0.54), smoothstep(0.0, 5.0, vWall.y));
+    finalColor = vec4(c * a, a) * vTint;
+    return;
+  }
   if (vWall.x > 2.5) {
     vec4 f = fringeColour(vGround, vWall.y);
     if (f.a <= 0.003) discard;
