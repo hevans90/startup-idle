@@ -92,6 +92,17 @@ describe("the drawn surface", () => {
     expect(drawnCorner(grid, 2, 2, 0, 1)).toBeLessThan(2);
   });
 
+  test("no shelf at a lip, nor beside one: the water there is drawn down to its fall", () => {
+    const grid = flat(6, 3);
+    // Land along the top row at 4; water at a level of 2 along the middle, its bed at 0; and off its end, a drop.
+    for (let x = 0; x < 6; x++) setHeight(grid, x, 0, 4);
+    for (let x = 0; x < 4; x++) for (const y of [1, 2]) { setHeight(grid, x, y, 0); grid.pool[idx(grid, x, y)] = 2; }
+    for (const x of [4, 5]) for (const y of [1, 2]) setHeight(grid, x, y, -8);
+    expect(shelfOf(grid, 0, 1)).not.toBeNull();
+    expect(shelfOf(grid, 3, 1)).toBeNull(); // the lip
+    expect(shelfOf(grid, 2, 1)).toBeNull(); // and the tile behind it
+  });
+
   test("land too far over the water is a cliff into it: no shelf", () => {
     const grid = flat(3, 1);
     setHeight(grid, 0, 0, 9);

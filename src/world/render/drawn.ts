@@ -53,6 +53,20 @@ export function pinned(grid: Grid, x: number, y: number): boolean {
   return !!grid.paved[i] || !!rampRise(grid.ramp[i]) || grid.deck[i] !== 0 || !!grid.main[i] || structureAt(grid, x, y) >= 0;
 }
 
+/** Standing water with a drop beside it: a neighbour whose own surface is two half steps or more under this water's. */
+function lipAt(grid: Grid, x: number, y: number): boolean {
+  const i = idx(grid, x, y);
+  if (!wet(grid, i)) return false;
+  const level = grid.height[i] + grid.pool[i];
+  for (let k = 0; k < 4; k++) {
+    const nx = x + (k === 0 ? 1 : k === 1 ? -1 : 0), ny = y + (k === 2 ? 1 : k === 3 ? -1 : 0);
+    if (!inBounds(grid, nx, ny)) continue;
+    const j = idx(grid, nx, ny);
+    if (grid.terrain[j] !== VOID && grid.height[j] + grid.pool[j] <= level - 2) return true;
+  }
+  return false;
+}
+
 /**
  * A SHELF: the drawn height of the middle of a tile of standing water that has bare land beside it (corner to corner
  * counts) standing over its level by no more than `SHORE` — just under the water, and the less under it the lower
@@ -62,6 +76,9 @@ export function shelfOf(grid: Grid, x: number, y: number): number | null {
   const i = idx(grid, x, y);
   if (!wet(grid, i) || pinned(grid, x, y)) return null;
   const level = grid.height[i] + grid.pool[i];
+  // NOT AT A LIP, nor beside one: where the water goes over an edge its surface is drawn down to the sheet that
+  // falls from it, and a shelf would hold it level and break the two apart.
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(grid, x + dx, y + dy) && lipAt(grid, x + dx, y + dy)) return null;
   let low = Infinity;
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     const nx = x + dx, ny = y + dy;
