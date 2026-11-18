@@ -1085,8 +1085,18 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
       let l01 = levelAt(lc + vec2<i32>(0, 1), level); let l11 = levelAt(lc + vec2<i32>(1, 1), level);
       level = mix(mix(l00, l10, lf.x), mix(l01, l11, lf.x), lf.y);
       let over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
-      let beach = 1.0 - smoothstep(0.15, 0.6, over);
-      if (beach > 0.0) { col = mix(col, sandAt(vGround, fp) * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach); }
+      // NOT EVERY SHORE IS A BEACH: by a slow noise over the map a stretch of shore is sand, broad; or a narrow rim
+      // of wet earth; or grass down to the water with earth only under it.
+      let shore = fbm(vGround * 0.11 + 40.0);
+      let sandy = smoothstep(0.44, 0.56, shore);
+      let rim = mix(mix(0.02, 0.22, smoothstep(0.26, 0.38, shore)), 0.6, sandy);
+      let beach = 1.0 - smoothstep(mix(-0.08, 0.15, sandy), rim, over);
+      if (beach > 0.0) {
+        var stuff = vec3<f32>(0.0);
+        if (sandy > 0.001) { stuff = sandAt(vGround, fp) * sandy; }
+        if (sandy < 0.999) { stuff = stuff + dirtAt(vGround, fp) * 0.8 * (1.0 - sandy); }
+        col = mix(col, stuff * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
+      }
     }
     col = relit(col * (1.0 + vWall.x), vGround, vWall.y, ground.uMode.x < 0.5);
   } else {
@@ -1499,8 +1509,16 @@ void main() {
       vec2 lq = vGround - 0.5; ivec2 lc = ivec2(floor(lq)); vec2 lf = lq - floor(lq);
       level = mix(mix(levelAt(lc, level), levelAt(lc + ivec2(1, 0), level), lf.x), mix(levelAt(lc + ivec2(0, 1), level), levelAt(lc + ivec2(1, 1), level), lf.x), lf.y);
       float over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
-      float beach = 1.0 - smoothstep(0.15, 0.6, over);
-      if (beach > 0.0) col = mix(col, sandAt(vGround, fp) * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
+      float shore = fbm(vGround * 0.11 + 40.0);
+      float sandy = smoothstep(0.44, 0.56, shore);
+      float rim = mix(mix(0.02, 0.22, smoothstep(0.26, 0.38, shore)), 0.6, sandy);
+      float beach = 1.0 - smoothstep(mix(-0.08, 0.15, sandy), rim, over);
+      if (beach > 0.0) {
+        vec3 stuff = vec3(0.0);
+        if (sandy > 0.001) stuff = sandAt(vGround, fp) * sandy;
+        if (sandy < 0.999) stuff += dirtAt(vGround, fp) * 0.8 * (1.0 - sandy);
+        col = mix(col, stuff * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
+      }
     }
     col = relit(col * (1.0 + vWall.x), vGround, vWall.y, uMode.x < 0.5);
   } else {
