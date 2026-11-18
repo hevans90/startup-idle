@@ -867,6 +867,20 @@ fn groundKind(tx: i32, ty: i32, a: i32) -> i32 {
   if (a != 0) { return 0; }
   return i32(textureLoad(uShore, vec2<i32>(tx * 2 + 1, ty), 0).y + 0.5);
 }
+// HOW MUCH OF WHAT IS ROUND A CORNER IS WATER, 0 to 1, SMOOTHED: not just the four columns that meet there but
+// the sixteen round it, the near ones counting for more — so the line the surface is cut along bends round a front
+// and does not turn at every column. Off the map counts as water: the map's edge cuts it through.
+fn coverAt(vx: i32, vy: i32, a: i32, top: f32) -> f32 {
+  var cover = 0.0;
+  for (var j = 0; j < 16; j++) {
+    let qx = vx - 2 + (j % 4);
+    let qy = vy - 2 + (j / 4);
+    let wgt = select(1.0, 3.0, (j % 4) == 1 || (j % 4) == 2) * select(1.0, 3.0, (j / 4) == 1 || (j / 4) == 2);
+    // (And so does ground that stands over the water, at top: a wall holds it, it is not its edge.)
+    if (!inside(qx, qy) || wet(depthAt(qx, qy, a)) || groundAt(qx, qy, a) > top + 0.3) { cover += wgt; }
+  }
+  return cover / 64.0;
+}
 // The drawn ground of a tile at (u, v) of it, each 0 to 1: a fan from its middle to its corners. @see drawnHeight
 fn groundFan(tx: i32, ty: i32, u: f32, v: f32) -> f32 {
   let c = textureLoad(uShore, vec2<i32>(tx * 2, ty), 0);
@@ -992,14 +1006,17 @@ fn mainVertex(
     if (bd <= water.uBand.z) { return out; }
     // (Thin water on sloped ground lies on it and has no sides: there is no step there for one to stand on.)
     if (okind == 2 && bd < ${THIN_ON_SLOPE}) { return out; }
+    // (Nor toward dry ground on its own level: there the surface comes down to the ground and is cut to a line —
+    // a side would stand up over it, a column wide. @see vCover)
+    if (a == 0 && !shows(cx, cy, a) && groundAt(cx, cy, a) > groundAt(ocx, ocy, a) - 0.5) { return out; }
     if (!forward(ocx, ocy, part, cpt, a)) { return out; }
     let p = sidePart(ocx, ocy, part, corner,
       fx0 - select(0.0, step, part == 0), fy0 - select(step, 0.0, part == 0), step, bd, a);
     if (!p.ok) { return out; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
   } else if (part == 2) {
-    // THE SURFACE.
-    if (d <= water.uBand.z) { return out; }
+    // THE SURFACE — of a wet column; or, round the water, of a DRY one beside it: the water's edge is cut along a
+    // line that runs through such a column (@see VSOutput.vCover), so it needs a surface for the line to be on.
     let ox = ((corner + 1) >> 1) & 1;
     let oy = corner >> 1;
     // HOW MANY COLUMNS THIS QUAD SPANS: one, or a whole tile. A whole tile's
@@ -1009,83 +1026,109 @@ fn mainVertex(
     let span = select(1, cpt, whole);
     let ccx = cx + ox * (span - 1);
     let ccy = cy + oy * (span - 1);
-    // THIS COLUMN'S COMPONENT AT THIS CORNER, worked out ONCE. A column is
-    // always one of its own corners' four, so what comes back is always the
-    // component it is in and always the one it helped make — and everything
-    // this vertex asks of this corner is asked with it. @see render/sheet-group
     let vcx = ccx + ox;
     let vcy = ccy + oy;
-    let mine = cornerMask(vcx, vcy, contribOf(vcx, vcy, ccx, ccy, a));
-    let c = cornerOf(vcx, vcy, mine);
-    let bed = groundAt(ccx, ccy, a);
-    h = max(c.x, bed);
     fx = fx0 + f32(ox * span) * step;
     fy = fy0 + f32(oy * span) * step;
-    // AT A SHORE the surface stays level to the tile's edge — not drawn down to the bed there — and the fragment
-    // cuts it where the drawn ground comes up through it. @see mainFragment
-    // ASKED OF THE CORNER, NOT THE COLUMN: every column that shares this vertex must put it at one height, or the
-    // mesh tears between them. So: whether any tile round the corner is a shelf, and the mean surface of the wet
-    // columns round it — which is what the corner already is wherever all four are wet.
-    if (a == 0) {
-      var shelf = false;
-      var sum = 0.0;
-      sloped = false;
-      var wets = 0.0;
-      var around = 0.0;
+    // WHOSE CORNER THIS IS. A wet column's is its own. A dry column's is asked as a wet column that shares it would
+    // ask — any of them: they put it in one place — and where none of the four round it is wet, it is ground.
+    var hx = ccx;
+    var hy = ccy;
+    var bare = false;
+    if (!shows(ccx, ccy, a)) {
+      if (a != 0 || whole) { return out; }
+      bare = true;
       for (var k = 0; k < 4; k++) {
         let qx = vcx - (k % 2);
         let qy = vcy - (k / 2);
-        // (Off the map counts as water: the map's edge cuts it through, it is not a shore.)
-        if (!inside(qx, qy)) { around += 1.0; continue; }
-        let qk = groundKind(qx / cpt, qy / cpt, a);
-        if (qk == 1) { shelf = true; }
-        if (qk == 2) { sloped = true; }
-        let qd = depthAt(qx, qy, a);
-        if (wet(qd)) { sum += groundAt(qx, qy, a) + qd; wets += 1.0; around += 1.0; }
+        if (bare && inside(qx, qy) && shows(qx, qy, a) && skirtTo(ccx, ccy, qx, qy, a)) { hx = qx; hy = qy; bare = false; }
       }
-      out.vCover = around * 0.25;
-      if (shelf && wets > 0.0) { h = max(h, sum / wets); }
-      // Where on the ground, for every corner (the foam is laid by place); and whether this tile is a shelf.
-      out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, select(0.0, 1.0, groundKind(ccx / cpt, ccy / cpt, a) == 1));
     }
-
-    let e = cornerExtras(vcx, vcy, mine);
-    let cd = e.x; let wash = e.y; let foam = e.z; let speed = e.w;
-    // THIN WATER LIES ON THE GROUND AS IT IS DRAWN. The solver's floor is the tile's, flat; the ground drawn under
-    // it may be a bank. So where any tile round this corner is sloped, the corner is put at the DRAWN ground there
-    // plus the depth of the water at it — and the deeper the water the less, till standing water is level as it
-    // was. Asked of the corner, with the drawn ground the same from every tile that meets there, so every column
-    // that shares the vertex agrees. @see render/drawn.ts
-    if (sloped) {
+    if (bare) {
+      // No water at this corner: on the ground as it is drawn, with nothing to show. The edge is short of here.
       let tx0 = ccx / cpt; let ty0 = ccy / cpt;
-      let lie = 1.0 - smoothstep(${THIN_ON_SLOPE}, ${THIN_ON_SLOPE * 3}, cd);
-      h = mix(h, groundFan(tx0, ty0, f32(vcx - tx0 * cpt) / f32(cpt), f32(vcy - ty0 * cpt) / f32(cpt)) + cd, lie);
-      out.vShore.z = h;
-    }
-    // ZOOMED OUT AND WHOLE, the gradient off the columns; otherwise off the
-    // sheet, as the column-by-column mesh and the host builder have it.
-    // @see nearbyFlat
-    var gx = 0.0;
-    var gy = 0.0;
-    if (whole || cheap) {
-      gx = nearbyFlat(vcx, vcy, -1, 0, a, c.x) - nearbyFlat(vcx, vcy, 1, 0, a, c.x);
-      gy = nearbyFlat(vcx, vcy, 0, -1, a, c.x) - nearbyFlat(vcx, vcy, 0, 1, a, c.x);
+      h = groundAt(ccx, ccy, a);
+      if (groundKind(tx0, ty0, a) == 2) { h = groundFan(tx0, ty0, f32(vcx - tx0 * cpt) / f32(cpt), f32(vcy - ty0 * cpt) / f32(cpt)); }
+      out.vCover = coverAt(vcx, vcy, a, 1.0e6);
     } else {
-      gx = nearby(vcx, vcy, -1, 0, mine, c.x) - nearby(vcx, vcy, 1, 0, mine, c.x);
-      gy = nearby(vcx, vcy, 0, -1, mine, c.x) - nearby(vcx, vcy, 0, 1, mine, c.x);
+      // THIS COLUMN'S COMPONENT AT THIS CORNER, worked out ONCE. A column is
+      // always one of its own corners' four, so what comes back is always the
+      // component it is in and always the one it helped make — and everything
+      // this vertex asks of this corner is asked with it. @see render/sheet-group
+      let mine = cornerMask(vcx, vcy, contribOf(vcx, vcy, hx, hy, a));
+      let c = cornerOf(vcx, vcy, mine);
+      let bed = groundAt(hx, hy, a);
+      h = max(c.x, bed);
+      // AT A SHORE the surface stays level to the tile's edge — not drawn down to the bed there — and the fragment
+      // cuts it where the drawn ground comes up through it. @see mainFragment
+      // ASKED OF THE CORNER, NOT THE COLUMN: every column that shares this vertex must put it at one height, or the
+      // mesh tears between them. So: whether any tile round the corner is a shelf, and the mean surface of the wet
+      // columns round it — which is what the corner already is wherever all four are wet.
+      if (a == 0) {
+        var shelf = false;
+        var sum = 0.0;
+        sloped = false;
+        var wets = 0.0;
+        var beds = 0.0;
+          for (var k = 0; k < 4; k++) {
+          let qx = vcx - (k % 2);
+          let qy = vcy - (k / 2);
+          // (Off the map counts as water: the map's edge cuts it through, it is not a shore.)
+          if (!inside(qx, qy)) { continue; }
+          let qk = groundKind(qx / cpt, qy / cpt, a);
+          if (qk == 1) { shelf = true; }
+          if (qk == 2) { sloped = true; }
+          let qd = depthAt(qx, qy, a);
+          if (wet(qd)) { let qg = groundAt(qx, qy, a); sum += qg + qd; beds += qg; wets += 1.0; }
+        }
+        out.vCover = select(1.0, coverAt(vcx, vcy, a, sum / max(wets, 1.0)), wets > 0.0);
+        if (shelf && wets > 0.0) { h = max(h, sum / wets); }
+        // THE SURFACE COMES DOWN TO THE GROUND AT ITS EDGE, by the same smoothed measure the edge is cut by: a
+        // surge a column wide does not stand up in facets at the front of a pour, it tapers. (Not at a shore,
+        // which is cut to the ground. The bed is the wet columns' own, so every column at the corner agrees.)
+        if (!shelf && wets > 0.0) { h = mix(beds / wets, h, smoothstep(0.36, 1.0, out.vCover)); }
+        // Where on the ground, for every corner (the foam is laid by place); and whether this tile is a shelf.
+        out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, select(0.0, 1.0, groundKind(hx / cpt, hy / cpt, a) == 1));
+      }
+
+      let e = cornerExtras(vcx, vcy, mine);
+      let cd = e.x; let wash = e.y; let foam = e.z; let speed = e.w;
+      // THIN WATER LIES ON THE GROUND AS IT IS DRAWN. The solver's floor is the tile's, flat; the ground drawn under
+      // it may be a bank. So where any tile round this corner is sloped, the corner is put at the DRAWN ground there
+      // plus the depth of the water at it — and the deeper the water the less, till standing water is level as it
+      // was. Asked of the corner, with the drawn ground the same from every tile that meets there, so every column
+      // that shares the vertex agrees. @see render/drawn.ts
+      if (sloped) {
+        let tx0 = hx / cpt; let ty0 = hy / cpt;
+        let lie = 1.0 - smoothstep(${THIN_ON_SLOPE}, ${THIN_ON_SLOPE * 3}, cd);
+        h = mix(h, groundFan(tx0, ty0, f32(vcx - tx0 * cpt) / f32(cpt), f32(vcy - ty0 * cpt) / f32(cpt)) + cd, lie);
+        out.vShore.z = h;
+      }
+      // ZOOMED OUT AND WHOLE, the gradient off the columns; otherwise off the
+      // sheet, as the column-by-column mesh and the host builder have it.
+      // @see nearbyFlat
+      var gx = 0.0;
+      var gy = 0.0;
+      if (whole || cheap) {
+        gx = nearbyFlat(vcx, vcy, -1, 0, a, c.x) - nearbyFlat(vcx, vcy, 1, 0, a, c.x);
+        gy = nearbyFlat(vcx, vcy, 0, -1, a, c.x) - nearbyFlat(vcx, vcy, 0, 1, a, c.x);
+      } else {
+        gx = nearby(vcx, vcy, -1, 0, mine, c.x) - nearby(vcx, vcy, 1, 0, mine, c.x);
+        gy = nearby(vcx, vcy, 0, -1, mine, c.x) - nearby(vcx, vcy, 0, 1, mine, c.x);
+      }
+      let lean = (gx + gy) * 0.5;
+      let respond = lean / (abs(lean) + ${SLOPE_REF});
+      let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
+      let shown = max(rough, min(1.0, speed / ${STREAK_SPEED}));
+      let lit = 0.5 + respond * 0.34 + wash * (0.2 + 0.8 * shown) * 0.3;
+      let base = clamp(lit, 0.0, 1.0) * ${TINTS - 1}.0;
+      let shade = base + foam * (${SHADES - 1}.0 - base);
+      let fade = min(1.0, cd / ${SHOW_DEPTH});
+      let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
+      alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
+      let mat = i32(textureLoad(uMaterial, vec2<i32>(hx, slotRow(hy, a)), 0).r * 255.0 + 0.5);
+      rgb = fouled(textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb, hx, hy, a);
     }
-    let lean = (gx + gy) * 0.5;
-    let respond = lean / (abs(lean) + ${SLOPE_REF});
-    let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
-    let shown = max(rough, min(1.0, speed / ${STREAK_SPEED}));
-    let lit = 0.5 + respond * 0.34 + wash * (0.2 + 0.8 * shown) * 0.3;
-    let base = clamp(lit, 0.0, 1.0) * ${TINTS - 1}.0;
-    let shade = base + foam * (${SHADES - 1}.0 - base);
-    let fade = min(1.0, cd / ${SHOW_DEPTH});
-    let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
-    alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
-    let mat = i32(textureLoad(uMaterial, vec2<i32>(ccx, slotRow(ccy, a)), 0).r * 255.0 + 0.5);
-    rgb = fouled(textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb, ccx, ccy, a);
   } else {
     // A SIDE of this column. Hung from the very corners the surface quad
     // used, so the two share vertices and there is no seam between them.
@@ -1096,6 +1139,11 @@ fn mainVertex(
     if (kind == 1) { return out; }
     if (kind == 2 && d < ${THIN_ON_SLOPE}) { return out; }
     let axis = part - 3;
+    {
+      let jx = cx + select(0, 1, axis == 0);
+      let jy = cy + select(1, 0, axis == 0);
+      if (a == 0 && inside(jx, jy) && !shows(jx, jy, a) && groundAt(jx, jy, a) > groundAt(cx, cy, a) - 0.5) { return out; }
+    }
     if (forward(cx, cy, axis, cpt, a)) { return out; }
     let p = sidePart(cx, cy, axis, corner, fx0, fy0, step, d, a);
     if (!p.ok) { return out; }
@@ -1129,9 +1177,10 @@ fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vShore: vec4<f32>, 
   // thin broken line of foam — one edge for water poured, running or standing. @see VSOutput.vCover
   var body = vColor;
   if (vCover < 0.999) {
-    if (vCover < 0.5) { discard; }
-    body = body * smoothstep(0.5, 0.6, vCover);
-    let lace = (1.0 - smoothstep(0.52, 0.68, vCover)) * (0.1 + 0.3 * smoothstep(0.35, 0.7, shoreNoise(vShore.xy * 1.7 + 3.0)));
+    // (A little under half: the line runs just out into the dry columns round the water.)
+    if (vCover < 0.36) { discard; }
+    body = body * smoothstep(0.36, 0.46, vCover);
+    let lace = (1.0 - smoothstep(0.38, 0.54, vCover)) * (0.1 + 0.3 * smoothstep(0.35, 0.7, shoreNoise(vShore.xy * 1.7 + 3.0)));
     body = mix(body, vec4<f32>(0.94, 0.97, 0.96, 1.0), lace * body.a);
   }
   // THE SHORE: the drawn ground under this pixel — a fan from the tile's middle to its corners, as the ground's
