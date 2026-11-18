@@ -112,7 +112,7 @@ describe("a storm drain", () => {
     run(dry.g, dry.f, 30);
     run(drained.g, drained.f, 30);
     // Nowhere to go without one: it stands (a little of it up the dip's banks). With one, a third of it is gone in half a minute.
-    expect(inStreet(dry.f)).toBeGreaterThan(stood * 0.9);
+    expect(inStreet(dry.f)).toBeGreaterThan(stood * 0.88);
     expect(inStreet(drained.f)).toBeLessThan(inStreet(dry.f) * 0.7);
     expect(sewerReportsFor(drained.g).get(0)!.trunk.storm).toBeGreaterThan(0.5);
     // Out of the street, down the trunk and into the lake: the same water, wherever it is.

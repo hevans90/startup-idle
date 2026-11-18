@@ -81,9 +81,10 @@ describe("the drawn surface", () => {
     // Out in the water: its bed.
     expect(shelfOf(grid, 0, 4)).toBeNull();
     expect(drawnCentre(grid, 0, 4)).toBe(-4);
-    // Every corner land and water share is over the water, from both sides alike.
+    // Land and water say the same at every corner they share: over the water in a pocket of the bank, and just
+    // under it at the tip of a point of land, so no spur stands out along the tiles' edge.
     for (let k = 1; k < 5; k++) {
-      expect(drawnCorner(grid, k, k, 0, 0)).toBeGreaterThan(2);
+      expect(drawnCorner(grid, k, k, 0, 0)).toBeCloseTo(2 - 0.15);
       expect(drawnCorner(grid, k, k, 0, 0)).toBe(drawnCorner(grid, k, k - 1, 0, 1));
       expect(drawnCorner(grid, k, k, 1, 0)).toBeGreaterThan(2);
     }

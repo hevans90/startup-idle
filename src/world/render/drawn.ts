@@ -115,8 +115,14 @@ export function drawnCorner(grid: Grid, x: number, y: number, u: number, v: numb
       if (q > hi && q - hi <= CLIFF) { hi = q; grew = true; }
     }
   }
-  let sum = 0, m = 0, land = false, bed = -Infinity;
-  for (let k = 0; k < n; k++) if (reach[k] >= lo && reach[k] <= hi) { sum += near[k]; m++; if (reach[k] === near[k]) land = true; else bed = Math.max(bed, beds[k]); }
+  let sum = 0, m = 0, lands = 0, bed = -Infinity, level = -Infinity;
+  for (let k = 0; k < n; k++) if (reach[k] >= lo && reach[k] <= hi) {
+    sum += near[k]; m++;
+    if (reach[k] === near[k]) lands++; else { bed = Math.max(bed, beds[k]); level = Math.max(level, reach[k] - 1); }
+  }
+  const land = lands > 0;
+  // (The tip of a point of land, water on three sides: just under the water, or a spur of it stands out along the tiles' edge.)
+  if (lands === 1 && m === 4) return Math.min(sum / m, level - 0.15);
   // A shelf's corners out in the water, where no land meets it, go on down: the shelf is a slope into the deep, not a ledge.
   // (No lower than the highest bed of the shelves that meet there, so they all say the same.)
   if (shelf !== null && !land) return Math.max(bed, own - 1 - SHELF_DROP);
@@ -142,6 +148,29 @@ export function drawnHeight(grid: Grid, fx: number, fy: number): number {
   const h = drawnCentre(grid, x, y), da = a - 0.5, db = b - 0.5, t = 2 * Math.max(Math.abs(da), Math.abs(db));
   if (t <= 0) return h;
   // Out along the ray from the middle to the edge it meets, and how far along that edge.
+  let edge: number;
+  if (Math.abs(da) >= Math.abs(db)) { const s = 0.5 + db / (2 * Math.abs(da)); edge = da > 0 ? c10 + (c11 - c10) * s : c00 + (c01 - c00) * s; }
+  else { const s = 0.5 + da / (2 * Math.abs(db)); edge = db > 0 ? c01 + (c11 - c01) * s : c00 + (c10 - c00) * s; }
+  return h + t * (edge - h);
+}
+
+/**
+ * A cell's drawn shape, worked out once for many points on it: its corners (0,0), (1,0), (1,1), (0,1), its middle,
+ * and whether it is a plane (pinned) — into `out` at `o`. @see fanHeight
+ */
+export function drawnFan(grid: Grid, x: number, y: number, out: Float32Array, o: number): void {
+  out[o] = drawnCorner(grid, x, y, 0, 0); out[o + 1] = drawnCorner(grid, x, y, 1, 0);
+  out[o + 2] = drawnCorner(grid, x, y, 1, 1); out[o + 3] = drawnCorner(grid, x, y, 0, 1);
+  const flat = pinned(grid, x, y);
+  out[o + 4] = flat ? 0 : drawnCentre(grid, x, y);
+  out[o + 5] = flat ? 1 : 0;
+}
+/** The drawn height at `(a, b)` of a cell (each 0…1) whose shape is at `o` in `fan`. The same rule as `drawnHeight`. */
+export function fanHeight(fan: Float32Array, o: number, a: number, b: number): number {
+  const c00 = fan[o], c10 = fan[o + 1], c11 = fan[o + 2], c01 = fan[o + 3];
+  if (fan[o + 5]) return (c00 * (1 - a) + c10 * a) * (1 - b) + (c01 * (1 - a) + c11 * a) * b;
+  const h = fan[o + 4], da = a - 0.5, db = b - 0.5, t = 2 * Math.max(Math.abs(da), Math.abs(db));
+  if (t <= 0) return h;
   let edge: number;
   if (Math.abs(da) >= Math.abs(db)) { const s = 0.5 + db / (2 * Math.abs(da)); edge = da > 0 ? c10 + (c11 - c10) * s : c00 + (c01 - c00) * s; }
   else { const s = 0.5 + da / (2 * Math.abs(db)); edge = db > 0 ? c01 + (c11 - c01) * s : c00 + (c10 - c00) * s; }

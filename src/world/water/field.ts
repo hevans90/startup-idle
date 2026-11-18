@@ -15,6 +15,7 @@
  * surface somewhere to vary within a tile, which is what stops a lake reading
  * as a row of flat plates, and it gives the flow room to turn.
  */
+import { drawnFan, fanHeight } from "../render/drawn";
 import {
   FLOW_DEFAULTS, NO_INFLOW, addWater, createColumnField, emptyColumn, rimAt, rimLength,
   setMaterialDrag, setOpenEdge, setRim, stepFlow, surfaceAt, totalWater,
@@ -336,6 +337,7 @@ export function syncSlots(field: WaterField, grid: Grid) {
   const displaced: number[] = [];
   let volume = 0;
   const byMaterial = new Map<number, number>();
+  const fans = new Float32Array(grid.w * grid.h * 6), shaped = new Uint8Array(grid.w * grid.h);
   for (let cy = 0; cy < ny; cy++) {
     const ty = tileOf(cy);
     for (let cx = 0; cx < nx; cx++) {
@@ -358,7 +360,17 @@ export function syncSlots(field: WaterField, grid: Grid) {
       // A BUILDING IS A BLOCK to the water, and a pit is a hole in the ground.
       const sid = structureAt(grid, tx, ty);
       const basin = sid >= 0 ? basinOf(grid, sid) : 0;
-      const floor = sid < 0 ? grid.height[t] : basin > 0 ? grid.height[t] - basin : grid.height[t] + SOLID_LIFT;
+      // BARE GROUND IS AS IT IS DRAWN — a surface, not steps (@see render/drawn.ts): each column's floor is the drawn
+      // height at its own middle, so water runs down a bank and lies on it, and what is drawn over it folds with
+      // it. Standing water's bed is the tile's own, flat — what a main draws from and a boat floats in is as deep as
+      // the map says: its shore is drawn on a shelf the water is cut to. @see render/water-gpu.ts
+      // (A tile's shape worked out once, for its sixteen columns.)
+      let bare = grid.height[t];
+      if (sid < 0 && grid.pool[t] === 0) {
+        if (!shaped[t]) { drawnFan(grid, tx, ty, fans, t * 6); shaped[t] = 1; }
+        bare = fanHeight(fans, t * 6, (cx - tx * COLUMNS_PER_TILE + 0.5) / COLUMNS_PER_TILE, (cy - ty * COLUMNS_PER_TILE + 0.5) / COLUMNS_PER_TILE);
+      }
+      const floor = sid < 0 ? bare : basin > 0 ? grid.height[t] - basin : grid.height[t] + SOLID_LIFT;
       // A BUILDING PUT DOWN IN WATER pushes the water out of its way. Left
       // in the column it stood on top of the block the building is to the
       // water, `SOLID_LIFT` up, and went over every side of it at once: a

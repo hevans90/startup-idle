@@ -80,9 +80,9 @@ describe("how far the ground falls away beside a corner", () => {
 
   test("the whole of the step, at the corners of a hole in the ground", () => {
     const { grid, field } = ground(8, 8);
-    // One tile dropped by two half steps. Tiles are COLUMNS_PER_TILE columns wide,
-    // so the hole is the block of columns from 8 to 11 inclusive.
-    setHeight(grid, 2, 2, 2);
+    // One tile dropped by more than a bank's reach — a hole with walls, not a dip (@see render/drawn.ts). Tiles are
+    // COLUMNS_PER_TILE columns wide, so the hole is the block of columns from 8 to 11 inclusive.
+    setHeight(grid, 2, 2, grid.height[0] - 6);
     syncGround(field, grid);
     const bed = field.columns.ground[0];
     const deep = bed - field.columns.ground[8 * field.columns.nx + 8];
@@ -540,7 +540,8 @@ describe("the surface the mesh carries", () => {
       // vertex there at height h lands at (tx + ty + 1) * HH - h * HEIGHT_UNIT.
       return ((4 + 4 + 1) * HH - maxY) / HEIGHT_UNIT;
     };
-    for (const bed of [1, 2, 4, 10]) {
+    // (A rise within a bank's reach is a mound, its sheet lying down its sides: only a tile that stands on walls is asked.)
+    for (const bed of [4, 10]) {
       expect(lowestOnTile(bed)).toBeGreaterThanOrEqual(bed - 1e-6);
     }
   });

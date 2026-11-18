@@ -988,10 +988,25 @@ fn mainVertex(
     fy = fy0 + f32(oy * span) * step;
     // AT A SHORE the surface stays level to the tile's edge — not drawn down to the bed there — and the fragment
     // cuts it where the drawn ground comes up through it. @see mainFragment
-    if (a == 0 && textureLoad(uShore, vec2<i32>((ccx / cpt) * 2 + 1, ccy / cpt), 0).y > 0.5) {
-      let level = bed + depthAt(ccx, ccy, a);
-      h = max(h, level);
-      out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, level, 1.0);
+    // ASKED OF THE CORNER, NOT THE COLUMN: every column that shares this vertex must put it at one height, or the
+    // mesh tears between them. So: whether any tile round the corner is a shelf, and the mean surface of the wet
+    // columns round it — which is what the corner already is wherever all four are wet.
+    if (a == 0) {
+      var shelf = false;
+      var sum = 0.0;
+      var wets = 0.0;
+      for (var k = 0; k < 4; k++) {
+        let qx = vcx - (k % 2);
+        let qy = vcy - (k / 2);
+        if (!inside(qx, qy)) { continue; }
+        if (textureLoad(uShore, vec2<i32>((qx / cpt) * 2 + 1, qy / cpt), 0).y > 0.5) { shelf = true; }
+        let qd = depthAt(qx, qy, a);
+        if (wet(qd)) { sum += groundAt(qx, qy, a) + qd; wets += 1.0; }
+      }
+      if (shelf && wets > 0.0) { h = max(h, sum / wets); }
+      if (textureLoad(uShore, vec2<i32>((ccx / cpt) * 2 + 1, ccy / cpt), 0).y > 0.5) {
+        out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, 1.0);
+      }
     }
 
     let e = cornerExtras(vcx, vcy, mine);
@@ -1079,8 +1094,10 @@ fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vShore: vec4<f32>) 
   // How far from the waterline, in tiles along the ground: the depth over how fast that triangle falls.
   let out = deep / max(length(vec2<f32>(ea + eb - 2.0 * m, eb - ea)), 0.05);
   var col = vColor * mix(0.25, 1.0, smoothstep(0.0, 0.5, deep));
-  let reach = 0.035 + 0.05 * shoreNoise(vShore.xy * 5.0) * shoreNoise(vShore.xy * 13.0 + 7.0);
-  let foam = (1.0 - smoothstep(reach * 0.6, reach, out)) * (1.0 - smoothstep(0.12, 0.3, deep)) * 0.8;
+  // A thin line of it, and broken: here and there, not a white rim round every bank.
+  let patchy = smoothstep(0.35, 0.7, shoreNoise(vShore.xy * 1.7 + 3.0));
+  let reach = 0.012 + 0.02 * shoreNoise(vShore.xy * 9.0 + 7.0);
+  let foam = (1.0 - smoothstep(reach * 0.5, reach, out)) * (1.0 - smoothstep(0.08, 0.2, deep)) * (0.12 + 0.4 * patchy);
   col = mix(col, vec4<f32>(0.94, 0.97, 0.96, 1.0), foam);
   return col;
 }
