@@ -903,7 +903,9 @@ fn fieldCorner(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> FieldCorner {
     let dq = depthAt(qx, qy, a);
     if (!wet(dq)) { continue; }
     if (wets == 0.0) { o.hx = qx; o.hy = qy; }
-    wets += 1.0; d += dq;
+    // (Drawn down toward a lip exactly as the sheet that falls from it is — @see falls-render's sharedBrink — so
+    // the surface comes to the brink where that sheet begins, and the two are one.)
+    wets += 1.0; d += dq * (1.0 - ${DRAWDOWN} * atBrink(qx, qy, a));
     o.wash += textureLoad(uWash, vec2<i32>(qx, qy), 0).r;
     o.foam += textureLoad(uFoam, vec2<i32>(qx, slotRow(qy, a)), 0).r;
     vel += flowAt(qx, qy, dq, a);
