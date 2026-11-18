@@ -488,7 +488,8 @@ fn topOf(c: vec4<f32>) -> f32 { return c.y - 128.0 + riseOf(c) * 0.5; }
 // A cell's drawn corners (0,0), (1,0), (1,1), (0,1), half steps. @see surfaceOf
 fn edgesAt(c: vec2<i32>) -> vec4<f32> { return textureLoad(uEdges, vec2<i32>(c.x * 2, c.y), 0); }
 // HOW MUCH OF THE SUN IS KEPT OFF a point at height h by the ground toward it: the ray walked a cell boundary at
-// a time, each cell it enters asked whether it stands over the ray there. Soft, and softer the further it falls.
+// a time, each cell it enters asked whether it stands over the ray there. Soft, and softer the further it falls;
+// and only from ground that stands well over the point — a bank's own fall is lit by its slope, not shadowed in wedges.
 fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
   var s = 0.0;
   // (As far as the highest ground on the map could throw one, and no further.)
@@ -503,7 +504,8 @@ fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
     let at = vec2<i32>(i32(bx) - 1, i32(floor(y)));
     if (at.x < 0 || at.y < 0 || at.y >= i32(ground.uMap.y)) { break; }
     let e = edgesAt(at);
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (mix(e.y, e.z, fract(y)) - h) * SHADOW_RUN - t));
+    let up = mix(e.y, e.z, fract(y)) - h;
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, up * SHADOW_RUN - t) * smoothstep(0.7, 2.2, up));
   }
   let cy = floor(p.y);
   for (var j = 0; j < 2; j++) {
@@ -514,7 +516,8 @@ fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
     let at = vec2<i32>(i32(floor(x)), i32(by));
     if (at.x < 0 || at.y < 0 || at.y >= i32(ground.uMap.y)) { break; }
     let e = edgesAt(at);
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (mix(e.x, e.y, fract(x)) - h) * SHADOW_RUN - t));
+    let up = mix(e.x, e.y, fract(x)) - h;
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, up * SHADOW_RUN - t) * smoothstep(0.7, 2.2, up));
   }
   return s;
 }
@@ -924,7 +927,8 @@ float shadowAt(vec2 p, float h) {
     ivec2 at = ivec2(int(bx) - 1, int(floor(y)));
     if (at.x < 0 || at.y < 0 || at.y >= int(uMap.y)) break;
     vec4 e = edgesAt(at);
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (mix(e.y, e.z, fract(y)) - h) * SHADOW_RUN - t));
+    float up = mix(e.y, e.z, fract(y)) - h;
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, up * SHADOW_RUN - t) * smoothstep(0.7, 2.2, up));
   }
   float cy = floor(p.y);
   for (int j = 0; j < 2; j++) {
@@ -935,7 +939,8 @@ float shadowAt(vec2 p, float h) {
     ivec2 at = ivec2(int(floor(x)), int(by));
     if (at.x < 0 || at.y < 0 || at.y >= int(uMap.y)) break;
     vec4 e = edgesAt(at);
-    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (mix(e.x, e.y, fract(x)) - h) * SHADOW_RUN - t));
+    float up = mix(e.x, e.y, fract(x)) - h;
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, up * SHADOW_RUN - t) * smoothstep(0.7, 2.2, up));
   }
   return s;
 }

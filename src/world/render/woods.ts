@@ -100,7 +100,8 @@ export function createWoods(bands: BandLayer): Woods {
         const i = idx(g, x, y), mat = g.terrain[i];
         const n = mat === VOID ? 0 : treesIn(palette[mat]);
         // Nothing grows under a building. @see hidesTerrain
-        if (!n || structureOf(g, x, y)) continue;
+        // Nor in standing water: a wood the river was let into is drowned, not wading.
+        if (!n || structureOf(g, x, y) || g.pool[i] > 0) continue;
         seen.add(i);
         const ck = `${n}|${g.height[i]}|${scale}|${drawnCorner(g, x, y, 0, 0)},${drawnCorner(g, x, y, 1, 0)},${drawnCorner(g, x, y, 1, 1)},${drawnCorner(g, x, y, 0, 1)}`;
         if (cells.get(i)?.key === ck) continue;
