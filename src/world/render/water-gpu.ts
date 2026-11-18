@@ -53,7 +53,7 @@
  */
 import { holdShown } from "./hold";
 import { fieldWater } from "./water-mode";
-import { PIECE } from "./water-piece";
+import { PIECE, PIECE_STEP } from "./water-piece";
 import { MIN_TEXTURE_DIMENSION, heldGpu } from "./device";
 import {
   Buffer, BufferImageSource, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh,
@@ -871,19 +871,32 @@ fn skirtOn() -> bool { return water.uList.z > 0.5; }
 // Whether two columns are of ONE PIECE of ground: their floors within a bank of each other. Across a cliff or a
 // wall they are not, and neither's water has anything to do with the other's.
 fn onePiece(g: f32, gq: f32) -> bool { return abs(g - gq) < ${PIECE}; }
-// Whether two columns are of one piece, by what the ground's own mesh says of their tiles: the same tile; or
-// tiles side by side whose drawn edge is shared; or corner to corner, by either way round. @see surfaceOf
-fn tileBits(tx: i32, ty: i32) -> i32 { return i32(textureLoad(uShore, vec2<i32>(tx * 2 + 1, ty), 0).w + 0.5); }
-fn sideJoined(ax: i32, ay: i32, bx: i32, by: i32) -> bool {
-  if (ax != bx) { return (tileBits(min(ax, bx), ay) & 4) != 0; }
-  return (tileBits(ax, min(ay, by)) & 8) != 0;
+// Whether two columns are of ONE PIECE of ground AT A CORNER (vx, vy) of the grid of columns: the same tile; or
+// tiles whose drawn ground THERE is within a small step of each other. Asked of the place, not of the whole edge
+// between them: a scarp that dies out along its length parts the water where it is a drop and not where it is a
+// ripple in the ground — and every column at the corner gets the same answer. @see groundFan
+fn tileGround(tx: i32, ty: i32, vx: i32, vy: i32) -> f32 {
+  let cpt = i32(water.uGrid.z);
+  return groundFan(tx, ty, clamp(f32(vx - tx * cpt) / f32(cpt), 0.0, 1.0), clamp(f32(vy - ty * cpt) / f32(cpt), 0.0, 1.0));
 }
-fn pieceOf(cx: i32, cy: i32, qx: i32, qy: i32) -> bool {
+fn pieceOf(cx: i32, cy: i32, qx: i32, qy: i32, vx: i32, vy: i32) -> bool {
   let cpt = i32(water.uGrid.z);
   let ax = cx / cpt; let ay = cy / cpt; let bx = qx / cpt; let by = qy / cpt;
   if (ax == bx && ay == by) { return true; }
-  if (ax == bx || ay == by) { return sideJoined(ax, ay, bx, by); }
-  return (sideJoined(ax, ay, bx, ay) && sideJoined(bx, ay, bx, by)) || (sideJoined(ax, ay, ax, by) && sideJoined(ax, by, bx, by));
+  return abs(tileGround(ax, ay, vx, vy) - tileGround(bx, by, vx, vy)) < ${PIECE_STEP};
+}
+// The water at a corner, as the piece column (cx, cy) is on has it — its surface, and its depth: the mean over the
+// columns of that piece that meet there. For the slope its light is taken from.
+fn fieldHeight(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> vec2<f32> {
+  var n = 0.0; var s = 0.0; var dd = 0.0;
+  for (var k = 0; k < 4; k++) {
+    let qx = vx - 1 + (k % 2);
+    let qy = vy - 1 + (k / 2);
+    if (!inside(qx, qy) || !pieceOf(cx, cy, qx, qy, vx, vy)) { continue; }
+    let dq = depthAt(qx, qy, a);
+    n += 1.0; s += groundAt(qx, qy, a) + select(0.0, dq, wet(dq)); dd += select(0.0, dq, wet(dq));
+  }
+  return vec2<f32>(s, dd) / max(n, 1.0);
 }
 struct FieldCorner { g: f32, d: f32, foam: f32, wash: f32, speed: f32, cover: f32, hx: i32, hy: i32 };
 // A corner of the grid of columns, as the piece of ground column (cx, cy) is on has it: the ground there and the
@@ -898,7 +911,7 @@ fn fieldCorner(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> FieldCorner {
     let qx = vx - 1 + (k % 2);
     let qy = vy - 1 + (k / 2);
     if (!inside(qx, qy)) { continue; }
-    if (!pieceOf(cx, cy, qx, qy)) { continue; }
+    if (!pieceOf(cx, cy, qx, qy, vx, vy)) { continue; }
     n += 1.0; g += groundAt(qx, qy, a);
     let dq = depthAt(qx, qy, a);
     if (!wet(dq)) { continue; }
@@ -922,7 +935,7 @@ fn fieldCorner(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> FieldCorner {
     let qy = vy - 2 + (j / 4);
     let wgt = select(1.0, 3.0, (j % 4) == 1 || (j % 4) == 2) * select(1.0, 3.0, (j / 4) == 1 || (j / 4) == 2);
     if (!inside(qx, qy)) { cover += wgt; continue; }
-    if (wet(depthAt(qx, qy, a)) || !pieceOf(cx, cy, qx, qy)) { cover += wgt; }
+    if (wet(depthAt(qx, qy, a)) || !pieceOf(cx, cy, qx, qy, vx, vy)) { cover += wgt; }
   }
   o.cover = cover / 64.0;
   return o;
@@ -1079,8 +1092,21 @@ fn mainVertex(
     h = c.g + c.d;
     out.vCover = c.cover;
     out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, 0.0);
-    let shown = min(1.0, c.speed / ${STREAK_SPEED});
-    let lit = 0.5 + c.wash * (0.2 + 0.8 * shown) * 0.3;
+    // LIT BY ITS OWN SLOPE, as the water always was: the fall of the surface across this corner, from the corners
+    // either side of it, leans the shade light or dark — which is what a chop on it looks like.
+    let vx = ccx + ox; let vy = ccy + oy;
+    // (Of its DEPTH where it is thin — it lies on the ground, whose own slope is no chop — and of its surface
+    // where it is deep and stands level over a bed that is not.)
+    let g2x = fieldHeight(vx - 1, vy, ccx, ccy, a) - fieldHeight(vx + 1, vy, ccx, ccy, a);
+    let g2y = fieldHeight(vx, vy - 1, ccx, ccy, a) - fieldHeight(vx, vy + 1, ccx, ccy, a);
+    let deepness = smoothstep(0.75, 2.0, c.d);
+    let gx = mix(g2x.y, g2x.x, deepness);
+    let gy = mix(g2y.y, g2y.x, deepness);
+    let lean = (gx + gy) * 0.5;
+    let respond = lean / (abs(lean) + ${SLOPE_REF});
+    let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
+    let shown = max(rough, min(1.0, c.speed / ${STREAK_SPEED}));
+    let lit = 0.5 + respond * 0.34 + c.wash * (0.2 + 0.8 * shown) * 0.3;
     let base = clamp(lit, 0.0, 1.0) * ${TINTS - 1}.0;
     let shade = base + c.foam * (${SHADES - 1}.0 - base);
     let fade = min(1.0, c.d / ${SHOW_DEPTH});
