@@ -10,6 +10,7 @@ import { sendOnJob, setOff, type Mover, type Town } from "../agents/town";
 import { find, type Network } from "../roads/network";
 import { FLEET_TIPPER_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PIPE_EMPTY_COLOUR, halfLength } from "../agents/cars/fleet";
 import { roomOrWaited } from "../fleet/legs";
+import { channelTo, steadyRivers } from "../boats/quay";
 import { isYard, lorryFor, lorryLost, queueYardLoad, yardQueued } from "../fleet/fleet";
 import { stepPlant } from "../fleet/plant";
 import { LINE_LAYS, LINE_PLANT, TRACK_SPEED, lineFront, type LineJob } from "./jobs";
@@ -169,4 +170,33 @@ export function stepLinePlant(g: Grid, haul: { net: Network; town: Town }, j: Li
   // (Whatever lorries are still on it are let off first: each back down the track and home.)
   if (j.plant && j.plant.leaving !== undefined && j.head) { const places = placesOf(g, haul.net); while ((j.gone ?? 0) < j.delivered) lineLorryBack(g, haul, j, places); }
   return stepPlant(g, haul, j, { id: j.id, role: "plant" }, head, LINE_PLANT[j.kind], j.t > 0, dt, !!(j.back?.length || j.drive?.length));
+}
+
+/** Tiles a second a dredger makes under way. */
+export const BARGE_SPEED = 1.1;
+/**
+ * A FRAME OF A CHANNEL'S DREDGER, which comes by water: in from where its river comes into the map to the channel's
+ * first tile before a grab is lowered (`wait`), at work (`work`), and — the channel dug, `barge.out` set by its
+ * owner — away again down the river from where it finished (`leaving`, then `gone`). `none` with no way by water.
+ */
+export function stepBarge(g: Grid, j: LineJob, dt: number): "none" | "wait" | "work" | "leaving" | "gone" {
+  if (j.barge === false) return "none";
+  if (!j.barge) {
+    // (Under way already when first looked at — a map loaded with it half dug: it is there.)
+    const path = j.t > 0 ? [] : channelTo(steadyRivers(g), j.cells[0]);
+    if (path.length < 2) { j.barge = false; return "none"; }
+    j.barge = { path, s: 0 };
+  }
+  const b = j.barge, end = b.path.length - 1;
+  if (b.out) { b.s -= BARGE_SPEED * dt; return b.s <= 0 ? "gone" : "leaving"; }
+  if (b.s < end) b.s = Math.min(end, b.s + BARGE_SPEED * dt);
+  return b.s < end ? "wait" : "work";
+}
+/** The channel dug: its dredger is to sail away — from its last tile, down the river. False with no way: it is simply gone. */
+export function bargeAway(g: Grid, j: LineJob): boolean {
+  if (!j.barge) return false;
+  const path = channelTo(steadyRivers(g), j.cells[j.cells.length - 1]);
+  if (path.length < 2) return false;
+  j.barge = { path, s: path.length - 1, out: true };
+  return true;
 }

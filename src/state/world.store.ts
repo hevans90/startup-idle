@@ -78,9 +78,10 @@ import {
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
 import { GANGS, ROAD_PLANT, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadJob, type RoadWrites } from "../world/roads/jobs";
 import { headOf, stepRoadLoads } from "../world/roads/job-loads";
+import { placesOf, type Place } from "../world/agents/roads";
 import { stepPlant } from "../world/fleet/plant";
-import { lineLorriesOut, lineLorryFree, sendLineLoad, stepLineHaul, stepLinePlant } from "../world/lines/line-loads";
-import { LINE_LAYS, lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
+import { bargeAway, lineLorriesOut, lineLorryFree, sendLineLoad, stepBarge, stepLineHaul, stepLinePlant } from "../world/lines/line-loads";
+import { LINE_LAYS, RAZE_PLANT, lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
 import { payForLoad } from "../world/projects/economy";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
@@ -835,6 +836,8 @@ network = createNetwork(INITIAL_GRID);
 water = createWaterField(INITIAL_GRID);
 
 /** Whether a stroke is being laid a second time, for a job that is done: it is paid for, and is not ordered again. @see stepLineWorks */
+/** The road place each building being pulled down is come to: kept, since the building's own goes with it. */
+const razeDoors = new Map<number, Place>();
 let relaying = false;
 /** What a line job is called when it has something to say. */
 const LINE_NAME: Record<LineKind, string> = { main: "Laying the main", drain: "Laying the sewer connection", sewer: "Laying the sewer", dredge: "Dredging" };
@@ -887,10 +890,18 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     let changed = false;
     // WHAT IS BEING PULLED DOWN: worked, and when its time is up taken down as Demolish takes it.
     for (const j of [...g.razeJobs]) {
-      j.t += dt; j.at = now;
+      j.at = now;
       const there = g.structures.get(j.structure);
+      // ITS DIGGER: from the yard on a low-loader before a bite is taken, and home on one when the building is down. @see fleet/plant
+      if (haul && there && !razeDoors.has(j.id)) { const door = placesOf(g, haul.net).find((pl) => pl.structure === there.id); if (door) razeDoors.set(j.id, door); }
+      const plant = haul ? stepPlant(g, haul, j, { id: j.id, role: "plant" }, razeDoors.get(j.id) ?? null, RAZE_PLANT, j.t > 0, dt, false, 4) : "none";
+      if (j.down) { if (plant !== "leaving") { g.razeJobs = g.razeJobs.filter((q) => q !== j); razeDoors.delete(j.id); changed = true; } continue; }
+      if (plant === "wait") continue;
+      j.t += dt;
       if (there && j.t < j.need) continue;
-      g.razeJobs = g.razeJobs.filter((q) => q !== j);
+      // (Down: the job stays only while its digger is got away.)
+      if (there && plant === "work" && j.plant) { j.plot = { x: there.x, y: there.y, w: there.w, h: there.h }; j.plant.leaving = 0; j.plant.t = 0; j.down = true; }
+      else { g.razeJobs = g.razeJobs.filter((q) => q !== j); razeDoors.delete(j.id); }
       changed = true;
       if (!there) continue;
       const st = get(), was = { tool: st.tool, stroke: st.stroke, notice: st.notice };
@@ -903,7 +914,10 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const out = haul && lineLorriesOut(haul.town, g);
     for (const j of [...g.lineJobs]) {
       // ITS MACHINES: from the yard before it is worked, and home when it is done. @see stepLinePlant
-      const plant = haul ? stepLinePlant(g, haul, j, dt) : "none";
+      // (Caught up on with nobody to drive them: one whose machines were going home, or whose dredger was sailing away, is done with.)
+      if (!haul && ((j.plant && j.plant.leaving !== undefined) || (j.barge && j.barge.out))) { g.lineJobs = g.lineJobs.filter((q) => q !== j); changed = true; continue; }
+      // (A channel's dredger comes by water, and goes by it. @see stepBarge)
+      const plant = !haul ? "none" : j.kind === "dredge" ? stepBarge(g, j, dt) : stepLinePlant(g, haul, j, dt);
       if (plant === "gone") { g.lineJobs = g.lineJobs.filter((q) => q !== j); changed = true; continue; }
       if (plant === "wait" || plant === "leaving") { j.at = now; continue; }
       /** Done with: off the list — or, with machines to send home, kept on it till they have gone. */
@@ -947,6 +961,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       g.lineJobs = g.lineJobs.filter((q) => q !== j);
       if (!relay(ordered)) { if (get().playing) useMoneyStore.getState().increaseMoney(lineLoadPrice(j) * j.delivered); }
       else if (plant === "work" && j.plant) { j.plant.leaving = 0; j.plant.t = 0; g.lineJobs.push(j); }
+      else if (plant === "work" && j.kind === "dredge" && bargeAway(g, j)) g.lineJobs.push(j);
       changed = true;
     }
     if (changed) set({ lineRev: get().lineRev + 1 });

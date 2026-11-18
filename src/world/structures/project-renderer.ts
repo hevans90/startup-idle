@@ -56,6 +56,8 @@ type ProjectHandle = StructureHandle & {
   drawn: string;
   /** The crew, one each, in the same group as the crane. @see crewAt */
   crew: Hand[];
+  /** Those walking off it to the road; and the last of the crew's comings and goings it has drawn somebody for. @see works `walks` */
+  leaving: Hand[]; cameSeen: number; goesSeen: number;
   /** Seconds the crane has been working, which is where it is in its lift. */
   t: number;
   /** Seconds since it opened, while the confetti is still falling; else -1. */
@@ -205,7 +207,15 @@ const laidUp = (s: Structure) => s.build?.priority === 0;
  * time; or from the people sheet once it is in — five sprites, and a load
  * when they carry one. @see people-sheet
  */
-type Hand = { node: Container; g: Graphics | null; parts: Sprite[]; load: Graphics | null; key: string };
+type Hand = {
+  node: Container; g: Graphics | null; parts: Sprite[]; load: Graphics | null; key: string;
+  /** Where they are, on the map: they WALK to their work from where they came onto the site, and between its places. */
+  at?: { x: number; y: number; z: number };
+  /** Walking off it: where their way home begins, and seconds till they are there. Their number, for who they are drawn as. */
+  to?: { x: number; y: number; left: number }; id?: number;
+};
+/** Tiles a second one of the crew makes catching up with where their work has moved to: brisker than their walk, so they are not left behind by it. */
+const CATCH_UP = 1.3;
 
 function makeHand(baked: boolean, tints: () => number[]): Hand {
   if (!baked) {
@@ -234,56 +244,100 @@ const LOAD = { half: 0.018, ahead: 0.03, z0: 0.42, z1: 0.56 };
 const VESTS = [0xf47b20, 0xc8dc32, 0xf47b20, 0xe8e23a];
 const FOREMAN = 0xf2f2f2;
 
-/** The crew where the work is, each drawn as the town draws a person. */
-function drawCrew(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number): void {
+/**
+ * The crew where the work is, each drawn as the town draws a person. NOBODY IS SET DOWN ON A SITE OR TAKEN UP OFF
+ * IT: one who has come walks to their work from where they stopped at the road, and one sent home walks from it to
+ * where their way home begins before they are the town's again. @see works `walks`, `CREW_WALK`
+ */
+function drawCrew(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number, dt = 0): void {
   const site = h.site;
   const crew = site ? crewAt(h.model, { w: s.w, h: s.h }, site, crewOn(s), h.t, stalled(s)) : [];
   // THE PEOPLE SHEET, once in: whoever was drawn before it is drawn again from it.
   const P = bakedPeople() ? peopleLoaded() : null;
   if (bakedPeople() && !P) void peopleSprites();
-  for (const w of h.crew.splice(crew.length)) dropHand(w);
-  crew.forEach((w, k) => {
-    const id = s.id * 64 + k;
+  const walks = startedOnFixture() ? undefined : getWorks().walks?.get(s.id);
+  // SENT HOME: off across the site to the road, each to where one's way home begins.
+  for (const w of h.crew.splice(crew.length)) {
+    const go = w.at ? walks?.goes.find((q) => q.n > h.goesSeen) : undefined;
+    if (!go) { dropHand(w); continue; }
+    h.goesSeen = go.n;
+    w.to = { x: go.x, y: go.y, left: go.T };
+    h.leaving.push(w);
+  }
+  /** One of them, drawn where they are. */
+  const show = (hand: Hand, id: number, x: number, y: number, z: number, heading: number, phase: number, role: string, k: number, working: boolean, carrying: boolean) => {
     const m = {
-      id, kind: "person", x: s.x - 0.5 + w.u, y: s.y - 0.5 + w.v, z: ground + w.z,
-      heading: w.heading, phase: w.phase, pitch: 0,
-      colour: w.role === "foreman" ? FOREMAN : VESTS[k % VESTS.length],
-      job: { site: s.id, role: w.working ? "working" : "builder" },
+      id, kind: "person", x, y, z, heading, phase, pitch: 0,
+      colour: role === "foreman" ? FOREMAN : VESTS[k % VESTS.length],
+      job: { site: s.id, role: working ? "working" : "builder" },
     } as unknown as Mover;
-    if (h.crew[k] && !h.crew[k].g !== !!P) { dropHand(h.crew[k]); h.crew.splice(k, 1); }
-    if (!h.crew[k]) {
-      const o = outfitOf(m);
-      h.crew.splice(k, 0, makeHand(!!P, () => [o.skin, o.legs, m.colour, o.hair, 0xffffff]));
-    }
-    const hand = h.crew[k], g = hand.node;
+    const u = x - (s.x - 0.5), v = y - (s.y - 0.5), up = z - ground, g = hand.node;
     if (hand.g) {
       drawMover(hand.g, m, ctx.scale, ctx.bands.bands.length);
-      if (w.carrying) {
+      if (carrying) {
         const p = makePen(hand.g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, null);
-        const du = Math.cos(w.heading) * 0.07, dv = Math.sin(w.heading) * 0.07;
-        p.box(w.u + du - 0.05, w.v + dv - 0.05, w.u + du + 0.05, w.v + dv + 0.05, w.z + 0.55, w.z + 0.78, 0xb3563f);
+        const du = Math.cos(heading) * 0.07, dv = Math.sin(heading) * 0.07;
+        p.box(u + du - 0.05, v + dv - 0.05, u + du + 0.05, v + dv + 0.05, up + 0.55, up + 0.78, 0xb3563f);
       }
     } else {
       // A BUILDER from the sheet, hammering or walking, at their own height.
-      hand.key = posePerson(hand.parts, P!, "builder", w.working ? "work" : "walk", w.heading, w.phase, ctx.scale, heightOf(id), hand.key);
-      const x = (m.x - m.y) * HW * ctx.scale, y = (m.x + m.y) * HH * ctx.scale - m.z * HEIGHT_UNIT * ctx.scale;
-      for (const sp of hand.parts) sp.position.set(x, y);
+      hand.key = posePerson(hand.parts, P!, "builder", working ? "work" : "walk", heading, phase, ctx.scale, heightOf(id), hand.key);
+      const px = (x - y) * HW * ctx.scale, py = (x + y) * HH * ctx.scale - z * HEIGHT_UNIT * ctx.scale;
+      for (const sp of hand.parts) sp.position.set(px, py);
       hand.load!.clear();
-      if (w.carrying) {
+      if (carrying) {
         const p = makePen(hand.load!, s.x - 0.5, s.y - 0.5, ground, ctx.scale, null);
-        const du = Math.cos(w.heading) * LOAD.ahead, dv = Math.sin(w.heading) * LOAD.ahead, r = LOAD.half;
-        p.box(w.u + du - r, w.v + dv - r, w.u + du + r, w.v + dv + r, w.z + LOAD.z0, w.z + LOAD.z1, 0xb3563f);
+        const du = Math.cos(heading) * LOAD.ahead, dv = Math.sin(heading) * LOAD.ahead, r = LOAD.half;
+        p.box(u + du - r, v + dv - r, u + du + r, v + dv + r, up + LOAD.z0, up + LOAD.z1, 0xb3563f);
       }
     }
     // IN THE BAND OF THE TILE THEY STAND ON, over that tile's share of the
     // building — they stand at its front faces — and under anything in
-    // front of it. Nearer the camera drawn later within it.
-    const c = Math.max(0, Math.min(s.w - 1, Math.floor(w.u))), r = Math.max(0, Math.min(s.h - 1, Math.floor(w.v)));
-    const band = ctx.bands.dynamicOf[bandOfTile(s, ctx, c, r)];
-    const z = 1 + (w.u + w.v) / 100 + w.z / 10000;
-    if (g.parent !== band) { g.parent?.removeChild(g); g.zIndex = z; band.addChild(g); }
+    // front of it. Nearer the camera drawn later within it. (Off the plot — on the pavement, coming or going — with
+    // the tile they are on, as the town files anybody.)
+    const off = u < 0 || v < 0 || u > s.w || v > s.h;
+    const c = Math.max(0, Math.min(s.w - 1, Math.floor(u))), r = Math.max(0, Math.min(s.h - 1, Math.floor(v)));
+    const bi = off ? Math.max(0, Math.min(ctx.bands.dynamicOf.length - 1, bandOf(Math.round(x), Math.round(y)))) : bandOfTile(s, ctx, c, r);
+    const band = ctx.bands.dynamicOf[bi];
+    const zi = off ? x + y - bi : 1 + (u + v) / 100 + up / 10000;
+    if (g.parent !== band) { g.parent?.removeChild(g); g.zIndex = zi; band.addChild(g); }
     // Only when it carries them past someone: else the band is sorted and rebuilt every frame. @see crosses
-    else if (crosses(g, z)) g.zIndex = z;
+    else if (crosses(g, zi)) g.zIndex = zi;
+  };
+  crew.forEach((w, k) => {
+    const id = s.id * 64 + k;
+    if (h.crew[k] && !h.crew[k].g !== !!P) { dropHand(h.crew[k]); h.crew.splice(k, 1); }
+    const tx = s.x - 0.5 + w.u, ty = s.y - 0.5 + w.v, tz = ground + w.z;
+    if (!h.crew[k]) {
+      const o = outfitOf({ id, kind: "person", colour: w.role === "foreman" ? FOREMAN : VESTS[k % VESTS.length] } as unknown as Mover);
+      const colour = w.role === "foreman" ? FOREMAN : VESTS[k % VESTS.length];
+      const hand = makeHand(!!P, () => [o.skin, o.legs, colour, o.hair, 0xffffff]);
+      // (Just come: from where they stopped at the road. There already when the site was first looked at: at their work.)
+      const came = walks?.came.find((q) => q.n > h.cameSeen);
+      if (came) { h.cameSeen = came.n; hand.at = { x: came.x, y: came.y, z: ground }; } else hand.at = { x: tx, y: ty, z: tz };
+      hand.id = id;
+      h.crew.splice(k, 0, hand);
+    }
+    const hand = h.crew[k], at = (hand.at ??= { x: tx, y: ty, z: tz });
+    hand.id = id;
+    // TO THEIR WORK ON FOOT, and after it as it moves: never further in a frame than somebody walks.
+    const dx = tx - at.x, dy = ty - at.y, d = Math.hypot(dx, dy), far = d > 0.12 || Math.abs(tz - at.z) > 0.5, step = (far ? CATCH_UP : 4) * dt;
+    if (dt <= 0 && !far) { at.x = tx; at.y = ty; at.z = tz; }
+    else if (d <= step || d < 1e-4) { at.x = tx; at.y = ty; at.z += Math.max(-3 * dt, Math.min(3 * dt, tz - at.z)); if (dt <= 0) at.z = tz; }
+    else { at.x += (dx / d) * step; at.y += (dy / d) * step; at.z += (tz - at.z) * Math.min(1, step / d); }
+    const walking = far && d > step;
+    show(hand, id, at.x, at.y, at.z, walking ? Math.atan2(dy, dx) : w.heading, w.phase, w.role, k, w.working && !walking, w.carrying && !walking);
+  });
+  // THOSE GOING: across the site to the road, there when their way home begins.
+  h.leaving = h.leaving.filter((hand) => {
+    const to = hand.to!, at = hand.at!;
+    to.left -= dt;
+    if (to.left <= 0 || hand.g === null !== !!P) { dropHand(hand); return false; }
+    const dx = to.x - at.x, dy = to.y - at.y, d = Math.hypot(dx, dy), step = Math.min(d, (d / Math.max(dt, to.left)) * dt);
+    if (d > 1e-4) { at.x += (dx / d) * step; at.y += (dy / d) * step; }
+    at.z += Math.max(-3 * dt, Math.min(3 * dt, ground - at.z));
+    show(hand, hand.id ?? 0, at.x, at.y, at.z, Math.atan2(dy, dx), (hand.id ?? 0) * 0.37 + to.left * 2.2, "", (hand.id ?? 0) % 64, false, false);
+    return true;
   });
 }
 
@@ -474,8 +528,8 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   const handle: ProjectHandle = {
     columns, cells, sky, live, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
-    t: s.id * 3.7, site: null, plant: createSitePlant(), crew: [], baked: [], bakedKey: "", opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false, props: [], propsKey: "",
-    destroy: () => { for (const sp of handle.baked) { sp.parent?.removeChild(sp); sp.destroy(); } for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); dropSitePlant(handle.plant); for (const c of handle.props) { c.parent?.removeChild(c); c.destroy({ children: true }); } },
+    t: s.id * 3.7, site: null, plant: createSitePlant(), crew: [], leaving: [], cameSeen: 0, goesSeen: 0, baked: [], bakedKey: "", opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false, props: [], propsKey: "",
+    destroy: () => { for (const sp of handle.baked) { sp.parent?.removeChild(sp); sp.destroy(); } for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); handle.leaving.forEach(dropHand); dropSitePlant(handle.plant); for (const c of handle.props) { c.parent?.removeChild(c); c.destroy({ children: true }); } },
   };
   draw(handle, s, ctx);
   return handle;
@@ -510,11 +564,12 @@ registerCustomRenderer("project", {
       if (handle.crewDue >= CREW_EVERY && onScreen(s, ctx)) {
         // (Its machines by the time gone since they were last moved — never a leap, after a while off the screen; stood still while it waits for a load.)
         drawPlant(handle, s, ctx, ground, stalled(s) ? 0 : Math.min(0.1, handle.crewDue));
+        const since = Math.min(0.1, handle.crewDue);
         handle.crewDue = 0;
         if (handle.model.crane === "tower") drawCrane(handle, s, ctx, ground);
-        drawCrew(handle, s, ctx, ground);
+        drawCrew(handle, s, ctx, ground, since);
       }
-    } else if (handle.crew.length) drawCrew(handle, s, ctx, ground);
+    } else if (handle.crew.length || handle.leaving.length) drawCrew(handle, s, ctx, ground, Math.min(0.1, dt));
     if (handle.model.live && !s.build) {
       handle.liveT += dt;
       handle.liveDue += dt;

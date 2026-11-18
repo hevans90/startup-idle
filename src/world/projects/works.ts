@@ -34,7 +34,7 @@ import { structureDef, type StructureDef } from "../structures/def";
 import type { Command } from "../edit/commands";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "../agents/roads";
-import { AI_TRUCK_COLOUR, sendOnJob, type Mover, type Town } from "../agents/town";
+import { AI_TRUCK_COLOUR, sendOnJob, setOff, type Mover, type Town } from "../agents/town";
 import { yardFor } from "../lines/line-loads";
 import { stepPlant } from "../fleet/plant";
 import { sitePlantOf } from "../structures/projects/groundworks";
@@ -93,6 +93,23 @@ export type Works = {
   plan: CrewPlan;
   /** Loads flying in by drone. @see Airlift */
   airlifts: Airlift[];
+  /**
+   * WHERE A SITE'S BUILDERS STEP ON AND OFF IT, for whoever draws them: the last few places one stopped at the road
+   * as they came — from there they walk to their work — and the last few places one's way home begins, with the
+   * seconds they are given to walk to it. Each numbered, so that one is taken once. @see CREW_WALK
+   */
+  walks?: Map<number, { came: { x: number; y: number; n: number }[]; goes: { x: number; y: number; n: number; T: number }[] }>;
+  /** Builders walking off their site to where their way home begins: each the town's once it is there. */
+  leavers?: { m: Mover; left: number; site: number }[];
+};
+/** Tiles a second a builder walks across a site, to their work and from it. */
+export const CREW_WALK = 0.7;
+let walkN = 1;
+const walksOf = (w: Works, site: number) => {
+  const all = (w.walks ??= new Map());
+  let it = all.get(site);
+  if (!it) { it = { came: [], goes: [] }; all.set(site, it); }
+  return it;
 };
 
 /** How many each site's crew is, and how many of each kind. */
@@ -270,6 +287,12 @@ export function stepWorks(
   // for good. @see Works.trucks
   // THE YARDS: the company's lorries loaded under their cranes, and off. @see fleet
   stepYard(town, g, dt);
+  // BUILDERS WALKED OFF THEIR SITE: at the road, and the town's from there.
+  if (w.leavers?.length) {
+    for (const l of w.leavers) { l.left -= dt; if (l.left <= 0) { l.m.job = { site: l.site, role: "home" }; town.movers.push(l.m); } }
+    w.leavers = w.leavers.filter((l) => l.left > 0);
+  }
+  if (w.walks) for (const id of w.walks.keys()) if (!live.has(id) && !w.leavers?.some((l) => l.site === id)) w.walks.delete(id);
   // EACH SITE'S MACHINES: from the yard before its ground is broken, and home when its ground is done — the building
   // going up meanwhile. (Before the arrivals below are gone through: those of them that are machines are taken here.)
   const plantAt = new Map<number, ReturnType<typeof stepPlant>>();
@@ -312,11 +335,13 @@ export function stepWorks(
       } else if (m.fleet) lorryLost(g, town, m.id);
     } else if (job.role === "builder" && crew) {
       crew.walking = Math.max(0, crew.walking - 1);
+      // (Where they stopped is where they walk onto the site from. A founder's car is not walked across it.)
+      if (s?.build && !m.gone && m.kind === "person") { const c = walksOf(w, job.site).came; c.push({ x: m.x, y: m.y, n: walkN++ }); if (c.length > 8) c.shift(); }
       // Arrived to a site that wants fewer now — paused, or lowered — and
       // straight back home again.
       const p = s?.build && projectForStructure(s.def);
       if (s?.build && p && crew.working < wantedCrew(w, s, p, owned)) { crew.working++; putToWork(town, g, s, m); }
-      else if (s && p) sendHome(town, g, placesOf(g, net), s, p, placesOf(g, net).find((pl) => pl.structure === s.id));
+      else if (s && p) sendHome(w, town, g, placesOf(g, net), s, p, placesOf(g, net).find((pl) => pl.structure === s.id), false);
     }
   }
   town.arrived.length = 0;
@@ -437,7 +462,7 @@ export function stepWorks(
     }
     while (p && crew.working > 0 && crew.walking + crew.working > want) {
       crew.working--;
-      sendHome(town, g, places, s, p, door);
+      sendHome(w, town, g, places, s, p, door);
     }
 
     // WORK, by those on site, as far as the materials go.
@@ -457,7 +482,7 @@ export function stepWorks(
     // OPENING.
     if (b.done >= b.need - 1e-6 && b.delivered >= b.deliveries) {
       delete s.build;
-      if (p) for (let k = crew.working; k > 0; k--) sendHome(town, g, places, s, p, door);
+      if (p) for (let k = crew.working; k > 0; k--) sendHome(w, town, g, places, s, p, door);
       w.crews.delete(s.id);
       w.trucks.delete(s.id);
       w.stalled.delete(s.id);
@@ -528,14 +553,25 @@ function putToWork(town: Town, g: Grid, s: Structure, m: Mover): void {
 
 /** Take one worker off a site and walk them home. */
 function sendHome(
-  town: Town, g: Grid, places: readonly Place[], s: Structure, p: ProjectDef, door: Place | undefined,
+  w: Works, town: Town, g: Grid, places: readonly Place[], s: Structure, p: ProjectDef, door: Place | undefined, across = true,
 ): void {
   const k = town.movers.findIndex((m) => m.job?.role === "working" && m.job.site === s.id);
   if (k >= 0) town.movers.splice(k, 1);
   if (!door) return;
   const homes = homesFor(places, g, p, door.net);
   const home = homes[(town.next * 5) % Math.max(1, homes.length)];
-  if (home) sendOnJob(town, g, "person", door, home, { site: s.id, role: "home" });
+  if (!home) return;
+  // (One turned round at the road, never on the site, goes straight back.)
+  if (!across) { sendOnJob(town, g, "person", door, home, { site: s.id, role: "home" }); return; }
+  // OFF THE SITE ON FOOT FIRST: their way home is found now, and they walk from their work to where it begins —
+  // drawn by the site (@see project-renderer) — before they are the town's again.
+  const m = setOff(town, g, "person", door, home);
+  if (!m) return;
+  const T = (Math.hypot(m.x - (s.x + (s.w - 1) / 2), m.y - (s.y + (s.h - 1) / 2)) + (s.w + s.h) / 4) / CREW_WALK;
+  (w.leavers ??= []).push({ m, left: T, site: s.id });
+  const goes = walksOf(w, s.id).goes;
+  goes.push({ x: m.x, y: m.y, n: walkN++, T });
+  if (goes.length > 8) goes.shift();
 }
 
 /**

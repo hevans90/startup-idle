@@ -20,7 +20,7 @@ import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-s
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
-import { LINE_GAPS, LINE_LAYS, LINE_PACE, LINE_PLANT, LINE_STAGES, MAIN, SEWER, alongLine, lineFront, type LineJob } from "../lines/jobs";
+import { LINE_GAPS, LINE_LAYS, LINE_PACE, LINE_PLANT, LINE_STAGES, MAIN, RAZE_PLANT, SEWER, alongLine, lineFront, type LineJob } from "../lines/jobs";
 import { PLANT_COLOUR, type PlantKind } from "../fleet/plant";
 import { YARDS } from "../lines/line-loads";
 import { YARD_BAY, YARD_CRANE, YARD_STACKS, inYard } from "../landmarks/yard";
@@ -28,7 +28,7 @@ import { getTown } from "../../state/world.store";
 import { PIPE_EMPTY_COLOUR } from "../agents/cars/fleet";
 import type { BandLayer } from "./bands";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
+import { DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, shuttled, type Unit } from "./plant-kit";
 import { walkRound, type Walker } from "./road-plant";
 import { destroyPipeDrawable, pipeDrawable } from "./pipe-gpu";
 import { BEND_R, CHEEK, CONCRETE, FLANGE_R, FLANGE_T, MATERIAL, SADDLE, ZT, box as meshBox, darker, disc, elbowPath, flange, quad as meshQuad, footing, made, pipeMesh, solid, sweep, tube as meshTube } from "./pipe-mesh";
@@ -140,8 +140,12 @@ export function createLineWorks(bands: BandLayer): LineWorks {
   let ground: Graphics[] = [], key = "", cars: CarSprites | null = null, asked = false, last = -1;
   const of = new Map<number, Graphics>(), units = new Map<string, Unit>(), clocks = new Map<number, number>();
   const barges = new Map<number, { c: Container; g: Graphics; band: number }>();
+  /** Where each dredger is, sailing or at work. */
+  const bargeAt = new Map<number, { x: number; y: number; heading: number }>();
   /** What is drawn round a building being pulled down: its fence, its dust, its rubble. */
   const razing = new Map<number, { g: Graphics; band: number }>();
+  /** Where a demolition's digger and its low-loaders are, driving; and which are up on a low-loader. @see plant-kit shuttled */
+  const razePoses = new Map<string, { x: number; y: number; heading: number }>(), razeAboard = new Set<string>();
   const drop = (c: Container) => { c.parent?.removeChild(c); c.destroy({ children: true }); };
   /**
    * A main being laid: what moves over it each frame — a length in the slings, the concrete off a chute, the sparks;
@@ -872,12 +876,31 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           // AND THE LOW-LOADERS that brought the tracked ones: bare by the road till they take them home.
           for (let q = 0; q < loaders; q++) { const at = parkAt(7 + q); drive(`low${q}`, `${j.id}:low${q}`, at.x, at.y, Math.atan2(dyh, dxh), g.height[idx(g, Math.round(hd.x), Math.round(hd.y))], [{ look: "lowLoaderEmpty", tint: YELLOW }]); }
         }
-        if (j.kind === "dredge" && f0 < n) {
+        const sail = j.barge || null, voyage = !!sail && (sail.out || sail.s < sail.path.length - 1);
+        if (j.kind === "dredge" && (f0 < n || voyage)) {
           // THE DREDGER: a barge on the water over where it is working, a jib over its bow and a grab on a rope; mud in the water round it.
           seenB.add(j.id);
           let b = barges.get(j.id);
           if (!b) { const c = new Container(), gr = new Graphics(); c.eventMode = "none"; gr.context.batchMode = "batch"; c.addChild(gr); b = { c, g: gr, band: -1 }; barges.set(j.id, b); }
-          const at = alongLine(j.cells, f0 + 0.2), c = j.cells[Math.max(0, Math.min(n - 1, Math.floor(f0)))];
+          // IT COMES BY WATER, AND GOES BY IT (@see line-loads stepBarge): up the river to the channel before its grab is
+          // lowered, away down it when the channel is dug. And between the two it is never moved further than a barge moves.
+          let want = alongLine(j.cells, Math.min(n - 1, f0 + 0.2));
+          if (sail && voyage) {
+            const q = Math.max(0, Math.min(sail.path.length - 1, sail.s)), k = Math.min(sail.path.length - 2, Math.floor(q)), fr = q - k, A = sail.path[k], B = sail.path[k + 1];
+            want = { x: A.x + (B.x - A.x) * fr, y: A.y + (B.y - A.y) * fr, heading: Math.atan2(B.y - A.y, B.x - A.x) + (sail.out ? Math.PI : 0) };
+          }
+          let at = bargeAt.get(j.id);
+          if (!at) { at = { ...want }; bargeAt.set(j.id, at); }
+          else {
+            const dx = want.x - at.x, dy = want.y - at.y, d = Math.hypot(dx, dy), step = 1.5 * dt;
+            if (d <= step) { at.x = want.x; at.y = want.y; } else { at.x += (dx / d) * step; at.y += (dy / d) * step; }
+            let turn = want.heading - at.heading;
+            while (turn > Math.PI) turn -= 2 * Math.PI;
+            while (turn < -Math.PI) turn += 2 * Math.PI;
+            at.heading += Math.max(-1.6 * dt, Math.min(1.6 * dt, turn));
+          }
+          const working = !voyage && Math.hypot(want.x - at.x, want.y - at.y) < 0.05;
+          const c = { x: Math.max(0, Math.min(g.w - 1, Math.round(at.x))), y: Math.max(0, Math.min(g.h - 1, Math.round(at.y))) };
           const h = g.height[idx(g, c.x, c.y)] + (depth?.(c.x, c.y) ?? 0);
           const G = b.g, ch = Math.cos(at.heading), sh = Math.sin(at.heading);
           /** A point of the barge: along it, across it, tiles; up, half steps — on the screen from its middle. */
@@ -889,12 +912,12 @@ export function createLineWorks(bands: BandLayer): LineWorks {
           };
           G.clear();
           // Mud in the water where the grab has been, drifting behind.
-          for (let q = 0; q < 5; q++) { const ph = (w * 0.25 + q / 5) % 1, [x, y] = at2(-0.1 - ph * 0.7, ((q * 0.37) % 1 - 0.5) * 0.4, 0); G.circle(x, y, (5 + ph * 9) * scale).fill({ color: MUD, alpha: 0.4 * (1 - ph) }); }
+          if (working) for (let q = 0; q < 5; q++) { const ph = (w * 0.25 + q / 5) % 1, [x, y] = at2(-0.1 - ph * 0.7, ((q * 0.37) % 1 - 0.5) * 0.4, 0); G.circle(x, y, (5 + ph * 9) * scale).fill({ color: MUD, alpha: 0.4 * (1 - ph) }); }
           box(-0.34, 0.3, 0.15, 0, 0.3, DECK, HULL);
           box(-0.3, -0.1, 0.1, 0.3, 0.75, CABIN, 0xbfbab0);
           box(-0.36, -0.34, 0.15, 0, 0.3, HULL, HULL_SIDE);
           // The jib from the deck out over the bow, and the grab going down and coming up.
-          const dip = 0.5 + 0.5 * Math.sin(w * 1.1), tip = at2(0.5, 0, 1.3), foot = at2(0.05, 0, 0.3), grab = at2(0.5, 0, 1.15 - dip * 1.1);
+          const dip = working ? 0.5 + 0.5 * Math.sin(w * 1.1) : 0, tip = at2(0.5, 0, 1.3), foot = at2(0.05, 0, 0.3), grab = at2(0.5, 0, 1.15 - dip * 1.1);
           G.moveTo(foot[0], foot[1]).lineTo(tip[0], tip[1]).stroke({ color: JIB, width: Math.max(1.2, 2.4 * scale) });
           G.moveTo(tip[0], tip[1]).lineTo(grab[0], grab[1]).stroke({ color: 0x2b2e33, width: Math.max(0.8, scale) });
           G.poly([grab[0] - 3 * scale, grab[1], grab[0] + 3 * scale, grab[1], grab[0] + 2 * scale, grab[1] + 4 * scale, grab[0] - 2 * scale, grab[1] + 4 * scale]).fill({ color: 0x3a3f46 });
@@ -906,9 +929,11 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       // ── WHAT IS BEING PULLED DOWN: taped off, a digger at its front pulling at it, dust over it, rubble heaping at its foot ──
       const seenR = new Set<number>();
       for (const j of g.razeJobs) {
-        const s = g.structures.get(j.structure);
+        // (Down, the job is only its digger's going: drawn on the plot the building stood on.)
+        const s = g.structures.get(j.structure) ?? j.plot;
         if (!s) continue;
         seenR.add(j.id);
+        const rp = j.plant || null, biting = !j.down && (!rp || rp.here);
         const w = (clocks.get(-j.id) ?? j.id * 1.7) + dt;
         clocks.set(-j.id, w);
         const h = g.height[idx(g, s.x, s.y)], p = Math.min(1, j.t / j.need);
@@ -920,36 +945,55 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         const G = r.g;
         G.clear();
         // Tape round it on posts, along the two near sides.
-        for (const [a, b] of [[[x0, y1], [x1, y1]], [[x1, y1], [x1, y0]]] as [number[], number[]][]) {
+        if (!j.down) for (const [a, b] of [[[x0, y1], [x1, y1]], [[x1, y1], [x1, y0]]] as [number[], number[]][]) {
           for (let q = 0; q < 8; q++) {
             const [ax, ay] = pt(scale, a[0] + ((b[0] - a[0]) * q) / 8, a[1] + ((b[1] - a[1]) * q) / 8, h + 0.45), [bx, by] = pt(scale, a[0] + ((b[0] - a[0]) * (q + 1)) / 8, a[1] + ((b[1] - a[1]) * (q + 1)) / 8, h + 0.45);
             G.moveTo(ax, ay).lineTo(bx, by).stroke({ color: q % 2 ? 0xf1efe8 : 0xe8463c, width: Math.max(1, 1.4 * scale) });
           }
         }
-        for (const [u, v] of [[x0, y1], [x1, y1], [x1, y0]]) { const [px, py] = pt(scale, u, v, h); G.rect(px - scale, py - 6 * scale, 2 * scale, 6 * scale).fill({ color: 0xf4efe2 }); }
+        if (!j.down) for (const [u, v] of [[x0, y1], [x1, y1], [x1, y0]]) { const [px, py] = pt(scale, u, v, h); G.rect(px - scale, py - 6 * scale, 2 * scale, 6 * scale).fill({ color: 0xf4efe2 }); }
         // Rubble at its foot, more of it as it comes down.
-        for (let q = 0; q < Math.round(p * 9); q++) {
+        if (!j.down) for (let q = 0; q < Math.round(p * 9); q++) {
           const [px, py] = pt(scale, x0 + (((q * 0.37) % 1) * (x1 - x0)), y1 - 0.08 - ((q * 0.61) % 1) * 0.25, h);
           G.poly([px - 5 * scale, py, px + 5 * scale, py, px + 2 * scale, py - (3 + (q % 3)) * scale, px - 3 * scale, py - (2 + (q % 2)) * scale]).fill({ color: q % 2 ? 0x8f8b84 : 0x7a5a3c });
         }
         // Dust, rising off it where the bucket is pulling.
-        for (let q = 0; q < 7; q++) {
+        if (biting) for (let q = 0; q < 7; q++) {
           const ph = (w * 0.45 + q / 7) % 1, [px, py] = pt(scale, x0 + ((q * 0.29 + 0.2) % 1) * (x1 - x0), y0 + ((q * 0.53 + 0.4) % 1) * (y1 - y0), h + 1 + ph * 3);
           G.circle(px, py, (5 + ph * 11) * scale).fill({ color: 0xc9bfae, alpha: 0.42 * (1 - ph) });
         }
         // THE DIGGER at the middle of its front, turned to it: a bite, a pull, and round to drop it.
         if (cars) {
-          const id = `raze:${j.id}`, q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL, at = { x: (x0 + x1) / 2, y: y1 - 0.18 };   // (on the plot's own front edge: never out in the road)
-          let u = units.get(id);
-          if (!u) { u = makeUnit(2); units.set(id, u); }
-          seen.add(id);
-          const pose = q < DIG.dig * 0.45 ? "exDig" : q < DIG.dig ? "exDig2" : q < DIG.dig + DIG.lift + DIG.out ? "exLift" : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? "exDump" : "exLift";
-          const slew = q < DIG.dig + DIG.lift ? 0 : q < DIG.dig + DIG.lift + DIG.out ? (q - DIG.dig - DIG.lift) / DIG.out : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? 1 : 1 - (q - DIG.dig - DIG.lift - DIG.out - DIG.tip) / DIG.back;
-          const base = poseUnit(u, cars, [{ look: "exTracks", tint: YELLOW }, { look: pose, tint: YELLOW, heading: -Math.PI / 2 + 1.1 * (slew * slew * (3 - 2 * slew)) }], { x: at.x, y: at.y, z: h, heading: -Math.PI / 2, pitch: 0 }, scale, P ? { people: P, id: j.id * 5 } : null);
-          u.band = into(u.c, u.band, at.x, at.y, base);
+          const id = `raze:${j.id}`, q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL, came = rp?.at?.[0];
+          // (On the plot's own edge, never out in the road: the side it came to by road — it does not drive through the building to get round it — or, simply there, its front.)
+          const at = came ? { x: Math.max(x0 + 0.18, Math.min(x1 - 0.18, came.x)), y: Math.max(y0 + 0.18, Math.min(y1 - 0.18, came.y)) } : { x: (x0 + x1) / 2, y: y1 - 0.18 };
+          const face = came ? Math.atan2((y0 + y1) / 2 - at.y, (x0 + x1) / 2 - at.x) : -Math.PI / 2;
+          // IT CAME ON A LOW-LOADER, which did not wait (@see fleet/plant shuttle): driven off it where that stopped, to the
+          // building's front; and, the building down, to the one come back for it and up onto it.
+          const sh = rp ? shuttled(razePoses, razeAboard, id, rp, RAZE_PLANT, PLANT_COLOUR.loader, () => at, dt) : null;
+          const fo = sh ? sh.tracked("digger", 0, { ...at, heading: face }) : { at: { ...at, heading: face }, away: false };
+          if (fo.at) {
+            let u = units.get(id);
+            if (!u) { u = makeUnit(2); units.set(id, u); }
+            seen.add(id);
+            const work = biting && !fo.away;
+            const pose = !work ? "exLift" : q < DIG.dig * 0.45 ? "exDig" : q < DIG.dig ? "exDig2" : q < DIG.dig + DIG.lift + DIG.out ? "exLift" : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? "exDump" : "exLift";
+            const slew = q < DIG.dig + DIG.lift ? 0 : q < DIG.dig + DIG.lift + DIG.out ? (q - DIG.dig - DIG.lift) / DIG.out : q < DIG.dig + DIG.lift + DIG.out + DIG.tip ? 1 : 1 - (q - DIG.dig - DIG.lift - DIG.out - DIG.tip) / DIG.back;
+            const hz = g.height[idx(g, Math.max(0, Math.min(g.w - 1, Math.round(fo.at.x))), Math.max(0, Math.min(g.h - 1, Math.round(fo.at.y))))];
+            const base = poseUnit(u, cars, [{ look: "exTracks", tint: YELLOW }, { look: pose, tint: YELLOW, heading: work ? face + 1.1 * (slew * slew * (3 - 2 * slew)) : fo.at.heading }], { x: fo.at.x, y: fo.at.y, z: work ? h : hz, heading: fo.at.heading, pitch: 0 }, scale, P ? { people: P, id: j.id * 5 } : null);
+            u.band = into(u.c, u.band, fo.at.x, fo.at.y, base);
+          }
+          for (const l of sh?.lows() ?? []) {
+            let u = units.get(l.id);
+            if (!u) { u = makeUnit(1); units.set(l.id, u); }
+            seen.add(l.id);
+            const hz = g.height[idx(g, Math.max(0, Math.min(g.w - 1, Math.round(l.x))), Math.max(0, Math.min(g.h - 1, Math.round(l.y))))];
+            const base = poseUnit(u, cars, [{ look: l.loaded ? "lowLoader" : "lowLoaderEmpty", tint: YELLOW }], { x: l.x, y: l.y, z: hz, heading: l.heading, pitch: 0 }, scale, null);
+            u.band = into(u.c, u.band, l.x, l.y, base);
+          }
         }
       }
-      for (const [id, r] of razing) if (!seenR.has(id)) { drop(r.g); razing.delete(id); }
+      for (const [id, r] of razing) if (!seenR.has(id)) { drop(r.g); razing.delete(id); for (const k of [...razePoses.keys()]) if (k.startsWith(`raze:${id}:`)) razePoses.delete(k); for (const k of [...razeAboard]) if (k.startsWith(`raze:${id}:`)) razeAboard.delete(k); }
       // ── THE YARD'S CRANE: at the company's own building, between its stacks of pipe and its gate ──
       // It stands there always. A load sent for is a lorry drawn up beside it: three pieces off the stack, each
       // hooked, lifted, slewed over and set on the bed; then the lorry out of the gate, and onto the road.
@@ -1062,7 +1106,7 @@ export function createLineWorks(bands: BandLayer): LineWorks {
       for (const [id, G] of yardRopes) if (!seenY.has(`rope${id}`)) { drop(G); yardRopes.delete(id); }
       for (const [id, u] of units) if (!seen.has(id)) { drop(u.c); units.delete(id); }
       for (const id of poses.keys()) { const jid = Number(id.slice(0, id.indexOf(":"))); if (!jobs.some((q) => q.id === jid)) poses.delete(id); }
-      for (const [id, b] of barges) if (!seenB.has(id)) { drop(b.c); barges.delete(id); }
+      for (const [id, b] of barges) if (!seenB.has(id)) { drop(b.c); barges.delete(id); bargeAt.delete(id); }
       for (const [id, m] of mains) if (!seenM.has(id)) { dropMain(m); mains.delete(id); }
       for (const id of clocks.keys()) if (id >= 0 ? !jobs.some((j) => j.id === id) : !g.razeJobs.some((j) => j.id === -id)) clocks.delete(id);
     },

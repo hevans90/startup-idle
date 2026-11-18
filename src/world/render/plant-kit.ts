@@ -180,3 +180,62 @@ export function follow(
   else { st.x += (dx / d) * step; st.y += (dy / d) * step; st.heading = Math.atan2(dy, dx); away = true; }
   return { at: { x: st.x, y: st.y, heading: st.heading }, away, loaded: !!going && !!o.low };
 }
+
+/** A job's machines where its low-loaders do not wait, as its drawing reads them. @see fleet/plant `shuttle` */
+export type ShuttlePlant = {
+  here: boolean; leaving?: number; home?: readonly string[];
+  at?: readonly { colour: number; x: number; y: number; heading: number }[];
+  to?: { kind: string; x: number; y: number; heading: number };
+  lows?: readonly { x: number; y: number; heading: number; to?: { x: number; y: number; heading: number }; gone?: boolean }[];
+  back?: readonly { x: number; y: number; heading: number }[];
+};
+/**
+ * WHERE LOW-LOADERS DO NOT WAIT (@see fleet/plant `shuttle`): a job's tracked machines, each off the low-loader
+ * that brought it where that stopped, to its work or to stand at `rest`; and, the job done, to the one come back
+ * for it and up onto it. And the low-loaders themselves: stood while a machine is driven off, round to where the
+ * way home begins, bare; come back, stood till the machine is up, and away with it. `key` names the job in `poses`
+ * and `aboard`; `paint` is a loaded low-loader's on the road.
+ */
+export function shuttled(
+  poses: Map<string, { x: number; y: number; heading: number }>, aboard: Set<string>, key: string, plant: ShuttlePlant,
+  kinds: readonly string[], paint: number, rest: (li: number) => { x: number; y: number }, dt: number,
+) {
+  const drive = (st: { x: number; y: number; heading: number }, to: { x: number; y: number }): boolean => {
+    const dx = to.x - st.x, dy = to.y - st.y, d = Math.hypot(dx, dy), step = PLANT_SPEED * dt;
+    if (d <= Math.max(step, 0.03)) { st.x = to.x; st.y = to.y; return false; }
+    st.x += (dx / d) * step; st.y += (dy / d) * step; st.heading = Math.atan2(dy, dx);
+    return true;
+  };
+  const loaders = (plant.at ?? []).filter((a) => a.colour === paint);
+  const all = kinds.filter((q) => q === "loader").length, sent = all - (plant.home ? plant.home.filter((q) => q === "loader").length : all);
+  return {
+    /** The `li`th tracked machine: where it is and whether it is on the move; null, not on the job — not come, up on its low-loader, or gone. */
+    tracked(name: string, li: number, want: { x: number; y: number; heading: number } | null): { at: { x: number; y: number; heading: number } | null; away: boolean } {
+      const id = `${key}:${name}`, on = `${key}:${li}`;
+      if (li < sent || aboard.has(on) || (!plant.here && loaders.length <= li)) return { at: null, away: false };
+      let st = poses.get(id);
+      if (!st) { const from = loaders[li]; st = from ? { x: from.x, y: from.y, heading: from.heading } : { ...rest(li), heading: want?.heading ?? Math.PI / 2 }; poses.set(id, st); }
+      const leaving = plant.leaving !== undefined, back = leaving ? plant.back?.[li] : undefined;
+      const away = drive(st, back ?? (leaving || !want || !plant.here ? rest(li) : want));
+      if (!away && back) { aboard.add(on); return { at: null, away: false }; }
+      // (Sent off before it was up: it is up.)
+      if (back && plant.to?.kind === "loader" && li === sent) { aboard.add(on); return { at: null, away: false }; }
+      if (!away && want && !leaving && plant.here) st.heading = want.heading;
+      return { at: { x: st.x, y: st.y, heading: st.heading }, away };
+    },
+    /** Every low-loader on the job now: where, and whether its machine is on it. */
+    lows(): { id: string; x: number; y: number; heading: number; loaded: boolean }[] {
+      const out: { id: string; x: number; y: number; heading: number; loaded: boolean }[] = [];
+      const low = (name: string, from: { x: number; y: number; heading: number }, to: { x: number; y: number; heading: number } | undefined, loaded: boolean) => {
+        const id = `${key}:${name}`;
+        let st = poses.get(id);
+        if (!st) { st = { x: from.x, y: from.y, heading: from.heading }; poses.set(id, st); }
+        if (to && !drive(st, to)) st.heading = to.heading;
+        out.push({ id, x: st.x, y: st.y, heading: st.heading, loaded });
+      };
+      plant.lows?.forEach((l, k) => { if (!l.gone) low(`low${k}`, l, l.to, false); });
+      plant.back?.forEach((b, k) => { if (k >= sent) low(`back${k}`, b, plant.to?.kind === "loader" && k === sent ? plant.to : undefined, aboard.has(`${key}:${k}`)); });
+      return out;
+    },
+  };
+}

@@ -112,6 +112,9 @@ describe("a project", () => {
     stepWorks(w, g, net, t, { intern: 10 }, spend, 1 / 30, 50_000);
     expect(w.away.intern ?? 0).toBe(0);
     expect(t.movers.filter((m) => m.job?.role === "working")).toHaveLength(0);
+    // (Off the site on foot first — then the town's, on their way home.)
+    expect(w.leavers?.length).toBeGreaterThan(0);
+    for (let k = 0; k < 30 * 20 && w.leavers?.length; k++) stepWorks(w, g, net, t, { intern: 10 }, spend, 1 / 30, 50_000);
     expect(t.movers.some((m) => m.job?.role === "home")).toBe(true);
   });
 

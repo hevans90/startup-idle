@@ -31,6 +31,11 @@ export type LineJob = {
   coming: number[];
   /** Seconds it has been worked. */
   t: number;
+  /**
+   * A CHANNEL'S DREDGER COMES BY WATER (@see line-loads stepBarge): the river tiles it sails, how far along them it
+   * is, and — the channel dug — that it is sailing away, back down them. False: no way to it by water; it is there.
+   */
+  barge?: false | { path: { x: number; y: number }[]; s: number; out?: boolean };
   /** How many of its cells are ON THE MAP already: a pipe is real as each length of it goes in, capped where it has got to. (A sewer's trunk and a channel are all or nothing: nought till they are done.) */
   laid?: number;
   /** A sewer's trunk: which of its cells get a MANHOLE, counted along it — its chambers go in with its pipe. */
@@ -154,6 +159,12 @@ export function alongLine(cells: readonly { x: number; y: number }[], p: number)
  * its time at it; then it is gone, as Demolish took it. Which structure, the tile it was ordered at (for taking it
  * down the way the tool does), seconds worked and seconds it takes.
  */
-export type RazeJob = { id: number; structure: number; x: number; y: number; t: number; need: number; at: number };
+export type RazeJob = {
+  id: number; structure: number; x: number; y: number; t: number; need: number; at: number;
+  /** Its digger, from the yard on a low-loader and home on one (@see fleet/plant, `RAZE_PLANT`); that the building is down, and only its digger's going is left; and the plot it stood on, for drawing that. */
+  plant?: false | Plant; down?: boolean; plot?: { x: number; y: number; w: number; h: number };
+};
+/** What pulls a building down: a digger, come on a low-loader that does not wait for it. */
+export const RAZE_PLANT: readonly PlantKind[] = ["loader"];
 /** Seconds to pull down a building of so many tiles: a few bites a tile, and never long. */
 export const razeSeconds = (tiles: number) => Math.min(30, 5 + 3 * tiles);
