@@ -39,16 +39,20 @@ const DUST = 0xcfc5b3, GLASS = 0xbfe0ee;
 const BARE: Record<Skin, number> = { masonry: 0x8d6b57, concrete: 0x9b9891, glass: 0x9fc3d6, sheet: 0x7d858c };
 const SHADES = [1, 0.8, 0.92, 0.62], SKINS: Skin[] = ["masonry", "concrete", "glass", "sheet"], FOUNDATION = 0x77736c;
 const QUADS = 6500, SWATCH = 6, CELLPX = 5;
+/** Quads a band's layer starts with room for: it grows as it needs, and is never sent bigger than it is. */
+const ROOM = 192;
 /** How far a mass is taken to reach past its own box, tiles, sideways and up: its cornice, its parapet, what stands on its roof — all of its picture goes with its pieces, and none of it is left hanging. */
 const GROW = 0.09, GROW_UP = 0.2;
 
 type Puff = { x: number; y: number; vx: number; vy: number; r: number; grow: number; age: number; life: number; colour: number };
 type Bit = { x: number; y: number; vx: number; vy: number; ground: number; age: number; size: number };
-type BandMesh = { mesh: Mesh; pos: Float32Array; uv: Float32Array; list: number[] };
+type BandMesh = { mesh: Mesh | null; pos: Float32Array; uv: Float32Array; list: number[]; band: number; cap: number; used: number };
 type Job = {
   kept: Map<Container, number>; sim: Collapse | null; t: number; tex: Texture | null;
   frame: { x: number; y: number; w: number; h: number }; flat: Map<number, [number, number]>;
   bandsOf: Map<number, BandMesh>; back: Mesh | null; air: Graphics; puffs: Puff[]; bits: Bit[]; keys: Float32Array;
+  /** What its pieces were when they were last drawn — how many stand, how many lie: unchanged, with none in the air, they are not drawn again. */
+  sig: number; airy: boolean;
   ox: number; oy: number; h0: number; lo: number; hi: number;
 };
 
@@ -102,7 +106,7 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
   const drop = (c: Container) => { c.parent?.removeChild(c); c.destroy(); };
   const end = (job: Job) => {
     for (const [n, a] of job.kept) if (!n.destroyed) n.alpha = a;
-    for (const b of job.bandsOf.values()) drop(b.mesh);
+    for (const b of job.bandsOf.values()) if (b.mesh) drop(b.mesh);
     if (job.back) drop(job.back);
     drop(job.air);
     if (job.tex) trash.push({ tex: job.tex, left: 4 });
@@ -119,7 +123,7 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
         air.eventMode = "none"; air.context.batchMode = "batch"; air.zIndex = 3;
         const hi = bandOf(plot.x + plot.w - 1, plot.y + plot.h - 1), lo = bandOf(plot.x, plot.y);
         bands.dynamicOf[Math.max(0, Math.min(bands.dynamicOf.length - 1, hi))]?.addChild(air);
-        J = { kept: new Map(), sim: null, t: 0, tex: null, frame: { x: 0, y: 0, w: 1, h: 1 }, flat: new Map(), bandsOf: new Map(), back: null, air, puffs: [], bits: [], keys: new Float32Array(0), ox: plot.x - 0.5, oy: plot.y - 0.5, h0: g.height[idx(g, plot.x, plot.y)], lo, hi };
+        J = { kept: new Map(), sim: null, t: 0, tex: null, frame: { x: 0, y: 0, w: 1, h: 1 }, flat: new Map(), bandsOf: new Map(), back: null, air, puffs: [], bits: [], keys: new Float32Array(0), sig: -1, airy: false, ox: plot.x - 0.5, oy: plot.y - 0.5, h0: g.height[idx(g, plot.x, plot.y)], lo, hi };
         jobs.set(id, J);
       }
       const job = J;
@@ -211,16 +215,8 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
           job.back = new Mesh({ geometry: new MeshGeometry({ positions: new Float32Array(pos), uvs: new Float32Array(uvs), indices: ind }), texture: job.tex });
           job.back.eventMode = "none";
           layer(job.lo)?.addChild(job.back);
-          // A LAYER A BAND of the plot, for its pieces: each drawn with the tile it is over.
-          const ind2 = new Uint32Array(QUADS * 6);
-          for (let q = 0; q < QUADS; q++) ind2.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3], q * 6);
-          for (let band = job.lo; band <= job.hi; band++) {
-            const bp = new Float32Array(QUADS * 8), bu = new Float32Array(QUADS * 8);
-            const mesh = new Mesh({ geometry: new MeshGeometry({ positions: bp, uvs: bu, indices: ind2.slice() }), texture: job.tex });
-            mesh.eventMode = "none";
-            layer(band)?.addChild(mesh);
-            job.bandsOf.set(band, { mesh, pos: bp, uv: bu, list: [] });
-          }
+          // A LAYER A BAND of the plot, for its pieces: each drawn with the tile it is over. (Made when first it has any.)
+          for (let band = job.lo; band <= job.hi; band++) job.bandsOf.set(band, { mesh: null, pos: new Float32Array(0), uv: new Float32Array(0), list: [], band, cap: 0, used: 0 });
         }
       }
       if (!job.sim) return { target: null, phase: "knock", loaded: 0 };
@@ -240,8 +236,8 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
         for (const h of sim.step(Math.min(dt, 0.05), job.t)) {
           const [x, y] = px(h.at[0], h.at[1], h.at[2]), big = Math.min(1.6, h.size);
           if (h.kind === "shatter") {
-            for (let k = 0; k < 5 && job.bits.length < 260; k++) { const a = hash(job.bits.length * 3.3 + job.t), b = hash(job.bits.length * 7.1 + job.t * 3); job.bits.push({ x: x + (a - 0.5) * 16 * scale, y: y + (b - 0.5) * 20 * scale, vx: (a - 0.5) * 70 * scale, vy: -(10 + 50 * b) * scale, ground: px(h.at[0], h.at[1], 0)[1] + (a - 0.5) * 10 * scale, age: 0, size: (1 + 1.6 * b) * scale }); }
-          } else if (job.puffs.length < 220) {
+            for (let k = 0; k < 3 && job.bits.length < 120; k++) { const a = hash(job.bits.length * 3.3 + job.t), b = hash(job.bits.length * 7.1 + job.t * 3); job.bits.push({ x: x + (a - 0.5) * 16 * scale, y: y + (b - 0.5) * 20 * scale, vx: (a - 0.5) * 70 * scale, vy: -(10 + 50 * b) * scale, ground: px(h.at[0], h.at[1], 0)[1] + (a - 0.5) * 10 * scale, age: 0, size: (1 + 1.6 * b) * scale }); }
+          } else if (job.puffs.length < 70) {
             const cnt = h.kind === "dust" ? 2 : 2 + (big > 0.3 ? 1 : 0);
             for (let k = 0; k < cnt; k++) { const a = hash(job.puffs.length * 3.1 + job.t * 5), b = hash(job.puffs.length * 5.3 + job.t); job.puffs.push({ x: x + (a - 0.5) * 22 * scale, y: y - b * 6 * scale, vx: (a - 0.5) * 34 * scale, vy: -(6 + 18 * b) * scale, r: (4 + 8 * big) * scale, grow: (10 + 16 * big) * scale, age: 0, life: 1.4 + 1.8 * b, colour: DUST }); }
           }
@@ -250,27 +246,49 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
       }
 
       // ── ITS PIECES, far to near, each with the band of the tile it is over ───────────────
-      for (const b of job.bandsOf.values()) b.list.length = 0;
+      // (Only when any of them has moved, gone or come to rest: a building standing, and a heap lying, are drawn once.)
       const chunks = sim.chunks;
-      if (job.keys.length < chunks.length) job.keys = new Float32Array(chunks.length + 512);
-      for (let i = 0; i < chunks.length; i++) {
-        const c = chunks[i];
-        if (c.state === 3) continue;
-        const band = Math.max(job.lo, Math.min(job.hi, Math.floor(plot.x + c.c[0]) + Math.floor(plot.y + c.c[1])));
-        job.keys[i] = c.c[0] + c.c[1] + c.c[2] * VIEW[2];
-        job.bandsOf.get(band)?.list.push(i);
-      }
-      for (const B of job.bandsOf.values()) {
-        B.list.sort((a, b) => job.keys[a] - job.keys[b]);
-        let q = 0;
-        for (const i of B.list) {
-          if (q >= QUADS - 3) break;
-          q = writeChunk(chunks[i], B, q, px, job.flat);
+      let stand = 0, lie = 0, fly = 0;
+      for (const c of chunks) { if (c.state === 0) stand++; else if (c.state === 2) lie++; else if (c.state === 1) fly++; }
+      const sig = stand * 100003 + lie * 7 + chunks.length;
+      if (fly > 0 || sig !== job.sig || job.airy) {
+        job.sig = sig; job.airy = fly > 0;
+        for (const b of job.bandsOf.values()) b.list.length = 0;
+        if (job.keys.length < chunks.length) job.keys = new Float32Array(chunks.length + 512);
+        for (let i = 0; i < chunks.length; i++) {
+          const c = chunks[i];
+          if (c.state === 3) continue;
+          const band = Math.max(job.lo, Math.min(job.hi, Math.floor(plot.x + c.c[0]) + Math.floor(plot.y + c.c[1])));
+          // (Far to near; and of two as far, the one made first: the order never turns on a hair.)
+          job.keys[i] = Math.round((c.c[0] + c.c[1] + c.c[2] * VIEW[2]) * 512) / 512;
+          job.bandsOf.get(band)?.list.push(i);
         }
-        // (What is left of the layer is nothing: every corner of it the one point.)
-        B.pos.fill(0, q * 8);
-        B.mesh.geometry.getBuffer("aPosition").update();
-        B.mesh.geometry.getBuffer("aUV").update();
+        for (const B of job.bandsOf.values()) {
+          if (!B.list.length && !B.used) continue;
+          const need = Math.min(QUADS, B.list.length * 3);
+          if (need > B.cap || !B.mesh) {
+            // (Room for what it has and half as much again.)
+            const cap = Math.min(QUADS, Math.max(ROOM, Math.ceil(need * 1.5)));
+            if (B.mesh) drop(B.mesh);
+            B.pos = new Float32Array(cap * 8); B.uv = new Float32Array(cap * 8); B.cap = cap;
+            const ind = new Uint32Array(cap * 6);
+            for (let q = 0; q < cap; q++) { const o = q * 4; ind[q * 6] = o; ind[q * 6 + 1] = o + 1; ind[q * 6 + 2] = o + 2; ind[q * 6 + 3] = o; ind[q * 6 + 4] = o + 2; ind[q * 6 + 5] = o + 3; }
+            B.mesh = new Mesh({ geometry: new MeshGeometry({ positions: B.pos, uvs: B.uv, indices: ind }), texture: job.tex! });
+            B.mesh.eventMode = "none";
+            layer(B.band)?.addChild(B.mesh);
+          }
+          B.list.sort((a, b) => job.keys[a] - job.keys[b] || a - b);
+          let q = 0;
+          for (const i of B.list) {
+            if (q >= B.cap - 3) break;
+            q = writeChunk(chunks[i], B, q, px, job.flat);
+          }
+          // (What is left of the layer is nothing: every corner of it the one point.)
+          if (q < B.used) B.pos.fill(0, q * 8, B.used * 8);
+          B.used = q;
+          B.mesh.geometry.getBuffer("aPosition").update();
+          B.mesh.geometry.getBuffer("aUV").update();
+        }
       }
 
       // ── DUST, AND GLASS ────────────────────────────────────────────────────────────────
@@ -280,13 +298,16 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
       for (const b of job.bits) {
         b.age += dt;
         if (b.y < b.ground || b.vy < 0) { b.vy += 520 * scale * dt; b.x += b.vx * dt; b.y += b.vy * dt; }
-        air.rect(b.x - b.size / 2, b.y - b.size / 2, b.size, b.size).fill({ color: GLASS, alpha: 0.9 * (1 - b.age / 1.6) });
+        // (Never past its time: a thing's last frame is not drawn at less than nothing — which is drawn as everything.)
+        const al = 0.9 * (1 - b.age / 1.6);
+        if (al > 0.01) air.rect(b.x - b.size / 2, b.y - b.size / 2, b.size, b.size).fill({ color: GLASS, alpha: al });
       }
       job.puffs = job.puffs.filter((q) => q.age < q.life);
       for (const q of job.puffs) {
         q.age += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vx *= 1 - 0.8 * dt; q.vy *= 1 - 0.9 * dt;
-        const u = q.age / q.life;
-        air.circle(q.x, q.y, q.r + q.grow * Math.sqrt(u)).fill({ color: q.colour, alpha: 0.46 * (1 - u) * Math.min(1, u * 6) });
+        const u = Math.min(1, q.age / q.life), al = 0.46 * (1 - u) * Math.min(1, u * 6);
+        // (Ten sides: a puff is soft, and a round one costs three times the corners.)
+        if (al > 0.004) air.regularPoly(q.x, q.y, q.r + q.grow * Math.sqrt(u), 10).fill({ color: q.colour, alpha: al });
       }
       return { target: { x: Math.round(job.ox + sim.at[0]), y: Math.round(job.oy + sim.at[1]) }, phase, loaded: clearing };
     },
@@ -309,6 +330,19 @@ const SGN = [0, 0, 0], LOC = [0, 0, 0];
  * part of the picture on it, or bare, lit by which way it faced as built. Says the next quad.
  */
 function writeChunk(c: Chunk, B: BandMesh, q: number, px: (u: number, v: number, w: number) => [number, number], flat: Map<number, [number, number]>): number {
+  // WHAT IS NOT MOVING IS WORKED OUT ONCE: a piece standing, or lying, is copied in as it was last drawn.
+  const kept = STILL.get(c);
+  if (kept && kept.st === c.state && c.state !== 1) {
+    B.pos.set(kept.pos, q * 8); B.uv.set(kept.uv, q * 8);
+    return q + kept.pos.length / 8;
+  }
+  const q0 = q;
+  q = projectChunk(c, B, q, px, flat);
+  if (c.state !== 1) STILL.set(c, { st: c.state, pos: B.pos.slice(q0 * 8, q * 8), uv: B.uv.slice(q0 * 8, q * 8) });
+  return q;
+}
+const STILL = new WeakMap<Chunk, { st: number; pos: Float32Array; uv: Float32Array }>();
+function projectChunk(c: Chunk, B: BandMesh, q: number, px: (u: number, v: number, w: number) => [number, number], flat: Map<number, [number, number]>): number {
   const ax = [axisOf(c.q, 0), axisOf(c.q, 1), axisOf(c.q, 2)];
   for (let f = 0; f < 6; f++) {
     const a = f >> 1, sg = f & 1 ? -1 : 1, n = ax[a];

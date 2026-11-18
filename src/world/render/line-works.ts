@@ -150,6 +150,8 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
   const razePoses = new Map<string, { x: number; y: number; heading: number }>(), razeAboard = new Set<string>();
   /** Where a demolition's lorry is, driving (@see plant-kit follow); and the building coming down (@see raze-fx). */
   const razeStand = new Map<string, Standing>(), razeFx = createRazeFx(bands, renderer);
+  /** Which way each demolition's digger faces, and is turning to face: settled a turn of its arm at a time. */
+  const razeAim = new Map<number, { turn: number; to: number; face: number }>();
   const drop = (c: Container) => { c.parent?.removeChild(c); c.destroy({ children: true }); };
   /**
    * A main being laid: what moves over it each frame — a length in the slings, the concrete off a chute, the sparks;
@@ -969,8 +971,16 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
         if (cars) {
           const id = `raze:${j.id}`, q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL;
           // (Turned to the section it is pulling at, or the heap it is clearing.)
-          const aim = fx?.target && Math.hypot(fx.target.x - at.x, fx.target.y - at.y) > 0.05 ? fx.target : { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
-          const face = Math.hypot(aim.x - at.x, aim.y - at.y) > 0.05 ? Math.atan2(aim.y - at.y, aim.x - at.x) : -Math.PI / 2;
+          // WHAT IT IS AT is settled a bite at a time — where the work was when it began this turn of its arm — and it
+          // SLEWS there, no faster than a digger slews: never thrown from one piece to the next and back.
+          const turn = Math.floor(w / DIG_ALL);
+          let am = razeAim.get(j.id);
+          const want = fx?.target && Math.hypot(fx.target.x - at.x, fx.target.y - at.y) > 0.05 ? fx.target : { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
+          const wantFace = Math.hypot(want.x - at.x, want.y - at.y) > 0.05 ? Math.atan2(want.y - at.y, want.x - at.x) : -Math.PI / 2;
+          if (!am) { am = { turn, to: wantFace, face: wantFace }; razeAim.set(j.id, am); }
+          if (am.turn !== turn) { am.turn = turn; am.to = wantFace; }
+          { const d = Math.atan2(Math.sin(am.to - am.face), Math.cos(am.to - am.face)), step = 1.2 * dt; am.face += Math.abs(d) <= step ? d : Math.sign(d) * step; }
+          const face = am.face;
           // THE LORRY IT FILLS, stood beside it along the plot's edge: come empty, and away with the rubble.
           const nx = came ? came.x - at.x : 0, ny = came ? came.y - at.y : 1, nl = Math.hypot(nx, ny) || 1, tx = -ny / nl, ty = nx / nl;
           const inside = (sg: number) => at.x + tx * 0.85 * sg > x0 + 0.1 && at.x + tx * 0.85 * sg < x1 - 0.1 && at.y + ty * 0.85 * sg > y0 + 0.1 && at.y + ty * 0.85 * sg < y1 - 0.1;
@@ -1014,6 +1024,7 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
         }
       }
       razeFx.keep(seenFx);
+      for (const id of razeAim.keys()) if (!seenR.has(id)) razeAim.delete(id);
       for (const [id, r] of razing) if (!seenR.has(id)) { for (const k of [...razeStand.keys()]) if (k.startsWith(`raze:${id}:`)) razeStand.delete(k); drop(r.g); razing.delete(id); for (const k of [...razePoses.keys()]) if (k.startsWith(`raze:${id}:`)) razePoses.delete(k); for (const k of [...razeAboard]) if (k.startsWith(`raze:${id}:`)) razeAboard.delete(k); }
       // ── THE YARD'S CRANE: at the company's own building, between its stacks of pipe and its gate ──
       // It stands there always. A load sent for is a lorry drawn up beside it: three pieces off the stack, each
