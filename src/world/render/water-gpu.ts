@@ -884,14 +884,17 @@ fn pieceOf(cx: i32, cy: i32, qx: i32, qy: i32, vx: i32, vy: i32) -> bool {
   let cpt = i32(water.uGrid.z);
   let ax = cx / cpt; let ay = cy / cpt; let bx = qx / cpt; let by = qy / cpt;
   if (ax == bx && ay == by) { return true; }
-  // (On ground drawn as one continuous surface there is no step in bare ground at all: only what is BUILT stands
-  // apart from what is beside it — a quay, a wall between two roads — by its floor, a clear step over.)
+  // ON GROUND DRAWN AS ONE CONTINUOUS SURFACE THERE IS NO STEP IN BARE GROUND AT ALL, however steep: bare tiles
+  // are one piece, always. Only what is BUILT can stand apart from what is beside it — a quay, a wall between two
+  // roads — and that by the step between their floors.
   var ga = tileGround(ax, ay, vx, vy);
   var gb = tileGround(bx, by, vx, vy);
   if (water.uList.w > 0.5) {
+    let builtA = (i32(textureLoad(uShore, vec2<i32>(ax * 2 + 1, ay), 0).w + 0.5) & 16) != 0;
+    let builtB = (i32(textureLoad(uShore, vec2<i32>(bx * 2 + 1, by), 0).w + 0.5) & 16) != 0;
+    if (!builtA && !builtB) { return true; }
     ga = groundAt(cx, cy, 0);
     gb = groundAt(qx, qy, 0);
-    if (abs(ga - gb) < ${PIECE}) { return true; }
   }
   if (abs(ga - gb) < ${PIECE_STEP}) { return true; }
   // OR A STEP THE WATER STANDS OVER. A drop parts the water only where the water on the low side is under the

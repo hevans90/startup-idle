@@ -1,4 +1,5 @@
 import { fieldWater } from "./water-mode";
+import { groundMode } from "./ground-mode";
 import { PIECE } from "./water-piece";
 import { FALL_STOP, LATCH_ROW } from "../../fluid/falls";
 import { OPEN_SKY } from "../../fluid/slots";
@@ -89,7 +90,8 @@ fn ny() -> i32 { return say.dims.y; }
 fn dryDepth() -> f32 { return say.a.x; }
 // As one smooth field, a dry column beside water draws a surface too. @see quad-rule's skirtAt, water-mode
 fn skirtOn() -> bool { return say.d.w > 0; }
-fn onePiece(g: f32, gq: f32) -> bool { return abs(g - gq) < ${PIECE}; }
+// (On ground drawn as one continuous surface, 2, every column is of a piece with the one beside it, however steep.)
+fn onePiece(g: f32, gq: f32) -> bool { return say.d.w > 1 || abs(g - gq) < ${PIECE}; }
 fn fallMin() -> f32 { return say.a.y; }
 fn fallStop() -> f32 { return ${FALL_STOP}.0; }
 // How many STOREYS a column has, and where a storey's plane of rows begins.
@@ -587,7 +589,7 @@ export function createQuadsPass(
       new Int32Array(buf, 48, 4).set([slices.second, bands, zoomedOut ? 1 : 0, cull ? 1 : 0]);
       // Gathered a margin beyond the bands on screen. @see BAND_MARGIN
       new Int32Array(buf, 64, 4).set([
-        (cull?.lo ?? 0) - BAND_MARGIN, (cull?.hi ?? bands) + BAND_MARGIN, cheap ? 1 : 0, fieldWater() ? 1 : 0,
+        (cull?.lo ?? 0) - BAND_MARGIN, (cull?.hi ?? bands) + BAND_MARGIN, cheap ? 1 : 0, groundMode() === "smooth" ? 2 : fieldWater() ? 1 : 0,
       ]);
       device.queue.writeBuffer(uniform, 0, buf);
     },

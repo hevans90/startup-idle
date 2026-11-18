@@ -346,11 +346,12 @@ function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number) {
     if (grid.pool[j] > 0) level = Math.max(level, grid.height[j] + grid.pool[j]);
   }
   // The last: 1, or 2 with standing water of its own; and 4 and 8 more where its drawn edge toward +x and +y is the
-  // next cell's own — they are ONE PIECE of ground there, no cliff or wall between. @see water-gpu.ts pieceOf
+  // next cell's own — they are ONE PIECE of ground there, no cliff or wall between; and 16 more where it is BUILT
+  // on (paving, a building: flat, whatever is beside it). @see water-gpu.ts pieceOf
   const same = (a: number, b: number) => Math.abs(a - b) < 1e-3;
   const jx = inBounds(grid, x + 1, y) && same(e[o + 1], drawnCorner(grid, x + 1, y, 0, 0)) && same(e[o + 2], drawnCorner(grid, x + 1, y, 0, 1));
   const jy = inBounds(grid, x, y + 1) && same(e[o + 3], drawnCorner(grid, x, y + 1, 0, 0)) && same(e[o + 2], drawnCorner(grid, x, y + 1, 1, 0));
-  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0);
+  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0) + (built(grid, x, y) ? 16 : 0);
 }
 
 export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale = 1): GroundMesh {
