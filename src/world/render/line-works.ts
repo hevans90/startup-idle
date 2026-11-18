@@ -20,11 +20,12 @@ import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-s
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
-import { LINE_GAPS, LINE_LAYS, LINE_PACE, LINE_PLANT, LINE_STAGES, MAIN, SEWER, alongLine, lineFront, type LineJob, type PlantKind } from "../lines/jobs";
+import { LINE_GAPS, LINE_LAYS, LINE_PACE, LINE_PLANT, LINE_STAGES, MAIN, SEWER, alongLine, lineFront, type LineJob } from "../lines/jobs";
+import { PLANT_COLOUR, type PlantKind } from "../fleet/plant";
 import { YARDS } from "../lines/line-loads";
 import { YARD_BAY, YARD_CRANE, YARD_STACKS, inYard } from "../landmarks/yard";
 import { getTown } from "../../state/world.store";
-import { PIPE_EMPTY_COLOUR, PLANT_CRANE_COLOUR, PLANT_LOADER_COLOUR, PLANT_MIXER_COLOUR, PLANT_PICKUP_COLOUR } from "../agents/cars/fleet";
+import { PIPE_EMPTY_COLOUR } from "../agents/cars/fleet";
 import type { BandLayer } from "./bands";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
 import { DIG, DIG_ALL, DRUM, M, T, YELLOW, makeUnit, mixerLook, poseUnit, type Unit } from "./plant-kit";
@@ -41,8 +42,7 @@ const TUBE_R = 0.09 / Math.SQRT2, STEEL = 0xa6a9aa;
 /** How long a length of pipe is as it comes off the lorry, tiles: two to a tile of main. */
 /** A job's machines by the mover that brings them: which of its units each is. @see LINE_PLANT */
 const PLANT_UNIT: Readonly<Record<string, PlantKind>> = { crane: "crane", mixer: "mixer", footer: "loader", digger: "loader", filler: "loader", roller: "loader", welder: "pickup", low0: "loader", low1: "loader", low2: "loader" };
-/** Each kind's paint on the road: how a machine that has come is told. @see cars/fleet */
-const PLANT_PAINT: Readonly<Record<PlantKind, number>> = { crane: PLANT_CRANE_COLOUR, mixer: PLANT_MIXER_COLOUR, loader: PLANT_LOADER_COLOUR, pickup: PLANT_PICKUP_COLOUR };
+const PLANT_PAINT = PLANT_COLOUR;
 /** The tracked ones, in the order their low-loaders take them home: a main has the one digger; a sewer its two and a roller. */
 const LOADER_IDX: Readonly<Record<string, number>> = { footer: 0, digger: 0, filler: 1, roller: 2, low0: 0, low1: 1, low2: 2 };
 /** Tiles a second a machine makes across a job. */
@@ -863,6 +863,12 @@ export function createLineWorks(bands: BandLayer): LineWorks {
         if (plant && here) {
           // WHAT IS NOT AT WORK STANDS BY THE ROAD: a machine whose trade has not begun, or is over, drives there and waits.
           for (const [id, st] of poses) if (id.startsWith(`${j.id}:`) && !seen.has(id)) { const name = id.slice(id.indexOf(":") + 1), at = PLANT_UNIT[name] === "loader" ? parkAt(7 + (LOADER_IDX[name] ?? 0)) : parkAt(st.k); drive(name, id, at.x, at.y, st.heading, st.h, st.looks); }
+          // (Every one of them from when they came — one whose trade has not begun yet stands and waits, as it will after.)
+          const hz = g.height[idx(g, Math.round(hd.x), Math.round(hd.y))], dig = [{ look: "exTracks", tint: YELLOW }, { look: "exLift", tint: YELLOW, heading: 0 }];
+          const stood: [string, { look: string; tint: number; heading?: number }[]][] = j.kind === "sewer"
+            ? [["digger", dig], ["filler", dig], ["roller", [{ look: "roller", tint: YELLOW }]], ["crane", [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[0], tint: YELLOW, heading: 0 }]], ["welder", [{ look: "pickup", tint: YELLOW }]]]
+            : [["footer", dig], ["mixer", [{ look: "mixer", tint: DRUM }]], ["crane", [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[0], tint: YELLOW, heading: 0 }]], ["welder", [{ look: "pickup", tint: YELLOW }]]];
+          for (const [q, [name, looks]] of stood.entries()) if (!seen.has(`${j.id}:${name}`)) { const at = PLANT_UNIT[name] === "loader" ? parkAt(7 + (LOADER_IDX[name] ?? 0)) : parkAt(q); drive(name, `${j.id}:${name}`, at.x, at.y, Math.atan2(dyh, dxh), hz, looks); }
           // AND THE LOW-LOADERS that brought the tracked ones: bare by the road till they take them home.
           for (let q = 0; q < loaders; q++) { const at = parkAt(7 + q); drive(`low${q}`, `${j.id}:low${q}`, at.x, at.y, Math.atan2(dyh, dxh), g.height[idx(g, Math.round(hd.x), Math.round(hd.y))], [{ look: "lowLoaderEmpty", tint: YELLOW }]); }
         }

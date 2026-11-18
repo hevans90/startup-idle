@@ -76,8 +76,9 @@ import {
   type BrushId, type Stroke, type ToolId,
 } from "../world/edit/tools";
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
-import { GANGS, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
-import { stepRoadLoads } from "../world/roads/job-loads";
+import { GANGS, ROAD_PLANT, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadJob, type RoadWrites } from "../world/roads/jobs";
+import { headOf, stepRoadLoads } from "../world/roads/job-loads";
+import { stepPlant } from "../world/fleet/plant";
 import { lineLorriesOut, lineLorryFree, sendLineLoad, stepLineHaul, stepLinePlant } from "../world/lines/line-loads";
 import { LINE_LAYS, lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
 import { payForLoad } from "../world/projects/economy";
@@ -863,7 +864,13 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const g = get().grid;
     if (!g.roadJobs.length) return;
     const loads = stepRoadLoads(g, get().playing ? payForLoad : () => true, dt, haul);
-    const { writes, changed } = stepRoadJobs(g, dt);
+    // ITS MACHINES: from the yard before a job is worked, and home when it is done. @see fleet/plant
+    const plant = new Map<RoadJob, ReturnType<typeof stepPlant>>();
+    if (haul) for (const j of g.roadJobs.slice(0, GANGS)) plant.set(j, stepPlant(g, haul, j, { id: j.id, role: "road-plant" }, headOf(g, haul.net, j), ROAD_PLANT, j.t > 0, dt));
+    const { writes, changed } = stepRoadJobs(g, dt, haul && {
+      held: (j) => plant.get(j) === "wait" || plant.get(j) === "leaving",
+      over: (j) => { const at = plant.get(j); if (at === "work" && j.plant) { j.plant.leaving ??= 0; j.plant.t = 0; return false; } return at !== "leaving"; },
+    });
     for (const j of g.roadJobs) {
       j.at = now;
       // A JOB THAT HAS STOPPED for want of a load it cannot pay for is said, once.

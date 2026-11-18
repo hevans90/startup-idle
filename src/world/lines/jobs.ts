@@ -12,6 +12,8 @@
  * @see world.store stepLineWorks
  */
 
+import type { Plant, PlantKind } from "../fleet/plant";
+
 /** A water main; a DRAIN — a sewer's pipe above the ground, a connection, laid as a main is; a SEWER's trunk, underground; a channel dredged. */
 export type LineKind = "main" | "drain" | "sewer" | "dredge";
 export type LineJob = {
@@ -56,17 +58,13 @@ export type LineJob = {
    * the next does; whether they are all there — the job is not worked till they are; and, the job done, seconds since
    * and which are still to set off home. `false` with no yard or no road to bring them: they are simply there.
    */
-  plant?: false | { queue: PlantKind[]; t: number; here: boolean; leaving?: number; home?: PlantKind[]; /** Where each stopped at the road as it came: by its paint. */ at?: { colour: number; x: number; y: number; heading: number }[]; /** Where the one setting off home now is to drive to: where its way on the road begins. */ to?: { kind: PlantKind; x: number; y: number; heading: number } };
+  plant?: false | Plant;
 };
-/** A machine a line's job is done with, as it travels: the crane; a mixer; a low-loader, a digger or a roller on it; the gang's pickup. */
-export type PlantKind = "crane" | "mixer" | "loader" | "pickup";
 /** What each kind of job sends for, in the order they set off. A dredger comes by water. */
 export const LINE_PLANT: Readonly<Record<LineKind, readonly PlantKind[]>> = {
   main: ["pickup", "loader", "mixer", "crane"], drain: ["pickup", "loader", "mixer", "crane"],
   sewer: ["pickup", "loader", "loader", "loader", "crane"], dredge: [],
 };
-/** Seconds between one machine setting off and the next; seconds a finished job's machines take to gather at the road before the first goes home. */
-export const PLANT_GAP = 1.8, PLANT_GATHER = 6;
 
 /**
  * Seconds a tile, the leading trade: a main is two crane lifts a tile, and a lift takes what a lift takes; a sewer

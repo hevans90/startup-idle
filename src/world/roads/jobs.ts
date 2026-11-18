@@ -20,12 +20,21 @@ import { idx, inBounds, type Grid } from "../grid";
 import { gradeRoad, type Grade, type GradeCell } from "./grade";
 import { derivedRamp } from "./ramp-derive";
 
+/**
+ * What a road's job sends for, in the order they set off: the surveyors' pickup and the liners'; low-loaders with
+ * the digger, the packing roller, the paver and its screed, and the finishing roller; two tippers, for the spoil and
+ * the stone; a mixer. @see fleet/plant, render/road-plant ROAD_UNITS
+ */
+export const ROAD_PLANT = ["pickup", "loader", "tipper", "loader", "tipper", "mixer", "loader", "loader", "pickup"] as const;
+
 /** A cell of a job: where, the level its road will stand at, whether that is a bridge's deck, the ground it was ordered on, and whether there is a road to build there at all. */
 export type JobCell = { x: number; y: number; z: number; deck: boolean; from: number; fresh: boolean };
 /** A road beside a job whose ramp is levelled for the junction: where, to what, from what, and the cell of the job it is levelled with. */
 export type JobLevel = { x: number; y: number; to: number; from: number; at: number };
 export type RoadJob = {
   id: number;
+  /** ITS MACHINES, from the yard and home: not worked till they are there, not over till they have gone. `false` with no yard to send them. @see fleet/plant */
+  plant?: false | import("../fleet/plant").Plant;
   cells: JobCell[];
   levelled: JobLevel[];
   /** Seconds it has been worked: the earthworks' clock, which needs nothing brought. */
@@ -277,10 +286,12 @@ const noWrites = (): RoadWrites => ({ heights: [], paved: [], decks: [] });
  * first. What it writes, and whether anything that shows has changed — a
  * trade passed a cell, a length opened, a job finished and came off the list.
  */
-export function stepRoadJobs(g: Grid, dt: number): { writes: RoadWrites; changed: boolean } {
+export function stepRoadJobs(g: Grid, dt: number, plant?: { held: (j: RoadJob) => boolean; over: (j: RoadJob) => boolean }): { writes: RoadWrites; changed: boolean } {
   const writes = noWrites();
   let changed = false;
   for (const j of g.roadJobs.slice(0, GANGS)) {
+    // (Not worked while its machines are still coming, nor once it is done and they are going. @see fleet/plant)
+    if (plant?.held(j)) continue;
     const before = [0, 1, 2, 3].map((s) => frontOf(j, s));
     // LOADS ACROSS COUNTRY, arriving.
     for (let k = j.overland.length - 1; k >= 0; k--) if ((j.overland[k] -= dt) <= 0) { j.overland.splice(k, 1); j.delivered = Math.min(j.deliveries, j.delivered + 1); changed = true; }
@@ -329,7 +340,8 @@ export function stepRoadJobs(g: Grid, dt: number): { writes: RoadWrites; changed
       changed = true;
     }
   }
-  const done = g.roadJobs.filter((j) => j.opened >= j.cells.length);
+  // (Done, and off the list — once its machines have gone home, where it has any to send.)
+  const done = g.roadJobs.filter((j) => j.opened >= j.cells.length && (plant?.over(j) ?? true));
   if (done.length) { g.roadJobs = g.roadJobs.filter((j) => !done.includes(j)); changed = true; }
   return { writes, changed };
 }

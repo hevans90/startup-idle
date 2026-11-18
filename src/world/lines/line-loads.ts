@@ -8,9 +8,10 @@ import { idx, inBounds, type Grid } from "../grid";
 import { placesOf, type Place } from "../agents/roads";
 import { sendOnJob, setOff, type Mover, type Town } from "../agents/town";
 import { find, type Network } from "../roads/network";
-import { FLEET_TIPPER_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PIPE_EMPTY_COLOUR, PLANT_CRANE_COLOUR, PLANT_LOADER_COLOUR, PLANT_MIXER_COLOUR, PLANT_PICKUP_COLOUR } from "../agents/cars/fleet";
-import { isYard, lorryFor, lorryLost, plantComing, plantOut, queueYardLoad, yardQueued } from "../fleet/fleet";
-import { LINE_LAYS, LINE_PLANT, PLANT_GAP, PLANT_GATHER, TRACK_SPEED, lineFront, type LineJob, type PlantKind } from "./jobs";
+import { FLEET_TIPPER_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PIPE_EMPTY_COLOUR } from "../agents/cars/fleet";
+import { isYard, lorryFor, lorryLost, queueYardLoad, yardQueued } from "../fleet/fleet";
+import { stepPlant } from "../fleet/plant";
+import { LINE_LAYS, LINE_PLANT, TRACK_SPEED, lineFront, type LineJob } from "./jobs";
 
 /** The Garage and what it grows into: the yard a load comes from. @see works depotFor */
 export const YARDS: readonly string[] = ["garage", "hq", "boardroom", "ipo"];
@@ -86,14 +87,6 @@ export function stepLineHaul(g: Grid, haul: { net: Network; town: Town }, dt: nu
   let changed = false, places: Place[] | null = null;
   for (let k = haul.town.arrived.length - 1; k >= 0; k--) {
     const m = haul.town.arrived[k];
-    // (A machine that has got there: where it stopped is where it sets out across the job from. @see stepLinePlant)
-    if (m.job?.role === "plant") {
-      haul.town.arrived.splice(k, 1);
-      const j = g.lineJobs.find((q) => q.id === m.job!.site);
-      if (j?.plant && !m.gone) (j.plant.at ??= []).push({ colour: m.colour, x: m.x, y: m.y, heading: m.heading });
-      changed = true;
-      continue;
-    }
     if (m.job?.role !== "line-load") continue;
     haul.town.arrived.splice(k, 1);
     const j = g.lineJobs.find((q) => q.id === m.job!.site);
@@ -163,62 +156,15 @@ export function lineLorryFree(g: Grid, haul: { net: Network; town: Town }, j: Li
   return !head || !isYard(g, from) || lorryFor(g, haul.town, { pipes: "main" });
 }
 
-/** The machine waiting at the road to go home, its way found: held till it has driven to where that begins. By job. */
-const plantLeaving = new Map<number, Mover>();
-const PLANT_COLOUR: Readonly<Record<PlantKind, number>> = { crane: PLANT_CRANE_COLOUR, mixer: PLANT_MIXER_COLOUR, loader: PLANT_LOADER_COLOUR, pickup: PLANT_PICKUP_COLOUR };
-
 /**
- * A FRAME OF A LINE'S MACHINES. A job by a road a yard is on is not worked till its machines have come from that
- * yard — the crane, a mixer, its diggers on low-loaders, the gang's pickup, one after another through the town —
- * and when it is done they gather at the road and go home the same way; only then is the job over. Says where it
- * has got to: `wait` (not worked yet), `work`, `leaving` (done, its machines going), `gone` (to be taken off the
- * map's list). `none` for a job nothing comes to by road: its machines are simply there, as they were.
+ * A FRAME OF A LINE'S MACHINES: from the yard before it is worked, and home when it is done — its lorries let off
+ * its track first. @see fleet/plant stepPlant
  */
 export function stepLinePlant(g: Grid, haul: { net: Network; town: Town }, j: LineJob, dt: number): "none" | "wait" | "work" | "leaving" | "gone" {
   if (j.plant === false || !LINE_PLANT[j.kind].length) return "none";
-  const head = lineHead(g, haul.net, j), from = head && yardFor(g, placesOf(g, haul.net), head);
-  const ok = !!head && isYard(g, from) && (from.x !== head.x || from.y !== head.y);
-  if (!j.plant) {
-    // (Under way already — a map loaded with it half laid — its machines are on it.)
-    if (!ok || j.t > 0) { j.plant = ok ? { queue: [], t: 0, here: true } : false; return ok ? "work" : "none"; }
-    j.head = { x: head!.x, y: head!.y };
-    j.depot = from!.structure;
-    j.plant = { queue: [...LINE_PLANT[j.kind]], t: 0, here: false };
-  }
-  const p = j.plant;
-  if (p.leaving !== undefined) {
-    p.leaving += dt;
-    p.home ??= [...LINE_PLANT[j.kind]];
-    // (Whatever lorries are still on it are let off first: each back down the track and home.)
-    if (j.head) { const places = placesOf(g, haul.net); while ((j.gone ?? 0) < j.delivered) lineLorryBack(g, haul, j, places); }
-    // (Not before its lorries have gone: they are let off the track first.)
-    if (p.leaving >= PLANT_GATHER && p.home.length && !(j.back?.length || j.drive?.length)) {
-      if (!p.to) {
-        // THE NEXT OF THEM OFF: its way home found, and where that begins is where it drives to from where it stands.
-        const kind = p.home[0], next = ok ? setOff(haul.town, g, "truck", head!, from!) : null;
-        if (next) plantLeaving.set(j.id, next); else plantLeaving.delete(j.id);
-        p.to = { kind, x: next?.x ?? j.head?.x ?? j.cells[0].x, y: next?.y ?? j.head?.y ?? j.cells[0].y, heading: next?.heading ?? 0 };
-        p.t = PLANT_GAP;
-      } else {
-        p.t -= dt;
-        if (p.t <= 0) {
-          const next = plantLeaving.get(j.id);
-          plantLeaving.delete(j.id);
-          if (next) { next.colour = PLANT_COLOUR[p.to.kind]; next.job = { site: j.id, role: "haul-back" }; haul.town.movers.push(next); }
-          p.home.shift();
-          p.to = undefined;
-        }
-      }
-    }
-    return p.home.length ? "leaving" : "gone";
-  }
-  if (p.here) return "work";
-  // (Its road gone from under it since: they are counted as there.)
-  if (!ok) { p.queue = []; p.here = true; return "work"; }
-  p.t -= dt;
-  // (Each out of the yard's shed and through its gate, and so onto the road. @see fleet plantOut)
-  if (p.queue.length && p.t <= 0) { plantOut(g, haul.town, from!, head!, { site: j.id, role: "plant" }, PLANT_COLOUR[p.queue.shift()!]); p.t = PLANT_GAP * 2; }
-  const onRoad = haul.town.movers.some((m) => m.job?.role === "plant" && m.job.site === j.id && !haul.town.arrived.includes(m)) || plantComing(haul.town, j.id);
-  if (!p.queue.length && !onRoad) p.here = true;
-  return p.here ? "work" : "wait";
+  const head = lineHead(g, haul.net, j);
+  if (!j.plant && head) { j.head = { x: head.x, y: head.y }; const from = yardFor(g, placesOf(g, haul.net), head); if (isYard(g, from)) j.depot = from.structure; }
+  // (Whatever lorries are still on it are let off first: each back down the track and home.)
+  if (j.plant && j.plant.leaving !== undefined && j.head) { const places = placesOf(g, haul.net); while ((j.gone ?? 0) < j.delivered) lineLorryBack(g, haul, j, places); }
+  return stepPlant(g, haul, j, { id: j.id, role: "plant" }, head, LINE_PLANT[j.kind], j.t > 0, dt, !!(j.back?.length || j.drive?.length));
 }

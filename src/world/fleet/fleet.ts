@@ -217,8 +217,8 @@ export function lorryLost(g: Grid, town: Town, id: number): void {
 /** The paint of a job's machine on the road: the crane travelling, a mixer, a low-loader, the gang's pickup. */
 const PLANT_PAINT: ReadonlySet<number> = new Set([PLANT_CRANE_COLOUR, PLANT_MIXER_COLOUR, PLANT_LOADER_COLOUR, PLANT_PICKUP_COLOUR]);
 /** Machines on their way out of a yard to a job, by the job: not on the road yet. */
-const plantLegs = new Map<number, number>();
-export const plantComing = (_town: Town, site: number) => (plantLegs.get(site) ?? 0) > 0;
+const plantLegs = new Map<string, number>();
+export const plantComing = (_town: Town, job: string) => (plantLegs.get(job) ?? 0) > 0;
 
 /**
  * A JOB'S MACHINE OUT OF THE YARD: from under the shed, where the company keeps them, round to the gate and onto
@@ -228,11 +228,12 @@ export function plantOut(g: Grid, town: Town, from: Place, to: Place, job: NonNu
   const s = g.structures.get(from.structure!), next = setOff(town, g, "truck", from, to);
   if (!s || !next) return;
   const up = levelOf(s), at = bayOf(s, 0), m = ghost(town, g, at.x, at.y, outward(s), colour, up);
-  plantLegs.set(job.site, (plantLegs.get(job.site) ?? 0) + 1);
+  const name = `${job.role}:${job.site}`;
+  plantLegs.set(name, (plantLegs.get(name) ?? 0) + 1);
   startLeg(town, m, [{ ...inYardAt(s, at.u, 1.3), up }, ...TO_BAY.map((p) => ({ ...inYardAt(s, p.u, p.v), up })), { ...inYardAt(s, YARD_GATE.u, GATE_V - 0.1), up }, { ...inYardAt(s, YARD_GATE.u, GATE_V + 0.2), up: 0 }, { x: next.x, y: next.y, up: 0 }], () => {
     next.id = m.id; next.colour = colour; next.job = job; next.heading = m.heading;
     town.movers.push(next);
-    plantLegs.set(job.site, Math.max(0, (plantLegs.get(job.site) ?? 1) - 1));
+    plantLegs.set(name, Math.max(0, (plantLegs.get(name) ?? 1) - 1));
   }, up);
 }
 /** Whether a vehicle stands at a yard's gate. */
