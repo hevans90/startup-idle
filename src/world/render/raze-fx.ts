@@ -101,14 +101,17 @@ function through(p: readonly number[], m: MassIn, ahead = false): boolean {
 
 export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeFx {
   const jobs = new Map<number, Job>();
+  const stage = new Container();
   /** Pictures done with, kept a few frames: a batch may still hold one. */
   const trash: { tex: Texture; left: number }[] = [];
   const drop = (c: Container) => { c.parent?.removeChild(c); c.destroy(); };
+  /** A mesh, and ITS GEOMETRY WITH IT: nothing else frees a geometry's buffers here (the renderer's collector is off), and one left was a few megabytes a building a time. */
+  const dropMesh = (m: Mesh) => { const geo = m.geometry; m.parent?.removeChild(m); m.destroy(); geo.destroy(true); };
   const end = (job: Job) => {
     for (const [n, a] of job.kept) if (!n.destroyed) n.alpha = a;
-    for (const b of job.bandsOf.values()) if (b.mesh) drop(b.mesh);
-    if (job.back) drop(job.back);
-    for (const f of job.founds) drop(f.mesh);
+    for (const b of job.bandsOf.values()) if (b.mesh) dropMesh(b.mesh);
+    if (job.back) dropMesh(job.back);
+    for (const f of job.founds) dropMesh(f.mesh);
     drop(job.air);
     if (job.tex) trash.push({ tex: job.tex, left: 4 });
   };
@@ -159,11 +162,12 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
         }
         masses = masses.filter((m) => m.w1 - m.w0 > 0.06);
         // ITS PICTURE, once: copies of its pieces, drawn into a texture with a strip of bare colours under it.
-        const stage = new Container();
+        // (The one stage for every picture: a stage of its own each time left its batch's buffers behind for good.)
+        for (const ch of stage.removeChildren()) ch.destroy({ children: true, context: false, texture: false });
         for (const n of live) { const c = copyOf(n); if (c) stage.addChild(c); }
         const b = stage.getLocalBounds();
         const fx0 = Math.floor(b.minX) - 1, fy0 = Math.floor(b.minY) - 1, fw = Math.ceil(b.maxX - b.minX) + 2, fh = Math.ceil(b.maxY - b.minY) + 2;
-        if (!Number.isFinite(fw) || fw < 2 || fh < 2) { stage.destroy({ children: true, context: false, texture: false }); job.sim = createCollapse([], plot, { u: fu, v: fv }, 1); }
+        if (!Number.isFinite(fw) || fw < 2 || fh < 2) { for (const ch of stage.removeChildren()) ch.destroy({ children: true, context: false, texture: false }); job.sim = createCollapse([], plot, { u: fu, v: fv }, 1); }
         else {
           const sw = new Graphics(), cols: number[] = [FOUNDATION];
           for (const s of SKINS) for (const k of SHADES) cols.push(shade(BARE[s], k));
@@ -175,7 +179,9 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
           const frame = new Rectangle(fx0, fy0, Math.max(fw, cols.length * (SWATCH + 2) + 2), fh + SWATCH + 4);
           const res = Math.max(0.5, Math.min(2, 2048 / Math.max(frame.width, frame.height)));
           job.tex = renderer.generateTexture({ target: stage, frame, resolution: res, antialias: false });
-          stage.destroy({ children: true, context: false, texture: false });
+          // (The swatches are its own drawing, and go altogether; the copies share their originals' and leave them.)
+          stage.removeChild(sw); sw.destroy({ context: true });
+          for (const ch of stage.removeChildren()) ch.destroy({ children: true, context: false, texture: false });
           job.frame = { x: frame.x, y: frame.y, w: frame.width, h: frame.height };
           cols.forEach((c, k) => job.flat.set(c, [(1 + k * (SWATCH + 2) + SWATCH / 2) / frame.width, (fh + 2 + SWATCH / 2) / frame.height]));
           const uvOf = (x: number, y: number): [number, number] => [(x - job.frame.x) / job.frame.w, (y - job.frame.y) / job.frame.h];
@@ -291,7 +297,7 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
           if (need > B.cap || !B.mesh) {
             // (Room for what it has and half as much again.)
             const cap = Math.min(QUADS, Math.max(ROOM, Math.ceil(need * 1.5)));
-            if (B.mesh) drop(B.mesh);
+            if (B.mesh) dropMesh(B.mesh);
             B.pos = new Float32Array(cap * 8); B.uv = new Float32Array(cap * 8); B.cap = cap;
             const ind = new Uint32Array(cap * 6);
             for (let q = 0; q < cap; q++) { const o = q * 4; ind[q * 6] = o; ind[q * 6 + 1] = o + 1; ind[q * 6 + 2] = o + 2; ind[q * 6 + 3] = o; ind[q * 6 + 4] = o + 2; ind[q * 6 + 5] = o + 3; }
@@ -338,6 +344,7 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
       for (const [id, job] of jobs) if (!live.has(id)) { end(job); jobs.delete(id); }
     },
     destroy() {
+      stage.destroy({ children: true, context: false, texture: false });
       for (const job of jobs.values()) end(job);
       jobs.clear();
     },
