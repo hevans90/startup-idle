@@ -26,7 +26,7 @@ import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { PIECE_TILE, type RazeMass } from "../structures/render";
 import type { BandLayer } from "./bands";
-import { axisOf, createCollapse, type Chunk, type Collapse, type MassIn, type Skin } from "./collapse-sim";
+import { axisOf, cornerOf, createCollapse, type Chunk, type Collapse, type MassIn, type Skin } from "./collapse-sim";
 
 /** Of a demolition's time: when the first of it goes, when the last is down, and when the clearing — which follows — is done. */
 export const RAZE = { first: 0.1, down: 0.72, cleared: 0.97 } as const;
@@ -38,7 +38,9 @@ const DUST = 0xcfc5b3, GLASS = 0xbfe0ee;
 /** Bare material, by what a piece is of; and how each of its faces is lit: up, toward +u, toward +v, away. */
 const BARE: Record<Skin, number> = { masonry: 0x8d6b57, concrete: 0x9b9891, glass: 0x9fc3d6, sheet: 0x7d858c };
 const SHADES = [1, 0.8, 0.92, 0.62], SKINS: Skin[] = ["masonry", "concrete", "glass", "sheet"], FOUNDATION = 0x77736c;
-const QUADS = 3600, SWATCH = 6, CELLPX = 9;
+const QUADS = 6500, SWATCH = 6, CELLPX = 5;
+/** How far a mass is taken to reach past its own box, tiles, sideways and up: its cornice, its parapet, what stands on its roof — all of its picture goes with its pieces, and none of it is left hanging. */
+const GROW = 0.09, GROW_UP = 0.2;
 
 type Puff = { x: number; y: number; vx: number; vy: number; r: number; grow: number; age: number; life: number; colour: number };
 type Bit = { x: number; y: number; vx: number; vy: number; ground: number; age: number; size: number };
@@ -127,7 +129,7 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
       if (!job.sim && p >= RAZE.first && renderer) {
         const live = nodes.filter((n) => !n.destroyed);
         // ITS MASSES: its renderer's, or — a house, a port — a box a tile, as high as that tile's part of the picture.
-        let masses: MassIn[] = (told ?? []).map((m) => ({ u0: m.u0, v0: m.v0, u1: m.u1, v1: m.v1, w0: m.z0 / ZT, w1: m.z1 / ZT, storey: m.storey / ZT, skin: m.skin }));
+        let masses: MassIn[] = (told ?? []).map((m) => ({ u0: m.u0 - GROW, v0: m.v0 - GROW, u1: m.u1 + GROW, v1: m.v1 + GROW, w0: m.z0 / ZT, w1: m.z1 / ZT + GROW_UP, storey: m.storey / ZT, skin: m.skin }));
         if (!masses.length) {
           const tops = new Map<number, number>();
           for (const n of live) {
@@ -176,10 +178,11 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
               const a = f >> 1, sg = f & 1 ? -1 : 1, bb = (a + 1) % 3, cc = (a + 2) % 3;
               const mid = [c.c[0], c.c[1], c.c[2]]; mid[a] += sg * (c.e[a] + 0.012);
               if (masses.some((m) => through(mid, m, true))) continue;
-              const uv = new Float32Array(8);
+              const uv = new Float32Array(8), sgn = [0, 0, 0], loc = [0, 0, 0];
               [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([sb, sc], k) => {
-                const q = [c.c[0], c.c[1], c.c[2]]; q[a] += sg * c.e[a]; q[bb] += sb * c.e[bb]; q[cc] += sc * c.e[cc];
-                const [x, y] = px(q[0], q[1], q[2]), [tu, tv] = uvOf(x, y);
+                sgn[a] = sg; sgn[bb] = sb; sgn[cc] = sc;
+                cornerOf(c, sgn[0], sgn[1], sgn[2], loc);
+                const [x, y] = px(c.c[0] + loc[0], c.c[1] + loc[1], c.c[2] + loc[2]), [tu, tv] = uvOf(x, y);
                 uv[k * 2] = tu; uv[k * 2 + 1] = tv;
               });
               c.tex[f] = uv;
@@ -197,7 +200,8 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
           const cell = CELLPX * scale;
           for (let y = fy0; y < fy0 + fh; y += cell) for (let x = fx0; x < fx0 + fw; x += cell) {
             const x1 = Math.min(fx0 + fw, x + cell), y1 = Math.min(fy0 + fh, y + cell);
-            if (inMass(x, y) && inMass(x1, y) && inMass(x1, y1) && inMass(x, y1) && inMass((x + x1) / 2, (y + y1) / 2)) continue;
+            // (All of the building's own part of the picture is its pieces': none of it left behind as an outline.)
+            if (inMass((x + x1) / 2, (y + y1) / 2)) continue;
             quad([[x, y], [x1, y], [x1, y1], [x, y1]]);
           }
           const nq = pos.length / 8, ind = new Uint32Array(nq * 6);
@@ -235,8 +239,8 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
           const [x, y] = px(h.at[0], h.at[1], h.at[2]), big = Math.min(1.6, h.size);
           if (h.kind === "shatter") {
             for (let k = 0; k < 5 && job.bits.length < 260; k++) { const a = hash(job.bits.length * 3.3 + job.t), b = hash(job.bits.length * 7.1 + job.t * 3); job.bits.push({ x: x + (a - 0.5) * 16 * scale, y: y + (b - 0.5) * 20 * scale, vx: (a - 0.5) * 70 * scale, vy: -(10 + 50 * b) * scale, ground: px(h.at[0], h.at[1], 0)[1] + (a - 0.5) * 10 * scale, age: 0, size: (1 + 1.6 * b) * scale }); }
-          } else if (job.puffs.length < 150) {
-            const cnt = h.kind === "dust" ? 3 : 1 + (big > 0.5 ? 1 : 0);
+          } else if (job.puffs.length < 220) {
+            const cnt = h.kind === "dust" ? 2 : 2 + (big > 0.3 ? 1 : 0);
             for (let k = 0; k < cnt; k++) { const a = hash(job.puffs.length * 3.1 + job.t * 5), b = hash(job.puffs.length * 5.3 + job.t); job.puffs.push({ x: x + (a - 0.5) * 22 * scale, y: y - b * 6 * scale, vx: (a - 0.5) * 34 * scale, vy: -(6 + 18 * b) * scale, r: (4 + 8 * big) * scale, grow: (10 + 16 * big) * scale, age: 0, life: 1.4 + 1.8 * b, colour: DUST }); }
           }
         }
@@ -297,6 +301,7 @@ export function createRazeFx(bands: BandLayer, renderer: Renderer | null): RazeF
 
 /** The corners of a face, by its own two axes after its own: (−,−), (+,−), (+,+), (−,+). */
 const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+const SGN = [0, 0, 0], LOC = [0, 0, 0];
 /**
  * A piece into a band's layer from quad `q` on: each of its faces that is toward the camera, turned as it is — its
  * part of the picture on it, or bare, lit by which way it faced as built. Says the next quad.
@@ -311,8 +316,9 @@ function writeChunk(c: Chunk, B: BandMesh, q: number, px: (u: number, v: number,
     if (!tex && c.hollow) continue;
     const bare = tex ? null : flat.get(shade(BARE[c.skin], SHADES[f === 4 ? 0 : f === 0 ? 1 : f === 2 ? 2 : 3]));
     for (let k = 0; k < 4; k++) {
-      const sb = CORNERS[k][0] * c.e[b], sc = CORNERS[k][1] * c.e[cc], sa = sg * c.e[a];
-      const [x, y] = px(c.c[0] + ax[a][0] * sa + ax[b][0] * sb + ax[cc][0] * sc, c.c[1] + ax[a][1] * sa + ax[b][1] * sb + ax[cc][1] * sc, c.c[2] + ax[a][2] * sa + ax[b][2] * sb + ax[cc][2] * sc);
+      SGN[a] = sg; SGN[b] = CORNERS[k][0]; SGN[cc] = CORNERS[k][1];
+      cornerOf(c, SGN[0], SGN[1], SGN[2], LOC);
+      const [x, y] = px(c.c[0] + ax[0][0] * LOC[0] + ax[1][0] * LOC[1] + ax[2][0] * LOC[2], c.c[1] + ax[0][1] * LOC[0] + ax[1][1] * LOC[1] + ax[2][1] * LOC[2], c.c[2] + ax[0][2] * LOC[0] + ax[1][2] * LOC[1] + ax[2][2] * LOC[2]);
       B.pos[o + k * 2] = x; B.pos[o + k * 2 + 1] = y;
       B.uv[o + k * 2] = tex ? tex[k * 2] : bare ? bare[0] : 0; B.uv[o + k * 2 + 1] = tex ? tex[k * 2 + 1] : bare ? bare[1] : 0;
     }

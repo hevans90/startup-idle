@@ -53,6 +53,12 @@ export type Chunk = {
   kick?: V3;
   /** Going over, stood on an edge: how fast, and which way. */
   tip?: number;
+  /**
+   * ITS OUTLINE: no piece is a rectangle. `ma` is its thin axis; `shape`, the four corners of its face across that —
+   * along the two axes after `ma`, from its middle: (−,−), (+,−), (+,+), (−,+) — jagged where it was broken from
+   * its neighbours, which share those corners.
+   */
+  ma: number; shape: Float32Array;
   /** Of a box put round a picture: its bare faces are not drawn while it stands. @see MassIn.hollow */
   hollow?: boolean;
 };
@@ -62,7 +68,7 @@ export type Style = "pull" | "implode" | "shed";
 export const GRAVITY = 1.5;
 /** A wall's thickness and a plate's, tiles; how wide a panel and a plate are cut, by what they are of. */
 const WALL = 0.05, PLATE = 0.035;
-const CUT: Record<Skin, { panel: number; plate: number }> = { masonry: { panel: 0.26, plate: 0.32 }, glass: { panel: 0.4, plate: 0.36 }, sheet: { panel: 0.45, plate: 0.42 }, concrete: { panel: 0.32, plate: 0.34 } };
+const CUT: Record<Skin, { panel: number; plate: number }> = { masonry: { panel: 0.19, plate: 0.3 }, glass: { panel: 0.3, plate: 0.34 }, sheet: { panel: 0.3, plate: 0.3 }, concrete: { panel: 0.24, plate: 0.3 } };
 /** How hard a piece must land to break in two, tiles a second; never, for what does not break. */
 const BREAKS: Record<Skin, number> = { masonry: 0.85, concrete: 1.15, glass: 0, sheet: Infinity };
 const CELL = 0.25, MARGIN = 1;
@@ -74,34 +80,52 @@ export function fracture(masses: readonly MassIn[]): Chunk[] {
   const out: Chunk[] = [];
   let hollow = false;
   const add = (c: V3, e: V3, skin: Skin, part: Part, floor: number, outer: number): number => {
-    out.push({ hollow, c, e, q: [0, 0, 0, 1], v: [0, 0, 0], om: [0, 0, 0], skin, part, mass: 8 * e[0] * e[1] * e[2] * (skin === "glass" ? 0.6 : skin === "sheet" ? 0.4 : 1), floor, state: 0, due: Infinity, sup: [], dep: [], had: 0, gen: 0, tex: [null, null, null, null, null, null], outer });
+    const ma = part === "plate" ? 2 : e[0] < e[1] ? 0 : 1, bm = (ma + 1) % 3, cm = (ma + 2) % 3;
+    out.push({ hollow, ma, shape: new Float32Array([-e[bm], -e[cm], e[bm], -e[cm], e[bm], e[cm], -e[bm], e[cm]]), c, e, q: [0, 0, 0, 1], v: [0, 0, 0], om: [0, 0, 0], skin, part, mass: 8 * e[0] * e[1] * e[2] * (skin === "glass" ? 0.6 : skin === "sheet" ? 0.4 : 1), floor, state: 0, due: Infinity, sup: [], dep: [], had: 0, gen: 0, tex: [null, null, null, null, null, null], outer });
     return out.length - 1;
   };
   const rests = (on: number, what: number) => { out[what].sup.push(on); out[on].dep.push(what); };
+  let mi = 0;
   for (const m of masses) {
+    mi++;
     const du = m.u1 - m.u0, dv = m.v1 - m.v0, dw = m.w1 - m.w0;
     if (du < 0.12 || dv < 0.12 || dw < 0.06) continue;
     hollow = !!m.hollow;
     const n = Math.max(1, Math.round(dw / Math.max(0.2, m.storey))), fh = dw / n, cut = CUT[m.skin];
     // (Glass hangs on a frame: it holds nothing up. Everything else's walls carry what is over them.)
     const bearing = m.skin !== "glass";
-    let under: { walls: number[][]; plates: number[] } | null = null;
+    let under: { plates: number[] } | null = null, below: number[][] | null = null;
     for (let k = 0; k < n; k++) {
       const wa = m.w0 + k * fh, wb = wa + fh, top = k === n - 1;
-      const walls: number[][] = [];
-      // ITS FOUR WALLS: the two toward the camera (+u, +v) carry its picture; the two behind are bare.
-      for (const [side, len] of [[0, dv], [1, dv], [2, du], [3, du]] as const) {
-        const cnt = Math.max(1, Math.round(len / cut.panel)), ids: number[] = [];
-        for (let i = 0; i < cnt; i++) {
-          const a0 = (len * i) / cnt, a1 = (len * (i + 1)) / cnt, mid = (a0 + a1) / 2, half = (a1 - a0) / 2, wh = fh / 2;
-          const c: V3 = side === 0 ? [m.u1 - WALL / 2, m.v0 + mid, wa + wh] : side === 1 ? [m.u0 + WALL / 2, m.v0 + mid, wa + wh] : side === 2 ? [m.u0 + mid, m.v1 - WALL / 2, wa + wh] : [m.u0 + mid, m.v0 + WALL / 2, wa + wh];
-          const e: V3 = side < 2 ? [WALL / 2, half, wh] : [half, WALL / 2, wh];
-          const id = add(c, e, m.skin, "wall", k, side === 0 ? 1 : side === 2 ? 4 : 0);
-          // (On the panel under it — the nearest of that side.)
-          if (under) { const below = under.walls[side]; rests(below[Math.min(below.length - 1, Math.floor(((i + 0.5) / cnt) * below.length))], id); }
-          ids.push(id);
+      // ITS FOUR WALLS, in courses: the two toward the camera (+u, +v) carry its picture; the two behind are bare.
+      // BROKEN JAGGEDLY: every corner where four pieces meet is moved a little, the same for all four.
+      const rows = Math.max(1, Math.round(fh / cut.panel)), all = n * rows;
+      let walls: number[][] = [];
+      for (let r = 0; r < rows; r++) {
+        const gr = k * rows + r, course: number[][] = [];
+        for (const [side, len] of [[0, dv], [1, dv], [2, du], [3, du]] as const) {
+          const cnt = Math.max(1, Math.round(len / cut.panel)), ids: number[] = [], rh = fh / rows;
+          /** A corner of the wall's grid: how far along the wall, and how high. */
+          const at = (ci: number, ri: number): [number, number] => [
+            (len * ci) / cnt + (ci > 0 && ci < cnt ? (hash(mi * 91.7 + side * 13.1 + ci * 7.3 + ri * 3.9) - 0.5) * 0.55 * (len / cnt) : 0),
+            m.w0 + rh * ri + (ri > 0 && ri < all ? (hash(mi * 57.3 + side * 5.7 + ci * 2.3 + ri * 11.1) - 0.5) * 0.55 * rh : 0),
+          ];
+          for (let i = 0; i < cnt; i++) {
+            const mid = (len * (i + 0.5)) / cnt, half = len / cnt / 2, zc = m.w0 + rh * (gr + 0.5);
+            const c: V3 = side === 0 ? [m.u1 - WALL / 2, m.v0 + mid, zc] : side === 1 ? [m.u0 + WALL / 2, m.v0 + mid, zc] : side === 2 ? [m.u0 + mid, m.v1 - WALL / 2, zc] : [m.u0 + mid, m.v0 + WALL / 2, zc];
+            const e: V3 = side < 2 ? [WALL / 2, half, rh / 2] : [half, WALL / 2, rh / 2];
+            const id = add(c, e, m.skin, "wall", k, side === 0 ? 1 : side === 2 ? 4 : 0);
+            const A = at(i, gr), B = at(i + 1, gr), C2 = at(i + 1, gr + 1), D = at(i, gr + 1), sh = out[id].shape;
+            // (Its corners from its middle: along the wall and up, in the order its thin axis asks.)
+            const pts = side < 2 ? [A, B, C2, D] : [A, D, C2, B];
+            pts.forEach((q, n2) => { const al = q[0] - mid, up = q[1] - zc; sh[n2 * 2] = side < 2 ? al : up; sh[n2 * 2 + 1] = side < 2 ? up : al; });
+            // (On the piece under it.)
+            if (below) { const b2 = below[course.length]; rests(b2[Math.min(b2.length - 1, i)], id); }
+            ids.push(id);
+          }
+          course.push(ids);
         }
-        walls.push(ids);
+        below = course; walls = course;
       }
       // ITS FLOOR OVER IT — the roof, on the top storey, which carries the picture of the roof.
       const nu = Math.max(1, Math.round(du / cut.plate)), nv = Math.max(1, Math.round(dv / cut.plate)), plates: number[] = [];
@@ -113,7 +137,7 @@ export function fracture(masses: readonly MassIn[]): Chunk[] {
         if (under) rests(under.plates[i * nv + j], id);
         plates.push(id);
       }
-      under = { walls, plates };
+      under = { plates };
     }
   }
   for (const c of out) c.had = c.sup.length;
@@ -170,13 +194,31 @@ export function createCollapse(masses: readonly MassIn[], plot: { w: number; h: 
       if (c.part === "plate") c.due = K * 0.08 + out * 0.5 + r * 0.25;
       else { c.due = K * 0.3 + far * 0.35 + r * 0.3; const d = Math.hypot(cu - c.c[0], cv - c.c[1]) || 1; c.kick = [((cu - c.c[0]) / d) * 0.35, ((cv - c.c[1]) / d) * 0.35, 0]; }
     } else {
-      // PULLED DOWN from the digger's side, the top of each part first: a bite, and the next.
-      const key = far * 0.55 - c.c[2] * 1.9, span = Math.max(1.2, Math.hypot(plot.w, plot.h) * 0.55 + top * 1.9);
-      c.due = K * (0.04 + 0.86 * Math.max(0, Math.min(1, (key + top * 1.9) / span))) + r * 0.3;
-      const d = far || 1;
-      c.kick = [((from.u - c.c[0]) / d) * 0.28, ((from.v - c.c[1]) / d) * 0.28, 0.05];
+      // (Pulled down in BITES: given their times below, all of a bite together.)
+      c.due = -1;
     }
   });
+  // PULLED DOWN IN BITES from the digger's side, the top of each part first: the bucket takes hold of a piece of the
+  // building — everything within its reach — and tears it out toward the machine; then the next. What that leaves
+  // standing on nothing comes down after it.
+  {
+    const todo = chunks.map((c, i) => ({ c, i, key: Math.hypot(c.c[0] - from.u, c.c[1] - from.v) * 0.5 - c.c[2] * 1.7 })).filter((x) => x.c.due === -1).sort((a, b) => a.key - b.key);
+    const bites: { c: Chunk; i: number }[][] = [], taken = new Set<number>(), REACH = 0.4;
+    for (const x of todo) {
+      if (taken.has(x.i)) continue;
+      const bite = todo.filter((y) => !taken.has(y.i) && Math.hypot(y.c.c[0] - x.c.c[0], y.c.c[1] - x.c.c[1], (y.c.c[2] - x.c.c[2]) * 0.8) < REACH);
+      for (const y of bite) taken.add(y.i);
+      bites.push(bite);
+    }
+    bites.forEach((bite, b) => {
+      const when = K * (0.03 + 0.9 * (b / Math.max(1, bites.length))) ;
+      for (const { c, i } of bite) {
+        const r = hash(seed * 3.1 + i * 2.7), r2 = hash(seed * 5.9 + i * 1.3), d = Math.hypot(c.c[0] - from.u, c.c[1] - from.v) || 1;
+        c.due = when + r * 0.14;
+        c.kick = [((from.u - c.c[0]) / d) * (0.25 + 0.5 * r2) + (r - 0.5) * 0.5, ((from.v - c.c[1]) / d) * (0.25 + 0.5 * r2) + (r2 - 0.5) * 0.5, -0.15 + 0.5 * r];
+      }
+    });
+  }
   // ── THE GROUND, and what lies on it: a height a cell ───────────────────────────────────
   const gw = Math.ceil((plot.w + 2 * MARGIN) / CELL), gh = Math.ceil((plot.h + 2 * MARGIN) / CELL), heap = new Float32Array(gw * gh);
   const cell = (u: number, v: number) => Math.max(0, Math.min(gw - 1, Math.floor((u + MARGIN) / CELL))) + gw * Math.max(0, Math.min(gh - 1, Math.floor((v + MARGIN) / CELL)));
@@ -187,21 +229,32 @@ export function createCollapse(masses: readonly MassIn[], plot: { w: number; h: 
    * False for one too small, or broken twice already.
    */
   const breakUp = (c: Chunk, hit: number, ground: number, said: Happening[]): boolean => {
-    const big = Math.max(c.e[0], c.e[1], c.e[2]);
-    if (c.gen >= 3 || big < 0.075 || chunks.length >= 4200) return false;
-    const s = c.e[0] >= c.e[1] && c.e[0] >= c.e[2] ? 0 : c.e[1] >= c.e[2] ? 1 : 2;
+    const bm = (c.ma + 1) % 3, cm = (c.ma + 2) % 3, s = c.e[bm] >= c.e[cm] ? bm : cm, big = c.e[s];
+    if (c.gen >= 2 || big < 0.07 || chunks.length >= 5200) return false;
     c.state = 3;
     said.push({ kind: "thud", at: [c.c[0], c.c[1], ground], size: big * 2, skin: c.skin });
+    const ax = axisOf(c.q, s), P = c.shape, SG = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
     for (const sg of [-1, 1]) {
+      // ITS HALF OF THE OUTLINE: its own two corners, and the middles of the two sides the break crosses.
+      const sh = new Float32Array(8);
+      for (let k = 0; k < 4; k++) {
+        const ss = s === bm ? SG[k][0] : SG[k][1], other = s === bm ? (k ^ 1) : 3 - k;
+        if (ss === sg) { sh[k * 2] = P[k * 2]; sh[k * 2 + 1] = P[k * 2 + 1]; }
+        else { sh[k * 2] = (P[k * 2] + P[other * 2]) / 2; sh[k * 2 + 1] = (P[k * 2 + 1] + P[other * 2 + 1]) / 2; }
+      }
+      // (About its own middle along the break.)
+      const o = s === bm ? 0 : 1, d = (sh[o] + sh[2 + o] + sh[4 + o] + sh[6 + o]) / 4;
+      for (let k = 0; k < 4; k++) sh[k * 2 + o] -= d;
       const e: V3 = [c.e[0], c.e[1], c.e[2]]; e[s] /= 2;
-      // (Its own axis, turned: where the half's middle is.)
-      const ax = axisOf(c.q, s), cc: V3 = [c.c[0] + ax[0] * e[s] * sg, c.c[1] + ax[1] * e[s] * sg, c.c[2] + ax[2] * e[s] * sg + 0.01];
+      const cc: V3 = [c.c[0] + ax[0] * d, c.c[1] + ax[1] * d, c.c[2] + ax[2] * d + 0.01];
       const rr = hash(chunks.length * 2.3 + seed), rs = hash(chunks.length * 6.1 + seed);
-      const tex = c.tex.map((f, face) => (hash(chunks.length * 3.9 + face * 1.7 + seed) < 0.62 ? halfOf(f, face, s, sg) : null));
+      const tex = c.tex.map((f, face) => (hash(chunks.length * 3.9 + face * 1.7 + seed) < 0.7 ? halfOf(f, face, s, sg) : null));
+      // (Flung out from the middle of the heap, and up a little: rubble spreads.)
+      const ox = cc[0] - cu, oy = cc[1] - cv, ol = Math.hypot(ox, oy) || 1;
       chunks.push({
-        ...c, c: cc, e, q: [c.q[0], c.q[1], c.q[2], c.q[3]], state: 1, gen: c.gen + 1, mass: c.mass / 2, tex, sup: [], dep: [], kick: undefined, tip: 0,
-        v: [c.v[0] * 0.4 + (rr - 0.5) * 0.8 + ax[0] * sg * 0.22, c.v[1] * 0.4 + (rs - 0.5) * 0.8 + ax[1] * sg * 0.22, Math.max(0.15, hit * (0.16 + 0.22 * rr))],
-        om: [(rr - 0.5) * 9, (rs - 0.5) * 9, (rr - rs) * 5],
+        ...c, c: cc, e, shape: sh, q: [c.q[0], c.q[1], c.q[2], c.q[3]], state: 1, gen: c.gen + 1, mass: c.mass / 2, tex, sup: [], dep: [], kick: undefined, tip: 0,
+        v: [c.v[0] * 0.4 + (rr - 0.5) * 0.7 + (ox / ol) * 0.3 + ax[0] * sg * 0.2, c.v[1] * 0.4 + (rs - 0.5) * 0.7 + (oy / ol) * 0.3 + ax[1] * sg * 0.2, Math.max(0.2, hit * (0.18 + 0.25 * rr))],
+        om: [(rr - 0.5) * 11, (rs - 0.5) * 11, (rr - rs) * 6],
       });
     }
     return true;
@@ -230,14 +283,18 @@ export function createCollapse(masses: readonly MassIn[], plot: { w: number; h: 
             if (o.state !== 0) continue;
             let left = 0;
             for (const s of o.sup) if (chunks[s].state === 0 && s !== i) left++;
-            if (left * 2 < o.had) o.due = Math.min(o.due, t + 0.04 + hash(d * 5.3 + seed) * 0.09);
+            // (A tower blown at its foot DROPS AS ONE — nothing of it lags — and is broken at the ground. Anything else
+            // follows what held it a moment after.)
+            if (left * 2 < o.had) o.due = Math.min(o.due, style === "implode" ? t : t + 0.03 + hash(d * 5.3 + seed) * 0.08);
           }
           C.at = [c.c[0], c.c[1], c.c[2]];
           if (c.skin === "glass" && c.part === "wall") { c.state = 3; said.push({ kind: "shatter", at: [c.c[0], c.c[1], c.c[2]], size: Math.max(c.e[0], c.e[1]) + c.e[2], skin: c.skin }); continue; }
           c.state = 1;
           const r = hash(i * 9.1 + seed), r2 = hash(i * 4.3 + seed * 2);
-          if (c.kick) { c.v = [c.kick[0], c.kick[1], c.kick[2]]; c.om = [(r - 0.5) * 2.4, (r2 - 0.5) * 2.4, (r - 0.5) * 0.6]; }
-          else c.om = [(r - 0.5) * 0.25, (r2 - 0.5) * 0.25, 0];
+          if (c.kick) { c.v = [c.kick[0], c.kick[1], c.kick[2]]; c.om = [(r - 0.5) * 7, (r2 - 0.5) * 7, (r - r2) * 3]; said.push({ kind: "dust", at: [c.c[0], c.c[1], c.c[2]], size: 0.25, skin: c.skin }); }
+          // (Dropping with what was over it and under it: square, till it meets the ground.)
+          else if (style === "implode") c.om = [0, 0, 0];
+          else { c.v = [(r - 0.5) * 0.3, (r2 - 0.5) * 0.3, -0.2]; c.om = [(r - 0.5) * 3.5, (r2 - 0.5) * 3.5, (r - r2) * 1.5]; }
           if (c.floor === 0 && style === "implode") said.push({ kind: "dust", at: [c.c[0], c.c[1], 0.05], size: 0.5, skin: c.skin });
           continue;
         }
@@ -319,4 +376,11 @@ function halfOf(f: Float32Array | null, face: number, s: number, sg: number): Fl
     ? (sg < 0 ? [q(0), mid(0, 1), mid(3, 2), q(3)] : [mid(0, 1), q(1), q(2), mid(3, 2)])
     : (sg < 0 ? [q(0), q(1), mid(1, 2), mid(0, 3)] : [mid(0, 3), mid(1, 2), q(2), q(3)]);
   return new Float32Array(pts.flat());
+}
+
+/** A corner of a piece, from its middle along its own axes: the one on the sides `sx`, `sy`, `sz` (each ±1) of it. @see Chunk.shape */
+export function cornerOf(c: Chunk, sx: number, sy: number, sz: number, out: number[]): number[] {
+  const sg = [sx, sy, sz], bm = (c.ma + 1) % 3, cm = (c.ma + 2) % 3, k = sg[bm] < 0 ? (sg[cm] < 0 ? 0 : 3) : sg[cm] < 0 ? 1 : 2;
+  out[c.ma] = sg[c.ma] * c.e[c.ma]; out[bm] = c.shape[k * 2]; out[cm] = c.shape[k * 2 + 1];
+  return out;
 }
