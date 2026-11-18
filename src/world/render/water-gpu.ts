@@ -526,6 +526,10 @@ struct VSOutput {
   @location(0) vColor: vec4<f32>,
   // Where on the ground (tiles, a tile covering x…x+1), the level of the water there, and whether to cut it to the shore.
   @location(1) vShore: vec4<f32>,
+  // HOW MUCH OF WHAT IS ROUND THIS CORNER IS WATER, 0 to 1: the share of the four columns that meet there that are
+  // wet. The surface is cut along its halfway line — so an edge that steps column by column is drawn straight, its
+  // corners cut — and not along the columns' own sides. @see mainFragment
+  @location(2) vCover: f32,
 };
 
 /** How many STOREYS a column has. @see ColumnField.layers */
@@ -889,6 +893,7 @@ fn mainVertex(
   out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
   out.vColor = vec4<f32>(0.0, 0.0, 0.0, 0.0);
   out.vShore = vec4<f32>(0.0);
+  out.vCover = 1.0;
   let cpt = i32(water.uGrid.z);
   let per = cpt * cpt;
   // ONE INSTANCE PER QUAD, four vertices each. The band's instance count is
@@ -1026,20 +1031,22 @@ fn mainVertex(
       var sum = 0.0;
       sloped = false;
       var wets = 0.0;
+      var around = 0.0;
       for (var k = 0; k < 4; k++) {
         let qx = vcx - (k % 2);
         let qy = vcy - (k / 2);
-        if (!inside(qx, qy)) { continue; }
+        // (Off the map counts as water: the map's edge cuts it through, it is not a shore.)
+        if (!inside(qx, qy)) { around += 1.0; continue; }
         let qk = groundKind(qx / cpt, qy / cpt, a);
         if (qk == 1) { shelf = true; }
         if (qk == 2) { sloped = true; }
         let qd = depthAt(qx, qy, a);
-        if (wet(qd)) { sum += groundAt(qx, qy, a) + qd; wets += 1.0; }
+        if (wet(qd)) { sum += groundAt(qx, qy, a) + qd; wets += 1.0; around += 1.0; }
       }
+      out.vCover = around * 0.25;
       if (shelf && wets > 0.0) { h = max(h, sum / wets); }
-      if (groundKind(ccx / cpt, ccy / cpt, a) == 1) {
-        out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, 1.0);
-      }
+      // Where on the ground, for every corner (the foam is laid by place); and whether this tile is a shelf.
+      out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, select(0.0, 1.0, groundKind(ccx / cpt, ccy / cpt, a) == 1));
     }
 
     let e = cornerExtras(vcx, vcy, mine);
@@ -1053,6 +1060,7 @@ fn mainVertex(
       let tx0 = ccx / cpt; let ty0 = ccy / cpt;
       let lie = 1.0 - smoothstep(${THIN_ON_SLOPE}, ${THIN_ON_SLOPE * 3}, cd);
       h = mix(h, groundFan(tx0, ty0, f32(vcx - tx0 * cpt) / f32(cpt), f32(vcy - ty0 * cpt) / f32(cpt)) + cd, lie);
+      out.vShore.z = h;
     }
     // ZOOMED OUT AND WHOLE, the gradient off the columns; otherwise off the
     // sheet, as the column-by-column mesh and the host builder have it.
@@ -1116,10 +1124,19 @@ fn shoreNoise(p: vec2<f32>) -> f32 {
   return mix(mix(shoreHash(i), shoreHash(i + vec2<f32>(1.0, 0.0)), u.x), mix(shoreHash(i + vec2<f32>(0.0, 1.0)), shoreHash(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
 }
 @fragment
-fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vShore: vec4<f32>) -> @location(0) vec4<f32> {
+fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vShore: vec4<f32>, @location(2) vCover: f32) -> @location(0) vec4<f32> {
+  // THE WATER'S EDGE, wherever it is: along the halfway line of how much round each corner is water, soft, with a
+  // thin broken line of foam — one edge for water poured, running or standing. @see VSOutput.vCover
+  var body = vColor;
+  if (vCover < 0.999) {
+    if (vCover < 0.5) { discard; }
+    body = body * smoothstep(0.5, 0.6, vCover);
+    let lace = (1.0 - smoothstep(0.52, 0.68, vCover)) * (0.1 + 0.3 * smoothstep(0.35, 0.7, shoreNoise(vShore.xy * 1.7 + 3.0)));
+    body = mix(body, vec4<f32>(0.94, 0.97, 0.96, 1.0), lace * body.a);
+  }
   // THE SHORE: the drawn ground under this pixel — a fan from the tile's middle to its corners, as the ground's
   // mesh has it — and the water only where it is over that; clear at the very edge, with a line of foam.
-  if (vShore.w < 0.5) { return vColor; }
+  if (vShore.w < 0.5) { return body; }
   let cell = vec2<i32>(floor(vShore.xy));
   let c = textureLoad(uShore, vec2<i32>(cell.x * 2, cell.y), 0);
   let m = textureLoad(uShore, vec2<i32>(cell.x * 2 + 1, cell.y), 0).x;
@@ -1138,7 +1155,7 @@ fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vShore: vec4<f32>) 
   if (deep <= 0.0) { discard; }
   // How far from the waterline, in tiles along the ground: the depth over how fast that triangle falls.
   let out = deep / max(length(vec2<f32>(ea + eb - 2.0 * m, eb - ea)), 0.05);
-  var col = vColor * mix(0.4, 1.0, smoothstep(0.0, 0.25, deep));
+  var col = body * mix(0.4, 1.0, smoothstep(0.0, 0.25, deep));
   // A thin line of it, and broken: here and there, not a white rim round every bank.
   let patchy = smoothstep(0.35, 0.7, shoreNoise(vShore.xy * 1.7 + 3.0));
   let reach = 0.012 + 0.02 * shoreNoise(vShore.xy * 9.0 + 7.0);
