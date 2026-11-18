@@ -471,6 +471,8 @@ const SHADOW_RUN = 0.55;
  * falls, and only from ground well over the point (a bank's own fall is lit by its slope). The shader reads the
  * answer, four texels a pixel, where it walked ten cells of the map for it. @see shadowAt
  */
+/** How far behind a crest its shade reaches, tiles toward the back of the map; and how dark it is at its deepest, of a full shadow. */
+const BEHIND = 1.5, BEHIND_DARK = 0.6;
 function bakeShade(gm: GroundMesh, grid: Grid) {
   const W = grid.w * SHADE, H = grid.h * SHADE, hs = gm.heights, st = gm.stale;
   if (st[0] <= st[2]) {
@@ -479,7 +481,12 @@ function bakeShade(gm: GroundMesh, grid: Grid) {
     for (let j = y0; j < y1; j++) for (let i = x0; i < x1; i++) hs[j * W + i] = drawnHeight(grid, (i + 0.5) / SHADE, (j + 0.5) / SHADE);
     st[0] = 1; st[2] = 0;
   }
-  const top = grid.maxHeight + 2, step = 1 / SHADE, out = gm.shade;
+  shadeOf(hs, W, H, grid.maxHeight + 2, gm.shade);
+  gm.shadeSource.update();
+}
+/** The shade of every quarter of a tile (0 lit … 255 a full shadow) from the heights at their middles, `W` by `H` of them; `top` over the highest ground. @see bakeShade */
+export function shadeOf(hs: ArrayLike<number>, W: number, H: number, top: number, out: Uint8Array) {
+  const step = 1 / SHADE;
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
     const h = hs[j * W + i], far = (top - h) * SHADOW_RUN;
     let s = 0;
@@ -492,9 +499,18 @@ function bakeShade(gm: GroundMesh, grid: Grid) {
       const v = a * a * (3 - 2 * a) * (b * b * (3 - 2 * b));
       if (v > s) { s = v; if (s >= 1) break; }
     }
-    out[j * W + i] = Math.round(s * 255);
+    // AND THE FOOT OF A DROP THAT FACES AWAY: ground that stands over this point on the eye's side of it — the
+    // crest that hides its own face — shades what lies behind it, deepest right under the crest and gone within
+    // `BEHIND` tiles. Without it the crest is a line ruled between two lit fields.
+    let o = 0;
+    for (let k = 1; k <= BEHIND * SHADE; k++) {
+      const qi = i + k, qj = j + k;
+      if (qi >= W || qj >= H) break;
+      const t = k * step, a = Math.min(1, Math.max(0, (hs[qj * W + qi] - h - 1.5 - 2 * t) / 2)), v = a * a * (3 - 2 * a) * (1 - (t - step) / BEHIND);
+      if (v > o) o = v;
+    }
+    out[j * W + i] = Math.round(Math.max(s, o * BEHIND_DARK) * 255);
   }
-  gm.shadeSource.update();
 }
 
 /** A cell changed: its texel now, and the bands whose quads it can touch at the next flush. */
