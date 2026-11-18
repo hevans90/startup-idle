@@ -121,119 +121,6 @@ function fringeBehind(grid: Grid, palette: Palette, nx: number, ny: number, z: n
     || !!rampRise(grid.ramp[j]) || grid.height[j] !== z;
 }
 
-// ─── THE SHORE ───────────────────────────────────────────────────────────────
-
-/** A tile of standing water with nothing over it or on it: where a bank is smoothed and foam lies. */
-function wetAt(grid: Grid, x: number, y: number): boolean {
-  if (!inBounds(grid, x, y)) return false;
-  const i = idx(grid, x, y);
-  return grid.pool[i] > 0 && grid.deck[i] === 0 && !grid.paved[i] && !structureOf(grid, x, y);
-}
-/** Level ground the mesh draws, bare: a bank a wedge of land can be let out from. Its height, or null. */
-function bankAt(grid: Grid, palette: Palette, x: number, y: number): number | null {
-  if (!groundDraws(grid, palette, x, y) || wetAt(grid, x, y)) return null;
-  const i = idx(grid, x, y);
-  return rampRise(grid.ramp[i]) || grid.paved[i] || structureOf(grid, x, y) ? null : grid.height[i];
-}
-/** How long a tread of a stepped bank may be and still be drawn as one slope, tiles; how wide the foam lies, tiles. */
-export const SHORE_RUN = 3, FOAM = 0.17;
-const DIRS: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-
-let shoreOf: { grid: Grid; rev: number; palette: Palette; scale: number; byBand: Map<number, number[]> } | null = null;
-
-/**
- * A STEPPED BANK DRAWN AS A SLOPE, and foam along the water's edge. The map is tiles and a shore across them is
- * a staircase; so every step's inside corner — a water tile with land on two sides of it that meet — is FILLED
- * with a wedge of that land: from the corner, along the tread as far as it runs (to `SHORE_RUN`) and one riser
- * out, its long side the straight line from one step's outer corner to the next's. On a staircase those sides
- * join end to end, and the bank is a line. Nothing is cut and nothing else is told: the land's own tiles stand as
- * they did, the water under a wedge is still the water's tile, and what may be built where is as it was.
- *
- * Each piece is a quad over one water tile, drawn AFTER that tile's water — in the ground of the band in front —
- * and so comes back keyed by that band: a wedge's top at the land's height (kind 4, its second word the height's
- * texel), a wall down its long side to the waterline where that side is toward the camera, and FOAM (kind 7,
- * its second word nought at the bank and one at its outer edge) along every bank at the waterline.
- */
-function shorePieces(grid: Grid, palette: Palette, scale: number): Map<number, number[]> {
-  if (shoreOf && shoreOf.grid === grid && shoreOf.rev === grid.rev && shoreOf.palette === palette && shoreOf.scale === scale) return shoreOf.byBand;
-  const byBand = new Map<number, number[]>();
-  const out = (x: number, y: number) => { const b = bandOf(x, y) + 1; let v = byBand.get(b); if (!v) { v = []; byBand.set(b, v); } return v; };
-  const put = (v: number[], gu: number, gv: number, z: number, kind: number, word: number, su = gu, sv = gv) => {
-    const cx = gu - 0.5, cy = gv - 0.5;
-    v.push((cx - cy) * HW * scale, ((cx + cy) * HH - z * HEIGHT_UNIT) * scale, su, sv, kind, word);
-  };
-  const level = (x: number, y: number) => { const i = idx(grid, x, y); return grid.height[i] + grid.pool[i]; };
-  /** Which edges of which water tiles a wedge lies along, and how far along each from its corner: no foam there twice. */
-  const covered = new Map<number, number>();
-  type Late = () => void;
-  const wedges: Late[] = [], after: Late[] = [];
-  for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) {
-    if (!wetAt(grid, x, y)) continue;
-    const L = level(x, y);
-    for (let d = 0; d < 4; d++) {
-      const a = DIRS[d], b = DIRS[(d + 1) % 4];
-      const H = bankAt(grid, palette, x + a[0], y + a[1]);
-      if (H === null || H < L || bankAt(grid, palette, x + b[0], y + b[1]) !== H) continue;
-      // AN INSIDE CORNER: land toward `a` and toward `b`. How far each side's land runs on from it, away from the other.
-      const run = (along: [number, number], side: [number, number]) => {
-        let n = 1;
-        while (n <= SHORE_RUN && wetAt(grid, x - along[0] * n, y - along[1] * n) && level(x - along[0] * n, y - along[1] * n) === L
-          && bankAt(grid, palette, x - along[0] * n + side[0], y - along[1] * n + side[1]) === H) n++;
-        // (A tread: it ends at an outer corner — water on, and no land beside it. Longer than a slope is drawn, or ending in more land: a corner only.)
-        return n <= SHORE_RUN && wetAt(grid, x - along[0] * n, y - along[1] * n) ? n : 1;
-      };
-      let n = run(b, a), m = run(a, b);
-      if (n > 1 && m > 1) { n = 1; m = 1; }
-      // The corner itself, on the ground; the wedge is (C, C − n·b, C − m·a).
-      const C: [number, number] = [x + 0.5 + (a[0] + b[0]) / 2, y + 0.5 + (a[1] + b[1]) / 2];
-      const long = n >= m ? b : a, short = n >= m ? a : b, len = Math.max(n, m);
-      // (Outward from the land, across its long side; toward the camera when it has more of +x +y than not.)
-      const ox = -(a[0] * n + b[0] * m), oy = -(a[1] * n + b[1] * m), ol = Math.hypot(ox, oy), faces = ox + oy > 0.01;
-      for (let i = 0; i < len; i++) {
-        const tx = x - long[0] * i, ty = y - long[1] * i, v = out(tx, ty), Li = level(tx, ty);
-        const w0 = 1 - i / len, w1 = 1 - (i + 1) / len;
-        // Its piece over this tile: from the land's edge out to the long side, between `i` and `i + 1` along the tread.
-        const e0: [number, number] = [C[0] - long[0] * i, C[1] - long[1] * i], e1: [number, number] = [C[0] - long[0] * (i + 1), C[1] - long[1] * (i + 1)];
-        const h0: [number, number] = [e0[0] - short[0] * w0, e0[1] - short[1] * w0], h1: [number, number] = [e1[0] - short[0] * w1, e1[1] - short[1] * w1];
-        covered.set((ty * grid.w + tx) * 4 + (long === b ? d : (d + 1) % 4), 1);
-        if (i === 0) covered.set((ty * grid.w + tx) * 4 + (long === b ? (d + 1) % 4 : d), 1);
-        const foam = () => {
-          const fx = (ox / ol) * FOAM, fy = (oy / ol) * FOAM;
-          put(v, h0[0], h0[1], Li, 7, 0); put(v, h1[0], h1[1], Li, 7, 0); put(v, h1[0] + fx, h1[1] + fy, Li, 7, 1); put(v, h0[0] + fx, h0[1] + fy, Li, 7, 1);
-        };
-        // (Foam behind a wedge whose long side is away from the camera is under it; before one that faces it, over its wall's foot.)
-        if (!faces) wedges.push(foam);
-        wedges.push(() => {
-          put(v, e0[0], e0[1], H, 4, H + 128); put(v, e1[0], e1[1], H, 4, H + 128); put(v, h1[0], h1[1], H, 4, H + 128); put(v, h0[0], h0[1], H, 4, H + 128);
-          if (faces && H > Li) {
-            // ITS WALL, down to the water: earth under a lip of the land's own, read off the land beside the tread.
-            const kind = oy >= ox ? 2 : 1, s0: [number, number] = [e0[0] + short[0] * 0.5, e0[1] + short[1] * 0.5], s1: [number, number] = [e1[0] + short[0] * 0.5, e1[1] + short[1] * 0.5];
-            put(v, h0[0], h0[1], H, kind, 0, s0[0], s0[1]); put(v, h1[0], h1[1], H, kind, 0, s1[0], s1[1]);
-            put(v, h1[0], h1[1], Li, kind, H - Li, s1[0], s1[1]); put(v, h0[0], h0[1], Li, kind, H - Li, s0[0], s0[1]);
-          }
-        });
-        if (faces) after.push(foam);
-      }
-    }
-  }
-  // FOAM along every other bank: each edge of a water tile with land over the water beyond it.
-  for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) {
-    if (!wetAt(grid, x, y)) continue;
-    const L = level(x, y), v = out(x, y);
-    for (let d = 0; d < 4; d++) {
-      const a = DIRS[d], nx = x + a[0], ny = y + a[1];
-      if (!inBounds(grid, nx, ny) || wetAt(grid, nx, ny) || grid.height[idx(grid, nx, ny)] < L || covered.has((y * grid.w + x) * 4 + d)) continue;
-      const mx = x + 0.5 + a[0] / 2, my = y + 0.5 + a[1] / 2, px = -a[1] / 2, py = a[0] / 2;
-      put(v, mx - px, my - py, L, 7, 0); put(v, mx + px, my + py, L, 7, 0);
-      put(v, mx + px - a[0] * FOAM, my + py - a[1] * FOAM, L, 7, 1); put(v, mx - px - a[0] * FOAM, my - py - a[1] * FOAM, L, 7, 1);
-    }
-  }
-  for (const f of wedges) f();
-  for (const f of after) f();
-  shoreOf = { grid, rev: grid.rev, palette, scale, byBand };
-  return byBand;
-}
-
 // ─── THE MESH ────────────────────────────────────────────────────────────────
 
 /**
@@ -266,9 +153,6 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
     const cx = gu - 0.5, cy = gv - 0.5;
     v.push((cx - cy) * HW * scale, ((cx + cy) * HH - z * HEIGHT_UNIT) * scale, gu, gv, kind, depth);
   };
-  // THE SHORE of the band behind, first: over that band's water, under this band's own ground. @see shorePieces
-  const shore = shorePieces(grid, palette, scale).get(b);
-  if (shore) for (const f of shore) v.push(f);
   const x0 = Math.max(0, b - (grid.h - 1)), x1 = Math.min(grid.w - 1, b);
   for (let x = x0; x <= x1; x++) {
     const y = b - x;
@@ -324,8 +208,9 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
   const cells = new Uint8Array(grid.w * grid.h * 4);
   const source = new BufferImageSource({ resource: cells, width: grid.w, height: grid.h, format: "rgba8unorm", scaleMode: "nearest" });
   const uniforms = new UniformGroup({
-    // The map's size; and world px to screen-shaped units, where a cell's diamond is 2 across.
-    uMap: { value: new Float32Array([grid.w, grid.h, 1 / (HW * scale), 0]), type: "vec4<f32>" },
+    // The map's size; world px to screen-shaped units, where a cell's diamond is 2 across; and the highest ground
+    // there is, half steps: nothing higher can throw a shadow. @see shadowAt
+    uMap: { value: new Float32Array([grid.w, grid.h, 1 / (HW * scale), grid.maxHeight + 2]), type: "vec4<f32>" },
   });
   const gm: GroundMesh = { cells, source, uniforms, meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
   for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) writeCell(gm, grid, palette, x, y);
@@ -359,8 +244,7 @@ export function markGround(gm: GroundMesh, grid: Grid, palette: Palette, x: numb
   // Its own band; the band behind, whose walls stand over it; the band in
   // front, whose grass fringes over it.
   const b = bandOf(x, y);
-  // (And as far as a bank's slope reaches along it, which is drawn from the tiles either side. @see shorePieces)
-  for (let k = b - SHORE_RUN - 1; k <= b + SHORE_RUN + 2; k++) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
+  for (const k of [b - 1, b, b + 1]) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
 }
 
 /** Rebuild the bands marked, and send the texels. */
@@ -376,6 +260,8 @@ export function flushGround(gm: GroundMesh, grid: Grid, palette: Palette) {
   }
   gm.dirty.clear();
   gm.source.update();
+  const map = gm.uniforms.uniforms.uMap as Float32Array;
+  if (map[3] !== grid.maxHeight + 2) { map[3] = grid.maxHeight + 2; gm.uniforms.update(); }
 }
 
 export function destroyGroundMesh(gm: GroundMesh) {
@@ -478,6 +364,78 @@ fn cellAt(c: vec2<i32>) -> vec4<f32> {
 // A cell's ramp rise in half steps, from its flags.
 fn riseOf(c: vec4<f32>) -> f32 { return floor((c.z + 0.5) / 16.0); }
 
+// THE SUN: which way the light comes from, along the ground — from the screen's left and a little above it, as
+// every baked thing is lit — and how many tiles of shadow a half step of height throws.
+const SUN = vec2<f32>(-0.94, 0.34);
+const SHADOW_RUN = 0.55;
+// A cell's height in half steps, a ramp's at its middle.
+fn topOf(c: vec4<f32>) -> f32 { return c.y - 128.0 + riseOf(c) * 0.5; }
+// HOW MUCH OF THE SUN IS KEPT OFF a point at height h by the ground toward it: the ray walked a cell boundary at
+// a time, each cell it enters asked whether it stands over the ray there. Soft, and softer the further it falls.
+fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
+  var s = 0.0;
+  // (As far as the highest ground on the map could throw one, and no further.)
+  let far = (ground.uMap.w - h) * SHADOW_RUN;
+  let cx = floor(p.x);
+  for (var i = 0; i < 8; i++) {
+    let bx = cx - f32(i);
+    let t = (p.x - bx) / -SUN.x;
+    if (t > far) { break; }
+    let c = cellAt(vec2<i32>(i32(bx) - 1, i32(floor(p.y + SUN.y * t))));
+    if (c.w < 0.5) { break; }
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (topOf(c) - h) * SHADOW_RUN - t));
+  }
+  let cy = floor(p.y);
+  for (var j = 0; j < 2; j++) {
+    let by = cy + 1.0 + f32(j);
+    let t = (by - p.y) / SUN.y;
+    if (t > far) { break; }
+    let c = cellAt(vec2<i32>(i32(floor(p.x + SUN.x * t)), i32(by)));
+    if (c.w < 0.5) { break; }
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (topOf(c) - h) * SHADOW_RUN - t));
+  }
+  return s;
+}
+// THE SHADE AT THE FOOT OF HIGHER GROUND: darker close under it, and the more the higher it stands.
+fn contactAt(p: vec2<f32>, h: f32) -> f32 {
+  let cell = vec2<i32>(floor(p));
+  var a = 0.0;
+  // (Only the cells on the sides it is near: none reaches further than 0.46 of a tile.)
+  let f = p - floor(p);
+  let side = vec2<i32>(select(select(0, 1, f.x > 0.54), -1, f.x < 0.46), select(select(0, 1, f.y > 0.54), -1, f.y < 0.46));
+  for (var j = 0; j < 3; j++) {
+    {
+      let dx = select(side.x, 0, j == 1); let dy = select(side.y, 0, j == 0);
+      if (dx == 0 && dy == 0) { continue; }
+      if (j == 2 && (dx == 0 || dy == 0)) { continue; }
+      let n = cell + vec2<i32>(dx, dy);
+      let c = cellAt(n);
+      if (c.w < 0.5) { continue; }
+      let up = c.y - 128.0 - h;
+      if (up < 0.75) { continue; }
+      let lo = vec2<f32>(n);
+      let d = length(p - clamp(p, lo, lo + 1.0));
+      let reach = 0.16 + 0.05 * min(up, 6.0);
+      let k = 1.0 - smoothstep(0.0, reach, d);
+      a = max(a, k * k * min(1.0, 0.45 + up * 0.14));
+    }
+  }
+  return a;
+}
+// A colour as the sun and the ground round it leave it.
+fn relit(col: vec3<f32>, p: vec2<f32>, h: f32, foot: bool) -> vec3<f32> {
+  var c = mix(col, col * vec3<f32>(0.60, 0.64, 0.74), shadowAt(p, h) * 0.72);
+  if (foot) { c = c * (1.0 - 0.34 * contactAt(p, h)); }
+  return c;
+}
+fn grassBase(p: vec2<f32>) -> vec3<f32> {
+  var c = vec3<f32>(112.0, 156.0, 68.0) / 255.0;
+  // Whole fields differ: worn and dry here, damp and dark there.
+  c = mix(c, vec3<f32>(0.55, 0.62, 0.30), smoothstep(0.45, 0.8, vnoise(vec2<f32>(p.x * 0.8 - p.y * 0.6, p.x * 0.6 + p.y * 0.8) * 0.17 + 3.0)) * 0.5);
+  c = mix(c, vec3<f32>(0.31, 0.49, 0.24), smoothstep(0.45, 0.8, vnoise(p * 0.11 + 61.0)) * 0.5);
+  return c;
+}
+
 // Blade lattice, in screen-shaped units (a cell's diamond is 2 across), and the frequency they fade in at.
 const BLADE_W = 0.007;
 const BLADE_H = 0.014;
@@ -541,7 +499,7 @@ fn blades(base: vec3<f32>, tuft: f32, dens: f32, under: vec3<f32>, fringe: bool,
 }
 // Grass at density dens (1 a lawn, 0 none) over under, the ground it thins out onto.
 fn grassAt(p: vec2<f32>, fp: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
-  var c = vec3<f32>(138.0, 181.0, 73.0) / 255.0;
+  var c = grassBase(p);
   // Broad patches: lusher and drier.
   let m = fbm(p * 0.45);
   c = mix(c, vec3<f32>(0.60, 0.70, 0.30), smoothstep(0.55, 0.85, m) * 0.25);
@@ -612,7 +570,7 @@ fn fringeColour(lo: vec2<f32>, z: f32) -> vec4<f32> {
   let bf = shows(BLADE_F, gScreenFp);
   if (bf <= 0.0) { return vec4<f32>(0.0); }
   let p = groundAt(gScreen, z);
-  var c = vec3<f32>(138.0, 181.0, 73.0) / 255.0;
+  var c = grassBase(p);
   c = mix(c, vec3<f32>(0.60, 0.70, 0.30), smoothstep(0.55, 0.85, fbm(p * 0.45)) * 0.25);
   c = c * (0.96 + 0.08 * fbm(p * 0.9 + 5.0));
   let t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0);
@@ -621,21 +579,9 @@ fn fringeColour(lo: vec2<f32>, z: f32) -> vec4<f32> {
   return vec4<f32>(r.rgb, r.a * bf);
 }
 
-// FOAM along a bank: brightest in a thin line at the land, breaking up and thinning out over the water.
-fn foamColour(p: vec2<f32>, across: f32) -> vec4<f32> {
-  let n = fbm(p * 5.0 + 3.0);
-  let fine = vnoise(p * 23.0);
-  let reach = 0.55 + 0.45 * n;
-  let body = (1.0 - smoothstep(reach * 0.35, reach, across)) * (0.3 + 0.35 * fine);
-  let line = (1.0 - smoothstep(0.0, 0.16, across)) * 0.55;
-  return vec4<f32>(vec3<f32>(0.93, 0.97, 0.98), clamp(body + line, 0.0, 0.8));
-}
-
-// (hy: the height's texel of the land a shore's wedge is let out from, over a water tile; nought, the ground's own.)
-fn topColour(p: vec2<f32>, fp: f32, hy: f32) -> vec3<f32> {
+fn topColour(p: vec2<f32>, fp: f32) -> vec3<f32> {
   let cell = vec2<i32>(floor(p));
-  var here = cellAt(cell);
-  if (hy > 0.5) { here.y = hy; here.z = 1.0; }
+  let here = cellAt(cell);
   // How strongly each material claims this point: its nearest cell at the
   // same height, near is strong, ragged by noise of its own.
   var claim = vec3<f32>(-9.0);
@@ -664,7 +610,7 @@ fn topColour(p: vec2<f32>, fp: f32, hy: f32) -> vec3<f32> {
   // through a little inside it.
   let other = max(claim.y, claim.z);
   let dens = select(smoothstep(-0.35, 0.15, claim.x - other), 1.0, other < -1.0);
-  var under = vec3<f32>(138.0, 181.0, 73.0) / 255.0 * 0.8;
+  var under = grassBase(p) * 0.8;
   if (dens < 0.999 || claim.x < -1.0) {
     let aa = max(fp * 2.4, 0.015);
     var wo = clamp((vec2<f32>(claim.y, claim.z) - other) / aa + 1.0, vec2<f32>(0.0), vec2<f32>(1.0));
@@ -698,8 +644,23 @@ fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
   let strand = hash(vec2<i32>(i32(floor(along * 60.0)), 41));
   let lipDepth = 0.6 + (vnoise(vec2<f32>(along * 9.0, 3.0)) - 0.5) * 0.4 + (strand - 0.5) * 0.3 * shows(60.0, fp);
   var col = earth;
+  // ROCK below the soil: beds of it, each its own tone, a dark joint between, cracked down here and there.
+  let soil = select(2.6, 3.4, k == 3) + (vnoise(vec2<f32>(along * 1.3, 9.0)) - 0.5) * 1.6;
+  if (depth > soil - 0.3) {
+    let b = depth * 0.8 + (vnoise(vec2<f32>(along * 0.6, 4.0)) - 0.5) * 1.4;
+    let bed = floor(b); let bf = b - bed; let bi = i32(bed);
+    var rock = select(vec3<f32>(104.0, 97.0, 90.0), vec3<f32>(152.0, 142.0, 128.0), lit) / 255.0;
+    rock = rock * (0.88 + 0.24 * hash(vec2<i32>(bi, 77))) * (0.93 + 0.14 * fbm(vec2<f32>(along * 2.0, depth * 1.1)));
+    rock = rock * (1.0 - min(depth, 14.0) * 0.012);
+    rock = rock * (1.0 - 0.3 * (1.0 - smoothstep(0.0, 0.1, bf)) * shows(6.0, fp));
+    rock = rock * (1.0 + 0.1 * smoothstep(0.1, 0.22, bf) * (1.0 - smoothstep(0.22, 0.5, bf)) * shows(6.0, fp));
+    let u = along * 2.6 + hash(vec2<i32>(bi, 5)) * 9.0 + (vnoise(vec2<f32>(depth * 2.0, along * 3.0)) - 0.5) * 0.25;
+    let crack = hash(vec2<i32>(i32(floor(u)), bi)) > 0.45;
+    if (crack) { rock = rock * (1.0 - 0.32 * (1.0 - smoothstep(0.0, 0.07, fract(u))) * shows(12.0, fp)); }
+    col = mix(earth, rock, smoothstep(soil - 0.3, soil + 0.15, depth + (vnoise(vec2<f32>(along * 14.0, depth * 3.0)) - 0.5) * 0.5));
+  }
   if (k == 1 && depth < lipDepth) {
-    col = select(vec3<f32>(100.0, 134.0, 52.0), vec3<f32>(124.0, 163.0, 64.0), lit) / 255.0;
+    col = select(vec3<f32>(80.0, 112.0, 48.0), vec3<f32>(102.0, 140.0, 60.0), lit) / 255.0;
     col = col * mix(1.08, 0.8, depth / lipDepth);
     col = col * (1.0 + (vnoise(vec2<f32>(along * 70.0, depth * 1.2)) - 0.5) * 0.35 * shows(70.0, fp));
   } else if (k == 3 && depth < lipDepth) {
@@ -717,12 +678,6 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   gScreenFp = max(fs.x, fs.y) * 1.5;
   let fw = fwidth(vGround) + vec2<f32>(fwidth(vWall.y) * 0.5);
   let fp = max(fw.x, fw.y);
-  let gw = fwidth(vGround);
-  if (vWall.x > 6.5) {
-    let f = foamColour(vGround, vWall.y);
-    return vec4<f32>(f.rgb * f.a, f.a) * vTint;
-  }
-  if (vWall.x > 3.5) { return vec4<f32>(topColour(vGround, max(gw.x, gw.y), vWall.y), 1.0) * vTint; }
   if (vWall.x > 2.5) {
     let f = fringeColour(vGround, vWall.y);
     if (f.a <= 0.003) { discard; }
@@ -730,8 +685,17 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   }
   var col: vec3<f32>;
   // A top's second word is the light on its slope, 0 on the level.
-  if (vWall.x < 0.5) { col = topColour(vGround, fp, 0.0) * (1.0 + vWall.y); }
-  else { col = wallColour(vGround, vWall.x, vWall.y, fp); }
+  if (vWall.x < 0.5) {
+    col = relit(topColour(vGround, fp) * (1.0 + vWall.y), vGround, topOf(cellAt(vec2<i32>(floor(vGround)))), true);
+  } else {
+    col = wallColour(vGround, vWall.x, vWall.y, fp);
+    // A face toward the light can stand in the shadow of ground further toward it.
+    if (vWall.x > 1.5) {
+      // (Asked from just in front of the face: the cliff beside it along the same line is not in its way.)
+      let own = cellAt(vec2<i32>(floor(vGround - vec2<f32>(0.0, 0.02))));
+      col = relit(col, vGround + vec2<f32>(0.0, 0.002), own.y - 128.0 - vWall.y, false);
+    }
+  }
   return vec4<f32>(col, 1.0) * vTint;
 }
 `;
@@ -795,6 +759,68 @@ vec4 cellAt(ivec2 c) {
 }
 float riseOf(vec4 c) { return floor((c.z + 0.5) / 16.0); }
 
+const vec2 SUN = vec2(-0.94, 0.34);
+const float SHADOW_RUN = 0.55;
+float topOf(vec4 c) { return c.y - 128.0 + riseOf(c) * 0.5; }
+float shadowAt(vec2 p, float h) {
+  float s = 0.0;
+  float far = (uMap.w - h) * SHADOW_RUN;
+  float cx = floor(p.x);
+  for (int i = 0; i < 8; i++) {
+    float bx = cx - float(i);
+    float t = (p.x - bx) / -SUN.x;
+    if (t > far) break;
+    vec4 c = cellAt(ivec2(int(bx) - 1, int(floor(p.y + SUN.y * t))));
+    if (c.w < 0.5) break;
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (topOf(c) - h) * SHADOW_RUN - t));
+  }
+  float cy = floor(p.y);
+  for (int j = 0; j < 2; j++) {
+    float by = cy + 1.0 + float(j);
+    float t = (by - p.y) / SUN.y;
+    if (t > far) break;
+    vec4 c = cellAt(ivec2(int(floor(p.x + SUN.x * t)), int(by)));
+    if (c.w < 0.5) break;
+    s = max(s, smoothstep(0.0, 0.06 + t * 0.22, (topOf(c) - h) * SHADOW_RUN - t));
+  }
+  return s;
+}
+float contactAt(vec2 p, float h) {
+  ivec2 cell = ivec2(floor(p));
+  float a = 0.0;
+  vec2 f = p - floor(p);
+  ivec2 side = ivec2(f.x < 0.46 ? -1 : (f.x > 0.54 ? 1 : 0), f.y < 0.46 ? -1 : (f.y > 0.54 ? 1 : 0));
+  for (int j = 0; j < 3; j++) {
+    {
+      int dx = j == 1 ? 0 : side.x; int dy = j == 0 ? 0 : side.y;
+      if (dx == 0 && dy == 0) continue;
+      if (j == 2 && (dx == 0 || dy == 0)) continue;
+      ivec2 n = cell + ivec2(dx, dy);
+      vec4 c = cellAt(n);
+      if (c.w < 0.5) continue;
+      float up = c.y - 128.0 - h;
+      if (up < 0.75) continue;
+      vec2 lo = vec2(n);
+      float d = length(p - clamp(p, lo, lo + 1.0));
+      float reach = 0.16 + 0.05 * min(up, 6.0);
+      float k = 1.0 - smoothstep(0.0, reach, d);
+      a = max(a, k * k * min(1.0, 0.45 + up * 0.14));
+    }
+  }
+  return a;
+}
+vec3 relit(vec3 col, vec2 p, float h, bool foot) {
+  vec3 c = mix(col, col * vec3(0.60, 0.64, 0.74), shadowAt(p, h) * 0.72);
+  if (foot) c *= 1.0 - 0.34 * contactAt(p, h);
+  return c;
+}
+vec3 grassBase(vec2 p) {
+  vec3 c = vec3(112.0, 156.0, 68.0) / 255.0;
+  c = mix(c, vec3(0.55, 0.62, 0.30), smoothstep(0.45, 0.8, vnoise(vec2(p.x * 0.8 - p.y * 0.6, p.x * 0.6 + p.y * 0.8) * 0.17 + 3.0)) * 0.5);
+  c = mix(c, vec3(0.31, 0.49, 0.24), smoothstep(0.45, 0.8, vnoise(p * 0.11 + 61.0)) * 0.5);
+  return c;
+}
+
 const float BLADE_W = 0.007;
 const float BLADE_H = 0.014;
 const float BLADE_F = 45.0;
@@ -837,7 +863,7 @@ vec4 blades(vec3 base, float tuft, float dens, vec3 under, bool fringe, vec2 lo,
   return col;
 }
 vec3 grassAt(vec2 p, float fp, float dens, vec3 under) {
-  vec3 c = vec3(138.0, 181.0, 73.0) / 255.0;
+  vec3 c = grassBase(p);
   float m = fbm(p * 0.45);
   c = mix(c, vec3(0.60, 0.70, 0.30), smoothstep(0.55, 0.85, m) * 0.25);
   c *= 0.96 + 0.08 * fbm(p * 0.9 + 5.0);
@@ -898,7 +924,7 @@ vec4 fringeColour(vec2 lo, float z) {
   float bf = shows(BLADE_F, gScreenFp);
   if (bf <= 0.0) return vec4(0.0);
   vec2 p = groundAt(gScreen, z);
-  vec3 c = vec3(138.0, 181.0, 73.0) / 255.0;
+  vec3 c = grassBase(p);
   c = mix(c, vec3(0.60, 0.70, 0.30), smoothstep(0.55, 0.85, fbm(p * 0.45)) * 0.25);
   c *= 0.96 + 0.08 * fbm(p * 0.9 + 5.0);
   float t = 1.0 - abs(fbm(p * 6.0) * 2.0 - 1.0);
@@ -907,18 +933,9 @@ vec4 fringeColour(vec2 lo, float z) {
   return vec4(r.rgb, r.a * bf);
 }
 
-vec4 foamColour(vec2 p, float across) {
-  float n = fbm(p * 5.0 + 3.0), fine = vnoise(p * 23.0);
-  float reach = 0.55 + 0.45 * n;
-  float body = (1.0 - smoothstep(reach * 0.35, reach, across)) * (0.3 + 0.35 * fine);
-  float line = (1.0 - smoothstep(0.0, 0.16, across)) * 0.55;
-  return vec4(vec3(0.93, 0.97, 0.98), clamp(body + line, 0.0, 0.8));
-}
-
-vec3 topColour(vec2 p, float fp, float hy) {
+vec3 topColour(vec2 p, float fp) {
   ivec2 cell = ivec2(floor(p));
   vec4 here = cellAt(cell);
-  if (hy > 0.5) { here.y = hy; here.z = 1.0; }
   vec3 claim = vec3(-9.0);
   for (int dy = -1; dy <= 1; dy++) {
     for (int dx = -1; dx <= 1; dx++) {
@@ -941,7 +958,7 @@ vec3 topColour(vec2 p, float fp, float hy) {
   );
   float other = max(claim.y, claim.z);
   float dens = other < -1.0 ? 1.0 : smoothstep(-0.35, 0.15, claim.x - other);
-  vec3 under = vec3(138.0, 181.0, 73.0) / 255.0 * 0.8;
+  vec3 under = grassBase(p) * 0.8;
   if (dens < 0.999 || claim.x < -1.0) {
     float aa = max(fp * 2.4, 0.015);
     vec2 wo = clamp((vec2(claim.y, claim.z) - other) / aa + 1.0, vec2(0.0), vec2(1.0));
@@ -971,8 +988,22 @@ vec3 wallColour(vec2 p, float kind, float depth, float fp) {
   float strand = hash(ivec2(int(floor(along * 60.0)), 41));
   float lipDepth = 0.6 + (vnoise(vec2(along * 9.0, 3.0)) - 0.5) * 0.4 + (strand - 0.5) * 0.3 * shows(60.0, fp);
   vec3 col = earth;
+  float soil = (k == 3 ? 3.4 : 2.6) + (vnoise(vec2(along * 1.3, 9.0)) - 0.5) * 1.6;
+  if (depth > soil - 0.3) {
+    float b = depth * 0.8 + (vnoise(vec2(along * 0.6, 4.0)) - 0.5) * 1.4;
+    float bed = floor(b); float bf = b - bed; int bi = int(bed);
+    vec3 rock = (lit ? vec3(152.0, 142.0, 128.0) : vec3(104.0, 97.0, 90.0)) / 255.0;
+    rock *= (0.88 + 0.24 * hash(ivec2(bi, 77))) * (0.93 + 0.14 * fbm(vec2(along * 2.0, depth * 1.1)));
+    rock *= 1.0 - min(depth, 14.0) * 0.012;
+    rock *= 1.0 - 0.3 * (1.0 - smoothstep(0.0, 0.1, bf)) * shows(6.0, fp);
+    rock *= 1.0 + 0.1 * smoothstep(0.1, 0.22, bf) * (1.0 - smoothstep(0.22, 0.5, bf)) * shows(6.0, fp);
+    float u = along * 2.6 + hash(ivec2(bi, 5)) * 9.0 + (vnoise(vec2(depth * 2.0, along * 3.0)) - 0.5) * 0.25;
+    bool crack = hash(ivec2(int(floor(u)), bi)) > 0.45;
+    if (crack) rock *= 1.0 - 0.32 * (1.0 - smoothstep(0.0, 0.07, fract(u))) * shows(12.0, fp);
+    col = mix(earth, rock, smoothstep(soil - 0.3, soil + 0.15, depth + (vnoise(vec2(along * 14.0, depth * 3.0)) - 0.5) * 0.5));
+  }
   if (k == 1 && depth < lipDepth) {
-    col = (lit ? vec3(124.0, 163.0, 64.0) : vec3(100.0, 134.0, 52.0)) / 255.0;
+    col = (lit ? vec3(102.0, 140.0, 60.0) : vec3(80.0, 112.0, 48.0)) / 255.0;
     col *= mix(1.08, 0.8, depth / lipDepth);
     col *= 1.0 + (vnoise(vec2(along * 70.0, depth * 1.2)) - 0.5) * 0.35 * shows(70.0, fp);
   } else if (k == 3 && depth < lipDepth) {
@@ -989,23 +1020,22 @@ void main() {
   gScreenFp = max(fs.x, fs.y) * 1.5;
   vec2 fw = fwidth(vGround) + vec2(fwidth(vWall.y) * 0.5);
   float fp = max(fw.x, fw.y);
-  if (vWall.x > 6.5) {
-    vec4 f = foamColour(vGround, vWall.y);
-    finalColor = vec4(f.rgb * f.a, f.a) * vTint;
-    return;
-  }
-  if (vWall.x > 3.5) {
-    vec2 gw = fwidth(vGround);
-    finalColor = vec4(topColour(vGround, max(gw.x, gw.y), vWall.y), 1.0) * vTint;
-    return;
-  }
   if (vWall.x > 2.5) {
     vec4 f = fringeColour(vGround, vWall.y);
     if (f.a <= 0.003) discard;
     finalColor = vec4(f.rgb * f.a, f.a) * vTint;
     return;
   }
-  vec3 col = vWall.x < 0.5 ? topColour(vGround, fp, 0.0) * (1.0 + vWall.y) : wallColour(vGround, vWall.x, vWall.y, fp);
+  vec3 col;
+  if (vWall.x < 0.5) {
+    col = relit(topColour(vGround, fp) * (1.0 + vWall.y), vGround, topOf(cellAt(ivec2(floor(vGround)))), true);
+  } else {
+    col = wallColour(vGround, vWall.x, vWall.y, fp);
+    if (vWall.x > 1.5) {
+      vec4 own = cellAt(ivec2(floor(vGround - vec2(0.0, 0.02))));
+      col = relit(col, vGround + vec2(0.0, 0.002), own.y - 128.0 - vWall.y, false);
+    }
+  }
   finalColor = vec4(col, 1.0) * vTint;
 }
 `;

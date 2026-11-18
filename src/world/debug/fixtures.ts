@@ -31,7 +31,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -1146,13 +1146,69 @@ export function buildIslands(g: Grid, material: number) {
 }
 
 /**
+ * EVERY SHAPE OF LAND THE GROUND HAS TO DRAW WELL, on one map: a lake whose north bank runs 1:1, 1:2 and 1:3 and
+ * whose south is a beach; an island; a round hill, wooded on one side; cliffs of two, four and eight steps, the
+ * tallest with a slanting front and a fall off it into the lake; and rolling ground with a level road through it
+ * — in a cutting, then on an embankment — and a house on the hillside. @see plans/terrain-quality.md
+ */
+export function buildTerrain(g: Grid, material: number) {
+  clear(g, material);
+  const DIRT = 2, SAND = 3, WOOD = 5, LEVEL = 2, LAND = 4;
+  const mat = (x: number, y: number, m: number) => { if (inBounds(g, x, y)) g.terrain[idx(g, x, y)] = m; };
+  const north = (x: number) => x < 10 ? 24 + (x - 2) : x < 22 ? 32 - Math.floor((x - 10) / 2) : x < 40 ? 26 + Math.floor((x - 22) / 3) : 32;
+  const south = (x: number) => 42 + Math.round(2 * Math.sin(x / 5));
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+    let h = LAND;
+    const wet = x >= 2 && x <= 60 && y > north(x) && y < south(x);
+    if (wet) {
+      const edge = Math.min(y - north(x), south(x) - y, x - 1, 61 - x);
+      h = edge <= 1 ? 0 : edge <= 2 ? -2 : -6;
+    } else if (y >= south(x) && y < 48) {
+      // THE BEACH: half a step a tile up from the water, sand for the first three.
+      const up = y - south(x);
+      h = Math.min(LAND + 2, LEVEL + 1 + Math.floor(up / 2));
+      if (up < 3) mat(x, y, SAND);
+    } else if (y >= 48) {
+      // ROLLING GROUND, and the road level through it.
+      h = 6 + Math.round(4 * Math.sin(x / 6) * Math.min(1, (y - 47) / 3));
+    }
+    // THE HILL.
+    const d = Math.hypot(x - 12, y - 10);
+    if (y < 22 && d < 9) { h = LAND + Math.round(10 * (1 - d / 9)); if (x > 12 && d > 2) mat(x, y, WOOD); }
+    // THE CLIFFS: two steps, four, eight — the last cut aslant.
+    if (y >= 6 && y <= 16) {
+      if (x >= 30 && x <= 35) h = LAND + 4;
+      if (x >= 38 && x <= 43) h = LAND + 8;
+      if (x >= 46 && x <= 56 && y <= 16 - Math.max(0, x - 51)) h = LAND + 16;
+    }
+    // THE ISLAND.
+    const di = Math.hypot(x - 48, y - 37);
+    if (di < 4.5) { h = di < 3 ? 5 : 1; if (di >= 3) mat(x, y, SAND); }
+    set(g, x, y, h);
+  }
+  for (let y = 18; y <= 22; y++) for (let x = 26; x <= 30; x++) mat(x, y, DIRT);
+  // The fall: a channel across the tall cliff, and down the land to the lake.
+  for (let y = 7; y <= 16; y++) set(g, 49, y, LAND + 14);
+  for (let y = 17; y <= north(49); y++) set(g, 49, y, LEVEL);
+  tap(g, 49, 7, SPRING);
+  // And out again over a notch in the east rim, at the lake's level.
+  for (let x = 61; x < g.w; x++) set(g, x, 36, LEVEL);
+  pond(g, LEVEL, 1, 2, 20, 60, 46);
+  for (let x = 0; x < g.w; x++) { set(g, x, 52, 6); pave(g, x, 52); }
+  const history = createHistory();
+  const house = structureDef("kit:intern.t0");
+  for (const x of [8, 20, 30]) { const cmd = house && placeCommand(g, house, x, 54); if (cmd) commit(g, history, cmd); }
+  edited(g);
+}
+
+/**
  * Fixtures that want a map of their own size, rather than the one on screen.
  *
  * A rig is a size as much as it is a shape: `brink` is five tiles because five
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1164,7 +1220,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1211,6 +1267,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "hills": buildHills(g, material); recomputeHeightRange(g); return;
     case "junctions": buildJunctions(g, material); recomputeHeightRange(g); return;
     case "demolition": buildDemolition(g, material); recomputeHeightRange(g); return;
+    case "terrain": buildTerrain(g, material); recomputeHeightRange(g); return;
   }
 }
 

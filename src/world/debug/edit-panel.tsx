@@ -65,6 +65,7 @@ const FIXTURES: [FixtureId, string][] = [
   ["plunge", "plunge"],
   ["waterfall", "waterfall"],
   ["brink", "brink (5²)"],
+  ["terrain", "terrain"],
 ];
 const STEPS: [number, string][] = [
   [1, "×0.5"],

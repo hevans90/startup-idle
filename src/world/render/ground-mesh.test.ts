@@ -166,32 +166,3 @@ describe("fringe", () => {
     expect(kinds(bandQuads(grid, PALETTE, 2))).toEqual([0, 2, 0, 0, 1]);
   });
 });
-
-describe("a stepped bank", () => {
-  /** Land above a staircase of water: row y is water from x = 6 − y on. A tread a tile long, every step. */
-  function stairs() {
-    const grid = flat(8, 8);
-    for (let y = 0; y < 8; y++) for (let x = Math.max(0, 6 - y); x < 8; x++) { setHeight(grid, x, y, -2); grid.pool[y * 8 + x] = 1; }
-    grid.rev++;
-    return grid;
-  }
-  const all = (grid: ReturnType<typeof flat>) => Array.from({ length: 16 }, (_, b) => bandQuads(grid, PALETTE, b));
-
-  test("is drawn as a slope: a wedge of the land over every step's inside corner, in the band in front of its water, and foam along it", () => {
-    const grid = stairs(), bands = all(grid);
-    const wedges = bands.flatMap((q) => kinds(q).filter((k) => k === 4)), foam = bands.flatMap((q) => kinds(q).filter((k) => k === 7));
-    // (An inside corner at every row but the first and last of the stair.)
-    expect(wedges.length).toBeGreaterThanOrEqual(5);
-    expect(foam.length).toBeGreaterThanOrEqual(wedges.length);
-    // The stair's water tiles (6 − y, y) are all band 6: their wedges are band 7's, before that band's own tops.
-    expect(kinds(bands[7]).indexOf(4)).toBeGreaterThanOrEqual(0);
-    expect(kinds(bands[7]).indexOf(4)).toBeLessThan(kinds(bands[7]).indexOf(0));
-  });
-  test("is left alone where the water's tile is built on, and where there is no water", () => {
-    const grid = stairs();
-    for (let i = 0; i < 64; i++) grid.paved[i] = grid.pool[i] ? 1 : 0;
-    grid.rev++;
-    expect(all(grid).flatMap((q) => kinds(q).filter((k) => k === 4 || k === 7))).toEqual([]);
-    expect(all(flat(8, 8)).flatMap((q) => kinds(q).filter((k) => k === 4 || k === 7))).toEqual([]);
-  });
-});
