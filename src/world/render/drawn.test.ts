@@ -69,40 +69,52 @@ describe("the drawn surface", () => {
   });
 
   test("the shore: water beside low land is drawn on a shelf, and every corner they share stands over the water", () => {
-    const grid = flat(6, 6);
+    const grid = flat(8, 8);
     // Land at 4 where y < x (a 1:1 stepped bank), water over a bed at -4 to a level of 2 elsewhere.
-    for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) {
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
       if (y < x) setHeight(grid, x, y, 4);
       else { setHeight(grid, x, y, -4); grid.pool[idx(grid, x, y)] = 6; }
     }
     // A pocket of the bank, land on two sides: a shelf just under the water.
-    expect(shelfOf(grid, 2, 2)).toBeCloseTo(2 - SHELF);
+    expect(shelfOf(grid, 3, 3)).toBeCloseTo(2 - SHELF);
     // Its middle is the mean of its corners, so it is as near a plane as they allow.
-    expect(drawnCentre(grid, 2, 2)).toBeCloseTo((drawnCorner(grid, 2, 2, 0, 0) + drawnCorner(grid, 2, 2, 1, 0) + drawnCorner(grid, 2, 2, 1, 1) + drawnCorner(grid, 2, 2, 0, 1)) / 4);
-    expect(drawnCentre(grid, 2, 2)).toBeLessThan(2);
+    expect(drawnCentre(grid, 3, 3)).toBeCloseTo((drawnCorner(grid, 3, 3, 0, 0) + drawnCorner(grid, 3, 3, 1, 0) + drawnCorner(grid, 3, 3, 1, 1) + drawnCorner(grid, 3, 3, 0, 1)) / 4);
+    expect(drawnCentre(grid, 3, 3)).toBeLessThan(2);
     // Out in the water: its bed.
-    expect(shelfOf(grid, 0, 4)).toBeNull();
-    expect(drawnCentre(grid, 0, 4)).toBe(-4);
+    expect(shelfOf(grid, 1, 5)).toBeNull();
+    expect(drawnCentre(grid, 1, 5)).toBe(-4);
     // Land and water say the same at every corner they share: over the water in a pocket of the bank, and just
     // under it at the tip of a point of land, so no spur stands out along the tiles' edge.
-    for (let k = 1; k < 5; k++) {
+    for (let k = 2; k < 6; k++) {
       expect(drawnCorner(grid, k, k, 0, 0)).toBeCloseTo(2 - 0.15);
       expect(drawnCorner(grid, k, k, 0, 0)).toBe(drawnCorner(grid, k, k - 1, 0, 1));
       expect(drawnCorner(grid, k, k, 1, 0)).toBeGreaterThan(2);
     }
     // And the pocket's corner out in the water is under it: the shoreline crosses the tile.
-    expect(drawnCorner(grid, 2, 2, 0, 1)).toBeLessThan(2);
+    expect(drawnCorner(grid, 3, 3, 0, 1)).toBeLessThan(2);
   });
 
   test("no shelf at a lip, nor beside one: the water there is drawn down to its fall", () => {
-    const grid = flat(6, 3);
+    const grid = flat(8, 4);
     // Land along the top row at 4; water at a level of 2 along the middle, its bed at 0; and off its end, a drop.
-    for (let x = 0; x < 6; x++) setHeight(grid, x, 0, 4);
-    for (let x = 0; x < 4; x++) for (const y of [1, 2]) { setHeight(grid, x, y, 0); grid.pool[idx(grid, x, y)] = 2; }
-    for (const x of [4, 5]) for (const y of [1, 2]) setHeight(grid, x, y, -8);
-    expect(shelfOf(grid, 0, 1)).not.toBeNull();
-    expect(shelfOf(grid, 3, 1)).toBeNull(); // the lip
-    expect(shelfOf(grid, 2, 1)).toBeNull(); // and the tile behind it
+    for (let x = 0; x < 8; x++) setHeight(grid, x, 0, 4);
+    for (let x = 0; x < 5; x++) for (const y of [1, 2, 3]) { setHeight(grid, x, y, 0); grid.pool[idx(grid, x, y)] = 2; }
+    for (const x of [5, 6, 7]) for (const y of [1, 2, 3]) setHeight(grid, x, y, -8);
+    expect(shelfOf(grid, 1, 1)).not.toBeNull();
+    expect(shelfOf(grid, 4, 1)).toBeNull(); // the lip
+    expect(shelfOf(grid, 3, 1)).toBeNull(); // and the tile behind it
+  });
+
+  test("no shelf on the map's edge: the water there shows its whole depth", () => {
+    const grid = flat(4, 4);
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) setHeight(grid, x, y, 4);
+    for (let y = 0; y < 4; y++) { setHeight(grid, 1, y, 0); grid.pool[idx(grid, 1, y)] = 2; }
+    expect(shelfOf(grid, 1, 1)).not.toBeNull();
+    expect(shelfOf(grid, 1, 0)).toBeNull();
+    expect(shelfOf(grid, 1, 3)).toBeNull();
+    // Its corners on the edge itself are its bed's.
+    expect(drawnCorner(grid, 1, 3, 0, 1)).toBe(0);
+    expect(drawnCorner(grid, 1, 3, 1, 1)).toBe(0);
   });
 
   test("land too far over the water is a cliff into it: no shelf", () => {

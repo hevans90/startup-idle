@@ -76,6 +76,9 @@ export function shelfOf(grid: Grid, x: number, y: number): number | null {
   const i = idx(grid, x, y);
   if (!wet(grid, i) || pinned(grid, x, y)) return null;
   const level = grid.height[i] + grid.pool[i];
+  // NOT ON THE MAP'S EDGE: the water there is cut through and shows its whole depth, down to its bed, and the
+  // ground its own wall beside it. A shelf has no sides, and left the sheet standing over nothing.
+  if (x === 0 || y === 0 || x === grid.w - 1 || y === grid.h - 1) return null;
   // NOT AT A LIP, nor beside one: where the water goes over an edge its surface is drawn down to the sheet that
   // falls from it, and a shelf would hold it level and break the two apart.
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(grid, x + dx, y + dy) && lipAt(grid, x + dx, y + dy)) return null;
