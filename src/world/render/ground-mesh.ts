@@ -812,6 +812,40 @@ fn topColour(p: vec2<f32>, fp: f32) -> vec3<f32> {
   return grassAt(p, fp, dens, under);
 }
 
+// ROCK, where the ground is too steep for earth and under the soil of a wall. Laid out ACROSS THE SCREEN AND UP IT
+// (tiles) and not along the ground, so a cliff's face is as finely drawn as the level ground at its foot; and
+// nothing in it regular: beds that wander and differ in thickness and tone, shaded under each ledge and not ruled
+// with a line; blocks of no two shapes, cracked apart only here and there; stains run down it; grain close up.
+fn rockAt(p: vec2<f32>, z: f32, fp: f32) -> vec3<f32> {
+  let q = vec2<f32>(p.x - p.y, (p.x + p.y) * 0.5 - z * 0.25);
+  var c = mix(vec3<f32>(0.37, 0.355, 0.335), vec3<f32>(0.57, 0.535, 0.475), fbm(q * 0.55 + 13.0));
+  // BEDS, by height, their lie warped across the face.
+  let s = z * 0.36 + (fbm(vec2<f32>(q.x * 0.28, q.y * 0.7) + 5.0) - 0.5) * 2.6 + vnoise(q * 0.9 + 31.0) * 0.5;
+  let bed = floor(s); let bf = s - bed;
+  c = c * (0.87 + 0.24 * hash(vec2<i32>(i32(bed), 31)));
+  c = c * mix(1.0, 0.8, smoothstep(0.7, 1.0, bf) * shows(3.0, fp));
+  c = c * (1.0 + 0.07 * (1.0 - smoothstep(0.0, 0.18, bf)) * shows(3.0, fp));
+  // BLOCKS: the nearest of a scatter of points and the next nearest; a crack where the two are as near, some places.
+  let g = q * vec2<f32>(1.5, 2.3) + (vec2<f32>(vnoise(q * 1.1 + 7.0), vnoise(q * 1.1 + 19.0)) - 0.5) * 1.3 + vec2<f32>(hash(vec2<i32>(i32(bed), 5)) * 7.0, bed * 0.37);
+  let gi = vec2<i32>(floor(g)); let gf = fract(g);
+  var f1 = 9.0; var f2 = 9.0; var id = 0.0;
+  for (var dy = -1; dy <= 1; dy++) {
+    for (var dx = -1; dx <= 1; dx++) {
+      let cell = gi + vec2<i32>(dx, dy);
+      let pt = vec2<f32>(f32(dx), f32(dy)) + vec2<f32>(hash(cell), hash(cell + vec2<i32>(17, 3))) - gf;
+      let d = dot(pt, pt);
+      if (d < f1) { f2 = f1; f1 = d; id = hash(cell + vec2<i32>(5, 9)); } else if (d < f2) { f2 = d; }
+    }
+  }
+  c = c * (0.92 + 0.16 * id);
+  let split = smoothstep(0.42, 0.62, fbm(q * 0.8 + 47.0));
+  c = c * mix(1.0, 0.7, (1.0 - smoothstep(0.0, 0.06, sqrt(f2) - sqrt(f1))) * split * shows(7.0, fp));
+  // STAINS run down it.
+  c = c * (1.0 - 0.1 * smoothstep(0.6, 0.92, vnoise(vec2<f32>(q.x * 2.3 + vnoise(q * 0.6 + 71.0) * 1.7, q.y * 0.4) + 3.0)) * smoothstep(0.35, 0.7, fbm(q * 0.35 + 83.0)));
+  c = c * (1.0 + (vnoise(q * 31.0) - 0.5) * 0.09 * shows(31.0, fp));
+  return c;
+}
+
 fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
   // The cell this face belongs to: back across the face from where it stands.
   let back = select(vec2<f32>(0.0, 0.02), vec2<f32>(0.02, 0.0), kind < 1.5);
@@ -838,16 +872,8 @@ fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
   // ROCK below the soil: beds of it, each its own tone, a dark joint between, cracked down here and there.
   let soil = select(2.6, 3.4, k == 3) + (vnoise(vec2<f32>(along * 1.3, 9.0)) - 0.5) * 1.6;
   if (depth > soil - 0.3) {
-    let b = depth * 0.8 + (vnoise(vec2<f32>(along * 0.6, 4.0)) - 0.5) * 1.4;
-    let bed = floor(b); let bf = b - bed; let bi = i32(bed);
-    var rock = select(vec3<f32>(104.0, 97.0, 90.0), vec3<f32>(152.0, 142.0, 128.0), lit) / 255.0;
-    rock = rock * (0.88 + 0.24 * hash(vec2<i32>(bi, 77))) * (0.93 + 0.14 * fbm(vec2<f32>(along * 2.0, depth * 1.1)));
-    rock = rock * (1.0 - min(depth, 14.0) * 0.012);
-    rock = rock * (1.0 - 0.3 * (1.0 - smoothstep(0.0, 0.1, bf)) * shows(6.0, fp));
-    rock = rock * (1.0 + 0.1 * smoothstep(0.1, 0.22, bf) * (1.0 - smoothstep(0.22, 0.5, bf)) * shows(6.0, fp));
-    let u = along * 2.6 + hash(vec2<i32>(bi, 5)) * 9.0 + (vnoise(vec2<f32>(depth * 2.0, along * 3.0)) - 0.5) * 0.25;
-    let crack = hash(vec2<i32>(i32(floor(u)), bi)) > 0.45;
-    if (crack) { rock = rock * (1.0 - 0.32 * (1.0 - smoothstep(0.0, 0.07, fract(u))) * shows(12.0, fp)); }
+    // (A wall's is the same rock, by how far down it: lighter on the face toward the light.)
+    let rock = rockAt(p, -depth, fp) * select(0.74, 1.0, lit) * (1.0 - min(depth, 14.0) * 0.01);
     col = mix(earth, rock, smoothstep(soil - 0.3, soil + 0.15, depth + (vnoise(vec2<f32>(along * 14.0, depth * 3.0)) - 0.5) * 0.5));
   }
   if (k == 1 && depth < lipDepth && !under) {
@@ -896,9 +922,7 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
     // A FACE TOO STEEP FOR EARTH IS ROCK — bedded by its height, so the beds run level across a cliff — coming
     // through the bare earth as the ground steepens. (The continuous surface has no walls: this is its cliff.)
     if (steep > 3.2) {
-      let rock = wallColour(vGround, select(1.0, 2.0, vWall.x > -0.05), 46.0 - vWall.y, fp);
-      // (Its two shades already say which way it faces: it is not darkened for that again below.)
-      col = mix(col, rock / (1.0 + vWall.x), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
+      col = mix(col, rockAt(vGround, vWall.y, fp), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
     }
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
     let level = textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).z;
@@ -1205,6 +1229,33 @@ vec3 topColour(vec2 p, float fp) {
   return grassAt(p, fp, dens, under);
 }
 
+vec3 rockAt(vec2 p, float z, float fp) {
+  vec2 q = vec2(p.x - p.y, (p.x + p.y) * 0.5 - z * 0.25);
+  vec3 c = mix(vec3(0.37, 0.355, 0.335), vec3(0.57, 0.535, 0.475), fbm(q * 0.55 + 13.0));
+  float s = z * 0.36 + (fbm(vec2(q.x * 0.28, q.y * 0.7) + 5.0) - 0.5) * 2.6 + vnoise(q * 0.9 + 31.0) * 0.5;
+  float bed = floor(s); float bf = s - bed;
+  c *= 0.87 + 0.24 * hash(ivec2(int(bed), 31));
+  c *= mix(1.0, 0.8, smoothstep(0.7, 1.0, bf) * shows(3.0, fp));
+  c *= 1.0 + 0.07 * (1.0 - smoothstep(0.0, 0.18, bf)) * shows(3.0, fp);
+  vec2 g = q * vec2(1.5, 2.3) + (vec2(vnoise(q * 1.1 + 7.0), vnoise(q * 1.1 + 19.0)) - 0.5) * 1.3 + vec2(hash(ivec2(int(bed), 5)) * 7.0, bed * 0.37);
+  ivec2 gi = ivec2(floor(g)); vec2 gf = fract(g);
+  float f1 = 9.0; float f2 = 9.0; float id = 0.0;
+  for (int dy = -1; dy <= 1; dy++) {
+    for (int dx = -1; dx <= 1; dx++) {
+      ivec2 cell = gi + ivec2(dx, dy);
+      vec2 pt = vec2(float(dx), float(dy)) + vec2(hash(cell), hash(cell + ivec2(17, 3))) - gf;
+      float d = dot(pt, pt);
+      if (d < f1) { f2 = f1; f1 = d; id = hash(cell + ivec2(5, 9)); } else if (d < f2) { f2 = d; }
+    }
+  }
+  c *= 0.92 + 0.16 * id;
+  float split = smoothstep(0.42, 0.62, fbm(q * 0.8 + 47.0));
+  c *= mix(1.0, 0.7, (1.0 - smoothstep(0.0, 0.06, sqrt(f2) - sqrt(f1))) * split * shows(7.0, fp));
+  c *= 1.0 - 0.1 * smoothstep(0.6, 0.92, vnoise(vec2(q.x * 2.3 + vnoise(q * 0.6 + 71.0) * 1.7, q.y * 0.4) + 3.0)) * smoothstep(0.35, 0.7, fbm(q * 0.35 + 83.0));
+  c *= 1.0 + (vnoise(q * 31.0) - 0.5) * 0.09 * shows(31.0, fp);
+  return c;
+}
+
 vec3 wallColour(vec2 p, float kind, float depth, float fp) {
   vec2 back = kind < 1.5 ? vec2(0.02, 0.0) : vec2(0.0, 0.02);
   int k = int(cellAt(ivec2(floor(p - back))).x + 0.5);
@@ -1226,16 +1277,7 @@ vec3 wallColour(vec2 p, float kind, float depth, float fp) {
   vec3 col = earth;
   float soil = (k == 3 ? 3.4 : 2.6) + (vnoise(vec2(along * 1.3, 9.0)) - 0.5) * 1.6;
   if (depth > soil - 0.3) {
-    float b = depth * 0.8 + (vnoise(vec2(along * 0.6, 4.0)) - 0.5) * 1.4;
-    float bed = floor(b); float bf = b - bed; int bi = int(bed);
-    vec3 rock = (lit ? vec3(152.0, 142.0, 128.0) : vec3(104.0, 97.0, 90.0)) / 255.0;
-    rock *= (0.88 + 0.24 * hash(ivec2(bi, 77))) * (0.93 + 0.14 * fbm(vec2(along * 2.0, depth * 1.1)));
-    rock *= 1.0 - min(depth, 14.0) * 0.012;
-    rock *= 1.0 - 0.3 * (1.0 - smoothstep(0.0, 0.1, bf)) * shows(6.0, fp);
-    rock *= 1.0 + 0.1 * smoothstep(0.1, 0.22, bf) * (1.0 - smoothstep(0.22, 0.5, bf)) * shows(6.0, fp);
-    float u = along * 2.6 + hash(ivec2(bi, 5)) * 9.0 + (vnoise(vec2(depth * 2.0, along * 3.0)) - 0.5) * 0.25;
-    bool crack = hash(ivec2(int(floor(u)), bi)) > 0.45;
-    if (crack) rock *= 1.0 - 0.32 * (1.0 - smoothstep(0.0, 0.07, fract(u))) * shows(12.0, fp);
+    vec3 rock = rockAt(p, -depth, fp) * (lit ? 1.0 : 0.74) * (1.0 - min(depth, 14.0) * 0.01);
     col = mix(earth, rock, smoothstep(soil - 0.3, soil + 0.15, depth + (vnoise(vec2(along * 14.0, depth * 3.0)) - 0.5) * 0.5));
   }
   if (k == 1 && depth < lipDepth && !under) {
@@ -1277,8 +1319,7 @@ void main() {
       if (bare > 0.0) col = mix(col, dirtAt(vGround, fp) * 0.88, bare * 0.85);
     }
     if (steep > 3.2) {
-      vec3 rock = wallColour(vGround, vWall.x > -0.05 ? 2.0 : 1.0, 46.0 - vWall.y, fp);
-      col = mix(col, rock / (1.0 + vWall.x), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
+      col = mix(col, rockAt(vGround, vWall.y, fp), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
     }
     float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;
     if (level > -900.0) {
