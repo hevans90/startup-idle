@@ -28,7 +28,7 @@ import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureOf, type Grid } 
 import { structureDef } from "../structures/def";
 import type { BandLayer } from "./bands";
 import { terrainName } from "../terrain-names";
-import { cornerZ, drawnCentre, drawnCorner, drawnFlat, pinned, shelfOf } from "./drawn";
+import { cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, pinned, shelfOf } from "./drawn";
 
 export { cornerZ };
 
@@ -158,8 +158,11 @@ export type GroundMesh = {
 export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): { verts: Float32Array; idx: Uint32Array; quads: number } {
   const v: number[] = [];
   const at = (gu: number, gv: number, z: number, kind: number, depth: number) => {
-    // A ground point (cells) at height z, where cellToWorld puts cell centres at +0.5.
-    const cx = gu - 0.5, cy = gv - 0.5;
+    // A ground point (cells) at height z, where cellToWorld puts cell centres at +0.5. A corner of the grid on a
+    // stepped cliff is DRAWN a little off where it is, to straighten the cliff's line (@see cornerShift) — but says
+    // where it IS to the shader, which finds its cell by that.
+    let cx = gu - 0.5, cy = gv - 0.5;
+    if (Number.isInteger(gu) && Number.isInteger(gv)) { const s = cornerShift(grid, gu, gv); cx += s[0]; cy += s[1]; }
     v.push((cx - cy) * HW * scale, ((cx + cy) * HH - z * HEIGHT_UNIT) * scale, gu, gv, kind, depth);
   };
   const x0 = Math.max(0, b - (grid.h - 1)), x1 = Math.min(grid.w - 1, b);
@@ -215,7 +218,7 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
     // the second word its height. @see fringeColour
     if (fringes(grid, palette, x, y)) {
       const fr = (gu: number, gv: number, lift: number) => {
-        const cx = gu - 0.5, cy = gv - 0.5;
+        const s = cornerShift(grid, gu, gv), cx = gu + s[0] - 0.5, cy = gv + s[1] - 0.5;
         v.push((cx - cy) * HW * scale, ((cx + cy) * HH - z00 * HEIGHT_UNIT - lift * HW) * scale, x, y, 3, z00);
       };
       if (fringeBehind(grid, palette, x, y - 1, z00)) { fr(x, y, 0); fr(x + 1, y, 0); fr(x + 1, y, FRINGE); fr(x, y, FRINGE); }
@@ -318,7 +321,7 @@ export function markGround(gm: GroundMesh, grid: Grid, palette: Palette, x: numb
   // the cells beside those: two bands either way.
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && inBounds(grid, x + dx, y + dy)) writeEdges(gm, grid, x + dx, y + dy);
   const b = bandOf(x, y);
-  for (let k = b - 2; k <= b + 2; k++) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
+  for (let k = b - 3; k <= b + 3; k++) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
 }
 
 /** Rebuild the bands marked, and send the texels. */

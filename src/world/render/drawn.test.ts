@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { RAMP, createGrid, fillTerrain, idx, setHeight, setRamp, surfaceSampler } from "../grid";
 import { HEIGHT_UNIT, HH, HW, pickCell } from "../iso";
-import { CLIFF, SHELF, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, drawnSampler, pinned, shelfOf } from "./drawn";
+import { CLIFF, CLIFF_EASE, SHELF, cornerZ, drawnCentre, drawnCorner, drawnFlat, cornerShift, drawnHeight, drawnSampler, pinned, shelfOf } from "./drawn";
 
 function flat(w = 4, h = 4) {
   const grid = createGrid(w, h);
@@ -130,5 +130,30 @@ describe("the drawn surface", () => {
       }
     }
     expect(banks).toBeGreaterThan(20);
+  });
+
+  test("a stair of cliff is drawn as a line: tips cut back and pockets filled by a quarter, and nothing else moved", () => {
+    const grid = flat(8, 8);
+    // A plateau where y < x, a cliff high: its edge a 1:1 stair.
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) if (y < x) setHeight(grid, x, y, 8);
+    // The corner at (4, 4): the pocket — low cell (4, 4)... three low, one high (4, 3): moved into the high one.
+    expect([...cornerShift(grid, 4, 4)]).toEqual([CLIFF_EASE, -CLIFF_EASE]);
+    // The corner at (4, 3): three high, one low (3, 3): moved into the low one.
+    expect([...cornerShift(grid, 4, 3)]).toEqual([-CLIFF_EASE, CLIFF_EASE]);
+    // So both lie on the one line through the stair's middles: y = x − 0.5.
+    expect(4 - CLIFF_EASE - (4 + CLIFF_EASE)).toBeCloseTo(-0.5);
+    expect(3 + CLIFF_EASE - (4 - CLIFF_EASE)).toBeCloseTo(-0.5);
+    // Level ground, and a straight run of cliff, are where they were.
+    expect([...cornerShift(grid, 2, 5)]).toEqual([0, 0]);
+    const straight = flat(6, 6);
+    for (let y = 0; y < 6; y++) for (let x = 3; x < 6; x++) setHeight(straight, x, y, 8);
+    expect([...cornerShift(straight, 3, 3)]).toEqual([0, 0]);
+    // A bank is not a cliff; and nothing moves beside paving, or on the map's edge.
+    const bank = flat(6, 6);
+    setHeight(bank, 3, 3, 2);
+    expect([...cornerShift(bank, 3, 3)]).toEqual([0, 0]);
+    grid.paved[idx(grid, 4, 4)] = 1;
+    expect([...cornerShift(grid, 4, 4)]).toEqual([0, 0]);
+    expect([...cornerShift(grid, 0, 0)]).toEqual([0, 0]);
   });
 });

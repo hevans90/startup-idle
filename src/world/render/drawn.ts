@@ -198,3 +198,37 @@ export const drawnSampler = (grid: Grid, base: SurfaceAt): SurfaceAt => (x, y) =
   const c = bankCorners(grid, x, y);
   return c ? { ...surf, fan: [c[0], c[1], c[2], c[3], drawnCentre(grid, x, y)] } : surf;
 };
+
+/** How far a cliff's corner is moved in plan to straighten its line, tiles each way. A quarter makes a 1:1 stair of cliff a straight edge. */
+export const CLIFF_EASE = 0.25;
+const shiftOut: [number, number] = [0, 0];
+/**
+ * WHERE A CORNER OF THE GRID IS DRAWN, in plan, as a shift from where it is: a cliff that steps along the grid is
+ * drawn straighter. Where three of the four bare cells round a corner stand together and the fourth stands apart
+ * from them by a cliff — the tip of a step, or the pocket of one — the corner is moved a quarter of a tile into
+ * the one that stands apart: tips are cut back and pockets filled, so a stair of them is one line. Every quad that
+ * has the corner takes the same shift, so nothing opens. Nothing moves beside paving, a building, water or the
+ * map's edge: what stands there was made for the grid as it is. (The same array every call.)
+ */
+export function cornerShift(grid: Grid, X: number, Y: number): readonly [number, number] {
+  shiftOut[0] = 0; shiftOut[1] = 0;
+  if (X <= 0 || Y <= 0 || X >= grid.w || Y >= grid.h) return shiftOut;
+  let lo = Infinity, hi = -Infinity;
+  const z = [0, 0, 0, 0];
+  for (let k = 0; k < 4; k++) {
+    const cx = X - (k & 1), cy = Y - (k >> 1), i = idx(grid, cx, cy);
+    if (grid.terrain[i] === VOID || wet(grid, i) || pinned(grid, cx, cy)) return shiftOut;
+    z[k] = drawnCorner(grid, cx, cy, X - cx, Y - cy);
+    lo = Math.min(lo, z[k]); hi = Math.max(hi, z[k]);
+  }
+  if (hi - lo < 2) return shiftOut;
+  // Two heights only, three cells at one and one at the other.
+  let lows = 0, highs = 0, lone = -1;
+  for (let k = 0; k < 4; k++) { if (z[k] === lo) lows++; else if (z[k] === hi) highs++; }
+  if (lows + highs !== 4 || (lows !== 1 && highs !== 1)) return shiftOut;
+  for (let k = 0; k < 4; k++) if (z[k] === (lows === 1 ? lo : hi)) lone = k;
+  // (Cell k is at X − (k & 1), Y − (k >> 1): toward it is −x for the odd ones, −y for the upper two.)
+  shiftOut[0] = lone & 1 ? -CLIFF_EASE : CLIFF_EASE;
+  shiftOut[1] = lone >> 1 ? -CLIFF_EASE : CLIFF_EASE;
+  return shiftOut;
+}

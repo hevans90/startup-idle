@@ -1,6 +1,6 @@
 # Terrain that looks like land: slopes, light, a real shore
 
-Status: **phases 0–4 built** (2026-11-18); 5 (cliff lines) and 6 (optional) to do. As built: `CLIFF` 3; the shore is a drawn SHELF in the water's own tile, cut per pixel (WebGPU; follows `grid.pool`), with a cut face at the map's edge; thin water lies on sloped ground by a per-corner rule in the water's vertex shader (the solver's floor is still the tile's, flat); picking and the cursor follow banks; the generator lays no sand by height by default (`lowland` at the end of its dial) and no earth on a cliff's brow. Still on the flat grid: overlays, decals, machines and crews crossing country, planned roads.
+Status: **phases 0–5 built** (2026-11-18); 6 (optional) to do. Phase 5 as built: `cornerShift` moves only corners where one cell stands apart from three; picking and the cursor do not follow the moved corners. As built: `CLIFF` 3; the shore is a drawn SHELF in the water's own tile, cut per pixel (WebGPU; follows `grid.pool`), with a cut face at the map's edge; thin water lies on sloped ground by a per-corner rule in the water's vertex shader (the solver's floor is still the tile's, flat); picking and the cursor follow banks; the generator lays no sand by height by default (`lowland` at the end of its dial) and no earth on a cliff's brow. Still on the flat grid: overlays, decals, machines and crews crossing country, planned roads.
 
 ## What is wrong now
 
