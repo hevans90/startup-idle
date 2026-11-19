@@ -60,6 +60,8 @@ const FIXTURES: [FixtureId, string][] = [
   // Both storeys running at once: a road over a river. @see buildCrossing
   ["crossing", "crossing"],
   ["cascade", "cascade"],
+  // Farms, hedges, rows, beds, stumps: what the player does to what grows. @see buildFarms
+  ["farms", "farms"],
   ["lake", "lake"],
   ["islands", "islands"],
   ["plunge", "plunge"],

@@ -31,6 +31,8 @@ import { useGeneratorStore, type GeneratorId } from "../../state/generators.stor
 import { useMoneyStore } from "../../state/money.store";
 import { useSessionStore } from "../../state/session.store";
 import { UNDO_WINDOW_MS, getArrivals, getNetwork, startFixture, useWorldStore } from "../../state/world.store";
+import { groundMode } from "../render/ground-mode";
+import { FARM, PLANTINGS, type Planting } from "../vegetation/tend";
 import { formatCurrency } from "../../utils/money-utils";
 import { VEHICLE } from "../agents/arrivals";
 import { DESKS, liveSeating, workplaceKind } from "../agents/commute";
@@ -70,6 +72,7 @@ const ICONS: Record<string, ReactNode> = {
   placeStructure: <Icon><path d="M2 8l6-5 6 5M4 7v7h8V7M7 14v-4h2v4" /></Icon>,
   demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
   dredge: <Icon><path d="M1 5c2-1.5 3-1.5 5 0s3 1.5 5 0 3-1.5 4 0M3 9l3 4h4l3-4M8 13V8" /></Icon>,
+  plant: <Icon><path d="M8 14V7M8 9c-3 0-4.5-2-4.5-4.5C6 4.5 8 6 8 9zM8 7c0-2.5 1.5-4.5 4.5-4.5C12.5 5 11 7 8 7zM5 14h6" /></Icon>,
   labels: <Icon><path d="M2 3h7l5 5-5 5-7-7z" /><circle cx="5.5" cy="6.5" r="1" /></Icon>,
   water: <Icon><path d="M8 2.5c2.5 3 4 5.2 4 7a4 4 0 0 1-8 0c0-1.8 1.5-4 4-7z" /></Icon>,
   mood: <Icon><circle cx="8" cy="8" r="6" /><path d="M5.5 9.5c.7 1 1.5 1.5 2.5 1.5s1.8-.5 2.5-1.5M6 6.5h.01M10 6.5h.01" /></Icon>,
@@ -121,8 +124,12 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "sewer", label: "Sewer", hint: "Drag from water or a processor to lay a sewer underground; from a workplace's slop port to a manhole, a connection. Or click and pin corners. Click one laid to open it" },
   { id: "placeStructure", label: "Build", hint: "Build beside a road, a park anywhere; drag along a street for a row of lots; click a seaport to upgrade it" },
   { id: "dredge", label: "Dredge", hint: "Drag along a river to deepen it, for bigger ships" },
-  { id: "demolish", label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to delete it" },
+  { id: "plant", label: "Plant", hint: "Drag to plant a wood, a row of trees, a hedge or flowers" },
+  { id: "demolish", label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to delete it, or over trees to fell them" },
 ];
+
+/** What the Plant tool plants, in its row. @see vegetation/tend */
+const PLANT_LABEL: Record<Planting, string> = { woods: "Woods", row: "Trees", hedge: "Hedge", bed: "Flowers" };
 
 const KINDS: GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
 const KIND_TITLE: Record<GeneratorId, string> = { intern: "Interns", vibe_coder: "Vibe coders", "10x_dev": "10x devs" };
@@ -161,6 +168,9 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
   // SLOP PROCESSORS, each kind once its project has opened it. @see game/processors
   const processors = all.filter((d) => { const k = processorKind(d.def.id); return k !== null && featureGateOpen(k); });
   if (processors.length) out.push({ title: "Slop", colour: 0x7a5230, items: processors });
+  // FARMS, where the ground is one surface and fields can be. @see vegetation/tend
+  const farms = all.filter((d) => d.def.id === FARM);
+  if (groundMode() === "smooth" && farms.length) out.push({ title: "Land", colour: 0x8a9a3a, items: farms });
   // FLOOD WALLS, on a map with a river to flood. @see LEVEE
   const walls = all.filter((d) => d.def.id === "levee");
   if (river && walls.length) out.push({ title: "Defences", colour: 0x8a8475, items: walls });
@@ -198,6 +208,8 @@ const TOOL_ON = "bg-surface-3 text-console shadow-[inset_0_-2px_0_var(--ui-conso
 export function BuildBar({ className }: { className?: string }) {
   const tool = useWorldStore((s) => s.tool);
   const structureDefId = useWorldStore((s) => s.structureDefId);
+  const planting = useWorldStore((s) => s.planting);
+  const setPlanting = useWorldStore((s) => s.setPlanting);
   const setTool = useWorldStore((s) => s.setTool);
   const setStructureDef = useWorldStore((s) => s.setStructureDef);
   const setBrush = useWorldStore((s) => s.setBrush);
@@ -284,6 +296,8 @@ export function BuildBar({ className }: { className?: string }) {
     setTool(id);
     // Road goes down in a line, as a road does; everything else is a click.
     setBrush(id === "paintRoad" || id === "pipe" || id === "sewer" || id === "demolish" || id === "dredge" ? "line" : "point");
+    // (Planting as what is planted lays out: an area or a line.)
+    if (id === "plant") setPlanting(useWorldStore.getState().planting);
     setBrushRadius(0);
     setPicking(id === "placeStructure" ? !(tool === id && picking) : false);
     // Something on offer in hand, not whatever was last: a lot for people the
@@ -302,7 +316,9 @@ export function BuildBar({ className }: { className?: string }) {
   // THE TOOLS ON OFFER, and their keys: 1 to 5, as shown on each. Not while typing in a field, nor with a modifier.
   // DREDGING opens with the first port big enough for a coaster. @see SHIP_CLASSES
   const dredgeOpen = useWorldStore((s) => { void s.revision; for (const b of s.grid.structures.values()) if ((structureDef(b.def)?.port?.berths ?? 0) >= 2 && !b.build) return true; return false; });
-  const shown = useMemo(() => TOOLS.filter((t) => (t.id !== "pipe" || mainsOpen) && (t.id !== "sewer" || sewersOpen) && (t.id !== "dredge" || dredgeOpen)), [mainsOpen, sewersOpen, dredgeOpen]);
+  // PLANTING where trees are the fields': on the continuous surface. @see vegetation/fields
+  const smooth = groundMode() === "smooth";
+  const shown = useMemo(() => TOOLS.filter((t) => (t.id !== "pipe" || mainsOpen) && (t.id !== "sewer" || sewersOpen) && (t.id !== "dredge" || dredgeOpen) && (t.id !== "plant" || smooth)), [mainsOpen, sewersOpen, dredgeOpen, smooth]);
   const keyed = useRef(choose);
   keyed.current = choose;
   useEffect(() => {
@@ -455,7 +471,10 @@ export function BuildBar({ className }: { className?: string }) {
                 <span className="ml-0.5 border-l border-current/30 pl-1 opacity-80">{saleName(chosen.def)}</span>
               )}
             </button>
-          ))}
+          )).flatMap((b, k) => shown[k].id === "plant" && tool === "plant" ? [b, ...PLANTINGS.map((what) => (
+            <button key={what} type="button" onClick={() => setPlanting(what)} aria-pressed={planting === what}
+              className={twMerge(TOOL, "border-l border-line-quiet", planting === what && TOOL_ON)}>{PLANT_LABEL[what]}</button>
+          ))] : [b])}
           {/* THE AI IS BUILDING: its latest memo on hover. @see stepAi */}
           {aiBuilding && (
             <span title={aiMemo ?? "The AI is working on the town."}

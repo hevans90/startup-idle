@@ -78,6 +78,21 @@ export type Pen = {
   strut: (a: [number, number, number], b: [number, number, number], w: number, colour: number, alpha?: number) => void;
   /** A disc, `r` tiles across, standing in screen space at a point. */
   dot: (u: number, v: number, z: number, r: number, colour: number, alpha?: number) => void;
+  /**
+   * A PLANE over a rectangle — a pitched roof's slope — its height at each point `z(u, v)` (linear across it), cut
+   * to the tile like a flat.
+   */
+  slope: (u0: number, v0: number, u1: number, v1: number, z: (u: number, v: number) => number, colour: number, alpha?: number) => void;
+  /**
+   * AN END WALL with a shaped top — a gable — standing on the +u face at `at` (`axis` "u") or the +v face (`axis`
+   * "v"): `top` its outline as [across, z] from one end to the other, filled down to `z0`. Shaded as that face.
+   */
+  gable: (axis: "u" | "v", at: number, top: [number, number][], z0: number, colour: number, alpha?: number) => void;
+  /**
+   * A ROUND THING STANDING: a cylinder of radius `r` at (u, v) from `z0` to `z1`, shaded round from the light, with
+   * a cone `cap` high on it (0 for a flat top). Drawn whole by the tile its middle is in.
+   */
+  cylinder: (u: number, v: number, r: number, z0: number, z1: number, colour: number, o?: { cap?: number; top?: number }) => void;
 };
 
 /** The tile a pen draws, by its column and row in the footprint; null for no clipping at all. */
@@ -166,5 +181,55 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
     g.circle(x, y, Math.max(0.6, r * HW * sc));
     g.fill({ color: colour, alpha });
   };
-  return { P, cu0, cu1, cv0, cv1, sc, poly, box, flat, onV, onU, strut, dot };
+  const slope: Pen["slope"] = (u0, v0, u1, v1, z, colour, alpha = 1) => {
+    const a = Math.max(u0, cu0), b = Math.min(u1, cu1);
+    const c = Math.max(v0, cv0), d = Math.min(v1, cv1);
+    if (b <= a + EPS || d <= c + EPS) return;
+    poly([P(a, c, z(a, c)), P(b, c, z(b, c)), P(b, d, z(b, d)), P(a, d, z(a, d))], colour, alpha);
+  };
+  const gable: Pen["gable"] = (axis, at, top, z0, colour, alpha = 1) => {
+    if (axis === "u" ? !ownsU(at) : !ownsV(at)) return;
+    const lo = axis === "u" ? cv0 : cu0, hi = axis === "u" ? cv1 : cu1;
+    // The outline cut to the tile's span across the face, then closed down to the foot.
+    const cut: [number, number][] = [];
+    for (let k = 0; k < top.length; k++) {
+      const [b0, z0k] = top[k], inside = b0 >= lo - EPS && b0 <= hi + EPS;
+      if (inside) cut.push([b0, z0k]);
+      if (k + 1 < top.length) {
+        const [b1, z1k] = top[k + 1];
+        for (const edge of b0 < b1 ? [lo, hi] : [hi, lo]) {
+          if ((b0 - edge) * (b1 - edge) < 0) cut.push([edge, z0k + ((z1k - z0k) * (edge - b0)) / (b1 - b0)]);
+        }
+      }
+    }
+    if (cut.length < 2) return;
+    const at3 = (b: number, zz: number) => (axis === "u" ? P(at, b, zz) : P(b, at, zz));
+    const pts = cut.map(([b, zz]) => at3(b, zz));
+    pts.push(at3(cut[cut.length - 1][0], z0), at3(cut[0][0], z0));
+    poly(pts, axis === "u" ? tone(colour, RIGHT) : colour, alpha);
+  };
+  const cylinder: Pen["cylinder"] = (u, v, r, z0, z1, colour, o = {}) => {
+    if (!ownsU(u) || !ownsV(v)) return;
+    // The half the camera sees, from the far left edge round the front to the far right, in strips lit from the left.
+    const N = 12, A0 = -Math.PI / 4, A1 = (3 * Math.PI) / 4;
+    const shade = (t: number) => tone(colour, 0.8 + 0.24 * ((Math.sin(t) - Math.cos(t)) / Math.SQRT2));
+    for (let k = 0; k < N; k++) {
+      const t0 = A0 + ((A1 - A0) * k) / N, t1 = A0 + ((A1 - A0) * (k + 1)) / N;
+      const a = [u + r * Math.cos(t0), v + r * Math.sin(t0)], b = [u + r * Math.cos(t1), v + r * Math.sin(t1)];
+      poly([P(a[0], a[1], z1), P(b[0], b[1], z1), P(b[0], b[1], z0), P(a[0], a[1], z0)], shade((t0 + t1) / 2));
+    }
+    const cap = o.cap ?? 0, M = 24;
+    if (cap <= 0) {
+      poly(Array.from({ length: M }, (_, k) => P(u + r * Math.cos((k / M) * Math.PI * 2), v + r * Math.sin((k / M) * Math.PI * 2), z1)), o.top ?? tone(colour, TOP));
+      return;
+    }
+    // A cone: its triangles back to front, each lit by the way it faces.
+    const tris = Array.from({ length: M }, (_, k) => (k / M) * Math.PI * 2).sort((p, q) => Math.cos(p) + Math.sin(p) - (Math.cos(q) + Math.sin(q)));
+    const top = o.top ?? colour;
+    for (const t of tris) {
+      const t1 = t + (Math.PI * 2) / M;
+      poly([P(u, v, z1 + cap), P(u + r * Math.cos(t), v + r * Math.sin(t), z1), P(u + r * Math.cos(t1), v + r * Math.sin(t1), z1)], tone(top, 0.86 + 0.26 * ((Math.sin(t + Math.PI / M) - Math.cos(t + Math.PI / M)) / Math.SQRT2) * 0.5 + 0.12));
+    }
+  };
+  return { P, cu0, cu1, cv0, cv1, sc, poly, box, flat, onV, onU, strut, dot, slope, gable, cylinder };
 }

@@ -31,6 +31,7 @@ import { terrainName } from "../terrain-names";
 import { built, cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, pinned, shelfOf, smoothAt } from "./drawn";
 import { groundMode } from "./ground-mode";
 import { canopyOf } from "./forest";
+import { COVER, vegAt } from "../vegetation/fields";
 
 export { cornerZ };
 
@@ -425,7 +426,9 @@ function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number, palette: P
   const jy = inBounds(grid, x, y + 1) && same(e[o + 3], drawnCorner(grid, x, y + 1, 0, 0)) && same(e[o + 2], drawnCorner(grid, x, y + 1, 1, 0));
   // And on the continuous surface, 32 × how thick the wood's canopy is over it, in eighths: its forest floor. @see forest.ts
   const canopy = groundMode() === "smooth" ? Math.round(canopyOf(grid, palette, x, y) * 7) : 0;
-  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0) + (built(grid, x, y) ? 16 : 0) + canopy * 32;
+  // And 256 where it is a farm's field. @see vegetation/tend
+  const field = groundMode() === "smooth" && grid.veg.cover[vegAt(grid, palette, x, y)] === COVER.field && !built(grid, x, y) ? 256 : 0;
+  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0) + (built(grid, x, y) ? 16 : 0) + canopy * 32 + field;
 }
 
 export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale = 1): GroundMesh {
@@ -608,7 +611,11 @@ export function flushGround(gm: GroundMesh, grid: Grid, palette: Palette) {
 }
 
 /** THE YEAR on the ground, each frame: on the continuous surface only. @see world/calendar groundSeason */
-export function seasonGround(gm: GroundMesh, s: { bloom: number; dry: number; brown: number; snow: number } | null) {
+export function seasonGround(gm: GroundMesh, s: { bloom: number; dry: number; brown: number; snow: number } | null, yearShare = 0.3) {
+  const m = gm.uniforms.uniforms.uMode as Float32Array;
+  // (The year's share, for the fields: a step a day, so the uniforms are not sent each frame.)
+  const ys = Math.floor(yearShare * 120) / 120;
+  if (m[1] !== ys) { m[1] = ys; gm.uniforms.update(); }
   const u = gm.uniforms.uniforms.uSeason as Float32Array;
   const b = s ? s.bloom : 0, d = s ? s.dry : 0, r = s ? s.brown : 0, w = s ? s.snow : 0;
   if (u[0] === b && u[1] === d && u[2] === r && u[3] === w) return;
@@ -829,7 +836,74 @@ fn snowAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
 fn canopyCell(c: vec2<i32>) -> f32 {
   let n = vec2<i32>(i32(ground.uMap.x), i32(ground.uMap.y));
   if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) { return 0.0; }
-  return floor((textureLoad(uEdges, vec2<i32>(c.x * 2 + 1, c.y), 0).w + 0.5) / 32.0) / 7.0;
+  return (floor((textureLoad(uEdges, vec2<i32>(c.x * 2 + 1, c.y), 0).w + 0.5) / 32.0) % 8.0) / 7.0;
+}
+// Whether a cell is a farm's field. @see writeEdges
+fn fieldCell(c: vec2<i32>) -> bool {
+  return (floor((textureLoad(uEdges, vec2<i32>(c.x * 2 + 1, c.y), 0).w + 0.5) / 256.0) % 2.0) > 0.5;
+}
+// A FIELD through the year (uMode.y its share), over the ground it was (base). The fields are PARCELS a few cells
+// across, each its own crop and its own way of ploughing — wheat, barley, rape, a hay meadow — with a grass headland
+// round it and a verge where the farm's land ends: ploughed ridges, rows sprouting, green with tramlines, gold, cut
+// to striped stubble, ploughed again; some sown in autumn and green through the winter.
+fn fieldOver(base: vec3<f32>, p: vec2<f32>, fp: f32) -> vec3<f32> {
+  let band = floor(p.y / 4.0);
+  let q = vec2<f32>((p.x + hash(vec2<i32>(i32(band), 91)) * 3.0) / 3.0, p.y / 4.0);
+  let pc = vec2<i32>(floor(q));
+  let lq = q - floor(q);
+  let h1 = hash(pc); let h2 = hash(pc + vec2<i32>(17, 5)); let h3 = hash(pc + vec2<i32>(3, 29));
+  let edge = min(min(lq.x, 1.0 - lq.x) * 3.0, min(lq.y, 1.0 - lq.y) * 4.0);
+  let y = fract(ground.uMode.y + (h2 - 0.5) * 0.03);
+  let along = h3 > 0.5;
+  let across = select(p.y, p.x, along);
+  let ph = across * 43.98;
+  let ridge = sin(ph);
+  let fine = shows(7.0, fp);
+  // PLOUGHED: ridges lit on the side to the light.
+  let soil = mix(vec3<f32>(0.34, 0.24, 0.15), vec3<f32>(0.5, 0.37, 0.24), 0.5 + 0.5 * ridge * fine) * (0.94 + 0.12 * fbm(p * 2.3 + 7.0));
+  let kind = select(select(select(3.0, 2.0, h1 < 0.82), 1.0, h1 < 0.62), 0.0, h1 < 0.38);
+  let winter = select(0.0, 1.0, h2 > 0.62 && kind < 1.5);
+  let grow = max(smoothstep(0.07, 0.22, y), winter * 0.4 * max(smoothstep(0.7, 0.95, y), 1.0 - smoothstep(0.0, 0.12, y)));
+  let ripe = smoothstep(0.24, 0.34, y) * (1.0 - smoothstep(0.5, 0.55, y));
+  let cut = smoothstep(0.412, 0.425, y) * (1.0 - smoothstep(0.62, 0.68, y));
+  let green = select(vec3<f32>(0.3, 0.5, 0.17), vec3<f32>(0.42, 0.56, 0.22), kind > 0.5);
+  let gold = select(vec3<f32>(0.86, 0.66, 0.26), vec3<f32>(0.9, 0.8, 0.48), kind > 0.5);
+  var crop = mix(green, gold, ripe);
+  // Rape: green, then yellow in flower in late spring, then the brown of its pods.
+  if (kind > 1.5 && kind < 2.5) {
+    crop = mix(vec3<f32>(0.3, 0.48, 0.2), vec3<f32>(0.96, 0.86, 0.18), smoothstep(0.15, 0.2, y) * (1.0 - smoothstep(0.26, 0.31, y)));
+    crop = mix(crop, vec3<f32>(0.55, 0.5, 0.28), smoothstep(0.3, 0.38, y));
+  }
+  // Ears and leaves: a speckle in the crop.
+  crop = crop * (0.9 + 0.2 * vnoise(p * 23.0) * shows(23.0, fp));
+  // Rows while young, filling in as it grows.
+  var c = mix(soil, crop, clamp(grow * (0.35 + 0.65 * grow) + grow * (0.5 - 0.5 * ridge) * 0.4 * fine, 0.0, 1.0));
+  // TRAMLINES: the tractor's wheels, two narrow lines every few rows.
+  // (Rows in the grown crop too, and the wind's sheen across it when it is ripe.)
+  c = c * (1.0 + 0.08 * ridge * fine * grow) * (1.0 + 0.1 * ripe * (fbm(vec2<f32>(p.x + p.y, p.x - p.y) * vec2<f32>(0.35, 1.4)) - 0.5));
+  let tl = abs(fract(across / 2.4) - 0.5);
+  let tram = (1.0 - smoothstep(0.02, 0.035, abs(tl - 0.06))) * grow * (1.0 - cut) * shows(14.0, fp);
+  c = mix(c, soil * 0.9, tram * 0.4 * select(1.0, 0.0, kind > 2.5));
+  // STUBBLE once cut: pale straw in the combine's passes, ploughed in come autumn.
+  let swath = 0.94 + 0.08 * step(0.5, fract(across * 0.8));
+  let straw = mix(vec3<f32>(0.8, 0.71, 0.47), vec3<f32>(0.66, 0.6, 0.4), 0.5 + 0.5 * ridge * fine) * swath;
+  c = mix(c, straw, cut * select(1.0, 0.0, kind > 2.5));
+  // A HAY MEADOW: grass all year, mown in stripes, paler a while after it is cut.
+  if (kind > 2.5) {
+    let mow = 0.92 + 0.14 * step(0.5, fract(across * 0.5));
+    c = mix(vec3<f32>(0.36, 0.56, 0.21), vec3<f32>(0.7, 0.68, 0.38), smoothstep(0.38, 0.42, y) * (1.0 - smoothstep(0.5, 0.6, y))) * mow;
+    c = c * (0.92 + 0.16 * vnoise(p * 17.0) * shows(17.0, fp));
+  }
+  c = c * (0.93 + 0.14 * fbm(p * 0.6 + 3.0));
+  // THE HEADLAND round each parcel, and a verge where the farm's land ends.
+  let fq = p - floor(p); let cc = vec2<i32>(floor(p));
+  var rim = 1.0;
+  if (!fieldCell(cc - vec2<i32>(1, 0))) { rim = min(rim, fq.x); }
+  if (!fieldCell(cc + vec2<i32>(1, 0))) { rim = min(rim, 1.0 - fq.x); }
+  if (!fieldCell(cc - vec2<i32>(0, 1))) { rim = min(rim, fq.y); }
+  if (!fieldCell(cc + vec2<i32>(0, 1))) { rim = min(rim, 1.0 - fq.y); }
+  c = mix(c, vec3<f32>(0.33, 0.47, 0.2) * (0.9 + 0.2 * vnoise(p * 13.0)), 1.0 - smoothstep(0.1, 0.16, edge));
+  return mix(c, base, 1.0 - smoothstep(0.1, 0.17, rim));
 }
 fn canopyAt(p: vec2<f32>) -> f32 {
   let q = p - 0.5; let c = vec2<i32>(floor(q)); let f = q - floor(q);
@@ -1185,6 +1259,7 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
     if (ground.uMode.x > 0.5) {
       let can = canopyAt(vGround);
       if (can > 0.02) { col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88); }
+      if (fieldCell(vec2<i32>(floor(vGround)))) { col = fieldOver(col, vGround, fp); }
     }
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
     var level = textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).z;
@@ -1363,7 +1438,59 @@ vec3 snowAt(vec2 p, float fp) {
 float canopyCell(ivec2 c) {
   ivec2 n = ivec2(int(uMap.x), int(uMap.y));
   if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) return 0.0;
-  return floor((texelFetch(uEdges, ivec2(c.x * 2 + 1, c.y), 0).w + 0.5) / 32.0) / 7.0;
+  return mod(floor((texelFetch(uEdges, ivec2(c.x * 2 + 1, c.y), 0).w + 0.5) / 32.0), 8.0) / 7.0;
+}
+bool fieldCell(ivec2 c) {
+  return mod(floor((texelFetch(uEdges, ivec2(c.x * 2 + 1, c.y), 0).w + 0.5) / 256.0), 2.0) > 0.5;
+}
+vec3 fieldOver(vec3 base, vec2 p, float fp) {
+  float band = floor(p.y / 4.0);
+  vec2 q = vec2((p.x + hash(ivec2(int(band), 91)) * 3.0) / 3.0, p.y / 4.0);
+  ivec2 pc = ivec2(floor(q));
+  vec2 lq = q - floor(q);
+  float h1 = hash(pc), h2 = hash(pc + ivec2(17, 5)), h3 = hash(pc + ivec2(3, 29));
+  float edge = min(min(lq.x, 1.0 - lq.x) * 3.0, min(lq.y, 1.0 - lq.y) * 4.0);
+  float y = fract(uMode.y + (h2 - 0.5) * 0.03);
+  float across = h3 > 0.5 ? p.x : p.y;
+  float ph = across * 43.98;
+  float ridge = sin(ph);
+  float fine = shows(7.0, fp);
+  vec3 soil = mix(vec3(0.34, 0.24, 0.15), vec3(0.5, 0.37, 0.24), 0.5 + 0.5 * ridge * fine) * (0.94 + 0.12 * fbm(p * 2.3 + 7.0));
+  float kind = h1 < 0.38 ? 0.0 : h1 < 0.62 ? 1.0 : h1 < 0.82 ? 2.0 : 3.0;
+  float winter = (h2 > 0.62 && kind < 1.5) ? 1.0 : 0.0;
+  float grow = max(smoothstep(0.07, 0.22, y), winter * 0.4 * max(smoothstep(0.7, 0.95, y), 1.0 - smoothstep(0.0, 0.12, y)));
+  float ripe = smoothstep(0.24, 0.34, y) * (1.0 - smoothstep(0.5, 0.55, y));
+  float cut = smoothstep(0.412, 0.425, y) * (1.0 - smoothstep(0.62, 0.68, y));
+  vec3 green = kind > 0.5 ? vec3(0.42, 0.56, 0.22) : vec3(0.3, 0.5, 0.17);
+  vec3 gold = kind > 0.5 ? vec3(0.9, 0.8, 0.48) : vec3(0.86, 0.66, 0.26);
+  vec3 crop = mix(green, gold, ripe);
+  if (kind > 1.5 && kind < 2.5) {
+    crop = mix(vec3(0.3, 0.48, 0.2), vec3(0.96, 0.86, 0.18), smoothstep(0.15, 0.2, y) * (1.0 - smoothstep(0.26, 0.31, y)));
+    crop = mix(crop, vec3(0.55, 0.5, 0.28), smoothstep(0.3, 0.38, y));
+  }
+  crop *= 0.9 + 0.2 * vnoise(p * 23.0) * shows(23.0, fp);
+  vec3 c = mix(soil, crop, clamp(grow * (0.35 + 0.65 * grow) + grow * (0.5 - 0.5 * ridge) * 0.4 * fine, 0.0, 1.0));
+  c *= (1.0 + 0.08 * ridge * fine * grow) * (1.0 + 0.1 * ripe * (fbm(vec2(p.x + p.y, p.x - p.y) * vec2(0.35, 1.4)) - 0.5));
+  float tl = abs(fract(across / 2.4) - 0.5);
+  float tram = (1.0 - smoothstep(0.02, 0.035, abs(tl - 0.06))) * grow * (1.0 - cut) * shows(14.0, fp);
+  c = mix(c, soil * 0.9, tram * 0.4 * (kind > 2.5 ? 0.0 : 1.0));
+  float swath = 0.94 + 0.08 * step(0.5, fract(across * 0.8));
+  vec3 straw = mix(vec3(0.8, 0.71, 0.47), vec3(0.66, 0.6, 0.4), 0.5 + 0.5 * ridge * fine) * swath;
+  c = mix(c, straw, cut * (kind > 2.5 ? 0.0 : 1.0));
+  if (kind > 2.5) {
+    float mow = 0.92 + 0.14 * step(0.5, fract(across * 0.5));
+    c = mix(vec3(0.36, 0.56, 0.21), vec3(0.7, 0.68, 0.38), smoothstep(0.38, 0.42, y) * (1.0 - smoothstep(0.5, 0.6, y))) * mow;
+    c *= 0.92 + 0.16 * vnoise(p * 17.0) * shows(17.0, fp);
+  }
+  c *= 0.93 + 0.14 * fbm(p * 0.6 + 3.0);
+  vec2 fq = p - floor(p); ivec2 cc = ivec2(floor(p));
+  float rim = 1.0;
+  if (!fieldCell(cc - ivec2(1, 0))) rim = min(rim, fq.x);
+  if (!fieldCell(cc + ivec2(1, 0))) rim = min(rim, 1.0 - fq.x);
+  if (!fieldCell(cc - ivec2(0, 1))) rim = min(rim, fq.y);
+  if (!fieldCell(cc + ivec2(0, 1))) rim = min(rim, 1.0 - fq.y);
+  c = mix(c, vec3(0.33, 0.47, 0.2) * (0.9 + 0.2 * vnoise(p * 13.0)), 1.0 - smoothstep(0.1, 0.16, edge));
+  return mix(c, base, 1.0 - smoothstep(0.1, 0.17, rim));
 }
 float canopyAt(vec2 p) {
   vec2 q = p - 0.5; ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
@@ -1660,6 +1787,7 @@ void main() {
     if (uMode.x > 0.5) {
       float can = canopyAt(vGround);
       if (can > 0.02) col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88);
+      if (fieldCell(ivec2(floor(vGround)))) col = fieldOver(col, vGround, fp);
     }
     float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;
     if (level > -900.0) {

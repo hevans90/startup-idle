@@ -1095,6 +1095,100 @@ export function cafe(f: Footprint): Building {
 }
 
 /**
+ * THE FARM: a whitewashed farmhouse, a red barn behind it, a silo, a gravel yard and a fence. Its fields are the
+ * ground's, round it. @see vegetation/tend
+ */
+export function farm(f: Footprint): Building {
+  const WHITE = 0xf2ece0, RED = 0xa8372a, SLATE = 0x4e5666, IRON = 0x5a5f63;
+  // THE FARMHOUSE, front left: white, two storeys, a slate roof pitched along it.
+  const H = { u0: 0.1, u1: 0.9, v0: 1.02, v1: 1.84, eave: 1.7, ridge: 2.45 };
+  const house: Mass = {
+    u0: H.u0, v0: H.v0, u1: H.u1, v1: H.v1, z0: 0.08, z1: H.eave, wall: 0xeee7d6, storey: 0.82,
+    facade: { kind: "windows", glass: GLASS, frame: 0xf8f4ec, w: 0.12, gap: 0.16, sill: 0.28, head: 0.2, edge: 0.1 },
+    roof: { kind: "flat", deck: SLATE },
+    base: { colour: STONE, h: 0.14 },
+  };
+  // THE BARN, behind: red boards, white trim, a gambrel roof along it, its doors at the end facing the yard.
+  const B = { u0: 1.04, u1: 1.9, v0: 0.1, v1: 1.46, eave: 1.45, knee: 2.1, ridge: 2.55, k: 0.17 };
+  const barn: Mass = {
+    u0: B.u0, v0: B.v0, u1: B.u1, v1: B.v1, z0: 0.08, z1: B.eave, wall: RED, storey: 2,
+    facade: { kind: "plain" }, roof: { kind: "flat", deck: IRON },
+  };
+  const bm = (B.u0 + B.u1) / 2;
+  /** The barn's roof line across it: eave, knee, ridge, knee, eave. */
+  const barnTop: [number, number][] = [[B.u0 - 0.05, B.eave - 0.1], [B.u0 + B.k, B.knee], [bm, B.ridge], [B.u1 - B.k, B.knee], [B.u1 + 0.05, B.eave - 0.1]];
+  const zBarn = (u: number) => {
+    for (let k = 0; k + 1 < barnTop.length; k++) {
+      const [a0, z0] = barnTop[k], [a1, z1] = barnTop[k + 1];
+      if (u <= a1 + 1e-6) return z0 + ((z1 - z0) * (u - a0)) / (a1 - a0);
+    }
+    return barnTop[barnTop.length - 1][1];
+  };
+  const hm = (H.v0 + H.v1) / 2;
+  const zHouse = (v: number) => H.ridge - ((H.ridge - H.eave) * Math.abs(v - hm)) / (hm - H.v0);
+  return {
+    plinth: { inset: 0.04, h: 0.08, colour: STONE, top: GRAVEL }, masses: [barn, house], crane: "none",
+    grounds: (p) => {
+      // The yard; a lawn before the house; a fence along the open sides.
+      p.flat(0.06, 0.06, f.w - 0.06, f.h - 0.06, 0.085, GRAVEL);
+      p.flat(0.06, H.v0 - 0.02, H.u1 + 0.04, f.h - 0.06, 0.087, 0x6f9a45);
+      for (let u = 0.08; u < f.w - 0.05; u += 0.22) p.box(u, f.h - 0.07, u + 0.03, f.h - 0.04, 0.08, 0.34, WHITE);
+      p.box(0.08, f.h - 0.07, f.w - 0.06, f.h - 0.055, 0.25, 0.29, WHITE);
+      for (let v = 0.08; v < f.h - 0.05; v += 0.22) p.box(f.w - 0.07, v, f.w - 0.04, v + 0.03, 0.08, 0.34, WHITE);
+      p.box(f.w - 0.07, 0.08, f.w - 0.055, f.h - 0.06, 0.25, 0.29, WHITE);
+    },
+    details: (p) => {
+      // BARN: boards down its side and end, the roof, the end's gable over the doors, trimmed white.
+      for (let v = B.v0 + 0.07; v < B.v1; v += 0.075) p.onU(B.u1 + 0.001, v, v + 0.012, 0.1, B.eave, tone(RED, 0.82));
+      p.slope(B.u0 - 0.05, B.v0 - 0.04, B.u0 + B.k, B.v1 + 0.04, (u) => zBarn(u), tone(IRON, 1.12));
+      p.slope(B.u0 + B.k, B.v0 - 0.04, bm, B.v1 + 0.04, (u) => zBarn(u), tone(IRON, 1.2));
+      p.slope(bm, B.v0 - 0.04, B.u1 - B.k, B.v1 + 0.04, (u) => zBarn(u), tone(IRON, 0.92));
+      p.slope(B.u1 - B.k, B.v0 - 0.04, B.u1 + 0.05, B.v1 + 0.04, (u) => zBarn(u), tone(IRON, 0.8));
+      p.gable("v", B.v1, [[B.u0, B.eave], ...barnTop.slice(1, -1), [B.u1, B.eave]], B.eave - 0.01, RED);
+      for (let u = B.u0 + 0.06; u < B.u1 - 0.03; u += 0.075) p.strut([u, B.v1 + 0.002, 0.1], [u, B.v1 + 0.002, zBarn(u) - 0.03], 0.012, tone(RED, 0.84));
+      // The doors, braced in white; the hayloft's over them.
+      const d0 = bm - 0.24, d1 = bm + 0.24;
+      p.onV(B.v1 + 0.003, d0, d1, 0.09, 1.15, 0x7e2a20);
+      for (const [a, b] of [[[d0, 0.09], [bm, 1.15]], [[bm, 0.09], [d0, 1.15]], [[bm, 0.09], [d1, 1.15]], [[d1, 0.09], [bm, 1.15]]] as const) p.strut([a[0], B.v1 + 0.004, a[1]], [b[0], B.v1 + 0.004, b[1]], 0.025, WHITE);
+      for (const u of [d0, bm, d1]) p.strut([u, B.v1 + 0.004, 0.09], [u, B.v1 + 0.004, 1.15], 0.03, WHITE);
+      p.strut([d0, B.v1 + 0.004, 1.15], [d1, B.v1 + 0.004, 1.15], 0.03, WHITE);
+      p.onV(B.v1 + 0.003, bm - 0.1, bm + 0.1, 1.55, 1.95, 0x5a1e18);
+      p.strut([bm - 0.11, B.v1 + 0.004, 1.95], [bm + 0.11, B.v1 + 0.004, 1.95], 0.025, WHITE);
+      p.strut([bm - 0.11, B.v1 + 0.004, 1.55], [bm + 0.11, B.v1 + 0.004, 1.55], 0.025, WHITE);
+      for (let k = 0; k + 1 < barnTop.length; k++) {
+        const [a0, z0] = barnTop[k], [a1, z1] = barnTop[k + 1];
+        p.strut([a0, B.v1 + 0.045, z0 + 0.02], [a1, B.v1 + 0.045, z1 + 0.02], 0.035, WHITE);
+      }
+      for (const u of [B.u0, B.u1]) p.strut([u, B.v1 + 0.004, 0.08], [u, B.v1 + 0.004, B.eave - 0.12], 0.03, WHITE);
+      p.strut([B.u1 + 0.004, B.v0, 0.08], [B.u1 + 0.004, B.v0, B.eave - 0.12], 0.03, WHITE);
+      // Windows down the barn's side.
+      for (const v of [0.35, 0.75, 1.15]) { p.onU(B.u1 + 0.003, v, v + 0.14, 0.62, 0.86, 0x3a3f44); p.onU(B.u1 + 0.004, v - 0.015, v + 0.155, 0.6, 0.62, WHITE); }
+
+      // HOUSE: its gable end, the roof over it, a chimney, a porch at the door.
+      p.gable("u", H.u1, [[H.v0, H.eave], [hm, H.ridge], [H.v1, H.eave]], H.eave - 0.01, 0xeee7d6);
+      p.slope(H.u0 - 0.06, H.v0 - 0.07, H.u1 + 0.06, hm, (_u, v) => zHouse(v), tone(SLATE, 1.2));
+      p.box(0.24, hm - 0.16, 0.36, hm - 0.04, 2.0, 2.85, 0x8a4a3a, { top: 0x3a2a24 });
+      p.slope(H.u0 - 0.06, hm, H.u1 + 0.06, H.v1 + 0.07, (_u, v) => zHouse(v), SLATE);
+      p.strut([H.u0 - 0.06, H.v1 + 0.07, zHouse(H.v1 + 0.07)], [H.u1 + 0.06, H.v1 + 0.07, zHouse(H.v1 + 0.07)], 0.025, tone(SLATE, 0.7));
+      p.strut([H.u0 - 0.06, hm, H.ridge + 0.01], [H.u1 + 0.06, hm, H.ridge + 0.01], 0.03, tone(SLATE, 0.8));
+      p.onV(H.v1 + 0.002, 0.44, 0.58, 0.14, 0.72, 0x3f5a3a);
+      p.box(0.38, H.v1, 0.64, H.v1 + 0.12, 0.08, 0.11, STONE);
+      p.slope(0.36, H.v1, 0.66, H.v1 + 0.16, (_u, v) => 0.95 - (v - H.v1) * 1.2, tone(SLATE, 1.05));
+      for (const u of [0.38, 0.63]) p.box(u, H.v1 + 0.12, u + 0.025, H.v1 + 0.145, 0.08, 0.78, WHITE);
+
+      // THE SILO, banded, and a grain bin beside it.
+      for (let k = 0; k < 4; k++) p.cylinder(0.42, 0.44, 0.27, 0.08 + k * 0.72, 0.08 + (k + 1) * 0.72, k % 2 ? 0xc3c8cc : 0xcfd4d8, k === 3 ? { cap: 0.42, top: 0xb1b7bc } : {});
+      p.cylinder(0.8, 0.22, 0.15, 0.08, 1.2, 0xbfc5c9, { cap: 0.22, top: 0xa9afb4 });
+      // ROUND BALES on end by the barn, and the tractor.
+      for (const [u, v] of [[1.14, 1.64], [1.34, 1.62], [1.22, 1.82], [1.08, 1.84]] as const) p.cylinder(u, v, 0.085, 0.08, 0.22, 0xcfa64e, { top: 0xe2bf66 });
+      p.box(1.56, 1.66, 1.86, 1.8, 0.16, 0.34, 0x3f7d3a, { top: 0x4f9446 });
+      p.box(1.56, 1.66, 1.7, 1.8, 0.34, 0.6, 0x9fc3cf, { top: 0x3f7d3a });
+      p.dot(1.62, 1.81, 0.15, 0.08, 0x23262a); p.dot(1.83, 1.81, 0.11, 0.05, 0x23262a);
+    },
+  };
+}
+
+/**
  * THE PARK: grass, gravel paths crossing it to a round plaza, a fountain in
  * the middle, trees, benches facing across the paths, a flower bed, a lamp
  * and a bin. The fountain, trees and benches come from the props sheet, the
@@ -2026,7 +2120,7 @@ export const LOOKS: Record<string, (f: Footprint) => Building> = {
   garage: yarded(garage), studio, hq: yarded(hq), boardroom: yarded(boardroom), campus, agency, townhall, harbour, datacentre, conference, hackerspace, ipo: yarded(ipo),
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
-  cafe, park, gym, lab, levee, derelict, rack, pump,
+  cafe, park, gym, lab, levee, farm, derelict, rack, pump,
   // The town's own services.
   club, coworking, cinema, doctor, climbing,
   // The slop processors. @see game/processors

@@ -111,12 +111,14 @@ export type WorldFile = {
   sewer?: string;
   sewerFit?: string;
   /**
-   * WHAT GROWS: base64 of the vegetation fields' cover and trees, a byte a cell (`cover | density << 3`); their
+   * WHAT GROWS: base64 of the vegetation fields' cover and trees, a byte a cell (`cover | density << 4`, or
+   * `<< 3` in a file without `vegPack`, from before there were more than eight covers); their
    * age, health and wear each only where any cell is not mature, healthy, untrodden; and the calendar's year they
    * were last brought to. Optional: a map from before them has its fields taken from its ground on first reading.
    * @see vegetation/fields
    */
   veg?: string;
+  vegPack?: 2;
   vegAge?: string;
   vegHealth?: string;
   vegWear?: string;
@@ -237,15 +239,16 @@ function decodeI8(b64: string, expected: number): Int8Array {
  * is the right answer for them.
  */
 /** The vegetation fields as the file has them: every cell read first, so none is saved never taken from its ground. */
-function vegSaved(grid: Grid, palette: readonly (string | null)[]): Pick<WorldFile, "veg" | "vegAge" | "vegHealth" | "vegWear" | "vegT"> {
+function vegSaved(grid: Grid, palette: readonly (string | null)[]): Pick<WorldFile, "veg" | "vegPack" | "vegAge" | "vegHealth" | "vegWear" | "vegT"> {
   // (Without the names of the ground there is nothing to take them from, and the live map's fields are not to be
   // taken from nothing: a copy made only to be read back, as the masterplan's town model is. @see town-model)
   if (!palette.length) return {};
   vegAll(grid, palette);
   const n = grid.w * grid.h, V = grid.veg, packed = new Uint8Array(n);
-  for (let i = 0; i < n; i++) packed[i] = V.cover[i] | (V.density[i] << 3);
+  for (let i = 0; i < n; i++) packed[i] = V.cover[i] | (V.density[i] << 4);
   return {
     veg: encodeU8(packed),
+    vegPack: 2,
     ...(V.age.some((a) => a !== 255) ? { vegAge: encodeU8(V.age) } : {}),
     ...(V.health.some((a) => a !== 255) ? { vegHealth: encodeU8(V.health) } : {}),
     ...(V.wear.some(Boolean) ? { vegWear: encodeU8(V.wear) } : {}),
@@ -394,7 +397,8 @@ export function deserializeWorld(
   if (typeof f.sewerFit === "string") grid.sewerFit.set(decodeU8(f.sewerFit, n));
   if (typeof f.veg === "string") {
     const packed = decodeU8(f.veg, n), V = grid.veg;
-    for (let i = 0; i < n; i++) { V.cover[i] = packed[i] & 7; V.density[i] = packed[i] >> 3; }
+    const bits = f.vegPack === 2 ? 4 : 3;
+    for (let i = 0; i < n; i++) { V.cover[i] = packed[i] & ((1 << bits) - 1); V.density[i] = packed[i] >> bits; }
     V.age.fill(255); V.health.fill(255); V.wear.fill(0);
     if (typeof f.vegAge === "string") V.age.set(decodeU8(f.vegAge, n));
     if (typeof f.vegHealth === "string") V.health.set(decodeU8(f.vegHealth, n));

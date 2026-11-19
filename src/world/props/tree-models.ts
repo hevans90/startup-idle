@@ -202,6 +202,39 @@ export const WILD: readonly Prop[] = [
   },
 ];
 
+/** PLANTED AND CUT: a stump where a tree was felled, and a clump of a flower bed. Only the player makes these. */
+export const MADE: readonly Prop[] = [
+  {
+    // A stump: a short cut trunk, its face pale where the saw went through.
+    id: "stump", shadow: shadowOf(0.6, 0.18),
+    tris: () => {
+      const out: Tri[] = [];
+      limb([0, 0, 0], [0, 0, 0.45], 0.34, 0.28, "bark", out, 10, false);
+      limb([0, 0, 0.44], [0, 0, 0.47], 0.27, 0.27, "wood", out, 10, true);
+      // A root or two over the ground.
+      for (const a of [0.4, 2.3, 4.1]) limb([0, 0, 0.12], [Math.cos(a) * 0.55, Math.sin(a) * 0.55, 0], 0.12, 0.05, "bark", out, 6, false);
+      return out;
+    },
+  },
+  {
+    // Flowers: a mound of leaves, stems up out of it, a head on each — the heads the colour of the season.
+    id: "flowers", shadow: shadowOf(0.6, 0.14),
+    tris: () => { const out: Tri[] = []; flowerBed(out, true, 1); return out; },
+  },
+];
+
+/** A clump of a bed: its leaves (fixed green), and with `heads` a share `keep` of its flowers. */
+function flowerBed(out: Tri[], heads: boolean, keep: number) {
+  const r = seeded(231);
+  for (let k = 0; k < 5; k++) { const a = r() * Math.PI * 2, d = 0.3 * r(); ball([Math.cos(a) * d, Math.sin(a) * d, 0.1], [0.32, 0.32, 0.2], "liveryGreen", out, undefined, 8, 5); }
+  for (let k = 0; k < 16; k++) {
+    const a = r() * Math.PI * 2, d = 0.45 * Math.sqrt(r()), h = 0.35 + 0.3 * r(), go = r() < keep;
+    const foot: V3 = [Math.cos(a) * d * 0.5, Math.sin(a) * d * 0.5, 0.1], tip: V3 = [Math.cos(a) * d, Math.sin(a) * d, h];
+    limb(foot, tip, 0.025, 0.018, heads ? "liveryGreen" : "bark", out, 4, false);
+    if (heads && go) ball(tip, [0.1, 0.1, 0.07], "leaf", out, undefined, 7, 4);
+  }
+}
+
 /** Snow on what is low and round: pads lying on its top. */
 function cushionSnow(out: Tri[], seed: number, r: number, z: number) {
   const rand = seeded(seed);
@@ -211,7 +244,7 @@ function cushionSnow(out: Tri[], seed: number, r: number, z: number) {
 export type TreeLook = { id: string; state: TreeState; tris: () => Tri[]; shadow: PropShadow };
 
 /** Every kind in every look it takes; a pine, heather and reeds only as they are and in snow. */
-export const TREE_LOOKS: readonly TreeLook[] = [...TREES, ...WILD].flatMap((t): TreeLook[] => {
+export const TREE_LOOKS: readonly TreeLook[] = [...TREES, ...WILD, ...MADE].flatMap((t): TreeLook[] => {
   const withSnow = (f: (o: Tri[]) => void): TreeLook[] => [
     { id: t.id, state: "full", tris: t.tris, shadow: t.shadow },
     { id: t.id, state: "snow", tris: () => { const out = t.tris(); f(out); return out; }, shadow: t.shadow },
@@ -219,6 +252,18 @@ export const TREE_LOOKS: readonly TreeLook[] = [...TREES, ...WILD].flatMap((t): 
   if (t.id === "pine") return withSnow(pineSnow);
   if (t.id === "heather") return withSnow((o) => cushionSnow(o, 907, 1.4, 0.58));
   if (t.id === "reeds") return withSnow((o) => cushionSnow(o, 911, 0.7, 0.5));
+  if (t.id === "stump") return withSnow((o) => cushionSnow(o, 913, 0.5, 0.48));
+  if (t.id === "flowers") {
+    // Leaves first, then in flower, going over, cut back to dead stalks, and snowed on.
+    const bed = (f: (o: Tri[]) => void) => () => { const o: Tri[] = []; f(o); return o; };
+    return [
+      { id: t.id, state: "bud", tris: bed((o) => flowerBed(o, true, 0)), shadow: t.shadow },
+      { id: t.id, state: "full", tris: t.tris, shadow: t.shadow },
+      { id: t.id, state: "thin", tris: bed((o) => flowerBed(o, true, 0.35)), shadow: t.shadow },
+      { id: t.id, state: "bare", tris: bed((o) => flowerBed(o, false, 0)), shadow: shadowOf(0.4, 0.08) },
+      { id: t.id, state: "snow", tris: bed((o) => { flowerBed(o, false, 0); cushionSnow(o, 917, 0.7, 0.3); }), shadow: shadowOf(0.4, 0.08) },
+    ];
+  }
   const h = HABIT[t.id];
   if (!h) return [{ id: t.id, state: "full", tris: t.tris, shadow: t.shadow }];
   const out = (f: (o: Tri[]) => void) => () => { const o: Tri[] = []; f(o); return o; };

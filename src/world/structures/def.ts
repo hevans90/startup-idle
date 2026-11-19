@@ -289,6 +289,14 @@ export const LEVEE: StructureDef = {
 };
 
 /**
+ * A FARM: a farmhouse, a barn and a silo, off the road; the open ground round it its fields, cut each summer.
+ * On the continuous surface only. @see vegetation/tend claimFields, FARM_REACH
+ */
+export const FARM_DEF: StructureDef = {
+  id: "farm", name: "Farm", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" },
+};
+
+/**
  * A DERELICT BUILDING: there already, on land a company has yet to buy, and
  * costing it to clear once it has. Homes near one are the gloomier for it.
  * @see placeDerelicts, MOOD.derelict
@@ -337,7 +345,7 @@ export const AI_BUILDINGS: readonly StructureDef[] = [
 export const isAiBuilding = (defId: string) => AI_BUILDINGS.some((d) => d.id === defId);
 
 const DEFS = new Map<string, StructureDef>(
-  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, ...PROCESSOR_DEFS, LEVEE, LAB, DERELICT, RACK, PUMP, ...AI_BUILDINGS].map((d) => [d.id, d]),
+  [...kitDefs(), ...SEAPORTS, ...PROJECT_BUILDINGS, ...OFFICES, ...SERVICES, ...PROCESSOR_DEFS, LEVEE, FARM_DEF, LAB, DERELICT, RACK, PUMP, ...AI_BUILDINGS].map((d) => [d.id, d]),
 );
 
 export const structureDef = (id: string): StructureDef | null => DEFS.get(id) ?? null;

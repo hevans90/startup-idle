@@ -140,7 +140,8 @@ function seedHarbour(): void {
 
 export function seedFixtureCompany(): void {
   if (startFixture() === "bigtown") { seedBigTown(); return; }
-  if (startFixture() === "harbour" || startFixture() === "shoal") { seedHarbour(); return; }
+  // (Farms too: money for planting, felling and farms.)
+  if (startFixture() === "harbour" || startFixture() === "shoal" || startFixture() === "farms") { seedHarbour(); return; }
   if (startFixture() === "ascension") { seedAscension(); return; }
   if (startFixture() !== "singularity") return;
   // WITH `&seed=N` (and `&size=`), A COMPANY FROM NOTHING instead: the Model's second generation on a generated map, AI

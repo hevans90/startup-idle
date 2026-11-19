@@ -21,6 +21,9 @@ import { layMain, planMain, routeMain } from "../water/mains";
 import { setGlassOverride, type GlassTold } from "../render/glass-state";
 import { portsOf } from "../water/ports";
 import { derivedRamp } from "../roads/ramp-derive";
+import { TERRAIN_NAMES } from "../terrain-names";
+import { MATURE, vegAll, vegAt } from "../vegetation/fields";
+import { FARM, claimFields, fell, plant } from "../vegetation/tend";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import {
   MAIN_BORE, SEWER_GRATE, createVeg, edited, fillTerrain, idx, inBounds, recomputeHeightRange, setDeck, setInflow, setSource, type Grid,
@@ -31,7 +34,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough" | "farms";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -1234,13 +1237,63 @@ export function buildRough(g: Grid, material: number) {
 }
 
 /**
+ * WHAT GROWS AND WHAT THE PLAYER DOES TO IT, on one map (open it on the continuous surface, `&ground=smooth`): a road
+ * across rolling grass; two farms with their fields, one each side of it; a hedge along a field's edge, a row of
+ * trees along the road, beds of flowers; a young wood just planted and a grown one with a strip felled to stumps; a
+ * pond with reeds; and open grass to plant on and farm. Played, a company with money for all of it.
+ * @see vegetation/tend
+ */
+export function buildFarms(g: Grid, material: number) {
+  clear(g, material);
+  // (The palette a map starts with: the fields read from it. @see INITIAL_TERRAIN_PALETTE)
+  const palette = [null, ...TERRAIN_NAMES];
+  const WOOD2 = 5, WOOD3 = 6, ROAD = 24;
+  const box = (x0: number, y0: number, x1: number, y1: number) => {
+    const out: { x: number; y: number }[] = [];
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (inBounds(g, x, y)) out.push({ x, y });
+    return out;
+  };
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+    // Rolling, gently; level by the road.
+    const roll = Math.round(2 * Math.sin(x / 7) * Math.cos(y / 9) + Math.sin((x + y) / 11));
+    set(g, x, y, 4 + Math.round(roll * Math.min(1, Math.abs(y - ROAD) / 4)));
+  }
+  // THE WOOD, north-east, thinner at its rim.
+  for (const c of box(36, 3, 46, 16)) g.terrain[idx(g, c.x, c.y)] = c.x === 36 || c.y === 16 || c.x === 46 ? WOOD2 : WOOD3;
+  // THE POND, south-west, filled; reeds take its shore.
+  for (const c of box(3, 33, 15, 44)) if (Math.hypot(c.x - 9, c.y - 38.5) < 5) set(g, c.x, c.y, 1);
+  pond(g, 3, 1, 3, 33, 15, 44);
+  for (let x = 0; x < g.w; x++) { set(g, x, ROAD, 4); pave(g, x, ROAD); }
+  // TWO FARMS, a side of the road each.
+  const history = createHistory(), def = structureDef(FARM);
+  const farms = [{ x: 10, y: 18 }, { x: 30, y: 28 }].flatMap((at) => {
+    const cmd = def && placeCommand(g, def, at.x, at.y);
+    if (!cmd) return [];
+    commit(g, history, cmd);
+    return cmd.structures?.added ?? [];
+  });
+  vegAll(g, palette);
+  for (const f of farms) claimFields(g, palette, f);
+  // What has been felled, planted and grown.
+  fell(g, palette, box(36, 4, 37, 12));
+  plant(g, palette, box(6, 14, 17, 14), "hedge");
+  plant(g, palette, box(18, ROAD - 1, 30, ROAD - 1), "row");
+  plant(g, palette, box(17, 19, 18, 21), "bed");
+  plant(g, palette, box(19, 6, 25, 11), "woods");
+  // (The wood planted a few months ago; the hedge and the row grown.)
+  for (const c of box(19, 6, 25, 11)) g.veg.age[vegAt(g, palette, c.x, c.y)] = 70;
+  for (const c of [...box(6, 14, 17, 14), ...box(18, ROAD - 1, 30, ROAD - 1)]) g.veg.age[vegAt(g, palette, c.x, c.y)] = MATURE;
+  edited(g);
+}
+
+/**
  * Fixtures that want a map of their own size, rather than the one on screen.
  *
  * A rig is a size as much as it is a shape: `brink` is five tiles because five
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48, farms: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1252,7 +1305,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough", "farms",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1301,6 +1354,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "demolition": buildDemolition(g, material); recomputeHeightRange(g); return;
     case "terrain": buildTerrain(g, material); recomputeHeightRange(g); return;
     case "rough": buildRough(g, material); recomputeHeightRange(g); return;
+    case "farms": buildFarms(g, material); recomputeHeightRange(g); return;
   }
 }
 

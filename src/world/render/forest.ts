@@ -97,7 +97,9 @@ export function forestTrees(g: Grid, palette: Palette, x: number, y: number, can
   // (Nothing near any wood: no trees, and no lattice walked for them.)
   let near = 0;
   for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++) if (woodOf(g, palette, x + dx, y + dy) > 0) { near = 1; break; }
-  if (near) {
+  // (A wood spills onto open ground round it; not onto what was cleared, planted or farmed.)
+  const wild = cover === COVER.wood || cover === COVER.scrub || cover === COVER.grass || cover === COVER.meadow || cover === COVER.burnt;
+  if (near && wild) {
     const mix = biomeOf(g, x, y, i), grown = cover === COVER.wood ? grownBy(V.age[i]) : 1;
     for (let j = 0; j < LATTICE; j++) for (let k = 0; k < LATTICE; k++) {
       const lx = x * LATTICE + k, ly = y * LATTICE + j;
@@ -132,5 +134,42 @@ export function forestTrees(g: Grid, palette: Palette, x: number, y: number, can
       out.push({ kind, u, v, turn: Math.floor(hash(x + k, y, 0xc4) * 4), size, seed: hash(x + k, y + k, 0xc6) });
     }
   }
+  out.push(...madeOn(g, palette, x, y, i));
   return out.sort((a, b) => a.u + a.v - (b.u + b.v));
+}
+
+/** The kind a row of trees is of, by its biome: a poplar by the water, a pine on the heights, a lime elsewhere. */
+function rowKind(g: Grid, x: number, y: number, i: number): string {
+  if (waterNear(g, x, y, 2) <= 2) return "poplar";
+  return heightShare(g, i) > 0.74 ? "pine" : "lime";
+}
+
+/** WHAT THE PLAYER MADE on a cell: stumps where trees were felled, a row's tree, a hedge, a bed. */
+function madeOn(g: Grid, palette: Palette, x: number, y: number, i: number): ForestTree[] {
+  const V = g.veg, cover = V.cover[i], out: ForestTree[] = [];
+  const at = (u: number, v: number, kind: string, size: number, salt: number) =>
+    out.push({ kind, u, v, turn: Math.floor(hash(x * 13 + salt, y, 0xd1) * 4), size, seed: hash(x, y * 13 + salt, 0xd2) });
+  switch (cover) {
+    case COVER.stumps:
+      for (let k = 0; k < Math.min(6, V.density[i]); k++) at(x + (hash(x * 5 + k, y, 0xd3) - 0.5) * 0.8, y + (hash(x, y * 5 + k, 0xd4) - 0.5) * 0.8, "stump", 1.4 + 0.6 * hash(x + k, y, 0xd5), k);
+      break;
+    case COVER.row:
+      at(x, y, rowKind(g, x, y, i), 0.9 * grownBy(V.age[i]), 0);
+      break;
+    case COVER.hedge: {
+      // Shrubs close together, a fifth of a cell apart, out to each hedge beside it: one line, no gaps.
+      const size = 1.3 * grownBy(V.age[i]) + 0.15;
+      at(x, y, "shrub", size, 0);
+      for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
+        if (!inBounds(g, x + dx, y + dy) || V.cover[vegAt(g, palette, x + dx, y + dy)] !== COVER.hedge) continue;
+        // (Out to the edge from each side: the neighbour brings it the rest of the way.)
+        for (let k = 1; k <= 2; k++) at(x + dx * 0.2 * k + (hash(x * 7 + k, y, 0xd8) - 0.5) * 0.05, y + dy * 0.2 * k + (hash(x, y * 7 + k, 0xd9) - 0.5) * 0.05, "shrub", size * (0.85 + 0.2 * hash(x + k, y + dx, 0xda)), 4 + k + (dx + 1) * 3 + (dy + 1) * 9);
+      }
+      break;
+    }
+    case COVER.bed:
+      for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) at(x - 0.3 + k * 0.3 + (hash(x * 3 + k, y * 3 + j, 0xd6) - 0.5) * 0.08, y - 0.3 + j * 0.3, "flowers", 1.3 + 0.4 * hash(x * 3 + k, y * 3 + j, 0xd7), 3 * j + k);
+      break;
+  }
+  return out;
 }

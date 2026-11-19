@@ -10,8 +10,17 @@
 import { VOID, idx, inBounds, structureOf, type Grid } from "../grid";
 import { treesIn } from "../terrain-names";
 
-export const COVER = { none: 0, grass: 1, meadow: 2, scrub: 3, wood: 4, reeds: 5, field: 6, burnt: 7 } as const;
+export const COVER = {
+  none: 0, grass: 1, meadow: 2, scrub: 3, wood: 4, reeds: 5, field: 6, burnt: 7,
+  // The player's: where trees were felled (`density` how many), and what they planted. @see vegetation/tend
+  stumps: 8, hedge: 9, bed: 10, row: 11,
+} as const;
 export type Cover = (typeof COVER)[keyof typeof COVER];
+
+/** The farm whose fields these are: within this many cells of it (the furthest of x and y). @see vegetation/tend */
+export const FARM_REACH = 3;
+/** When in the year the fields are cut: late summer. */
+export const HARVEST = 0.42;
 
 /** Mature, on the age byte. */
 export const MATURE = 255;

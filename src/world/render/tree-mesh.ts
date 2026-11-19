@@ -26,7 +26,7 @@ import { COVER } from "../vegetation/fields";
 
 const BASE = "/isometric_assets/derived";
 /** The kinds, a row of the leaves' ramp each. */
-const KINDS = ["oak", "lime", "hornbeam", "cherry", "birch", "pine", "willow", "poplar", "apple", "shrub", "heather", "reeds"] as const;
+const KINDS = ["oak", "lime", "hornbeam", "cherry", "birch", "pine", "willow", "poplar", "apple", "shrub", "heather", "reeds", "stump", "flowers"] as const;
 /** Columns of the ramp: the year in this many steps. */
 const RAMP = 96;
 /** Pages the shader reads. */
@@ -235,9 +235,12 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
           let any = 0, ck = "";
           for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const c = at(x + dx, y + dy); any += c; ck += `${Math.round(c * 72)},`; }
           const i = idx(g, x, y), cv = g.veg.cover[i];
-          // (Reeds and heath stand where there is no canopy.)
-          if (!any && cv !== COVER.reeds && cv !== COVER.meadow) continue;
-          ck += `${g.paved[i]}|${g.pool[i] > 0}|${g.terrain[i]}|${g.veg.cover[i]},${g.veg.density[i]},${ageStep(g.veg.age[i])}|${drawnCorner(g, x, y, 0, 0)},${drawnCorner(g, x, y, 1, 0)},${drawnCorner(g, x, y, 1, 1)},${drawnCorner(g, x, y, 0, 1)}`;
+          // (Reeds, heath and what the player made stand where there is no canopy.)
+          if (!any && cv !== COVER.reeds && cv !== COVER.meadow && cv < COVER.stumps) continue;
+          // (A hedge joins those beside it.)
+          if (cv === COVER.hedge) for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) ck += x + dx >= 0 && y + dy >= 0 && x + dx < W && y + dy < g.h && g.veg.cover[idx(g, x + dx, y + dy)] === COVER.hedge ? "h" : "-";
+          // (What is built on a cell takes what grew there: a building, a deck, a main.)
+          ck += `${g.paved[i]}|${g.pool[i] > 0}|${g.structureAt[i] >= 0}|${g.deck[i]}|${g.main[i]}|${g.terrain[i]}|${g.veg.cover[i]},${g.veg.density[i]},${ageStep(g.veg.age[i])}|${drawnCorner(g, x, y, 0, 0)},${drawnCorner(g, x, y, 1, 0)},${drawnCorner(g, x, y, 1, 1)},${drawnCorner(g, x, y, 0, 1)}`;
           seen.add(i);
           const was = cells.get(i);
           if (was?.key === ck) continue;

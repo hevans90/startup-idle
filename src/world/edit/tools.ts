@@ -33,6 +33,8 @@ export type ToolId =
   | "placeStructure"
   | "demolish"
   | "dredge"
+  /** Woods, a row of trees, a hedge or flowers, by `planting`. @see vegetation/tend */
+  | "plant"
   | "inspect";
 
 /** Tools that write the `height` layer rather than a material. */

@@ -76,6 +76,8 @@ function listPrice(defId: string): Decimal | null {
   // A PUMP HOUSE: seconds of income, never under a floor. @see PUMP
   if (defId === "pump") return Decimal.max(new Decimal(PUMP_FLOOR), new Decimal(safeIncome()).times(PUMP_SECONDS)).round();
   // A FLOOD WALL: cheap, a tile at a time.
+  // A FARM: a minute and a half of income, never under a floor; it pays back at harvest. @see game/vegetation-cost
+  if (defId === "farm") return Decimal.max(new Decimal(FARM_FLOOR), new Decimal(safeIncome()).times(FARM_SECONDS)).round();
   if (defId === "levee") return Decimal.max(new Decimal(LEVEE_FLOOR), new Decimal(safeIncome()).times(LEVEE_SECONDS)).round();
   // AN OFFICE: so many hires' worth of the people who will work there.
   const office = OFFICE_FOR[defId];
@@ -133,6 +135,8 @@ const LAB_FLOOR = 100_000;
 const LAB_STEP = 1.5;
 /** A tile of flood wall: half a second of income, never under a floor. */
 const LEVEE_SECONDS = 0.5;
+const FARM_SECONDS = 90;
+const FARM_FLOOR = 300;
 const LEVEE_FLOOR = 20;
 /** An office costs this many of the next hire's price, never under a floor. */
 const OFFICE_HIRES = 4;
@@ -145,7 +149,7 @@ const OFFICE_FOR: Record<string, { who: GeneratorId; floor: number }> = {
 /** Seconds of income a seaport costs, per boat a minute: 25 s, 63 s, 129 s by tier. */
 const PORT_INCOME_SECONDS_PER_CALL = 10;
 
-const safeIncome = () => {
+export const safeIncome = () => {
   const n = useGeneratorStore.getState().getMoneyPerSecond();
   return Number.isFinite(n) && n > 0 ? n : 0;
 };

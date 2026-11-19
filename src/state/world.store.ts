@@ -87,7 +87,10 @@ import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
 } from "../world/debug/fixtures";
 import { clearSaved, hasSaved, saveNow, scheduleSave, suspendSaving } from "../world/io/world-save";
-import { boreCost, buildCost, dredgeCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
+import { boreCost, buildCost, canAfford, dredgeCost, pipeCost, roadCost, spendForBuild, upgradeCost } from "../game/build-cost";
+import { fellCost, plantCost, timberValue } from "../game/vegetation-cost";
+import { groundMode } from "../world/render/ground-mode";
+import { FARM, claimFields, fell, fellingOf, plant, plantable, type Planting } from "../world/vegetation/tend";
 import { dredgeCells } from "../world/boats/quay";
 import { fitsTier, fitting } from "../world/boats/fittings";
 import { agentsOpen } from "../game/agents";
@@ -322,6 +325,31 @@ export const getTownServices = () => townServices;
 let exports_: Exports = createExports();
 export const getExports = () => exports_;
 
+/** The cells a structure stands on. */
+const footprintCells = (s: { x: number; y: number; w: number; h: number }) =>
+  Array.from({ length: s.w * s.h }, (_, k) => ({ x: s.x + (k % s.w), y: s.y + Math.floor(k / s.w) }));
+
+/** THE TREES ON THESE CELLS, to be felled — on the continuous surface, where trees are the fields'; null if none. */
+function fellingFor(g: Grid, palette: readonly (string | null)[], cells: { x: number; y: number }[]) {
+  if (groundMode() !== "smooth" || !cells.length) return null;
+  const f = fellingOf(g, palette, cells);
+  return f.trees ? { cells, ...f } : null;
+}
+
+/**
+ * FELL them: charged, the timber sold — rising off `at` (a structure), if anything is there to rise off — and the
+ * fields changed: bare under what is built (`under`), stumps where the ground stays open. @see vegetation/tend fell
+ */
+function payFelling(g: Grid, palette: readonly (string | null)[], f: NonNullable<ReturnType<typeof fellingFor>>, at: number | undefined, under: boolean) {
+  useMoneyStore.getState().spendMoney(fellCost(f.trees).toNumber());
+  const timber = timberValue(f.timber);
+  if (timber > 0) {
+    useMoneyStore.getState().increaseMoney(timber);
+    if (at !== undefined) exports_.fresh.push({ port: at, amount: timber, at: Date.now() });
+  }
+  fell(g, palette, f.cells, under);
+}
+
 /** New hires on their way to the map, and moving in. @see world/agents/arrivals */
 let arrivals: Arrivals = createArrivals();
 export const getArrivals = () => arrivals;
@@ -412,6 +440,8 @@ type WorldState = {
   tool: ToolId;
   /** Which {@link import("../world/structures/def").StructureDef} the place tool builds. */
   structureDefId: string;
+  /** What the Plant tool plants. @see vegetation/tend */
+  planting: Planting;
   /** Layer index the fluid brush paints. See `world/pools/materials`. */
   fluidMaterial: number;
   brush: BrushId;
@@ -640,6 +670,7 @@ type WorldState = {
   setOpenEdge: (open: boolean) => void;
   setTool: (t: ToolId) => void;
   setStructureDef: (id: string) => void;
+  setPlanting: (what: Planting) => void;
   setFluidMaterial: (index: number) => void;
   /** Place or demolish at one cell. Called by `endStroke` for the structure tools. */
   commitStructure: (c: Cell) => void;
@@ -999,6 +1030,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   palette: [...INITIAL_TERRAIN_PALETTE],
   tool: "paintTerrain",
   structureDefId: "kit:intern.t0",
+  planting: "woods",
   fluidMaterial: 1,
   brush: "point",
   brushRadius: 0,
@@ -1299,6 +1331,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   // Any other tool, or any other building, puts down a site being chosen.
   setTool: (tool) => set({ tool, stroke: null, placingProject: null }),
   setStructureDef: (structureDefId) => set({ structureDefId, placingProject: null }),
+  // (A wood or a bed is laid out as an area; a row of trees or a hedge along a line.)
+  setPlanting: (planting) => set({ planting, brush: planting === "row" || planting === "hedge" ? "line" : "rect", stroke: null }),
   setFluidMaterial: (fluidMaterial) => set({ fluidMaterial }),
   setBrush: (brush) => set({ brush, stroke: null }),
   setBrushRadius: (brushRadius) => set({ brushRadius }),
@@ -1492,6 +1526,29 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       set({ tool: "eraseRoad", liftPipe: lifts === "pipe", stroke: { ...s0, tool: "eraseRoad", brush: "line" } });
       try { get().endStroke(); } finally { set({ tool: "demolish", liftPipe: kept }); }
       return;
+    }
+    // PLANTING: saplings, a hedge or a bed on every cell of the stroke that will take it, paid for in the game. @see vegetation/tend
+    if (s0.tool === "plant") {
+      const what = st.planting, ok = plantable(st.grid, st.palette, strokeCells(st.grid, s0), what);
+      if (!ok.length) { set({ stroke: null }); return; }
+      if (st.playing) {
+        const price = plantCost(what, ok.length);
+        if (!spendForBuild(price)) { set({ stroke: null, notice: { text: `Not enough money to plant: ${formatCurrency(price.toNumber())}`, at: Date.now() } }); return; }
+      }
+      plant(st.grid, st.palette, ok, what);
+      set({ stroke: null });
+      return;
+    }
+    // DELETE ON TREES, where nothing is built: felled to stumps, at a price, their timber sold. @see payFelling
+    if (s0.tool === "demolish" && st.playing && structureAt(st.grid, s0.anchor.x, s0.anchor.y) < 0) {
+      const open = strokeCells(st.grid, { ...s0, brush: "line" }).filter((c) => structureAt(st.grid, c.x, c.y) < 0 && st.grid.paved[c.y * st.grid.w + c.x] === VOID_MATERIAL);
+      const f = fellingFor(st.grid, st.palette, open);
+      if (f) {
+        if (!canAfford(fellCost(f.trees))) { set({ stroke: null, notice: { text: `Not enough money to clear ${f.trees} trees: ${formatCurrency(fellCost(f.trees).toNumber())}`, at: Date.now() } }); return; }
+        payFelling(st.grid, st.palette, f, undefined, false);
+        set({ stroke: null });
+        return;
+      }
     }
     // A STRUCTURE is placed at one cell by one command, so it skips the stroke
     // machinery — brush size and drag shape mean nothing to it.
@@ -1709,6 +1766,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         set({ stroke: null, ...(aiActing() ? {} : { notice: { text: "A road can't go over a sewer connection", at: Date.now() } }) });
         return;
       }
+      // THE TREES IN ITS WAY, on new tiles: felled as it is ordered or laid, at a price. @see payFelling
+      const roadFell = st.playing && s0.tool === "paintRoad" && !aiActing() ? fellingFor(st.grid, st.palette, cells.filter((c) => st.grid.paved[c.y * st.grid.w + c.x] === VOID_MATERIAL)) : null;
+      if (roadFell && !canAfford(fellCost(roadFell.trees))) {
+        set({ stroke: null, notice: { text: `Not enough money to clear ${roadFell.trees} trees: ${formatCurrency(fellCost(roadFell.trees).toNumber())}`, at: Date.now() } });
+        return;
+      }
       // IN THE GAME A ROAD IS ORDERED, not laid: a job along the line, built over time and opened a length at a
       // time. Graded now, on the map as it will be, and refused now if it cannot be built. @see orderRoad
       // The AI's roads as the player's: it orders them, and waits for them as anyone does.
@@ -1724,6 +1787,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         if (fresh.length > 0 && share < 1) spendWallet(roadCost(fresh.length).toNumber() * (1 - share));
         got.job.at = Date.now();
         takeOn(st.grid, got);
+        if (roadFell) payFelling(st.grid, st.palette, roadFell, undefined, true);
         // The map has changed for whoever asks whether it did: an order is something done. @see build-actions withTool
         edited(st.grid);
         set({ stroke: null, roadRev: get().roadRev + 1, revision: get().revision + 1 });
@@ -1747,6 +1811,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
         }
         if (fresh > 0) roadPaid = price.toNumber();
       }
+      if (roadFell) payFelling(st.grid, st.palette, roadFell, undefined, true);
       for (const m of grade?.moved ?? []) { b.set("height", m.x, m.y, m.to); graded.push({ x: m.x, y: m.y }); }
       // OVER WATER, A BRIDGE: the deck laid with the road on it; and a bridge's road lifted, its deck with it.
       for (const d of grade?.decks ?? []) { b.set("deck", d.x, d.y, 1); b.set("deckZ", d.x, d.y, d.z); }
@@ -1924,6 +1989,12 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // NO LOTS FOR PEOPLE THE COMPANY CANNOT HIRE: nobody would come to them.
     const lotFor = st.playing && !demolishing && !upgrade && def ? housedBy(def.id)?.id : undefined;
     if (lotFor && !useGeneratorStore.getState().generators.some((g) => g.id === lotFor)) { refuse("Nobody to live there yet"); return; }
+    // THE TREES UNDER IT, on the continuous surface: felled, at a price, their timber sold. @see game/vegetation-cost
+    const felling = st.playing && !demolishing && !upgrade ? fellingFor(st.grid, st.palette, (cmd.structures?.added ?? []).flatMap(footprintCells)) : null;
+    if (felling && !canAfford(fellCost(felling.trees).plus(buildCost(target?.id ?? "") ?? 0))) {
+      refuse(`Not enough money to clear ${felling.trees} tree${felling.trees === 1 ? "" : "s"}: ${formatCurrency(fellCost(felling.trees).toNumber())}`);
+      return;
+    }
     // AND IT HAS TO BE PAID FOR, before anything is committed. Checked and
     // charged together so a refusal cannot leave the money spent — the same
     // order the hiring gate needs, and for the same reason.
@@ -1952,6 +2023,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     }
     const touched = commit(st.grid, history, cmd);
     if (paid > 0) recordBuild(cmd, paid);
+    if (felling) payFelling(st.grid, st.palette, felling, cmd.structures?.added[0]?.id, true);
+    // A FARM takes the open ground round it for its fields. @see claimFields
+    if (!demolishing && groundMode() === "smooth") for (const s of cmd.structures?.added ?? []) if (s.def === FARM) claimFields(st.grid, st.palette, s);
     // The bed stands on what is built as well as on the terrain — a placed
     // structure lifts it, a demolish drops it back. @see syncGround
     if (water && touchesSurface(cmd)) syncGround(water, st.grid);

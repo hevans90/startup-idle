@@ -47,7 +47,7 @@ import {
 } from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { demolishLifts, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
+import { demolishLifts, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
 import { stepGrowth, stepHarbour, stepPeople, stepPlumbing, stepSites, type WorksSeen } from "./step-world";
@@ -59,7 +59,9 @@ import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/
 import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
 import { canopyGround, destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
 import { stepVegetation, wetFrom } from "./vegetation/step";
-import { groundSeason } from "./calendar";
+import { farmsOf } from "./vegetation/tend";
+import { harvestPay } from "../game/vegetation-cost";
+import { groundSeason, yearPart } from "./calendar";
 import { useCalendarStore } from "../state/calendar.store";
 import { CLIFF, drawnSampler } from "./render/drawn";
 import { groundMode } from "./render/ground-mode";
@@ -3861,10 +3863,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (field && now - wetAtRef.current > 2000) { wetAtRef.current = now; wetFrom(st.grid, (x, y) => depthAt(field, x, y)); }
         stepVegetation(st.grid, st.palette, useCalendarStore.getState().now());
         if (V.changed.size) { if (tlRef.current?.ground) canopyGround(tlRef.current.ground, st.grid, st.palette, V.changed); V.changed.clear(); }
+        // THE HARVEST, paid as the fields are cut: rising off each farm, its share. @see game/vegetation-cost
+        if (V.harvest > 0) {
+          const pay = harvestPay(V.harvest), farms = farmsOf(st.grid);
+          V.harvest = 0;
+          if (pay > 0) {
+            useMoneyStore.getState().increaseMoney(pay);
+            for (const f of farms) getExports().fresh.push({ port: f.id, amount: Math.round(pay / farms.length), at: Date.now() });
+          }
+        }
       }
       if (woodsRef.current) { const st = useWorldStore.getState(); woodsRef.current.sync(st.grid, st.palette, st.revision, scale); }
       // THE YEAR on the ground, where the ground is one surface. @see world/calendar
-      if (tlRef.current?.ground) seasonGround(tlRef.current.ground, groundMode() === "smooth" ? groundSeason(useCalendarStore.getState().now()) : null);
+      if (tlRef.current?.ground) seasonGround(tlRef.current.ground, groundMode() === "smooth" ? groundSeason(useCalendarStore.getState().now()) : null, yearPart(useCalendarStore.getState().now()));
       if (signalsRef.current) {
         // The lanes the town last drove on: kept current by stepTown. @see trafficOf
         const town = getTown(), T = town.traffic;

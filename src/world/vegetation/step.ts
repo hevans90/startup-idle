@@ -11,10 +11,13 @@
  *   water, or in the meadows a slow noise leaves open.
  * - **The shore**: reeds take the grass at the water's edge, and give it back where the water has gone — the water
  *   as it stands now (@see wetFrom); under it nothing else grows.
- * - Burnt ground grasses over in a year. (Stress, which burns and thins, is a later phase.)
+ * - Burnt ground grasses over in a year, stumps rot into it. (Stress, which burns and thins, is a later phase.)
+ * - **What the player planted** grows up and stays as it is: a row, a hedge, a bed. A field with no farm in reach
+ *   goes back to grass; one with, is cut each harvest (@see HARVEST), and counted in `veg.harvest` to be paid.
  */
 import { idx, inBounds, type Grid } from "../grid";
-import { COVER, MATURE, covered, growable, vegAt, vegHash, vegNoise, waterNear } from "./fields";
+import { COVER, HARVEST, MATURE, covered, growable, vegAt, vegHash, vegNoise, waterNear } from "./fields";
+import { farmsOf, harvestable, tended } from "./tend";
 
 type Palette = readonly (string | null)[];
 
@@ -25,7 +28,7 @@ const CATCH_UP_STEPS = 8;
 /** Years from sapling to mature. */
 const GROW_YEARS = 2;
 /** Rates, a year: open ground beside a grown wood seeded; scrub grown up into a wood; a wood thickening by a tree; reeds coming and going. */
-const SEED = 0.25, SCRUB_UP = 0.6, THICKEN = 0.35, REEDS = 0.2, BURNT = 1;
+const SEED = 0.25, SCRUB_UP = 0.6, THICKEN = 0.35, REEDS = 0.2, BURNT = 1, ROT = 1, FALLOW = 2;
 /** A wood is old enough to seed from halfway grown. */
 const SEEDS_FROM = 128;
 
@@ -52,7 +55,7 @@ export const ageStep = (age: number) => age >> 5;
  */
 export function vegStep(g: Grid, palette: Palette, dt: number, k: number): boolean {
   const V = g.veg, W = g.w, H = g.h;
-  const writes: number[] = [];
+  const writes: number[] = [], farms = farmsOf(g);
   const set = (i: number, cover: number, density: number, age: number) => { writes.push(i, cover, density, age); };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = vegAt(g, palette, x, y);
@@ -63,7 +66,7 @@ export function vegStep(g: Grid, palette: Palette, dt: number, k: number): boole
     const r = vegHash(i, k, 0x7ea5), r2 = vegHash(i, k, 0x51de);
     // GROWTH, as a whole number of the age byte: what is left over, by chance.
     let grown = age;
-    if (age < MATURE && (cover === COVER.wood || cover === COVER.scrub)) {
+    if (age < MATURE && (cover === COVER.wood || cover === COVER.scrub || cover === COVER.row || cover === COVER.hedge)) {
       const inc = (dt * MATURE) / GROW_YEARS, whole = Math.floor(inc);
       grown = Math.min(MATURE, age + whole + (vegHash(i, k, 0x6a0e) < inc - whole ? 1 : 0));
     }
@@ -97,6 +100,15 @@ export function vegStep(g: Grid, palette: Palette, dt: number, k: number): boole
       case COVER.burnt:
         if (r < chance(BURNT, dt)) set(i, COVER.grass, 0, MATURE);
         break;
+      case COVER.stumps:
+        if (r < chance(ROT, dt)) set(i, COVER.grass, 0, MATURE);
+        break;
+      case COVER.row: case COVER.hedge:
+        if (grown !== age) set(i, cover, density, grown);
+        break;
+      case COVER.field:
+        if (!tended(farms, x, y) && r < chance(FALLOW, dt)) set(i, COVER.grass, 0, MATURE);
+        break;
     }
   }
   for (let w = 0; w < writes.length; w += 4) {
@@ -125,6 +137,12 @@ export function wetFrom(g: Grid, depth: (x: number, y: number) => number): boole
   return any;
 }
 
+/** THE HARVEST, each time the year passes it between `t0` and `t1`: the fields cut then, to be paid for. */
+function reap(g: Grid, t0: number, t1: number) {
+  const times = Math.floor(t1 - HARVEST) - Math.floor(t0 - HARVEST);
+  if (times > 0) g.veg.harvest += harvestable(g) * times;
+}
+
 /**
  * Bring the fields to the calendar's year `t`: a step every {@link VEG_DT}, and a longer gap — time away — in at
  * most eight. A map never stepped, or a calendar set back, starts from where it is.
@@ -136,10 +154,10 @@ export function stepVegetation(g: Grid, palette: Palette, t: number): boolean {
   if (!n) return false;
   let any = false;
   if (n <= CATCH_UP_STEPS) {
-    for (let s = 0; s < n; s++) { V.t += VEG_DT; any = vegStep(g, palette, VEG_DT, Math.round(V.t / VEG_DT)) || any; }
+    for (let s = 0; s < n; s++) { reap(g, V.t, V.t + VEG_DT); V.t += VEG_DT; any = vegStep(g, palette, VEG_DT, Math.round(V.t / VEG_DT)) || any; }
   } else {
     const dt = gap / CATCH_UP_STEPS;
-    for (let s = 0; s < CATCH_UP_STEPS; s++) { V.t += dt; any = vegStep(g, palette, dt, Math.round(V.t / VEG_DT)) || any; }
+    for (let s = 0; s < CATCH_UP_STEPS; s++) { reap(g, V.t, V.t + dt); V.t += dt; any = vegStep(g, palette, dt, Math.round(V.t / VEG_DT)) || any; }
   }
   return any;
 }
