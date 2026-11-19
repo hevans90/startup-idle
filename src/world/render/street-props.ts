@@ -32,6 +32,7 @@ import { SEATS_M } from "../props/models";
 import { PROP_TINT } from "../props/props-format";
 import { bakedProps, propSprite, propSprites, propsLoaded, turnOf, type PropSprites } from "../props/props-sheet";
 import { faceOf } from "./shopfronts";
+import { plantsTrees, setPlanted, type PlantedTree } from "./planted";
 
 /** A prop on a road tile: which, its tile, and the kerb it stands by. */
 export type StreetProp = {
@@ -398,11 +399,17 @@ function standOf(pr: StreetProp, a: number, d: number) {
 }
 
 /** What of a street's props comes from the sheet: a container of sprites, or null to draw it as before. */
+/** A street tree: its kind (a cherry now and then on the finest streets), where it stands and which way round. */
+function plantedTree(pr: StreetProp, z: number): PlantedTree {
+  const kind = STREET_TREE[(pr.level ?? 1) >= 3 && (pr.x + pr.y) % 3 === 0 ? 2 : (pr.x * 7 + pr.y * 3) % 2];
+  const s = standOf(pr, 0.5, IN + 0.02);
+  return { kind, u: s.u, v: s.v, z, turn: (pr.x + pr.y * 3) % 4, size: 0.85 };
+}
+
 function bakedProp(P: PropSprites, pr: StreetProp, z: number, scale: number): Container | null {
   if (pr.kind === "tree") {
-    const kind = STREET_TREE[(pr.level ?? 1) >= 3 && (pr.x + pr.y) % 3 === 0 ? 2 : (pr.x * 7 + pr.y * 3) % 2];
-    const s = standOf(pr, 0.5, IN + 0.02);
-    return propSprite(P, kind, (pr.x + pr.y * 3) % 4, s.u, s.v, z, scale, vary(PROP_TINT[kind], pr.x, pr.y), 0.85);
+    const t = plantedTree(pr, z);
+    return propSprite(P, t.kind, t.turn, t.u, t.v, z, scale, vary(PROP_TINT[t.kind], pr.x, pr.y), t.size);
   }
   if (pr.kind === "bench") { const s = standOf(pr, 0.5, IN); return propSprite(P, "bench", s.turn, s.u, s.v, z, scale); }
   if (pr.kind === "table") {
@@ -473,12 +480,15 @@ export function createStreetProps(bands: BandLayer): StreetProps {
       dress = roadDressOf(g, streets, b, crossings);
       const { props, murals } = streetPropsOf(g, streets, b, crossings, bays);
       seats = seatsOf(props);
+      // ON THE CONTINUOUS SURFACE a street's trees are the woods' mesh's: through the year with everything that grows.
+      const sown = plantsTrees(), trees: PlantedTree[] = [];
       for (const pr of props) {
         const tier = pr.side === "N" || pr.side === "W" ? "back" : "front";
         const gr = graphicsAt(pr.x, pr.y, tier);
         if (!gr) continue;
         const z = g.height[idx(g, pr.x, pr.y)];
         const pen = makePen(gr, pr.x - 0.5, pr.y - 0.5, z, scale, null);
+        if (sown && pr.kind === "tree") { treePit(pen, pr); trees.push(plantedTree(pr, z)); continue; }
         const sp = P && bakedProp(P, pr, z, scale);
         if (sp) {
           // FROM THE SHEET, over its tier's drawing, in the same band. @see props-sheet
@@ -488,6 +498,7 @@ export function createStreetProps(bands: BandLayer): StreetProps {
           drawn.push(sp);
         } else DRAW[pr.kind](pen, pr);
       }
+      setPlanted("streets", trees);
       for (const m of murals) {
         const gr = graphicsAt(m.x, m.y, "back");
         if (gr) drawMural(makePen(gr, m.x - 0.5, m.y - 0.5, g.height[idx(g, m.x, m.y)], scale, null), m);
@@ -495,6 +506,6 @@ export function createStreetProps(bands: BandLayer): StreetProps {
     },
     dress: () => dress,
     seats: () => seats,
-    destroy: clear,
+    destroy: () => { clear(); setPlanted("streets", []); },
   };
 }

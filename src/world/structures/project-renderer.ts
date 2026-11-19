@@ -19,6 +19,11 @@ import { crosses, drawMover, outfitOf } from "../agents/town-render";
 import { heightOf } from "../agents/people/cast";
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { propSprite, propSprites, propsLoaded } from "../props/props-sheet";
+import { TREES } from "../props/models";
+import { plantsTrees, setPlanted } from "../render/planted";
+
+/** What of a building's props are trees: on the continuous surface, the woods' mesh's. */
+const TREE_IDS: ReadonlySet<string> = new Set(TREES.map((t) => t.id));
 import { GROUND, groundClassOf, groundDraws } from "../render/ground-mesh";
 import type { Mover } from "../agents/town";
 import { idx, inBounds, type Structure } from "../grid";
@@ -406,8 +411,12 @@ function placeProps(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numb
   for (const c of h.props) { c.parent?.removeChild(c); c.destroy({ children: true }); }
   h.props = [];
   h.propsKey = key;
+  // ON THE CONTINUOUS SURFACE its trees are the woods' mesh's, through the year. @see render/planted
+  const sown = plantsTrees();
+  setPlanted(`building:${s.id}`, sown && want ? want.filter((pr) => TREE_IDS.has(pr.id)).map((pr) => ({ kind: pr.id, u: s.x - 0.5 + pr.u, v: s.y - 0.5 + pr.v, z: ground + (pr.z ?? 0.03), turn: pr.turn, size: pr.size ?? 1 })) : []);
   if (!want || !P) return;
   for (const pr of [...want].sort((a, b) => a.u + a.v - (b.u + b.v))) {
+    if (sown && TREE_IDS.has(pr.id)) continue;
     const c = Math.max(0, Math.min(s.w - 1, Math.floor(pr.u))), r = Math.max(0, Math.min(s.h - 1, Math.floor(pr.v)));
     const sp = propSprite(P, pr.id, pr.turn, s.x - 0.5 + pr.u, s.y - 0.5 + pr.v, ground + (pr.z ?? 0.03), ctx.scale, pr.tint, pr.size);
     if (!sp) continue;
@@ -532,7 +541,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
     columns, cells, sky, live, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
     t: s.id * 3.7, site: null, plant: createSitePlant(), crew: [], leaving: [], cameSeen: 0, goesSeen: 0, baked: [], bakedKey: "", opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false, props: [], propsKey: "",
-    destroy: () => { for (const sp of handle.baked) { sp.parent?.removeChild(sp); sp.destroy(); } for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); handle.leaving.forEach(dropHand); dropSitePlant(handle.plant); for (const c of handle.props) { c.parent?.removeChild(c); c.destroy({ children: true }); } },
+    destroy: () => { setPlanted(`building:${s.id}`, []); for (const sp of handle.baked) { sp.parent?.removeChild(sp); sp.destroy(); } for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); handle.leaving.forEach(dropHand); dropSitePlant(handle.plant); for (const c of handle.props) { c.parent?.removeChild(c); c.destroy({ children: true }); } },
   };
   draw(handle, s, ctx);
   return handle;

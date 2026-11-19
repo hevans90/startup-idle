@@ -24,6 +24,7 @@ import { canopyOf, forestTrees, scattered } from "./forest";
 import { ageStep } from "../vegetation/step";
 import { sickness } from "../vegetation/stress";
 import { COVER } from "../vegetation/fields";
+import { planted, type PlantedTree } from "./planted";
 
 const BASE = "/isometric_assets/derived";
 /** The kinds, a row of the leaves' ramp each. */
@@ -180,6 +181,8 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
   });
   let shader: Shader | null = null;
   let key = "", lastT = NaN, scaleNow = 1;
+  /** The trees something else planted, as last stood up, and the count they were stood up for. @see planted */
+  let plantedTrees: Tree[] = [], plantedSeen = -1;
   const t0 = performance.now();
 
   const drop = (p: number) => {
@@ -234,14 +237,15 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
       uniforms.update();
 
       // THE MAP: cells whose woods, height or ground changed — a cell's trees are by the canopy round it.
-      const mk = `${rev}|${g.veg.rev}|${scale}|${palette.length}`;
+      const sown = planted();
+      const mk = `${rev}|${g.veg.rev}|${scale}|${palette.length}|${sown.rev}`;
       if (mk !== key) {
         key = mk;
         const W = g.w, can = new Float32Array(W * g.h);
         for (let y = 0; y < g.h; y++) for (let x = 0; x < W; x++) can[y * W + x] = canopyOf(g, palette, x, y);
         const at = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= g.h ? 0 : can[y * W + x]);
         const touch = (trees: readonly Tree[]) => { for (const tr of trees) { dirty.add(tr.band * 2 + BODY); dirty.add(tr.shade * 2 + SHADE); } };
-        if (scale !== scaleNow) { scaleNow = scale; for (const c of cells.values()) touch(c.trees); cells.clear(); }
+        if (scale !== scaleNow) { scaleNow = scale; for (const c of cells.values()) touch(c.trees); touch(plantedTrees); cells.clear(); }
         const seen = new Set<number>();
         let changed = false;
         for (let y = 0; y < g.h; y++) for (let x = 0; x < W; x++) {
@@ -280,9 +284,24 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
           touch(trees);
         }
         for (const [i, c] of cells) if (!seen.has(i)) { changed = true; touch(c.trees); cells.delete(i); }
+        // WHAT SOMETHING ELSE PLANTED: a street's trees, a park's. Each its own tint and sway, by where it stands.
+        if (sown.rev !== plantedSeen) {
+          touch(plantedTrees);
+          plantedTrees = sown.trees.map((w: PlantedTree): Tree => {
+            const h = (salt: number) => hash(Math.round(w.u * 97), Math.round(w.v * 89), 0, salt);
+            const greener = h(1) < 0.5, how = 0.2 * h(2), b = bandOf(Math.round(w.u), Math.round(w.v));
+            return {
+              kind: w.kind, u: w.u, v: w.v, z: w.z, turn: w.turn, size: w.size, lag: (h(3) - 0.5) * 0.04,
+              tint: greener ? [1 + how * 0.3, 1 + how * 0.15, 1 - how * 0.5] : [1 - how * 0.5, 1 - how * 0.35, 1 - how * 0.45],
+              char: 0, phase: h(4) * Math.PI * 2, band: b, shade: shadeBand(S.sheet, w.kind, w.turn, w.size, w.u, w.v, b),
+            };
+          });
+          touch(plantedTrees);
+          plantedSeen = sown.rev; changed = true;
+        }
         if (changed) {
           const next = new Map<number, Tree[]>();
-          for (const c of cells.values()) for (const tr of c.trees) {
+          for (const c of [...cells.values(), { trees: plantedTrees }]) for (const tr of c.trees) {
             for (const p of [tr.band * 2 + BODY, tr.shade * 2 + SHADE]) { let l = next.get(p); if (!l) next.set(p, (l = [])); l.push(tr); }
           }
           for (const l of next.values()) l.sort((p, q) => p.u + p.v - (q.u + q.v));
