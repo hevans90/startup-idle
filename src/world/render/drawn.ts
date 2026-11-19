@@ -85,9 +85,14 @@ export function roadCorner(grid: Grid, X: number, Y: number): number {
   }
   return n ? sum / n : 0;
 }
-/** A road tile's surface at `(u, v)` on it, half steps: through its four drawn corners. @see roadCorner */
+/**
+ * A road tile's surface at `(u, v)` on it, half steps: through its four drawn corners, as the two triangles its top
+ * is drawn and painted as — (0,0)-(1,0)-(1,1) where u ≥ v, (0,0)-(1,1)-(0,1) where not — so what drives on it is
+ * on it, not over or under a tile whose corners are not on one plane. @see roadCorner, road-paint.ts CellPaint.zc
+ */
 export function roadZ(grid: Grid, x: number, y: number, u: number, v: number): number {
-  return (roadCorner(grid, x, y) * (1 - u) + roadCorner(grid, x + 1, y) * u) * (1 - v) + (roadCorner(grid, x, y + 1) * (1 - u) + roadCorner(grid, x + 1, y + 1) * u) * v;
+  const z00 = roadCorner(grid, x, y), z10 = roadCorner(grid, x + 1, y), z11 = roadCorner(grid, x + 1, y + 1), z01 = roadCorner(grid, x, y + 1);
+  return u >= v ? z00 + u * (z10 - z00) + v * (z11 - z10) : z00 + u * (z11 - z01) + v * (z01 - z00);
 }
 
 /** Standing water with a drop beside it: a neighbour whose own surface is two half steps or more under this water's. */

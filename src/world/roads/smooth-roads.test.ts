@@ -35,6 +35,21 @@ describe("roads on the continuous surface", () => {
   beforeAll(() => setGroundMode("smooth"));
   afterAll(() => setGroundMode("steps"));
 
+  test("what drives on a road is on its drawn top: no jump anywhere across it, and a twisted tile's two triangles", () => {
+    const g = createGrid(8, 8); fillTerrain(g, 1);
+    const H = [[2, 3, 4, 3], [3, 2, 3, 4], [4, 3, 2, 3], [3, 4, 3, 2]];
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { g.paved[idx(g, x + 2, y + 2)] = 1; setHeight(g, x + 2, y + 2, H[y][x]); }
+    // Fine steps over the whole block, both ways: never more than the steepest fall a step that short can go.
+    let most = 0;
+    for (let y = 1.6; y <= 5.4; y += 0.02) for (let x = 1.6; x <= 5.4; x += 0.02) {
+      most = Math.max(most, Math.abs(roadHeightAt(g, x + 0.02, y) - roadHeightAt(g, x, y)), Math.abs(roadHeightAt(g, x, y + 0.02) - roadHeightAt(g, x, y)));
+    }
+    expect(most).toBeLessThan(0.1);
+    // The middle of a tile is on the diagonal from (0,0) to (1,1), as its top is split.
+    const at = (X: number, Y: number) => roadHeightAt(g, X - 0.5, Y - 0.5);
+    for (const [x, y] of [[3, 3], [4, 3], [3, 4]]) expect(roadHeightAt(g, x, y)).toBeCloseTo((at(x, y) + at(x + 1, y + 1)) / 2, 6);
+  });
+
   test("two road tiles a step apart are joined; two steps apart, or a deck off its own level, are not", () => {
     const g = createGrid(6, 6); fillTerrain(g, 1);
     for (const x of [1, 2, 3]) g.paved[idx(g, x, 2)] = 1;

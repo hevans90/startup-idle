@@ -35,6 +35,7 @@ import { dogFor, HAND_GAP, KEEP, stepDogs, stepWalkers, type Dog } from "./walke
 import { KEEP as HAND } from "./lanes/geometry";
 import { BUS_TAKE, busArrives, busesOf, busTrip, kerbAt, queueAt, stepBuses, type BusLeg, type Buses, type Ride } from "./buses";
 import { TILES_PER_M } from "./cars/models";
+import { groundMode } from "../render/ground-mode";
 import { isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
 import {
@@ -1430,12 +1431,15 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     const off = (m.side ?? 0) * handOf(m);
     m.x = p.x - p.dy * off;
     m.y = p.y + p.dx * off;
-    m.z = roadHeightAt(g, p.x, p.y);
+    // (On the continuous surface a road can fall across as well as along: the height where it is, out in its lane,
+    // not on the line it follows. Elsewhere a road is level across, and its line keeps it off the edge of a deck.)
+    const ax = groundMode() === "smooth" ? m.x : p.x, ay = groundMode() === "smooth" ? m.y : p.y;
+    m.z = roadHeightAt(g, ax, ay);
     if (drives(m)) {
       // Nose and tail, half a vehicle either way along the way it goes.
       const half = halfLength(m);
-      const zf = roadHeightAt(g, p.x + p.dx * half, p.y + p.dy * half);
-      const zb = roadHeightAt(g, p.x - p.dx * half, p.y - p.dy * half);
+      const zf = roadHeightAt(g, ax + p.dx * half, ay + p.dy * half);
+      const zb = roadHeightAt(g, ax - p.dx * half, ay - p.dy * half);
       m.pitch = (zf - zb) / (2 * half);
       m.z = (zf + zb) / 2;
     }
