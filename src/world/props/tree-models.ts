@@ -134,7 +134,7 @@ function pineSnow(out: Tri[]) {
 
 /**
  * THE KINDS ONLY THE FOREST HAS, in leaf: a weeping willow and a poplar by the water, a wild apple, a shrub of the
- * scrub a wood comes back through, heather on the heights and reeds at the shore. @see render/forest biomes
+ * scrub a wood comes back through and reeds at the shore. @see render/forest biomes
  */
 export const WILD: readonly Prop[] = [
   {
@@ -174,15 +174,6 @@ export const WILD: readonly Prop[] = [
       const r = seeded(201), out: Tri[] = [];
       ball([0, 0, 0.7], [0.95, 0.95, 0.7], "leaf", out, undefined, 12, 8);
       for (let k = 0; k < 9; k++) { const a = r() * Math.PI * 2, d = 0.5 + 0.4 * r(); ball([Math.cos(a) * d, Math.sin(a) * d, 0.5 + r() * 0.7], [0.45 + 0.2 * r(), 0.45 + 0.2 * r(), 0.4], "leaf", out, undefined, 9, 6); }
-      return out;
-    },
-  },
-  {
-    // Heather: a low cushion, knee high.
-    id: "heather", shadow: shadowOf(0.8, 0.16),
-    tris: () => {
-      const r = seeded(211), out: Tri[] = [];
-      for (let k = 0; k < 9; k++) { const a = r() * Math.PI * 2, d = 0.9 * r(); ball([Math.cos(a) * d, Math.sin(a) * d, 0.15], [0.6 + 0.2 * r(), 0.6 + 0.2 * r(), 0.45], "leaf", out, undefined, 9, 6); }
       return out;
     },
   },
@@ -243,14 +234,13 @@ function cushionSnow(out: Tri[], seed: number, r: number, z: number) {
 
 export type TreeLook = { id: string; state: TreeState; tris: () => Tri[]; shadow: PropShadow };
 
-/** Every kind in every look it takes; a pine, heather and reeds only as they are and in snow. */
+/** Every kind in every look it takes; a pine and reeds only as they are and in snow. */
 export const TREE_LOOKS: readonly TreeLook[] = [...TREES, ...WILD, ...MADE].flatMap((t): TreeLook[] => {
   const withSnow = (f: (o: Tri[]) => void): TreeLook[] => [
     { id: t.id, state: "full", tris: t.tris, shadow: t.shadow },
     { id: t.id, state: "snow", tris: () => { const out = t.tris(); f(out); return out; }, shadow: t.shadow },
   ];
   if (t.id === "pine") return withSnow(pineSnow);
-  if (t.id === "heather") return withSnow((o) => cushionSnow(o, 907, 1.4, 0.58));
   if (t.id === "reeds") return withSnow((o) => cushionSnow(o, 911, 0.7, 0.5));
   if (t.id === "stump") return withSnow((o) => cushionSnow(o, 913, 0.5, 0.48));
   if (t.id === "flowers") {

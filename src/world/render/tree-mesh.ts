@@ -26,7 +26,7 @@ import { COVER } from "../vegetation/fields";
 
 const BASE = "/isometric_assets/derived";
 /** The kinds, a row of the leaves' ramp each. */
-const KINDS = ["oak", "lime", "hornbeam", "cherry", "birch", "pine", "willow", "poplar", "apple", "shrub", "heather", "reeds", "stump", "flowers"] as const;
+const KINDS = ["oak", "lime", "hornbeam", "cherry", "birch", "pine", "willow", "poplar", "apple", "shrub", "reeds", "stump", "flowers"] as const;
 /** Columns of the ramp: the year in this many steps. */
 const RAMP = 96;
 /** Pages the shader reads. */

@@ -131,7 +131,7 @@ describe("the forest by its biome", () => {
     expect((valley.get("oak") ?? 0) + (valley.get("lime") ?? 0)).toBeGreaterThan(valley.get("pine") ?? 0);
   });
 
-  test("a young wood's trees are small; scrub is shrubs; reeds and heather where the ground is those", () => {
+  test("a young wood's trees are small; scrub is shrubs; reeds where the ground is those", () => {
     const g = meadow();
     const big = Math.max(...forestTrees(g, palette, 15, 15).map((t) => t.size));
     for (let y = 12; y < 20; y++) for (let x = 12; x < 20; x++) g.veg.age[vegAt(g, palette, x, y)] = 0;

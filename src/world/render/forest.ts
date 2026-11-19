@@ -4,7 +4,7 @@
  * raggedly toward its edge and spilling a little past it onto the grass, opened here and there by a clearing; in
  * STANDS by the BIOME — pines on the heights, willow and poplar by the water, oak and lime in the valleys, mixed
  * between; of every size, saplings where a wood is young. And what is not a wood: shrubs in the scrub a wood comes
- * back through, reeds at the shore, heather on the heath. All read from the vegetation fields (@see
+ * back through, reeds at the shore. All read from the vegetation fields (@see
  * vegetation/fields). Pure: the same fields, the same trees. @see tree-mesh, ground-mesh canopy
  */
 import { inBounds, type Grid } from "../grid";
@@ -88,7 +88,7 @@ const grownBy = (age: number) => 0.35 + 0.65 * Math.min(1, (ageStep(age) + 1) / 
 /**
  * THE TREES WHOSE FOOT IS IN CELL (x, y), back to front. Read from the density at each lattice point of the cell:
  * the canopy of the cells round it blended to the point, opened by a slow noise into clearings and glades.
- * `canopy` is `canopyOf`, passed in so a caller can keep it. Then reeds or heather, where the cell is those.
+ * `canopy` is `canopyOf`, passed in so a caller can keep it. Then scrub or reeds, where the cell is those.
  */
 export function forestTrees(g: Grid, palette: Palette, x: number, y: number, canopy = (cx: number, cy: number) => canopyOf(g, palette, cx, cy)): ForestTree[] {
   if (!standable(g, palette, x, y)) return [];
@@ -121,21 +121,28 @@ export function forestTrees(g: Grid, palette: Palette, x: number, y: number, can
     }
   }
   // SCRUB, REEDS at the shore and HEATHER on the heath: clumps of their own, not under the canopy.
-  const heath = cover === COVER.meadow && heightShare(g, i) > 0.55, scrub = cover === COVER.scrub;
-  if (cover === COVER.reeds || heath || scrub) {
-    // (Heather as thick as its patch: cushions run together in its heart, none at its edge.)
-    const n = heath ? Math.round(heathOf(x, y) * 9 * (0.8 + 0.4 * hash(x, y, 0xc1))) : (scrub ? 2 : 6) + Math.floor(hash(x, y, 0xc1) * 3);
+  // SCRUB and REEDS at the shore: clumps of their own, not under the canopy. (Heather is the ground's own carpet,
+  // drawn by the ground: @see heathAt, render/ground-mesh heatherAt.)
+  const scrub = cover === COVER.scrub;
+  if (cover === COVER.reeds || scrub) {
+    const n = (scrub ? 2 : 6) + Math.floor(hash(x, y, 0xc1) * 3);
     // (Scrub grows up with the cell: its first trees among the shrubs.)
     const grown = scrub ? grownBy(V.age[i]) : 1;
     for (let k = 0; k < n; k++) {
       const u = x + (hash(x * 7 + k, y, 0xc2) - 0.5) * 0.9, v = y + (hash(x, y * 7 + k, 0xc3) - 0.5) * 0.9;
-      const kind = scrub ? pick(SCRUB, hash(x + k, y, 0xc7)) : heath ? "heather" : "reeds";
-      const size = (heath ? 1.1 + 0.6 * hash(x, y + k, 0xc5) : cover === COVER.reeds ? 1 + 0.5 * hash(x, y + k, 0xc5) : 0.75 + 0.5 * hash(x, y + k, 0xc5)) * (kind === "shrub" || !scrub ? 1 : 0.5 * grown);
+      const kind = scrub ? pick(SCRUB, hash(x + k, y, 0xc7)) : "reeds";
+      const size = (scrub ? 0.75 + 0.5 * hash(x, y + k, 0xc5) : 1 + 0.5 * hash(x, y + k, 0xc5)) * (kind === "shrub" || !scrub ? 1 : 0.5 * grown);
       out.push({ kind, u, v, turn: Math.floor(hash(x + k, y, 0xc4) * 4), size, seed: hash(x + k, y + k, 0xc6) });
     }
   }
   out.push(...madeOn(g, palette, x, y, i));
   return out.sort((a, b) => a.u + a.v - (b.u + b.v));
+}
+
+/** How thick the heath is over a cell, 0–1: open ground high up, in patches. None elsewhere. */
+export function heathAt(g: Grid, palette: Palette, x: number, y: number): number {
+  const i = vegAt(g, palette, x, y);
+  return g.veg.cover[i] === COVER.meadow && heightShare(g, i) > 0.55 ? heathOf(x, y) : 0;
 }
 
 /** The kind a row of trees is of, by its biome: a poplar by the water, a pine on the heights, a lime elsewhere. */

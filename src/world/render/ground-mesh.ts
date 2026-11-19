@@ -30,7 +30,7 @@ import type { BandLayer } from "./bands";
 import { terrainName } from "../terrain-names";
 import { built, cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, pinned, shelfOf, smoothAt } from "./drawn";
 import { groundMode } from "./ground-mode";
-import { canopyOf } from "./forest";
+import { canopyOf, heathAt } from "./forest";
 import { COVER, vegAt } from "../vegetation/fields";
 
 export { cornerZ };
@@ -428,7 +428,9 @@ function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number, palette: P
   const canopy = groundMode() === "smooth" ? Math.round(canopyOf(grid, palette, x, y) * 7) : 0;
   // And 256 where it is a farm's field. @see vegetation/tend
   const field = groundMode() === "smooth" && grid.veg.cover[vegAt(grid, palette, x, y)] === COVER.field && !built(grid, x, y) ? 256 : 0;
-  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0) + (built(grid, x, y) ? 16 : 0) + canopy * 32 + field;
+  // And 512 × how thick the heath is, in eighths: the heather's carpet. @see heatherAt
+  const heath = groundMode() === "smooth" && !built(grid, x, y) ? Math.round(heathAt(grid, palette, x, y) * 7) : 0;
+  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0) + (built(grid, x, y) ? 16 : 0) + canopy * 32 + field + heath * 512;
 }
 
 export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale = 1): GroundMesh {
@@ -909,6 +911,41 @@ fn canopyAt(p: vec2<f32>) -> f32 {
   let q = p - 0.5; let c = vec2<i32>(floor(q)); let f = q - floor(q);
   return mix(mix(canopyCell(c), canopyCell(c + vec2<i32>(1, 0)), f.x), mix(canopyCell(c + vec2<i32>(0, 1)), canopyCell(c + vec2<i32>(1, 1)), f.x), f.y);
 }
+// How thick the heath is over a cell, and at a point, blended between the cells round it. @see writeEdges
+fn heathCell(c: vec2<i32>) -> f32 {
+  let n = vec2<i32>(i32(ground.uMap.x), i32(ground.uMap.y));
+  if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) { return 0.0; }
+  return (floor((textureLoad(uEdges, vec2<i32>(c.x * 2 + 1, c.y), 0).w + 0.5) / 512.0) % 8.0) / 7.0;
+}
+fn heathFieldAt(p: vec2<f32>) -> f32 {
+  let q = p - 0.5; let c = vec2<i32>(floor(q)); let f = q - floor(q);
+  return mix(mix(heathCell(c), heathCell(c + vec2<i32>(1, 0)), f.x), mix(heathCell(c + vec2<i32>(0, 1)), heathCell(c + vec2<i32>(1, 1)), f.x), f.y);
+}
+// HEATHER: a low carpet of wiry dark green-brown cushions, lit on their tops, the tips speckled — fresh green in
+// spring, purple flowers late in the summer, gone over to rust in the winter. (uMode.y the year's share.)
+fn heatherAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
+  let y = ground.uMode.y;
+  var c = mix(vec3<f32>(0.25, 0.3, 0.16), vec3<f32>(0.33, 0.29, 0.18), smoothstep(0.3, 0.7, fbm(p * 1.1 + 51.0)));
+  let bump = vnoise(p * 4.5 + 13.0) * 0.6 + vnoise(p * 10.0 + 7.0) * 0.4;
+  let side = vnoise((p + vec2<f32>(0.05, -0.07)) * 4.5 + 13.0) * 0.6 + vnoise((p + vec2<f32>(0.05, -0.07)) * 10.0 + 7.0) * 0.4;
+  let lit = 1.0 + clamp((bump - side) * 5.0, -1.0, 1.0) * 0.2 * shows(10.0, fp);
+  c = c * mix(1.0, 0.66 + 0.6 * bump, shows(4.5, fp));
+  let bloom = smoothstep(0.42, 0.47, y) * (1.0 - smoothstep(0.58, 0.64, y));
+  let rust = min(smoothstep(0.6, 0.7, y) + 1.0 - smoothstep(0.08, 0.16, y), 1.0) * (1.0 - bloom);
+  let fresh = smoothstep(0.12, 0.2, y) * (1.0 - smoothstep(0.4, 0.46, y));
+  // The tips: purple flowers on the cushions' tops in a mass, a tone of their own from patch to patch.
+  let tone = vnoise(p * 1.7 + 61.0);
+  let tip = mix(vec3<f32>(0.42, 0.27, 0.42), vec3<f32>(0.54, 0.34, 0.5), tone) * bloom + vec3<f32>(0.38, 0.44, 0.2) * fresh + vec3<f32>(0.45, 0.3, 0.21) * rust;
+  let much = mix(0.45, 0.85, bloom) * max(bloom, max(fresh * 0.6, rust * 0.7));
+  let fine = vnoise(p * 11.0 + 5.0) * 0.45 + vnoise(p * 23.0 + 9.0) * 0.3 * shows(23.0, fp) + bump * 0.25 + (fbm(p * 0.8 + 70.0) - 0.5) * 0.3;
+  let on = smoothstep(0.28, 0.6, fine) * much;
+  c = mix(c, tip, on);
+  // Fine and wiry: a grain of sprigs and lit flower spikes, close to.
+  c = c * (1.0 + (vnoise(p * 40.0) - 0.5) * 0.36 * shows(40.0, fp));
+  let q = p * 46.0; let h = hash(vec2<i32>(floor(q)));
+  c = mix(c, tip * 1.25 + vec3<f32>(0.05), step(0.82, h) * on * 0.7 * shows(46.0, fp));
+  return c * lit;
+}
 // THE FOREST FLOOR: shaded, litter and moss over earth, more fallen leaves in autumn.
 fn forestFloor(p: vec2<f32>, fp: f32) -> vec3<f32> {
   var c = mix(vec3<f32>(0.27, 0.33, 0.17), vec3<f32>(0.4, 0.33, 0.21), smoothstep(0.35, 0.7, fbm(p * 1.4 + 17.0)));
@@ -1259,6 +1296,9 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
     if (ground.uMode.x > 0.5) {
       let can = canopyAt(vGround);
       if (can > 0.02) { col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88); }
+      // HEATHER where the heath is, as thick as it is, ragged at its edge, grass coming through it. @see forest.ts heathAt
+      let hth = heathFieldAt(vGround);
+      if (hth > 0.02) { col = mix(col, heatherAt(vGround, fp), smoothstep(0.12, 0.5, hth + (fbm(vGround * 2.3 + 41.0) - 0.5) * 0.5 + (vnoise(vGround * 9.0 + 3.0) - 0.5) * 0.12)); }
       if (fieldCell(vec2<i32>(floor(vGround)))) { col = fieldOver(col, vGround, fp); }
     }
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
@@ -1511,6 +1551,36 @@ vec3 fieldOver(vec3 base, vec2 p, float fp) {
 float canopyAt(vec2 p) {
   vec2 q = p - 0.5; ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
   return mix(mix(canopyCell(c), canopyCell(c + ivec2(1, 0)), f.x), mix(canopyCell(c + ivec2(0, 1)), canopyCell(c + ivec2(1, 1)), f.x), f.y);
+}
+float heathCell(ivec2 c) {
+  ivec2 n = ivec2(int(uMap.x), int(uMap.y));
+  if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) return 0.0;
+  return mod(floor((texelFetch(uEdges, ivec2(c.x * 2 + 1, c.y), 0).w + 0.5) / 512.0), 8.0) / 7.0;
+}
+float heathFieldAt(vec2 p) {
+  vec2 q = p - 0.5; ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
+  return mix(mix(heathCell(c), heathCell(c + ivec2(1, 0)), f.x), mix(heathCell(c + ivec2(0, 1)), heathCell(c + ivec2(1, 1)), f.x), f.y);
+}
+vec3 heatherAt(vec2 p, float fp) {
+  float y = uMode.y;
+  vec3 c = mix(vec3(0.25, 0.3, 0.16), vec3(0.33, 0.29, 0.18), smoothstep(0.3, 0.7, fbm(p * 1.1 + 51.0)));
+  float bump = vnoise(p * 4.5 + 13.0) * 0.6 + vnoise(p * 10.0 + 7.0) * 0.4;
+  float side = vnoise((p + vec2(0.05, -0.07)) * 4.5 + 13.0) * 0.6 + vnoise((p + vec2(0.05, -0.07)) * 10.0 + 7.0) * 0.4;
+  float lit = 1.0 + clamp((bump - side) * 5.0, -1.0, 1.0) * 0.2 * shows(10.0, fp);
+  c *= mix(1.0, 0.66 + 0.6 * bump, shows(4.5, fp));
+  float bloom = smoothstep(0.42, 0.47, y) * (1.0 - smoothstep(0.58, 0.64, y));
+  float rust = min(smoothstep(0.6, 0.7, y) + 1.0 - smoothstep(0.08, 0.16, y), 1.0) * (1.0 - bloom);
+  float fresh = smoothstep(0.12, 0.2, y) * (1.0 - smoothstep(0.4, 0.46, y));
+  float tone = vnoise(p * 1.7 + 61.0);
+  vec3 tip = mix(vec3(0.42, 0.27, 0.42), vec3(0.54, 0.34, 0.5), tone) * bloom + vec3(0.38, 0.44, 0.2) * fresh + vec3(0.45, 0.3, 0.21) * rust;
+  float much = mix(0.45, 0.85, bloom) * max(bloom, max(fresh * 0.6, rust * 0.7));
+  float fine = vnoise(p * 11.0 + 5.0) * 0.45 + vnoise(p * 23.0 + 9.0) * 0.3 * shows(23.0, fp) + bump * 0.25 + (fbm(p * 0.8 + 70.0) - 0.5) * 0.3;
+  float on = smoothstep(0.28, 0.6, fine) * much;
+  c = mix(c, tip, on);
+  c *= 1.0 + (vnoise(p * 40.0) - 0.5) * 0.36 * shows(40.0, fp);
+  vec2 q = p * 46.0; float h = hash(ivec2(floor(q)));
+  c = mix(c, tip * 1.25 + vec3(0.05), step(0.82, h) * on * 0.7 * shows(46.0, fp));
+  return c * lit;
 }
 vec3 forestFloor(vec2 p, float fp) {
   vec3 c = mix(vec3(0.27, 0.33, 0.17), vec3(0.4, 0.33, 0.21), smoothstep(0.35, 0.7, fbm(p * 1.4 + 17.0)));
@@ -1803,6 +1873,8 @@ void main() {
     if (uMode.x > 0.5) {
       float can = canopyAt(vGround);
       if (can > 0.02) col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88);
+      float hth = heathFieldAt(vGround);
+      if (hth > 0.02) col = mix(col, heatherAt(vGround, fp), smoothstep(0.12, 0.5, hth + (fbm(vGround * 2.3 + 41.0) - 0.5) * 0.5 + (vnoise(vGround * 9.0 + 3.0) - 0.5) * 0.12));
       if (fieldCell(ivec2(floor(vGround)))) col = fieldOver(col, vGround, fp);
     }
     float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;
