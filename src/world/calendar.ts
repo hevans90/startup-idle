@@ -48,7 +48,7 @@ export const TREE_STATES = ["bud", "full", "thin", "bare", "snow"] as const;
 export type TreeState = (typeof TREE_STATES)[number];
 
 /** Whether a kind keeps its leaves the year round. */
-export const EVERGREEN: ReadonlySet<string> = new Set(["pine", "reeds", "stump"]);
+export const EVERGREEN: ReadonlySet<string> = new Set(["pine", "reeds", "stump", "rock", "log", "tuft"]);
 
 /** One change in a tree's year: from one look to another over [`t0`, `t1`] of the year. */
 type Turn = { from: TreeState; to: TreeState; t0: number; t1: number };
@@ -104,6 +104,9 @@ export const LEAF_YEAR: Readonly<Record<string, readonly [number, number][]>> = 
   // (A bed's heads: spring's yellow, summer's pinks, gone over to brown.)
   flowers: [[0.06, 0xf2cf3e], [0.16, 0xf0b83a], [0.24, 0xe4607a], [0.46, 0xd2487a], [0.56, 0xb05a60], [0.66, 0x8a6a4a]],
   stump: [[0, 0xffffff]],
+  // (What lies about: moss on a rock and a log; a tuft of rough grass, green, straw in summer, dun in winter.)
+  rock: [[0, 0x6f8a44]], log: [[0, 0x6f8a44]],
+  tuft: [[0.04, 0x8a8a52], [0.16, 0x7fae4a], [0.36, 0x8fa64e], [0.48, 0xb0a85a], [0.62, 0x9a9050], [0.8, 0x857f52]],
   pine: [[0.0, 0x2c5636], [0.2, 0x2f5e3a], [0.7, 0x2f5e3a], [0.85, 0x2a5234]],
 };
 

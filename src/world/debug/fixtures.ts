@@ -22,7 +22,7 @@ import { setGlassOverride, type GlassTold } from "../render/glass-state";
 import { portsOf } from "../water/ports";
 import { derivedRamp } from "../roads/ramp-derive";
 import { TERRAIN_NAMES } from "../terrain-names";
-import { MATURE, vegAll, vegAt } from "../vegetation/fields";
+import { COVER, MATURE, vegAll, vegAt } from "../vegetation/fields";
 import { FARM, claimFields, fell, plant } from "../vegetation/tend";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import {
@@ -34,7 +34,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough" | "farms" | "wildfire";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough" | "farms" | "wildfire" | "ground";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -1300,13 +1300,40 @@ export function buildWildfire(g: Grid, material: number) {
 }
 
 /**
+ * WHAT LIES ON THE GROUND: the farms' map (@see buildFarms) with a crag in the south-east, boulders under its face;
+ * a meadow of rough tufts beside it; the verges along the road worn by its traffic and a path trodden across the
+ * grass to the pond. The wood drops its leaves in the autumn (`&year=6.65`), the blossom its petals in the spring
+ * (`&year=6.1`; the cherry and apple of a valley). @see render/forest scatterOn, vegetation/wear, render/falling
+ */
+export function buildGround(g: Grid, material: number) {
+  buildFarms(g, material);
+  const palette = [null, ...TERRAIN_NAMES], ROAD = 24, V = g.veg;
+  // THE CRAG: a block stood up out of the fields, its face sheer.
+  for (let y = 36; y <= 46; y++) for (let x = 32; x <= 46; x++) if (Math.hypot(x - 40, y - 42) < 7.5) set(g, x, y, g.height[idx(g, x, y)] + 6);
+  // THE MEADOW beside it.
+  for (let y = 30; y <= 35; y++) for (let x = 22; x <= 30; x++) { const i = vegAt(g, palette, x, y); if (V.cover[i] === COVER.grass) V.cover[i] = COVER.meadow; }
+  // THE VERGES worn along the road; the row's side kept.
+  for (let x = 0; x < g.w; x++) {
+    for (const y of [ROAD - 1, ROAD + 1]) { const i = vegAt(g, palette, x, y); if (V.cover[i] === COVER.grass) V.wear[i] = 120 + ((x * 37) % 50); }
+  }
+  // A PATH trodden from the road to the pond, a cell to the next by their sides.
+  const tread = (x: number, y: number) => { const i = vegAt(g, palette, x, y); if (V.cover[i] === COVER.grass) V.wear[i] = 255; };
+  for (let k = 0, y = ROAD + 1; k <= 10; k++) {
+    const x = 20 - k, to = ROAD + 2 + Math.round(k * 0.6);
+    tread(x, y);
+    while (y < to) tread(x, ++y);
+  }
+  edited(g);
+}
+
+/**
  * Fixtures that want a map of their own size, rather than the one on screen.
  *
  * A rig is a size as much as it is a shape: `brink` is five tiles because five
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48, farms: 48, wildfire: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48, farms: 48, wildfire: 48, ground: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1318,7 +1345,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough", "farms", "wildfire",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough", "farms", "wildfire", "ground",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1369,6 +1396,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "rough": buildRough(g, material); recomputeHeightRange(g); return;
     case "farms": buildFarms(g, material); recomputeHeightRange(g); return;
     case "wildfire": buildWildfire(g, material); recomputeHeightRange(g); return;
+    case "ground": buildGround(g, material); recomputeHeightRange(g); return;
   }
 }
 

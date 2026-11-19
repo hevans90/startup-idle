@@ -64,6 +64,7 @@ const FIXTURES: [FixtureId, string][] = [
   ["farms", "farms"],
   // The farms with their wood dry and sick, and a farm against it: a wildfire waiting to happen. @see buildWildfire
   ["wildfire", "wildfire"],
+  ["ground", "ground"],
   ["lake", "lake"],
   ["islands", "islands"],
   ["plunge", "plunge"],

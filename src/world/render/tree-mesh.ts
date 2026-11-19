@@ -20,14 +20,14 @@ import { useCalendarStore } from "../../state/calendar.store";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
 import type { BandLayer } from "./bands";
 import { drawnCorner, drawnHeight } from "./drawn";
-import { canopyOf, forestTrees } from "./forest";
+import { canopyOf, forestTrees, scattered } from "./forest";
 import { ageStep } from "../vegetation/step";
 import { sickness } from "../vegetation/stress";
 import { COVER } from "../vegetation/fields";
 
 const BASE = "/isometric_assets/derived";
 /** The kinds, a row of the leaves' ramp each. */
-const KINDS = ["oak", "lime", "hornbeam", "cherry", "birch", "pine", "willow", "poplar", "apple", "shrub", "reeds", "stump", "flowers"] as const;
+const KINDS = ["oak", "lime", "hornbeam", "cherry", "birch", "pine", "willow", "poplar", "apple", "shrub", "reeds", "stump", "flowers", "rock", "log", "tuft"] as const;
 /** Columns of the ramp: the year in this many steps. */
 const RAMP = 96;
 /** Pages the shader reads. */
@@ -249,7 +249,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
           for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const c = at(x + dx, y + dy); any += c; ck += `${Math.round(c * 72)},`; }
           const i = idx(g, x, y), cv = g.veg.cover[i];
           // (Reeds, heath, snags where a wood burnt and what the player made stand where there is no canopy.)
-          if (!any && cv !== COVER.reeds && cv !== COVER.meadow && cv !== COVER.burnt && cv < COVER.stumps) continue;
+          if (!any && cv !== COVER.reeds && cv !== COVER.meadow && cv !== COVER.burnt && cv < COVER.stumps && !scattered(g, palette, x, y)) continue;
           // (A hedge joins those beside it.)
           if (cv === COVER.hedge) for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) ck += x + dx >= 0 && y + dy >= 0 && x + dx < W && y + dy < g.h && g.veg.cover[idx(g, x + dx, y + dy)] === COVER.hedge ? "h" : "-";
           // (What is built on a cell takes what grew there: a building, a deck, a main.)

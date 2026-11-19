@@ -136,8 +136,54 @@ export function forestTrees(g: Grid, palette: Palette, x: number, y: number, can
       out.push({ kind, u, v, turn: Math.floor(hash(x + k, y, 0xc4) * 4), size, seed: hash(x + k, y + k, 0xc6) });
     }
   }
-  out.push(...madeOn(g, palette, x, y, i));
+  out.push(...madeOn(g, palette, x, y, i), ...scatterOn(g, palette, x, y, i));
   return out.sort((a, b) => a.u + a.v - (b.u + b.v));
+}
+
+/** How far a cell sits under the ground beside it, in height steps: under a steep face, more than one. */
+function underFace(g: Grid, x: number, y: number, i: number): number {
+  let most = 0;
+  for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
+    if (inBounds(g, x + dx, y + dy)) most = Math.max(most, g.height[i + dx + dy * g.w] - g.height[i]);
+  }
+  return most;
+}
+
+/**
+ * WHAT LIES ABOUT on a cell, 0–2 things, by a cheap hash so most cells have none: boulders fallen under a steep face
+ * and strewn on the heights, a fallen log in a grown wood, tufts of rough grass in a meadow, a bush where a wood
+ * meets the grass. Only on open, dry, unbuilt ground (the caller's `standable`).
+ */
+export function scatterOn(g: Grid, palette: Palette, x: number, y: number, i = vegAt(g, palette, x, y)): ForestTree[] {
+  const V = g.veg, cover = V.cover[i], out: ForestTree[] = [];
+  if (V.wet[i] || g.pool[i] > 0 || cover === COVER.reeds || cover === COVER.field || cover >= COVER.stumps) return out;
+  const at = (kind: string, size: number, k: number) => out.push({
+    kind, u: x + (hash(x * 11 + k, y, 0xf3) - 0.5) * 0.7, v: y + (hash(x, y * 11 + k, 0xf4) - 0.5) * 0.7,
+    turn: Math.floor(hash(x + k, y * 3, 0xf5) * 4), size, seed: hash(x * 3 + k, y, 0xf6),
+  });
+  const r = hash(x, y, 0xf1), r2 = hash(x, y, 0xf2);
+  // ROCKS: under a face, often; on the heath and the heights, now and then.
+  const face = underFace(g, x, y, i), high = heightShare(g, i);
+  const rocky = face >= 2 ? 0.55 : high > 0.55 && cover === COVER.meadow ? 0.1 : high > 0.8 ? 0.06 : 0;
+  if (r < rocky) at("rock", 1.3 + 0.9 * r2, 0);
+  if (cover === COVER.wood) {
+    // A LOG where a wood is grown and thick.
+    if (V.density[i] >= 2 && V.age[i] >= MATURE && r2 < 0.1) at("log", 0.9 + 0.3 * r, 1);
+  } else if (cover === COVER.meadow || cover === COVER.scrub) {
+    // TUFTS of rough grass.
+    if (r2 < 0.4) at("tuft", 1 + 0.6 * r, 2);
+    if (r2 < 0.12) at("tuft", 0.8 + 0.5 * r2, 3);
+  } else if (cover === COVER.grass && r2 < 0.22) {
+    // A BUSH where a wood meets the grass.
+    let wood = false;
+    for (let dy = -1; dy <= 1 && !wood; dy++) for (let dx = -1; dx <= 1; dx++) if (woodOf(g, palette, x + dx, y + dy) > 0.5) { wood = true; break; }
+    if (wood) at("shrub", 0.8 + 0.4 * r, 4);
+  }
+  return out;
+}
+/** Whether anything lies about on a cell (cheaply, before the trees are reckoned). @see scatterOn */
+export function scattered(g: Grid, palette: Palette, x: number, y: number): boolean {
+  return standable(g, palette, x, y) && scatterOn(g, palette, x, y).length > 0;
 }
 
 /** How thick the heath is over a cell, 0–1: open ground high up, in patches. None elsewhere. */

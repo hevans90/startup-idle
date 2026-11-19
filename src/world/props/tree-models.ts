@@ -214,6 +214,54 @@ export const MADE: readonly Prop[] = [
   },
 ];
 
+/**
+ * SCATTER: what lies about on the ground (@see render/forest scatterOn) — boulders under a steep face and on the
+ * heights, a fallen log in a wood, a tuft of rough grass. Their moss and blades are the tinted layer.
+ */
+export const SCATTER: readonly Prop[] = [
+  {
+    // Rocks: a boulder and two smaller, sunk a little, moss on their tops.
+    id: "rock", shadow: shadowOf(0.7, 0.2),
+    tris: () => {
+      const r = seeded(241), out: Tri[] = [];
+      const stones: [V3, V3][] = [[[0, 0, 0.18], [0.62, 0.5, 0.42]], [[0.62, -0.3, 0.08], [0.34, 0.3, 0.24]], [[-0.45, 0.42, 0.05], [0.26, 0.22, 0.17]]];
+      for (const [c, rr] of stones) {
+        const n0 = out.length;
+        ball(c, rr, "stone", out, undefined, 7, 5);
+        // (Each a grey of its own, faceted: a stone, not a ball.)
+        const tone = 0.82 + 0.25 * r();
+        for (let t = n0; t < out.length; t++) { const k = tone * (0.92 + 0.16 * r()); out[t].c = [0.6 * k, 0.59 * k, 0.56 * k]; }
+        ball([c[0] - rr[0] * 0.15, c[1] + rr[1] * 0.1, c[2] + rr[2] * 0.72], [rr[0] * 0.55, rr[1] * 0.5, rr[2] * 0.25], "leaf", out, undefined, 6, 3);
+      }
+      return out;
+    },
+  },
+  {
+    // A fallen log: a trunk lying, a broken stub of a branch, moss along its top.
+    id: "log", shadow: shadowOf(1.2, 0.16),
+    tris: () => {
+      const out: Tri[] = [];
+      limb([-1.5, -0.2, 0.22], [1.5, 0.25, 0.18], 0.24, 0.18, "bark", out, 8, true);
+      limb([0.5, 0.15, 0.3], [0.8, 0.55, 0.6], 0.07, 0.04, "bark", out, 5, false);
+      limb([-1.5, -0.2, 0.22], [-1.52, -0.2, 0.22], 0.22, 0.22, "wood", out, 8, true);
+      for (const t of [-0.9, -0.2, 0.6]) ball([t, t * 0.15, 0.4], [0.32, 0.14, 0.06], "leaf", out, undefined, 6, 3);
+      return out;
+    },
+  },
+  {
+    // A tuft of rough grass: blades fanning up and out.
+    id: "tuft", shadow: shadowOf(0.25, 0.1),
+    tris: () => {
+      const r = seeded(251), out: Tri[] = [];
+      for (let k = 0; k < 16; k++) {
+        const a = r() * Math.PI * 2, lean = 0.12 + 0.2 * r(), h = 0.35 + 0.3 * r();
+        limb([Math.cos(a) * 0.05, Math.sin(a) * 0.05, 0], [Math.cos(a) * lean, Math.sin(a) * lean, h], 0.035, 0.008, "leaf", out, 3, false);
+      }
+      return out;
+    },
+  },
+];
+
 /** A clump of a bed: its leaves (fixed green), and with `heads` a share `keep` of its flowers. */
 function flowerBed(out: Tri[], heads: boolean, keep: number) {
   const r = seeded(231);
@@ -235,7 +283,7 @@ function cushionSnow(out: Tri[], seed: number, r: number, z: number) {
 export type TreeLook = { id: string; state: TreeState; tris: () => Tri[]; shadow: PropShadow };
 
 /** Every kind in every look it takes; a pine and reeds only as they are and in snow. */
-export const TREE_LOOKS: readonly TreeLook[] = [...TREES, ...WILD, ...MADE].flatMap((t): TreeLook[] => {
+export const TREE_LOOKS: readonly TreeLook[] = [...TREES, ...WILD, ...MADE, ...SCATTER].flatMap((t): TreeLook[] => {
   const withSnow = (f: (o: Tri[]) => void): TreeLook[] => [
     { id: t.id, state: "full", tris: t.tris, shadow: t.shadow },
     { id: t.id, state: "snow", tris: () => { const out = t.tris(); f(out); return out; }, shadow: t.shadow },
@@ -243,6 +291,9 @@ export const TREE_LOOKS: readonly TreeLook[] = [...TREES, ...WILD, ...MADE].flat
   if (t.id === "pine") return withSnow(pineSnow);
   if (t.id === "reeds") return withSnow((o) => cushionSnow(o, 911, 0.7, 0.5));
   if (t.id === "stump") return withSnow((o) => cushionSnow(o, 913, 0.5, 0.48));
+  if (t.id === "rock") return withSnow((o) => cushionSnow(o, 919, 0.9, 0.5));
+  if (t.id === "log") return withSnow((o) => cushionSnow(o, 923, 1.4, 0.4));
+  if (t.id === "tuft") return withSnow((o) => cushionSnow(o, 929, 0.3, 0.2));
   if (t.id === "flowers") {
     // Leaves first, then in flower, going over, cut back to dead stalks, and snowed on.
     const bed = (f: (o: Tri[]) => void) => () => { const o: Tri[] = []; f(o); return o; };

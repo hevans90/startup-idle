@@ -30,6 +30,7 @@ import type { DamageCause } from "../events/damage";
 import { createDecals } from "./decals";
 import type { EmitAt, Juice, Recipe } from "./juice";
 import { conditionsOf, riseOf, type Lights } from "./lights";
+import type { Fall } from "./falling";
 
 /** Steam off an overheated building: white puffs, rising and greying. */
 export const STEAM: Recipe = {
@@ -67,7 +68,17 @@ export const BUBBLE: Recipe = {
   texture: "dab", rate: 7, life: 900, rise: 14, drift: 6, wobble: 3, spread: 8,
   from: 0x7a5a32, to: 0x4a3820, alpha: 0.9, size: [0.25, 0.6], blend: "normal",
 };
-const RECIPES = { steam: STEAM, haze: HAZE, flames: FLAMES, smoke: SMOKE, smoulder: SMOULDER, embers: EMBERS, spray: SPRAY, bubble: BUBBLE } as const;
+/** Leaves falling off a turning wood: drifting down, swaying, gold going brown. @see render/falling */
+export const LEAVES: Recipe = {
+  texture: "leaf", rate: 1.4, life: 3400, rise: -15, drift: 9, wobble: 10, spread: 22,
+  from: 0xd8952e, to: 0x9a5524, alpha: 0.95, size: [0.75, 0.7], blend: "normal",
+};
+/** Petals off the blossom: paler, lighter, drifting further. */
+export const PETALS: Recipe = {
+  texture: "leaf", rate: 2, life: 3800, rise: -9, drift: 14, wobble: 11, spread: 22,
+  from: 0xfff4f7, to: 0xf3bfd0, alpha: 0.9, size: [0.5, 0.45], blend: "normal",
+};
+const RECIPES = { leaves: LEAVES, petals: PETALS, steam: STEAM, haze: HAZE, flames: FLAMES, smoke: SMOKE, smoulder: SMOULDER, embers: EMBERS, spray: SPRAY, bubble: BUBBLE } as const;
 
 /**
  * How high a building's roof is over its ground, screen px at scale 1: as
@@ -164,6 +175,8 @@ export type DisasterFx = {
     /** A burst main's joint, spraying; a backed-up sewer's manhole, bubbling. @see BURST_MAIN, SEWER_BACKUP */
     spray?: readonly { x: number; y: number }[];
     bubble?: readonly { x: number; y: number }[];
+    /** Trees with leaves or petals falling off them. @see render/falling */
+    fall?: readonly Fall[];
     /** The clock the marks on the ground fade by, ms. @see createDecals */
     now?: number;
   }) => void;
@@ -178,13 +191,15 @@ export function createDisasterFx(): DisasterFx {
   const decals = createDecals();
 
   return {
-    sync({ ctx, juice, lights, damaged, heatwave, drinkers, closed, roof, fire, spray = [], bubble = [], now = Date.now() }) {
+    sync({ ctx, juice, lights, damaged, heatwave, drinkers, closed, roof, fire, spray = [], bubble = [], fall = [], now = Date.now() }) {
       const g = ctx.grid;
       // THE MARKS ON THE GROUND: scorch and cracks. @see createDecals
       decals.sync(ctx, damaged, now);
       // THE EMITTERS: started, moved or stopped to match what is wanted.
       const want = emittersWanted(g, damaged, heatwave, drinkers, roof, fire);
       for (const t of spray) want.set(`spray:${t.x},${t.y}`, { at: { x: t.x, y: t.y, w: 1, h: 1, rise: 0 }, recipe: "spray" });
+      // (Off the crown, a tree's height up.)
+      for (const t of fall) want.set(`${t.what}:${t.x},${t.y}`, { at: { x: t.x, y: t.y, w: 1, h: 1, rise: 46 }, recipe: t.what });
       for (const t of bubble) want.set(`bubble:${t.x},${t.y}`, { at: { x: t.x, y: t.y, w: 1, h: 1, rise: 0 }, recipe: "bubble" });
       for (const [key, r] of running) {
         const w = want.get(key);

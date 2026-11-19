@@ -433,7 +433,9 @@ function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number, palette: P
   // And 4096 × how charred, in eighths, where a fire went through: greening as it ages. @see vegetation/wildfire
   const vi = vegAt(grid, palette, x, y);
   const char = groundMode() === "smooth" && grid.veg.cover[vi] === COVER.burnt && !built(grid, x, y) ? 7 - (grid.veg.age[vi] >> 5) : 0;
-  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0) + (built(grid, x, y) ? 16 : 0) + canopy * 32 + field + heath * 512 + Math.max(0, char) * 4096;
+  // And 32768 × how worn, in eighths, where the town tramples it to earth. @see vegetation/wear
+  const wear = groundMode() === "smooth" && !built(grid, x, y) ? grid.veg.wear[vi] >> 5 : 0;
+  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0) + (built(grid, x, y) ? 16 : 0) + canopy * 32 + field + heath * 512 + Math.max(0, char) * 4096 + wear * 32768;
 }
 
 export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale = 1): GroundMesh {
@@ -826,7 +828,9 @@ fn seasonGrass(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
   let patchy = fbm(p * 0.3 + 91.0);
   var g = mix(c, c * vec3<f32>(1.02, 1.05, 0.95) + vec3<f32>(0.005, 0.012, 0.0), s.x * 0.5);
   // (Straw in patches, the rest still green: a dry summer, not a dead one.)
-  g = mix(g, vec3<f32>(0.71, 0.67, 0.39) * (0.86 + 0.28 * patchy), s.y * smoothstep(0.38, 0.78, patchy) * 0.65);
+  g = mix(g, vec3<f32>(0.71, 0.67, 0.39) * (0.86 + 0.28 * patchy), min(s.y, 1.0) * smoothstep(0.38, 0.78, patchy) * 0.65);
+  // (Past one, a drought: scorched brown over most of it, only the hollows still green.)
+  g = mix(g, vec3<f32>(0.6, 0.5, 0.3) * (0.85 + 0.3 * patchy), max(s.y - 1.0, 0.0) * smoothstep(0.15, 0.5, patchy) * 0.85);
   g = mix(g, vec3<f32>(0.5, 0.48, 0.31) * (0.9 + 0.2 * patchy), s.z * (0.35 + 0.35 * patchy));
   return g;
 }
@@ -933,6 +937,39 @@ fn charCell(c: vec2<i32>) -> f32 {
 fn charFieldAt(p: vec2<f32>) -> f32 {
   let q = p - 0.5; let c = vec2<i32>(floor(q)); let f = q - floor(q);
   return mix(mix(charCell(c), charCell(c + vec2<i32>(1, 0)), f.x), mix(charCell(c + vec2<i32>(0, 1)), charCell(c + vec2<i32>(1, 1)), f.x), f.y);
+}
+// How worn a cell is, and at a point, blended. @see writeEdges
+fn wornCell(c: vec2<i32>) -> f32 {
+  let n = vec2<i32>(i32(ground.uMap.x), i32(ground.uMap.y));
+  if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) { return 0.0; }
+  return (floor((textureLoad(uEdges, vec2<i32>(c.x * 2 + 1, c.y), 0).w + 0.5) / 32768.0) % 8.0) / 7.0;
+}
+fn wornFieldAt(p: vec2<f32>) -> f32 {
+  let q = p - 0.5; let c = vec2<i32>(floor(q)); let f = q - floor(q);
+  return mix(mix(wornCell(c), wornCell(c + vec2<i32>(1, 0)), f.x), mix(wornCell(c + vec2<i32>(0, 1)), wornCell(c + vec2<i32>(1, 1)), f.x), f.y);
+}
+// FALLEN LEAVES in the autumn, under a wood and blown a little past its edge, browning and rotting into the winter.
+fn litterOver(base: vec3<f32>, p: vec2<f32>, fp: f32) -> vec3<f32> {
+  let y = ground.uMode.y;
+  let fall = smoothstep(0.57, 0.66, y) * (1.0 - smoothstep(0.84, 0.95, y)) * (1.0 - ground.uSeason.w);
+  if (fall <= 0.0) { return base; }
+  let reach = max(canopyAt(p), canopyAt(p - vec2<f32>(0.9, 0.5)) * 0.8);
+  if (reach <= 0.004) { return base; }
+  let k = fall * smoothstep(0.0, 0.2, reach + (fbm(p * 2.0 + 71.0) - 0.5) * 0.12);
+  var leaf = mix(vec3<f32>(0.68, 0.4, 0.12), vec3<f32>(0.52, 0.25, 0.1), vnoise(p * 7.0 + 3.0));
+  leaf = mix(leaf, vec3<f32>(0.4, 0.31, 0.2), smoothstep(0.68, 0.86, y));
+  let sp = shows(26.0, fp);
+  let spots = smoothstep(0.45, 0.75, vnoise(p * 26.0 + 9.0)) * sp + 0.45 * (1.0 - sp);
+  return mix(base, leaf * (0.85 + 0.3 * vnoise(p * 41.0)), k * mix(0.35, 0.95, spots));
+}
+// WORN: grass trodden flat and pale, then through to bare packed earth, dark mud when it is wet. (k how worn.)
+fn wornOver(base: vec3<f32>, p: vec2<f32>, fp: f32, k: f32) -> vec3<f32> {
+  var earth = mix(vec3<f32>(0.42, 0.35, 0.25), vec3<f32>(0.5, 0.43, 0.32), vnoise(p * 3.0 + 7.0));
+  earth = earth * (1.0 + (vnoise(p * 22.0) - 0.5) * 0.25 * shows(22.0, fp));
+  earth = mix(earth, vec3<f32>(0.24, 0.19, 0.13), ground.uMode.z * 0.8);
+  let rag = k + (fbm(p * 2.6 + 33.0) - 0.5) * 0.35 + (vnoise(p * 7.0 + 5.0) - 0.5) * 0.1;
+  let flat = mix(base, base * vec3<f32>(1.1, 1.06, 0.84), smoothstep(0.15, 0.4, rag));
+  return mix(flat, earth, smoothstep(0.42, 0.68, rag) * 0.92);
 }
 // BURNT GROUND: black char and grey ash, the grass coming back through it in tufts as it greens. (base: what it was.)
 fn charOver(base: vec3<f32>, p: vec2<f32>, fp: f32, k: f32) -> vec3<f32> {
@@ -1317,12 +1354,16 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
     if (ground.uMode.x > 0.5) {
       let can = canopyAt(vGround);
       if (can > 0.02) { col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88); }
+      col = litterOver(col, vGround, fp);
       // HEATHER where the heath is, as thick as it is, ragged at its edge, grass coming through it. @see forest.ts heathAt
       let hth = heathFieldAt(vGround);
       if (hth > 0.02) { col = mix(col, heatherAt(vGround, fp), smoothstep(0.12, 0.5, hth + (fbm(vGround * 2.3 + 41.0) - 0.5) * 0.5 + (vnoise(vGround * 9.0 + 3.0) - 0.5) * 0.12)); }
       // CHARRED where a fire went through. @see vegetation/wildfire
       let chr = charFieldAt(vGround);
       if (chr > 0.02) { col = charOver(col, vGround, fp, chr); }
+      // WORN where the town tramples it. @see vegetation/wear
+      let wrn = wornFieldAt(vGround);
+      if (wrn > 0.02) { col = wornOver(col, vGround, fp, wrn); }
       if (fieldCell(vec2<i32>(floor(vGround)))) { col = fieldOver(col, vGround, fp); }
     }
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
@@ -1505,7 +1546,8 @@ vec3 seasonGrass(vec3 c, vec2 p) {
   if (s.x + s.y + s.z <= 0.0) return c;
   float patchy = fbm(p * 0.3 + 91.0);
   vec3 g = mix(c, c * vec3(1.02, 1.05, 0.95) + vec3(0.005, 0.012, 0.0), s.x * 0.5);
-  g = mix(g, vec3(0.71, 0.67, 0.39) * (0.86 + 0.28 * patchy), s.y * smoothstep(0.38, 0.78, patchy) * 0.65);
+  g = mix(g, vec3(0.71, 0.67, 0.39) * (0.86 + 0.28 * patchy), min(s.y, 1.0) * smoothstep(0.38, 0.78, patchy) * 0.65);
+  g = mix(g, vec3(0.6, 0.5, 0.3) * (0.85 + 0.3 * patchy), max(s.y - 1.0, 0.0) * smoothstep(0.15, 0.5, patchy) * 0.85);
   g = mix(g, vec3(0.5, 0.48, 0.31) * (0.9 + 0.2 * patchy), s.z * (0.35 + 0.35 * patchy));
   return g;
 }
@@ -1593,6 +1635,36 @@ float charCell(ivec2 c) {
 float charFieldAt(vec2 p) {
   vec2 q = p - 0.5; ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
   return mix(mix(charCell(c), charCell(c + ivec2(1, 0)), f.x), mix(charCell(c + ivec2(0, 1)), charCell(c + ivec2(1, 1)), f.x), f.y);
+}
+float wornCell(ivec2 c) {
+  ivec2 n = ivec2(int(uMap.x), int(uMap.y));
+  if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) return 0.0;
+  return mod(floor((texelFetch(uEdges, ivec2(c.x * 2 + 1, c.y), 0).w + 0.5) / 32768.0), 8.0) / 7.0;
+}
+float wornFieldAt(vec2 p) {
+  vec2 q = p - 0.5; ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
+  return mix(mix(wornCell(c), wornCell(c + ivec2(1, 0)), f.x), mix(wornCell(c + ivec2(0, 1)), wornCell(c + ivec2(1, 1)), f.x), f.y);
+}
+vec3 litterOver(vec3 base, vec2 p, float fp) {
+  float y = uMode.y;
+  float fall = smoothstep(0.57, 0.66, y) * (1.0 - smoothstep(0.84, 0.95, y)) * (1.0 - uSeason.w);
+  if (fall <= 0.0) return base;
+  float reach = max(canopyAt(p), canopyAt(p - vec2(0.9, 0.5)) * 0.8);
+  if (reach <= 0.004) return base;
+  float k = fall * smoothstep(0.0, 0.2, reach + (fbm(p * 2.0 + 71.0) - 0.5) * 0.12);
+  vec3 leaf = mix(vec3(0.68, 0.4, 0.12), vec3(0.52, 0.25, 0.1), vnoise(p * 7.0 + 3.0));
+  leaf = mix(leaf, vec3(0.4, 0.31, 0.2), smoothstep(0.68, 0.86, y));
+  float sp = shows(26.0, fp);
+  float spots = smoothstep(0.45, 0.75, vnoise(p * 26.0 + 9.0)) * sp + 0.45 * (1.0 - sp);
+  return mix(base, leaf * (0.85 + 0.3 * vnoise(p * 41.0)), k * mix(0.35, 0.95, spots));
+}
+vec3 wornOver(vec3 base, vec2 p, float fp, float k) {
+  vec3 earth = mix(vec3(0.42, 0.35, 0.25), vec3(0.5, 0.43, 0.32), vnoise(p * 3.0 + 7.0));
+  earth *= 1.0 + (vnoise(p * 22.0) - 0.5) * 0.25 * shows(22.0, fp);
+  earth = mix(earth, vec3(0.24, 0.19, 0.13), uMode.z * 0.8);
+  float rag = k + (fbm(p * 2.6 + 33.0) - 0.5) * 0.35 + (vnoise(p * 7.0 + 5.0) - 0.5) * 0.1;
+  vec3 flat_ = mix(base, base * vec3(1.1, 1.06, 0.84), smoothstep(0.15, 0.4, rag));
+  return mix(flat_, earth, smoothstep(0.42, 0.68, rag) * 0.92);
 }
 vec3 charOver(vec3 base, vec2 p, float fp, float k) {
   vec3 c = mix(vec3(0.09, 0.08, 0.07), vec3(0.3, 0.28, 0.26), smoothstep(0.45, 0.8, fbm(p * 2.1 + 83.0)));
@@ -1913,10 +1985,13 @@ void main() {
     if (uMode.x > 0.5) {
       float can = canopyAt(vGround);
       if (can > 0.02) col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88);
+      col = litterOver(col, vGround, fp);
       float hth = heathFieldAt(vGround);
       if (hth > 0.02) col = mix(col, heatherAt(vGround, fp), smoothstep(0.12, 0.5, hth + (fbm(vGround * 2.3 + 41.0) - 0.5) * 0.5 + (vnoise(vGround * 9.0 + 3.0) - 0.5) * 0.12));
       float chr = charFieldAt(vGround);
       if (chr > 0.02) col = charOver(col, vGround, fp, chr);
+      float wrn = wornFieldAt(vGround);
+      if (wrn > 0.02) col = wornOver(col, vGround, fp, wrn);
       if (fieldCell(ivec2(floor(vGround)))) col = fieldOver(col, vGround, fp);
     }
     float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;

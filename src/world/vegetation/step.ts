@@ -17,6 +17,7 @@
  * - **What the player planted** grows up and stays as it is: a row, a hedge, a bed. A field with no farm in reach
  *   goes back to grass; one with, is cut each harvest (@see HARVEST), and counted in `veg.harvest` to be paid.
  */
+import { healWear } from "./wear";
 import { idx, inBounds, type Grid } from "../grid";
 import { COVER, HARVEST, MATURE, covered, growable, vegAt, vegHash, vegNoise, waterNear } from "./fields";
 import { stressStep, type Stress } from "./stress";
@@ -161,7 +162,8 @@ export function stepVegetation(g: Grid, palette: Palette, t: number, stress?: St
   const step = (dt: number) => {
     const k = Math.round(V.t / VEG_DT);
     const a = vegStep(g, palette, dt, k);
-    return (stress ? stressStep(g, palette, dt, V.t, k, stress) : false) || a;
+    const w = healWear(g, dt);
+    return (stress ? stressStep(g, palette, dt, V.t, k, stress) : false) || a || w;
   };
   let any = false;
   if (n <= CATCH_UP_STEPS) {

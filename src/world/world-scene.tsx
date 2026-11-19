@@ -62,6 +62,8 @@ import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/
 import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
 import { canopyGround, destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
 import { stepVegetation, wetFrom } from "./vegetation/step";
+import { wearFrom } from "./vegetation/wear";
+import { fallWanted } from "./render/falling";
 import { farmsOf } from "./vegetation/tend";
 import { harvestPay } from "../game/vegetation-cost";
 import { groundSeason, yearPart, YEAR_SECONDS } from "./calendar";
@@ -559,6 +561,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   /** The building a fire is at while one is under way, and what it has spread to (null: not yet). @see FIRE */
   const fireAt = useRef<{ id: number; spread: number[] | null } | null>(null);
   /** A WILDFIRE: the fire while one burns, where it started, what it has burnt out; the driest wood, looked for now and then. @see WILDFIRE */
+  const wearAtRef = useRef(0);
   const wildRef = useRef<{ fire: Wildfire | null; event: number; at: { x: number; y: number } | null; built: Set<number>; tinder: { x: number; y: number; dryness: number } | null; lookedAt: number }>({ fire: null, event: -1, at: null, built: new Set(), tinder: null, lookedAt: -Infinity });
   /** A blackout's district, as it was when it struck; and the earthquake already felt, by event id. @see BLACKOUT, EARTHQUAKE */
   const blackoutIds = useRef<{ event: number; ids: number[] } | null>(null);
@@ -3798,6 +3801,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         })(),
         spray: (() => { const e = active("burst-main"); return e ? [e.where] : []; })(),
         bubble: (() => { const e = active("sewer-backup"); return e ? [e.where] : []; })(),
+        // LEAVES AND PETALS falling off a few trees in view. @see render/falling
+        fall: groundMode() !== "smooth" || useGlobalSettingsStore.getState().motion === "calm" ? [] : (() => {
+          const b = (st.viewport as { getVisibleBounds?: () => { x: number; y: number; width: number; height: number } } | null)?.getVisibleBounds?.();
+          if (!b) return [];
+          return fallWanted(st.grid, st.palette, useCalendarStore.getState().now(), (x, y) => {
+            const { wx, wy } = cellToWorld(x, y, st.grid.height[idx(st.grid, x, y)], scale);
+            return wx > b.x && wx < b.x + b.width && wy > b.y + 40 * scale && wy < b.y + b.height;
+          });
+        })(),
         // ITS ROOF AS DRAWN: the top of its sprites over the middle of its
         // footprint's ground, in the scene's space — less half the roof's own
         // diamond, whose top is its back corner and not its middle. @see RoofOf
@@ -3904,6 +3916,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const st = useWorldStore.getState(), V = st.grid.veg;
         const field = st.getWaterField();
         if (field && now - wetAtRef.current > 2000) { wetAtRef.current = now; wetFrom(st.grid, (x, y) => depthAt(field, x, y)); }
+        // WEAR where the town goes, from a sample of where it is now. @see vegetation/wear
+        if (st.playing && now - wearAtRef.current > 2000) { wearAtRef.current = now; wearFrom(st.grid, st.palette, getTown().movers); }
         // THE WEATHER: what lies, from the calendar; and every half second its runoff into the water, by where the
         // land drains — that worked out again as the map or its water changes. @see world/weather, water/rain
         const tCal = useCalendarStore.getState().now(), R = rainRef.current;
@@ -3943,7 +3957,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (tlRef.current?.ground) {
         const tCal = useCalendarStore.getState().now(), smooth = groundMode() === "smooth", L = rainRef.current.lying;
         // (The snow the weather has laid, not the calendar's.)
-        seasonGround(tlRef.current.ground, smooth ? { ...groundSeason(tCal), snow: L.snow } : null, yearPart(tCal), smooth ? L.wet : 0, smooth ? L.frost : 0);
+        // (A drought scorches the grass past the summer's straw: dry over one. @see ground-mesh seasonGrass)
+        const gs = groundSeason(tCal), evs = useWorldStore.getState().events;
+        const scorch = Math.max(evs.some((e) => e.kind === "drought" && e.phase === "active") ? 1 : 0, evs.some((e) => e.kind === "heatwave" && e.phase === "active") ? 0.6 : 0, weatherDry(tCal) * 0.5);
+        seasonGround(tlRef.current.ground, smooth ? { ...gs, dry: Math.min(2, gs.dry + scorch), snow: L.snow } : null, yearPart(tCal), smooth ? L.wet : 0, smooth ? L.frost : 0);
       }
       if (signalsRef.current) {
         // The lanes the town last drove on: kept current by stepTown. @see trafficOf

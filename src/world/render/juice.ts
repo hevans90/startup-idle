@@ -67,7 +67,7 @@ const parkOf = (band: number, r: Recipe) => `${band}|${r.texture}|${r.blend}`;
  * and fades. Lengths and speeds are screen px at scale 1. @see Juice.emit
  */
 export type Recipe = {
-  texture: "dab" | "smoke" | "flame";
+  texture: "dab" | "smoke" | "flame" | "leaf";
   /** Motes a second, close up; fewer zoomed out. @see zoomRate */
   rate: number;
   /** How long a mote lives, ms. */
@@ -181,6 +181,21 @@ function flakeTexture(): Texture {
   return flake;
 }
 
+/** A leaf or a petal, falling: a little almond, white, for tinting. Made once. */
+let leaf: Texture | null = null;
+function leafTexture(): Texture {
+  if (leaf) return leaf;
+  const c = document.createElement("canvas");
+  c.width = 8; c.height = 5;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#fff";
+  g.beginPath();
+  g.ellipse(4, 2.5, 3.8, 2.2, 0.3, 0, Math.PI * 2);
+  g.fill();
+  leaf = Texture.from(c);
+  return leaf;
+}
+
 /** A puff of smoke or steam: a few soft lobes, white, for tinting. Made once. */
 let smoke: Texture | null = null;
 function smokeTexture(): Texture {
@@ -226,7 +241,7 @@ type Emitter = { wx: number; wy: number; band: number; recipe: Recipe; ctx: Rend
 
 /** `texture`: what an emitter's motes are drawn with, for a test with no canvas to draw one. */
 export function createJuice(opts: { texture?: (kind: Recipe["texture"]) => Texture } = {}): Juice {
-  const textureOf = opts.texture ?? ((kind: Recipe["texture"]) => (kind === "smoke" ? smokeTexture() : kind === "flame" ? flameTexture() : dabTexture()));
+  const textureOf = opts.texture ?? ((kind: Recipe["texture"]) => (kind === "smoke" ? smokeTexture() : kind === "flame" ? flameTexture() : kind === "leaf" ? leafTexture() : dabTexture()));
   const tweens = createTweens();
   const motes: Mote[] = [];
   const pool: Sprite[] = [];
