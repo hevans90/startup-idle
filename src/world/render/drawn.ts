@@ -61,6 +61,35 @@ export function built(grid: Grid, x: number, y: number): boolean {
   return !!grid.paved[i] || !!rampRise(grid.ramp[i]) || grid.deck[i] !== 0 || !!grid.main[i] || structureAt(grid, x, y) >= 0;
 }
 
+/** A road on the ground: paving that is not a bridge's deck. */
+export function road(grid: Grid, x: number, y: number): boolean {
+  if (!inBounds(grid, x, y)) return false;
+  const i = idx(grid, x, y);
+  return !!grid.paved[i] && grid.deck[i] === 0 && grid.terrain[i] !== VOID;
+}
+/**
+ * A ROAD ON THE CONTINUOUS SURFACE IS NOT A ROW OF BLOCKS: where a corner `(X, Y)` of the grid is drawn for the road
+ * tiles that meet there — the mean of what each says of it (its height, or its ramp's plane there), so every tile
+ * of road at a corner has it at one height and a road that climbs a step a tile is one slope, with no wall between
+ * its tiles and no ramp needed to join them. A bridge's deck at the corner holds it at the deck. Pure.
+ */
+export function roadCorner(grid: Grid, X: number, Y: number): number {
+  let sum = 0, n = 0;
+  for (let k = 0; k < 4; k++) {
+    const cx = X - (k & 1), cy = Y - (k >> 1);
+    if (!inBounds(grid, cx, cy)) continue;
+    const i = idx(grid, cx, cy);
+    if (!grid.paved[i] || grid.terrain[i] === VOID) continue;
+    if (grid.deck[i] !== 0) return grid.deckZ[i];
+    sum += cornerZ(grid, cx, cy, X - cx, Y - cy); n++;
+  }
+  return n ? sum / n : 0;
+}
+/** A road tile's surface at `(u, v)` on it, half steps: through its four drawn corners. @see roadCorner */
+export function roadZ(grid: Grid, x: number, y: number, u: number, v: number): number {
+  return (roadCorner(grid, x, y) * (1 - u) + roadCorner(grid, x + 1, y) * u) * (1 - v) + (roadCorner(grid, x, y + 1) * (1 - u) + roadCorner(grid, x + 1, y + 1) * u) * v;
+}
+
 /** Standing water with a drop beside it: a neighbour whose own surface is two half steps or more under this water's. */
 function lipAt(grid: Grid, x: number, y: number): boolean {
   const i = idx(grid, x, y);
@@ -115,7 +144,7 @@ const near = [0, 0, 0, 0], reach = [0, 0, 0, 0], beds = [0, 0, 0, 0], wets = [fa
 
 /** The drawn height of cell `(x, y)` at its corner `(u, v)`, half steps. */
 export function drawnCorner(grid: Grid, x: number, y: number, u: number, v: number): number {
-  if (pinned(grid, x, y)) return cornerZ(grid, x, y, u, v);
+  if (pinned(grid, x, y)) return groundMode() === "smooth" && road(grid, x, y) ? roadCorner(grid, x + u, y + v) : cornerZ(grid, x, y, u, v);
   if (groundMode() === "smooth") return smoothAt(grid, x + u, y + v);
   // Its own middle; and what it is JOINED by — a shelf joins as the land a step over its water would, so the bank
   // beside it comes down to it and the deep bed beyond does not.
@@ -342,7 +371,8 @@ function surface(grid: Grid, fx: number, fy: number, qx: number, qy: number): nu
     const nx = Math.max(x, Math.min(x + 1, px)), ny = Math.max(y, Math.min(y + 1, py)), d = Math.hypot(px - nx, py - ny);
     if (d >= MEET) continue;
     const a = nx - x, b = ny - y;
-    const v = (cornerZ(grid, x, y, 0, 0) * (1 - a) + cornerZ(grid, x, y, 1, 0) * a) * (1 - b) + (cornerZ(grid, x, y, 0, 1) * (1 - a) + cornerZ(grid, x, y, 1, 1) * a) * b;
+    const v = road(grid, x, y) ? roadZ(grid, x, y, a, b)
+      : (cornerZ(grid, x, y, 0, 0) * (1 - a) + cornerZ(grid, x, y, 1, 0) * a) * (1 - b) + (cornerZ(grid, x, y, 0, 1) * (1 - a) + cornerZ(grid, x, y, 1, 1) * a) * b;
     const s = 1 - d / MEET, w = s * s * (3 - 2 * s), k = 1 / (d * d + 1e-6);
     near = Math.max(near, w); sum += v * k; weight += k;
   }

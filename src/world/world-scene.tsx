@@ -59,6 +59,7 @@ import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/
 import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
 import { destroyGroundMesh, surfaceOf } from "./render/ground-mesh";
 import { CLIFF, drawnSampler } from "./render/drawn";
+import { groundMode } from "./render/ground-mode";
 import { buildPaved, createPavedLayer, dressPaved, evictUnused, lodPaved, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
 import { lodFor } from "./render/road-paint";
 import { lookDirtyCells } from "./roads/looks";
@@ -2357,6 +2358,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     }
     for (const c of touched) {
       for (const n of dirtyOf(grid, c.x, c.y)) pavedDirty.add(n.y * grid.w + n.x);
+      // (On the continuous surface a road tile lies through corners it shares with the tiles round it, and paints its
+      // neighbours' slopes in its margins: two cells out. @see drawn.ts roadCorner)
+      if (groundMode() === "smooth") for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (inBounds(grid, c.x + dx, c.y + dy)) pavedDirty.add((c.y + dy) * grid.w + c.x + dx);
     }
     for (const k of pavedDirty) {
       syncPaved(pl, bl, grid, k % grid.w, Math.floor(k / grid.w));

@@ -23,6 +23,8 @@
 import { NEIGHBOUR } from "../../iso/dir";
 import { idx, structureAt, surfaceSampler, type Grid } from "../grid";
 import { surfaceHeight } from "../iso";
+import { road, roadZ } from "../render/drawn";
+import { groundMode } from "../render/ground-mode";
 import { connects, isPaved } from "../roads/mask";
 import { find, type Network } from "../roads/network";
 import { gateRoad, hasYard } from "../landmarks/yard";
@@ -203,6 +205,8 @@ export function walkLine(g: Grid, path: readonly Cell[], lean = 0): Cell[] {
 export function roadHeightAt(g: Grid, x: number, y: number): number {
   const cx = Math.max(0, Math.min(g.w - 1, Math.round(x)));
   const cy = Math.max(0, Math.min(g.h - 1, Math.round(y)));
+  // On the continuous surface a road lies through its drawn corners. @see render/drawn.ts roadCorner
+  if (groundMode() === "smooth" && road(g, cx, cy)) return roadZ(g, cx, cy, Math.min(1, Math.max(0, x - cx + 0.5)), Math.min(1, Math.max(0, y - cy + 0.5)));
   const surf = surfaceSampler(g)(cx, cy);
   if (!surf) return 0;
   return surfaceHeight(surf, Math.min(1, Math.max(0, x - cx + 0.5)), Math.min(1, Math.max(0, y - cy + 0.5)));

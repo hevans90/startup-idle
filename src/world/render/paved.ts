@@ -14,6 +14,24 @@ import { keyOf, looksOf, type Look } from "../roads/looks";
 import { createRoadPainter, LOD_RES, planeOf, type CellPaint, type RoadPainter } from "./road-paint";
 import { idx, inBounds, surfaceHeightAt, VOID, type Grid } from "../grid";
 import type { BandLayer } from "./bands";
+import { road, roadCorner } from "./drawn";
+import { groundMode } from "./ground-mode";
+
+/** Whether a cell's road lies on the continuous surface, through its drawn corners, and is not a level block or a ramp's plane. @see drawn.ts roadCorner */
+const lies = (grid: Grid, x: number, y: number) => groundMode() === "smooth" && road(grid, x, y);
+/** The height a cell's road sprite is put at: its surface's, or on the continuous surface its lowest corner. */
+function baseOf(grid: Grid, x: number, y: number): number {
+  if (!lies(grid, x, y)) return surfaceHeightAt(grid, x, y);
+  return Math.min(roadCorner(grid, x, y), roadCorner(grid, x + 1, y), roadCorner(grid, x + 1, y + 1), roadCorner(grid, x, y + 1));
+}
+/** A cell's road as a plane over `z`: its ramp's, or on the continuous surface the plane nearest its four corners, right at its middle. */
+function planeAt(grid: Grid, x: number, y: number, ramp: number, z: number): { z0: number; zu: number; zv: number } {
+  if (!lies(grid, x, y)) return planeOf(ramp, surfaceHeightAt(grid, x, y) - z);
+  const a = roadCorner(grid, x, y), b = roadCorner(grid, x + 1, y), c = roadCorner(grid, x + 1, y + 1), d = roadCorner(grid, x, y + 1);
+  const q = (n: number) => Math.round(n * 48) / 48;
+  const zu = q((b + c - a - d) / 2), zv = q((d + c - a - b) / 2);
+  return { z0: q((a + b + c + d) / 4 - zu / 2 - zv / 2 - z), zu, zv };
+}
 
 export type PavedLayer = {
   /** Sprite per cell, parallel to the grid; null where unpaved. */
@@ -106,7 +124,7 @@ export function plannedTile(pl: PavedLayer, planned: Grid, looks: readonly (Look
   const paint = paintOf(looks, planned, x, y);
   if (!paint) return null;
   (pl.ghost ??= new Set()).add(paint.key);
-  const { wx, wy } = cellToWorld(x, y, surfaceHeightAt(planned, x, y), pl.scale);
+  const { wx, wy } = cellToWorld(x, y, baseOf(planned, x, y), pl.scale);
   return { tex: pl.painter.textureFor(paint.key, paint.cells, paint.ramp, 0), x: wx, y: spriteY(wy, GROUND_FRAME_H, pl.scale) };
 }
 
@@ -114,7 +132,7 @@ export function plannedTile(pl: PavedLayer, planned: Grid, looks: readonly (Look
 function paintOf(looks: readonly (Look | null)[], grid: Grid, x: number, y: number): { key: string; cells: CellPaint[]; ramp: boolean } | null {
   const L = looks[idx(grid, x, y)];
   if (!L) return null;
-  const z = surfaceHeightAt(grid, x, y);
+  const z = baseOf(grid, x, y);
   const cells: CellPaint[] = [];
   let key = keyOf(L), ramp = L.ramp !== 0;
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -128,7 +146,7 @@ function paintOf(looks: readonly (Look | null)[], grid: Grid, x: number, y: numb
       const corner = (dx > 0 ? 1 : 0) + (dy > 0 ? 2 : 0);
       if (dx && dy ? !(L.diag & (1 << corner)) || L.ramp || N.ramp : !(L.open & (1 << side))) continue;
     }
-    const plane = planeOf(N.ramp, surfaceHeightAt(grid, nx, ny) - z);
+    const plane = planeAt(grid, nx, ny, N.ramp, z);
     if (plane.z0 > 0 || plane.zu || plane.zv) ramp = true;
     // A neighbour's wear is in its middle, never in the margin: leave it out of the key.
     if (dx || dy) key += `|${dx},${dy},${plane.z0},${plane.zu},${plane.zv}:${keyOf({ ...N, vr: 0 })}`;
@@ -164,7 +182,7 @@ export function syncPaved(
   if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
   const paint = paintOf(pl.looks, grid, x, y);
   if (!paint) return;
-  const { wx, wy } = cellToWorld(x, y, surfaceHeightAt(grid, x, y), pl.scale);
+  const { wx, wy } = cellToWorld(x, y, baseOf(grid, x, y), pl.scale);
   const sy = spriteY(wy, GROUND_FRAME_H, pl.scale);
   // At the level the screen shows it at, from its first frame: a road laid
   // close up is never drawn blurred and then sharpened.

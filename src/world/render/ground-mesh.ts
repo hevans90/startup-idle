@@ -197,7 +197,7 @@ const lattice = new Float64Array((FINE + 3) * (FINE + 3));
 const GAP = 0.01;
 /** A built tile's own height at `(u, v)` on it: level, or a ramp's plane. */
 const edgeZ = (grid: Grid, x: number, y: number, u: number, v: number): number =>
-  (cornerZ(grid, x, y, 0, 0) * (1 - u) + cornerZ(grid, x, y, 1, 0) * u) * (1 - v) + (cornerZ(grid, x, y, 0, 1) * (1 - u) + cornerZ(grid, x, y, 1, 1) * u) * v;
+  (drawnCorner(grid, x, y, 0, 0) * (1 - u) + drawnCorner(grid, x, y, 1, 0) * u) * (1 - v) + (drawnCorner(grid, x, y, 0, 1) * (1 - u) + drawnCorner(grid, x, y, 1, 1) * u) * v;
 function smoothCell(grid: Grid, x: number, y: number, at: (gu: number, gv: number, z: number, kind: number, depth: number, steep?: number) => void) {
   const N = FINE + 3, L = lattice, q = 1 / FINE;
   let flat = true;
@@ -279,7 +279,8 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
     const zm = drawnCentre(grid, x, y);
     if (pinned(grid, x, y) || (z00 === zm && z10 === zm && z11 === zm && z01 === zm)) {
       // Level, or a ramp: a plane tilted toward its high edge.
-      const lit = slopeLight(grid.ramp[idx(grid, x, y)]);
+      // (A road on the continuous surface is lit by its own fall, corner to corner. @see roadCorner)
+      const lit = groundMode() === "smooth" ? litOf((z10 + z11 - z00 - z01) / 2, (z01 + z11 - z00 - z10) / 2) : slopeLight(grid.ramp[idx(grid, x, y)]);
       at(x, y, z00, lit, z00); at(x + 1, y, z10, lit, z10); at(x + 1, y + 1, z11, lit, z11); at(x, y + 1, z01, lit, z01);
     } else {
       // A BANK: a fan from its middle, at the cell's own height, to its corners — four triangles, each a quad with an end doubled.

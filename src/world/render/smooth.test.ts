@@ -76,17 +76,17 @@ describe("the ground as one continuous surface", () => {
     const grid = rough(14);
     let seed = 7;
     const rnd = () => (seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff) / 0x7fffffff;
-    // Roads laid anyhow: runs of paving at heights of their own, some of them ramps.
+    // Built ground laid anyhow (mains: flat tiles that are not road), at heights of their own, some of them ramps.
     for (let n = 0; n < 14; n++) {
       const x = 2 + Math.floor(rnd() * 10), y = 2 + Math.floor(rnd() * 10), h = Math.floor(rnd() * 6);
       for (let k = 0; k < 3; k++) {
         const i = idx(grid, Math.min(12, x + k), y);
-        grid.paved[i] = 1; grid.height[i] = h;
+        grid.main[i] = 1; grid.height[i] = h;
         grid.ramp[i] = rnd() < 0.4 ? packRamp((1 + Math.floor(rnd() * 4)) as RampDir, 1) : 0;
       }
     }
     grid.rev++;
-    const isBuilt = (x: number, y: number) => grid.paved[idx(grid, x, y)] === 1;
+    const isBuilt = (x: number, y: number) => grid.main[idx(grid, x, y)] === 1;
     const plane = (x: number, y: number, u: number, v: number) => {
       const c = (a: number, b: number) => drawnCorner(grid, x, y, a, b);
       return (c(0, 0) * (1 - u) + c(1, 0) * u) * (1 - v) + (c(0, 1) * (1 - u) + c(1, 1) * u) * v;
@@ -117,6 +117,35 @@ describe("the ground as one continuous surface", () => {
       }
     }
     expect(checked).toBeGreaterThan(5);
+  });
+
+  test("a road is not a row of blocks: its tiles share their corners, so there is no wall between them or beside them, however they were laid", () => {
+    const grid = rough(14);
+    let seed = 11;
+    const rnd = () => (seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let n = 0; n < 14; n++) {
+      const x = 2 + Math.floor(rnd() * 8), y = 2 + Math.floor(rnd() * 10), h = Math.floor(rnd() * 6);
+      for (let k = 0; k < 4; k++) {
+        const i = idx(grid, x + k, y);
+        grid.paved[i] = 1; grid.height[i] = h + k;
+        grid.ramp[i] = rnd() < 0.3 ? packRamp((1 + Math.floor(rnd() * 4)) as RampDir, 1) : 0;
+      }
+    }
+    grid.rev++;
+    // Every tile at a corner says the same of it, road or bare.
+    for (let Y = 1; Y < 14; Y++) for (let X = 1; X < 14; X++) {
+      const at = [drawnCorner(grid, X - 1, Y - 1, 1, 1), drawnCorner(grid, X, Y - 1, 0, 1), drawnCorner(grid, X - 1, Y, 1, 0), drawnCorner(grid, X, Y, 0, 0)];
+      expect(Math.max(...at) - Math.min(...at)).toBeLessThan(1e-9);
+    }
+    // And the mesh has no wall inside the map.
+    for (let b = 4; b < 22; b++) {
+      const q = bandQuads(grid, PALETTE, b);
+      for (let k = 0; k < q.quads; k++) {
+        if (q.verts[k * 4 * 7 + 4] < 0.5) continue;
+        const gu = q.verts[k * 4 * 7 + 2], gv = q.verts[k * 4 * 7 + 3];
+        expect(gu === 14 || gv === 14).toBe(true);
+      }
+    }
   });
 
   test("it wanders: a straight crest is not drawn straight, level ground stays level, and it is never read more than a third of a tile aside", () => {
