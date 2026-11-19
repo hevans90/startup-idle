@@ -1,6 +1,6 @@
 # Vegetation: trees, seasons, growth, weather
 
-Status (2026-11-19): planned, nothing built. On `?ground=smooth` only; the stepped ground keeps today's woods.
+Status (2026-11-19): phase 1 built — the seasons' look, woods as forests (`render/forest.ts`); street and park trees still the old props. On `?ground=smooth` only; the stepped ground keeps today's woods.
 
 ## Decided (asked 2026-11-19)
 

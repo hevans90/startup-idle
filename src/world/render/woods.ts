@@ -19,6 +19,8 @@ import { treesIn } from "../terrain-names";
 import { bakedProps, propSprite, propSprites, propsLoaded, type PropSprites } from "../props/props-sheet";
 import { mix } from "../structures/projects/pen";
 import type { BandLayer } from "./bands";
+import { groundMode } from "./ground-mode";
+import { createTreeMesh } from "./tree-mesh";
 
 export { treesIn } from "../terrain-names";
 
@@ -65,6 +67,8 @@ export type Woods = {
 };
 
 export function createWoods(bands: BandLayer): Woods {
+  // ON THE CONTINUOUS SURFACE the woods go through the year: a mesh a band. @see tree-mesh
+  if (groundMode() === "smooth") return createTreeMesh(bands);
   /** Each wooded cell's trees, and what they were stood up for. */
   const cells = new Map<number, { key: string; trees: Container[] }>();
   let key = "";

@@ -57,7 +57,9 @@ import {
 } from "./render/bands";
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
 import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
-import { destroyGroundMesh, surfaceOf } from "./render/ground-mesh";
+import { destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
+import { groundSeason } from "./calendar";
+import { useCalendarStore } from "../state/calendar.store";
 import { CLIFF, drawnSampler } from "./render/drawn";
 import { groundMode } from "./render/ground-mode";
 import { buildPaved, createPavedLayer, dressPaved, evictUnused, lodPaved, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
@@ -3850,6 +3852,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         shopsRef.current.tick(now / 1000);
       }
       if (woodsRef.current) { const st = useWorldStore.getState(); woodsRef.current.sync(st.grid, st.palette, st.revision, scale); }
+      // THE YEAR on the ground, where the ground is one surface. @see world/calendar
+      if (tlRef.current?.ground) seasonGround(tlRef.current.ground, groundMode() === "smooth" ? groundSeason(useCalendarStore.getState().now()) : null);
       if (signalsRef.current) {
         // The lanes the town last drove on: kept current by stepTown. @see trafficOf
         const town = getTown(), T = town.traffic;

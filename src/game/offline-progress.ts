@@ -7,6 +7,7 @@ import { type GeneratorId, useGeneratorStore } from "../state/generators.store";
 import { useInnovationStore } from "../state/innovation.store";
 import { useMoneyStore } from "../state/money.store";
 import { useSessionStore } from "../state/session.store";
+import { useCalendarStore } from "../state/calendar.store";
 import { useTrainingStore } from "../state/training.store";
 import { useValuationStore } from "../state/valuation.store";
 
@@ -123,6 +124,8 @@ export function computeOfflineProgress(
   // AND THE SEAPORTS, at the rate they were earning when the map last ran:
   // boats only move while it does, but the trade goes on. @see portIncomePerSecond
   const portRate = useSessionStore.getState().portIncomePerSecond;
+  // AND THE YEAR, by the time credited and no more: a long absence is not a jump of years. @see useCalendarStore
+  useCalendarStore.getState().catchUp(lastSeen, creditedMs, nowMs);
   if (Number.isFinite(portRate) && portRate > 0) useMoneyStore.getState().increaseMoney(portRate * totalSec);
 
   // Start the live loop fresh from now (also folds the previously-uncapped

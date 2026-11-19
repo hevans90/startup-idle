@@ -30,6 +30,7 @@ import type { BandLayer } from "./bands";
 import { terrainName } from "../terrain-names";
 import { built, cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, pinned, shelfOf, smoothAt } from "./drawn";
 import { groundMode } from "./ground-mode";
+import { canopyOf } from "./forest";
 
 export { cornerZ };
 
@@ -381,7 +382,7 @@ function writeCell(gm: GroundMesh, grid: Grid, palette: Palette, x: number, y: n
   }
   gm.cells[o + 2] = (groundDraws(grid, palette, x, y) ? 1 : 0) | (rampDir(grid.ramp[i]) << 1) | (rampRise(grid.ramp[i]) << 4) | plain;
   gm.cells[o + 3] = 255;
-  writeEdges(gm, grid, x, y);
+  writeEdges(gm, grid, x, y, palette);
 }
 /**
  * THE DRAWN SURFACE AS A TEXTURE, two texels a cell, floats: its four corners (0,0), (1,0), (1,1), (0,1), half
@@ -401,7 +402,7 @@ export function surfaceOf(grid: Grid): { data: Float32Array; source: BufferImage
 }
 /** How many cells from standing water the ground is still told its level, for the beach; and how much lower it is told it for each cell past the first, half steps. */
 const BEACH_REACH = 4, BEACH_FADE = 0.35;
-function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number) {
+function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number, palette: Palette) {
   const o = idx(grid, x, y) * 8, e = gm.edges;
   e[o] = drawnCorner(grid, x, y, 0, 0); e[o + 1] = drawnCorner(grid, x, y, 1, 0); e[o + 2] = drawnCorner(grid, x, y, 1, 1); e[o + 3] = drawnCorner(grid, x, y, 0, 1);
   e[o + 4] = drawnCentre(grid, x, y);
@@ -422,7 +423,9 @@ function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number) {
   const same = (a: number, b: number) => Math.abs(a - b) < 1e-3;
   const jx = inBounds(grid, x + 1, y) && same(e[o + 1], drawnCorner(grid, x + 1, y, 0, 0)) && same(e[o + 2], drawnCorner(grid, x + 1, y, 0, 1));
   const jy = inBounds(grid, x, y + 1) && same(e[o + 3], drawnCorner(grid, x, y + 1, 0, 0)) && same(e[o + 2], drawnCorner(grid, x, y + 1, 1, 0));
-  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0) + (built(grid, x, y) ? 16 : 0);
+  // And on the continuous surface, 32 × how thick the wood's canopy is over it, in eighths: its forest floor. @see forest.ts
+  const canopy = groundMode() === "smooth" ? Math.round(canopyOf(grid, palette, x, y) * 7) : 0;
+  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0) + (built(grid, x, y) ? 16 : 0) + canopy * 32;
 }
 
 export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale = 1): GroundMesh {
@@ -434,6 +437,8 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
     uMap: { value: new Float32Array([grid.w, grid.h, 1 / (HW * scale), grid.maxHeight + 2]), type: "vec4<f32>" },
     // Whether the ground is one continuous surface (@see ground-mode.ts): it has no walls for shade to gather at the foot of.
     uMode: { value: new Float32Array([groundMode() === "smooth" ? 1 : 0, 0, 0, 0]), type: "vec4<f32>" },
+    // THE YEAR on the ground: spring's flowers, summer's straw, the grass gone over, the snow. @see seasonGround
+    uSeason: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" },
   });
   const { data: edges, source: edgeSource } = surfaceOf(grid);
   const shade = new Uint8Array(grid.w * SHADE * grid.h * SHADE);
@@ -567,7 +572,7 @@ export function markGround(gm: GroundMesh, grid: Grid, palette: Palette, x: numb
   // (As one continuous surface a cell's height shapes the ground two cells out: further each way.)
   const far = groundMode() === "smooth" ? 2 : 1;
   // (The edges out as far as a cell is told the water's level for the beach — the level is the ground's height and its water's.)
-  for (let dy = -BEACH_REACH; dy <= BEACH_REACH; dy++) for (let dx = -BEACH_REACH; dx <= BEACH_REACH; dx++) if ((dx || dy) && inBounds(grid, x + dx, y + dy)) writeEdges(gm, grid, x + dx, y + dy);
+  for (let dy = -BEACH_REACH; dy <= BEACH_REACH; dy++) for (let dx = -BEACH_REACH; dx <= BEACH_REACH; dx++) if ((dx || dy) && inBounds(grid, x + dx, y + dy)) writeEdges(gm, grid, x + dx, y + dy, palette);
   const b = bandOf(x, y);
   for (let k = b - 3 - far; k <= b + 3 + far; k++) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
 }
@@ -589,6 +594,15 @@ export function flushGround(gm: GroundMesh, grid: Grid, palette: Palette) {
   bakeShade(gm, grid);
   const map = gm.uniforms.uniforms.uMap as Float32Array;
   if (map[3] !== grid.maxHeight + 2) { map[3] = grid.maxHeight + 2; gm.uniforms.update(); }
+}
+
+/** THE YEAR on the ground, each frame: on the continuous surface only. @see world/calendar groundSeason */
+export function seasonGround(gm: GroundMesh, s: { bloom: number; dry: number; brown: number; snow: number } | null) {
+  const u = gm.uniforms.uniforms.uSeason as Float32Array;
+  const b = s ? s.bloom : 0, d = s ? s.dry : 0, r = s ? s.brown : 0, w = s ? s.snow : 0;
+  if (u[0] === b && u[1] === d && u[2] === r && u[3] === w) return;
+  u[0] = b; u[1] = d; u[2] = r; u[3] = w;
+  gm.uniforms.update();
 }
 
 export function destroyGroundMesh(gm: GroundMesh) {
@@ -660,7 +674,7 @@ struct LocalUniforms {
   uRound: f32,
 };
 @group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
-struct Ground { uMap: vec4<f32>, uMode: vec4<f32> };
+struct Ground { uMap: vec4<f32>, uMode: vec4<f32>, uSeason: vec4<f32> };
 @group(2) @binding(0) var<uniform> ground : Ground;
 @group(2) @binding(1) var uCells : texture_2d<f32>;
 @group(2) @binding(2) var uEdges : texture_2d<f32>;
@@ -780,7 +794,42 @@ fn grassBase(p: vec2<f32>) -> vec3<f32> {
   let n = vec2<i32>(i32(ground.uMap.x), i32(ground.uMap.y)) * ${SHADE};
   let q = p * ${SHADE}.0 - 0.5;
   let c = vec2<i32>(floor(q)); let f = q - floor(q);
-  return mix(mix(tintAt(c, n), tintAt(c + vec2<i32>(1, 0), n), f.x), mix(tintAt(c + vec2<i32>(0, 1), n), tintAt(c + vec2<i32>(1, 1), n), f.x), f.y);
+  return seasonGrass(mix(mix(tintAt(c, n), tintAt(c + vec2<i32>(1, 0), n), f.x), mix(tintAt(c + vec2<i32>(0, 1), n), tintAt(c + vec2<i32>(1, 1), n), f.x), f.y), p);
+}
+// THE GRASS THROUGH THE YEAR: fresher in spring, straw in patches in summer, gone over from autumn till it greens.
+fn seasonGrass(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
+  let s = ground.uSeason;
+  if (s.x + s.y + s.z <= 0.0) { return c; }
+  let patchy = fbm(p * 0.3 + 91.0);
+  var g = mix(c, c * vec3<f32>(1.02, 1.05, 0.95) + vec3<f32>(0.005, 0.012, 0.0), s.x * 0.5);
+  // (Straw in patches, the rest still green: a dry summer, not a dead one.)
+  g = mix(g, vec3<f32>(0.71, 0.67, 0.39) * (0.86 + 0.28 * patchy), s.y * smoothstep(0.38, 0.78, patchy) * 0.65);
+  g = mix(g, vec3<f32>(0.5, 0.48, 0.31) * (0.9 + 0.2 * patchy), s.z * (0.35 + 0.35 * patchy));
+  return g;
+}
+// SNOW, a little blue, a little uneven, a glint here and there close up.
+fn snowAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
+  var c = vec3<f32>(0.9, 0.93, 0.97) * (0.95 + 0.07 * vnoise(p * 2.3 + 3.0));
+  c = c * (1.0 + (vnoise(p * 14.0) - 0.5) * 0.05 * shows(14.0, fp));
+  let gl = hash(vec2<i32>(floor(p * 70.0)));
+  return mix(c, vec3<f32>(1.0), step(0.985, gl) * 0.6 * shows(70.0, fp));
+}
+// THE CANOPY over a point, 0–1: each cell's (@see writeEdges), blended between their middles.
+fn canopyCell(c: vec2<i32>) -> f32 {
+  let n = vec2<i32>(i32(ground.uMap.x), i32(ground.uMap.y));
+  if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) { return 0.0; }
+  return floor((textureLoad(uEdges, vec2<i32>(c.x * 2 + 1, c.y), 0).w + 0.5) / 32.0) / 7.0;
+}
+fn canopyAt(p: vec2<f32>) -> f32 {
+  let q = p - 0.5; let c = vec2<i32>(floor(q)); let f = q - floor(q);
+  return mix(mix(canopyCell(c), canopyCell(c + vec2<i32>(1, 0)), f.x), mix(canopyCell(c + vec2<i32>(0, 1)), canopyCell(c + vec2<i32>(1, 1)), f.x), f.y);
+}
+// THE FOREST FLOOR: shaded, litter and moss over earth, more fallen leaves in autumn.
+fn forestFloor(p: vec2<f32>, fp: f32) -> vec3<f32> {
+  var c = mix(vec3<f32>(0.27, 0.33, 0.17), vec3<f32>(0.4, 0.33, 0.21), smoothstep(0.35, 0.7, fbm(p * 1.4 + 17.0)));
+  c = mix(c, vec3<f32>(0.24, 0.38, 0.17), smoothstep(0.62, 0.8, vnoise(p * 3.1 + 5.0)) * 0.7);
+  c = mix(c, vec3<f32>(0.56, 0.36, 0.16), ground.uSeason.z * smoothstep(0.35, 0.75, vnoise(p * 5.0 + 29.0)) * 0.6);
+  return c * (1.0 + (vnoise(p * 16.0) - 0.5) * 0.16 * shows(16.0, fp));
 }
 
 // Blade lattice, in screen-shaped units (a cell's diamond is 2 across), and the frequency they fade in at.
@@ -868,12 +917,16 @@ fn grassAt(p: vec2<f32>, fp: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
   // A daisy now and then.
   let g = p * 32.0; let gi = vec2<i32>(floor(g));
   let r = hash(gi + vec2<i32>(91, 7));
-  if (r > 0.993 && dens > 0.85) {
+  // (In spring, many more, and of every colour; none under the snow.)
+  let bloom = ground.uSeason.x;
+  if (r > 0.993 - 0.035 * bloom * vnoise(p * 0.5 + 13.0) && dens > 0.85 && ground.uSeason.w < 0.5) {
     let ctr = vec2<f32>(gi) + vec2<f32>(hash(gi + vec2<i32>(3, 1)), hash(gi + vec2<i32>(5, 9))) * 0.6 + 0.2;
     let d = length(g - ctr);
     let petal = 1.0 - smoothstep(0.11, 0.16, d);
     let eye = 1.0 - smoothstep(0.04, 0.07, d);
-    let flower = select(vec3<f32>(0.97, 0.96, 0.92), vec3<f32>(0.98, 0.85, 0.35), r > 0.998);
+    let hue = hash(gi + vec2<i32>(41, 3));
+    var flower = select(vec3<f32>(0.97, 0.96, 0.92), vec3<f32>(0.98, 0.85, 0.35), r > 0.998);
+    if (r <= 0.993) { flower = select(select(vec3<f32>(0.62, 0.5, 0.86), vec3<f32>(0.95, 0.6, 0.72), hue > 0.5), vec3<f32>(0.98, 0.86, 0.3), hue > 0.8); }
     c = mix(c, mix(flower, vec3<f32>(0.95, 0.75, 0.2), eye), petal * shows(70.0, fp));
   }
   return c;
@@ -1099,7 +1152,7 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
     return vec4<f32>(c * a, a) * vTint;
   }
   if (vWall.x > 2.5) {
-    let f = fringeColour(vGround, vWall.y);
+    let f = fringeColour(vGround, vWall.y) * (1.0 - smoothstep(0.3, 0.7, ground.uSeason.w));
     if (f.a <= 0.003) { discard; }
     return vec4<f32>(f.rgb * f.a, f.a) * vTint;
   }
@@ -1116,6 +1169,11 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
     // through the bare earth as the ground steepens. (The continuous surface has no walls: this is its cliff.)
     if (steep > 3.2) {
       col = mix(col, rockAt(vGround, vWall.y, fp), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
+    }
+    // UNDER A WOOD, the forest floor, as thick as the canopy over it, ragged at its rim. @see forest.ts
+    if (ground.uMode.x > 0.5) {
+      let can = canopyAt(vGround);
+      if (can > 0.02) { col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88); }
     }
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
     var level = textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).z;
@@ -1139,6 +1197,14 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
         if (sandy < 0.999) { stuff = stuff + dirtAt(vGround, fp) * 0.8 * (1.0 - sandy); }
         col = mix(col, stuff * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
       }
+    }
+    // SNOW where it lies: patchy as it comes and as it goes, more the higher, none on a slope too steep to hold it.
+    // (None on a bed under standing water: it would show through.)
+    let wetHere = i32(textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).w + 0.5) % 4 == 2;
+    if (ground.uSeason.w > 0.0 && !wetHere) {
+      let lie = ground.uSeason.w * 1.3 - 0.3 + (fbm(vGround * 1.3 + 5.0) - 0.5) * 0.7 + vWall.y * 0.008;
+      let cover = smoothstep(0.0, 0.12, lie) * (1.0 - smoothstep(2.2, 4.8, steep));
+      if (cover > 0.0) { col = mix(col, snowAt(vGround, fp), cover); }
     }
     col = relit(col * (1.0 + vWall.x), vGround, vWall.y, ground.uMode.x < 0.5);
   } else {
@@ -1192,6 +1258,7 @@ in float vSteep;
 out vec4 finalColor;
 uniform vec4 uMap;
 uniform vec4 uMode;
+uniform vec4 uSeason;
 uniform sampler2D uCells;
 uniform highp sampler2D uEdges;
 uniform sampler2D uShade;
@@ -1267,11 +1334,41 @@ vec3 relit(vec3 col, vec2 p, float h, bool foot) {
   return c;
 }
 vec3 tintAt(ivec2 c, ivec2 n) { return texelFetch(uTint, clamp(c, ivec2(0), n - ivec2(1)), 0).rgb; }
+vec3 seasonGrass(vec3 c, vec2 p) {
+  vec4 s = uSeason;
+  if (s.x + s.y + s.z <= 0.0) return c;
+  float patchy = fbm(p * 0.3 + 91.0);
+  vec3 g = mix(c, c * vec3(1.02, 1.05, 0.95) + vec3(0.005, 0.012, 0.0), s.x * 0.5);
+  g = mix(g, vec3(0.71, 0.67, 0.39) * (0.86 + 0.28 * patchy), s.y * smoothstep(0.38, 0.78, patchy) * 0.65);
+  g = mix(g, vec3(0.5, 0.48, 0.31) * (0.9 + 0.2 * patchy), s.z * (0.35 + 0.35 * patchy));
+  return g;
+}
+vec3 snowAt(vec2 p, float fp) {
+  vec3 c = vec3(0.9, 0.93, 0.97) * (0.95 + 0.07 * vnoise(p * 2.3 + 3.0));
+  c *= 1.0 + (vnoise(p * 14.0) - 0.5) * 0.05 * shows(14.0, fp);
+  float gl = hash(ivec2(floor(p * 70.0)));
+  return mix(c, vec3(1.0), step(0.985, gl) * 0.6 * shows(70.0, fp));
+}
+float canopyCell(ivec2 c) {
+  ivec2 n = ivec2(int(uMap.x), int(uMap.y));
+  if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) return 0.0;
+  return floor((texelFetch(uEdges, ivec2(c.x * 2 + 1, c.y), 0).w + 0.5) / 32.0) / 7.0;
+}
+float canopyAt(vec2 p) {
+  vec2 q = p - 0.5; ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
+  return mix(mix(canopyCell(c), canopyCell(c + ivec2(1, 0)), f.x), mix(canopyCell(c + ivec2(0, 1)), canopyCell(c + ivec2(1, 1)), f.x), f.y);
+}
+vec3 forestFloor(vec2 p, float fp) {
+  vec3 c = mix(vec3(0.27, 0.33, 0.17), vec3(0.4, 0.33, 0.21), smoothstep(0.35, 0.7, fbm(p * 1.4 + 17.0)));
+  c = mix(c, vec3(0.24, 0.38, 0.17), smoothstep(0.62, 0.8, vnoise(p * 3.1 + 5.0)) * 0.7);
+  c = mix(c, vec3(0.56, 0.36, 0.16), uSeason.z * smoothstep(0.35, 0.75, vnoise(p * 5.0 + 29.0)) * 0.6);
+  return c * (1.0 + (vnoise(p * 16.0) - 0.5) * 0.16 * shows(16.0, fp));
+}
 vec3 grassBase(vec2 p) {
   ivec2 n = ivec2(int(uMap.x), int(uMap.y)) * ${SHADE};
   vec2 q = p * ${SHADE}.0 - 0.5;
   ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
-  return mix(mix(tintAt(c, n), tintAt(c + ivec2(1, 0), n), f.x), mix(tintAt(c + ivec2(0, 1), n), tintAt(c + ivec2(1, 1), n), f.x), f.y);
+  return seasonGrass(mix(mix(tintAt(c, n), tintAt(c + ivec2(1, 0), n), f.x), mix(tintAt(c + ivec2(0, 1), n), tintAt(c + ivec2(1, 1), n), f.x), f.y), p);
 }
 
 const float BLADE_W = 0.007;
@@ -1333,12 +1430,15 @@ vec3 grassAt(vec2 p, float fp, float dens, vec3 under) {
   c = out_;
   vec2 g = p * 32.0; ivec2 gi = ivec2(floor(g));
   float r = hash(gi + ivec2(91, 7));
-  if (r > 0.993 && dens > 0.85) {
+  float bloom = uSeason.x;
+  if (r > 0.993 - 0.035 * bloom * vnoise(p * 0.5 + 13.0) && dens > 0.85 && uSeason.w < 0.5) {
     vec2 ctr = vec2(gi) + vec2(hash(gi + ivec2(3, 1)), hash(gi + ivec2(5, 9))) * 0.6 + 0.2;
     float d = length(g - ctr);
     float petal = 1.0 - smoothstep(0.11, 0.16, d);
     float eye = 1.0 - smoothstep(0.04, 0.07, d);
+    float hue = hash(gi + ivec2(41, 3));
     vec3 flower = r > 0.998 ? vec3(0.98, 0.85, 0.35) : vec3(0.97, 0.96, 0.92);
+    if (r <= 0.993) flower = hue > 0.8 ? vec3(0.98, 0.86, 0.3) : hue > 0.5 ? vec3(0.95, 0.6, 0.72) : vec3(0.62, 0.5, 0.86);
     c = mix(c, mix(flower, vec3(0.95, 0.75, 0.2), eye), petal * shows(70.0, fp));
   }
   return c;
@@ -1531,7 +1631,7 @@ void main() {
     return;
   }
   if (vWall.x > 2.5) {
-    vec4 f = fringeColour(vGround, vWall.y);
+    vec4 f = fringeColour(vGround, vWall.y) * (1.0 - smoothstep(0.3, 0.7, uSeason.w));
     if (f.a <= 0.003) discard;
     finalColor = vec4(f.rgb * f.a, f.a) * vTint;
     return;
@@ -1545,6 +1645,10 @@ void main() {
     }
     if (steep > 3.2) {
       col = mix(col, rockAt(vGround, vWall.y, fp), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
+    }
+    if (uMode.x > 0.5) {
+      float can = canopyAt(vGround);
+      if (can > 0.02) col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88);
     }
     float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;
     if (level > -900.0) {
@@ -1561,6 +1665,12 @@ void main() {
         if (sandy < 0.999) stuff += dirtAt(vGround, fp) * 0.8 * (1.0 - sandy);
         col = mix(col, stuff * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
       }
+    }
+    bool wetHere = int(texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).w + 0.5) % 4 == 2;
+    if (uSeason.w > 0.0 && !wetHere) {
+      float lie = uSeason.w * 1.3 - 0.3 + (fbm(vGround * 1.3 + 5.0) - 0.5) * 0.7 + vWall.y * 0.008;
+      float cover = smoothstep(0.0, 0.12, lie) * (1.0 - smoothstep(2.2, 4.8, steep));
+      if (cover > 0.0) col = mix(col, snowAt(vGround, fp), cover);
     }
     col = relit(col * (1.0 + vWall.x), vGround, vWall.y, uMode.x < 0.5);
   } else {

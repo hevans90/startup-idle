@@ -6,6 +6,7 @@ import { resetAllGameStores } from "../simulation/reset-game-stores";
 import { report } from "../state/comms.store";
 import { useGlobalSettingsStore } from "../state/global-settings.store";
 import { useSessionStore } from "../state/session.store";
+import { useCalendarStore } from "../state/calendar.store";
 import { useThemeStore } from "../state/theme.store";
 import { Button, FOCUS, Field, Label, POPOVER_BARE, Segmented, Toggle } from "../ui/console";
 import { SoundControls } from "./sound-controls";
@@ -36,6 +37,8 @@ export const SettingsPopover = ({
   const setMotion = useGlobalSettingsStore((s) => s.setMotion);
   const dayNight = useGlobalSettingsStore((s) => s.dayNight);
   const setDayNight = useGlobalSettingsStore((s) => s.setDayNight);
+  const seasons = useCalendarStore((s) => s.at !== null);
+  const setSeasons = useCalendarStore((s) => s.setRunning);
   const eventsOff = useSessionStore((s) => s.mapEventsOff);
   const setEventsOff = useSessionStore((s) => s.setMapEventsOff);
   const showFps = useGlobalSettingsStore((s) => s.showFps);
@@ -72,6 +75,10 @@ export const SettingsPopover = ({
           </Field>
           <Field label="Day and night">
             <Toggle label="Day and night on the map" on={dayNight} onChange={setDayNight} />
+          </Field>
+          {/* The year on the map: off holds it where it is. @see useCalendarStore */}
+          <Field label="Seasons">
+            <Toggle label="Seasons on the map" on={seasons} onChange={(on) => setSeasons(on)} />
           </Field>
           {/* Floods, overflows and the like on the company map. @see stepEvents */}
           <Field label="Map events" hint="Floods, overflows and the like">

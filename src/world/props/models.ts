@@ -20,7 +20,7 @@ export const PROP_LAYERS = 2;
 export const propLayerOf = (m: Mat) => (m === "leaf" || m === "canvas" ? 0 : 1);
 
 /** A small sequence of its own for each model, so a bake is the same every time. */
-function seeded(seed: number) {
+export function seeded(seed: number) {
   let s = seed >>> 0;
   return () => { s = (Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0; return (s >>> 8) / 0x1000000; };
 }
@@ -67,7 +67,7 @@ const disc = (x: number, y: number, r: number, z0: number, z1: number, mat: Mat,
 // ─── TREES ───────────────────────────────────────────────────────────────────
 
 /** A crown: `n` lumps of leaves about (0, 0, `z`), spread `rx` round and `rz` up and down, each `r0`–`r1` across. */
-function crown(rand: () => number, out: Tri[], n: number, z: number, rx: number, rz: number, r0: number, r1: number) {
+export function crown(rand: () => number, out: Tri[], n: number, z: number, rx: number, rz: number, r0: number, r1: number) {
   // The biggest middle first, so the lumps round it read as its surface.
   ball([0, 0, z], [rx * 0.82, rx * 0.82, rz * 0.82], "leaf", out, undefined, 14, 9);
   for (let k = 0; k < n; k++) {
@@ -79,7 +79,7 @@ function crown(rand: () => number, out: Tri[], n: number, z: number, rx: number,
 }
 
 /** A trunk up to `h`, and a few boughs out into the crown. */
-function trunk(rand: () => number, out: Tri[], h: number, r: number, mat: Mat = "bark", boughs = 3, reach = 1.2) {
+export function trunk(rand: () => number, out: Tri[], h: number, r: number, mat: Mat = "bark", boughs = 3, reach = 1.2) {
   limb([0, 0, 0], [0, 0, h], r * 1.25, r, mat, out, 10, false);
   // A flare at its foot.
   limb([0, 0, 0], [0, 0, 0.35], r * 1.7, r * 1.2, mat, out, 10, false);
@@ -90,7 +90,7 @@ function trunk(rand: () => number, out: Tri[], h: number, r: number, mat: Mat = 
   }
 }
 
-const shadowOf = (r: number): PropShadow => ({ hl: r * 0.35, hw: r * 0.35, edge: r * 0.35, soft: r * 0.5, strength: 0.32, reach: r * 0.85 });
+export const shadowOf = (r: number, strength = 0.32): PropShadow => ({ hl: r * 0.35, hw: r * 0.35, edge: r * 0.35, soft: r * 0.5, strength, reach: r * 0.85 });
 
 export const TREES: readonly Prop[] = [
   {

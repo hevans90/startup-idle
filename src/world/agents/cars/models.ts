@@ -22,7 +22,7 @@ export type Mat =
   | "liveryWhite" | "liveryBlack" | "liveryRed" | "liveryGreen" | "load" | "brick" | "gravel" | "aiLoad" | "sign" | "violet"
   | "seam" | "arch" | "rim" | "spoke"
   | "skin" | "top" | "bottom" | "hair" | "shoe" | "bag" | "hivis" | "hardhat"
-  | "leaf" | "canvas" | "bark" | "birchBark" | "wood" | "iron" | "stone" | "water" | "linen" | "spray"
+  | "leaf" | "canvas" | "snow" | "bark" | "birchBark" | "wood" | "iron" | "stone" | "water" | "linen" | "spray"
   | "wall" | "rooftile" | "slate" | "roofing" | "pane" | "hedge" | "pave"
   // A bridge's: dressed stone in three tones, its mortar and its lighter dressings; concrete and its joints; painted
   // steel, two colours, each with its shade; timber, three; a stay's cable; a pylon's white.

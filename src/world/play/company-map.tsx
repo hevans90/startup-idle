@@ -13,6 +13,7 @@ import { LeaderPlacement } from "./leader-placement";
 import { LinkedOut } from "../../molecules/linkedout";
 import { useLinkedOutStore } from "../../state/linkedout.store";
 import { TopStreets } from "./top-streets";
+import { SeasonChip } from "./season-chip";
 import { PipeList } from "./pipe-list";
 import { DesireReadout } from "./desire-readout";
 import { PlaceReadout } from "./place-readout";
@@ -94,6 +95,7 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
       {phone ? (
         // ON A PHONE, ONE COLUMN: comms' one card, then the work under it. @see isPhone
         <div className="absolute inset-x-2 top-2 z-20 flex max-h-[calc(100%-9rem)] flex-col items-stretch gap-2 overflow-y-auto">
+          <SeasonChip className="self-end" />
           <CommsDock most={1} />
           <LandmarksPanel className="w-full" />
           <TopStreets />
@@ -107,8 +109,10 @@ export default function CompanyMap({ hidden = false }: { hidden?: boolean }) {
             <TopStreets />
             <PipeList />
           </div>
-          {/* COMMS: the objective, what the AI asks, events, reports, a hint — three at most, the rest in the log. @see CommsDock */}
-          <div className="absolute right-2 top-9 z-20">
+          {/* THE SEASON AND THE DAY, over COMMS: the objective, what the AI asks, events, reports, a hint — three at
+              most, the rest in the log. @see SeasonChip, CommsDock */}
+          <div className="absolute right-2 top-9 z-20 flex flex-col items-end gap-2">
+            <SeasonChip />
             <CommsDock most={DOCK_MOST} />
           </div>
         </>
