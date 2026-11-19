@@ -29,6 +29,22 @@ export const rendererAsked = (): "webgpu" | "webgl" =>
 export const gpuForPixi = (): Promise<HeldGpu | null> =>
   rendererAsked() === "webgl" ? Promise.resolve(null) : openDevice();
 
+let webgl: boolean | undefined;
+/**
+ * Whether WebGL can be had at all: asked once, the context let go straight after. Without it and without WebGPU,
+ * Pixi falls back to drawing on a 2D canvas, which has no meshes — and the ground, the woods and the water are all
+ * meshes, so the first frame of any map throws. @see WorldCanvas
+ */
+export function hasWebGl(): boolean {
+  if (webgl !== undefined) return webgl;
+  try {
+    const c = document.createElement("canvas"), gl = c.getContext("webgl2") ?? c.getContext("webgl");
+    webgl = !!gl;
+    gl?.getExtension("WEBGL_lose_context")?.loseContext();
+  } catch { webgl = false; }
+  return webgl;
+}
+
 /**
  * The device as a hook: `undefined` while the ask is out — mount nothing yet —
  * then the device, or null. @see WorldCanvas

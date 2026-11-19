@@ -23,7 +23,7 @@ import { townBonusOf } from "./projects/town-worth";
 import { useSessionStore } from "../state/session.store";
 import { useDisableDOMZoom } from "../utils/use-disable-dom-zoom";
 import { loadSaved, setSaveSlot, type SaveSlot } from "./io/world-save";
-import { rendererAsked, usePixiGpu } from "./render/use-gpu";
+import { hasWebGl, rendererAsked, usePixiGpu } from "./render/use-gpu";
 import { WorldScene } from "./world-scene";
 import { bedsReading, foundPlayedProjects, held, projectReader, termReading, townMoodReading } from "./play-wiring";
 import { WorldViewport } from "./world-viewport";
@@ -194,6 +194,9 @@ export function WorldCanvas({
   const gpu = usePixiGpu();
   useDisableDOMZoom({ wrapperRef });
   if (!size || gpu === undefined) return null;
+  // NO GPU AT ALL — no WebGPU device and no WebGL: said, rather than the 2D canvas Pixi would fall back to, which
+  // cannot draw the map and throws on its first frame.
+  if (!gpu && !hasWebGl()) return <NoAcceleration />;
   return (
     <Application
       resizeTo={wrapperRef}
@@ -210,5 +213,17 @@ export function WorldCanvas({
         <WorldScene screenSize={size} />
       </WorldViewport>
     </Application>
+  );
+}
+
+/** In place of the map when the browser has no graphics acceleration to draw it with. */
+function NoAcceleration() {
+  return (
+    <div role="alert" className="flex h-full w-full items-center justify-center bg-surface-0 p-6 text-center text-fg dark:bg-surface-0 dark:text-fg">
+      <div className="max-w-sm border border-line-quiet bg-surface-1 p-4 dark:border-line-quiet dark:bg-surface-1">
+        <p className="text-sm font-semibold">Graphics acceleration is off</p>
+        <p className="mt-1 text-xs text-fg-muted dark:text-fg-muted">The map needs WebGPU or WebGL. Restart the browser to turn it back on.</p>
+      </div>
+    </div>
   );
 }
