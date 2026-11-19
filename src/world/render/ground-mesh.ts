@@ -193,6 +193,11 @@ const lattice = new Float64Array((FINE + 3) * (FINE + 3));
  * either side of it, so neither turns at a quad's edge or a tile's. One quad where it is all level. No wall but at
  * the map's edge or over a void: bare ground meets what is beside it of itself.
  */
+/** A drop smaller than this, half steps, is no face. */
+const GAP = 0.01;
+/** A built tile's own height at `(u, v)` on it: level, or a ramp's plane. */
+const edgeZ = (grid: Grid, x: number, y: number, u: number, v: number): number =>
+  (cornerZ(grid, x, y, 0, 0) * (1 - u) + cornerZ(grid, x, y, 1, 0) * u) * (1 - v) + (cornerZ(grid, x, y, 0, 1) * (1 - u) + cornerZ(grid, x, y, 1, 1) * u) * v;
 function smoothCell(grid: Grid, x: number, y: number, at: (gu: number, gv: number, z: number, kind: number, depth: number, steep?: number) => void) {
   const N = FINE + 3, L = lattice, q = 1 / FINE;
   let flat = true;
@@ -220,6 +225,23 @@ function smoothCell(grid: Grid, x: number, y: number, at: (gu: number, gv: numbe
   // THE MAP'S EDGE, and a void: a wall down to the map's underside, a quad a stretch of the edge.
   const open = (nx: number, ny: number) => !inBounds(grid, nx, ny) || grid.terrain[idx(grid, nx, ny)] === VOID;
   const foot = (nx: number, ny: number, z: number) => Math.min(inBounds(grid, nx, ny) ? grid.height[idx(grid, nx, ny)] : edgeBase(grid), z - 2);
+  // AND BUILT GROUND IN FRONT THAT IT STANDS OVER. Bare ground comes to a built tile's edge at its height — but where
+  // two built tiles of different heights meet at a corner it can be at only one height, and stands over the lower
+  // (a ramp's foot beside a road). A face down to that tile's edge, a quad a stretch, where there is any drop.
+  const onto = (nx: number, ny: number) => inBounds(grid, nx, ny) && grid.terrain[idx(grid, nx, ny)] !== VOID && built(grid, nx, ny);
+  const bx = onto(x + 1, y), by = onto(x, y + 1);
+  for (let k = 0; k < FINE; k++) {
+    if (bx) {
+      const za = zAt(FINE, k), zb = zAt(FINE, k + 1);
+      const fa = Math.min(za, edgeZ(grid, x + 1, y, 0, k * q)), fb = Math.min(zb, edgeZ(grid, x + 1, y, 0, (k + 1) * q));
+      if (za - fa > GAP || zb - fb > GAP) { at(x + 1, y + k * q, za, 1, 0); at(x + 1, y + (k + 1) * q, zb, 1, 0); at(x + 1, y + (k + 1) * q, fb, 1, zb - fb); at(x + 1, y + k * q, fa, 1, za - fa); }
+    }
+    if (by) {
+      const za = zAt(k, FINE), zb = zAt(k + 1, FINE);
+      const fa = Math.min(za, edgeZ(grid, x, y + 1, k * q, 0)), fb = Math.min(zb, edgeZ(grid, x, y + 1, (k + 1) * q, 0));
+      if (za - fa > GAP || zb - fb > GAP) { at(x + k * q, y + 1, za, 2, 0); at(x + (k + 1) * q, y + 1, zb, 2, 0); at(x + (k + 1) * q, y + 1, fb, 2, zb - fb); at(x + k * q, y + 1, fa, 2, za - fa); }
+    }
+  }
   for (let k = 0; k < FINE; k++) {
     if (open(x + 1, y)) {
       const za = zAt(FINE, k), zb = zAt(FINE, k + 1), fa = foot(x + 1, y, za), fb = foot(x + 1, y, zb);
@@ -277,11 +299,30 @@ export function bandQuads(grid: Grid, palette: Palette, b: number, scale = 1): {
     }
     // THE FACE ALONG x+1, each end down to what is in front of it there: a
     // trapezoid where either side slopes.
+    // (Toward bare ground on the continuous surface the foot is that ground's own line along the edge, a stretch at
+    // a time: it comes to this tile's edge all the way along but at a corner another built tile pulls it from —
+    // a face ruled corner to corner would be a wedge the length of the tile.)
+    const soft = groundMode() === "smooth";
+    const bare = (nx: number, ny: number) => soft && inBounds(grid, nx, ny) && grid.terrain[idx(grid, nx, ny)] !== VOID && !built(grid, nx, ny);
+    if (bare(x + 1, y)) {
+      for (let k = 0; k < FINE; k++) {
+        const ta = z10 + (z11 - z10) * k / FINE, tb = z10 + (z11 - z10) * (k + 1) / FINE;
+        const pa = Math.min(ta, smoothAt(grid, x + 1, y + k / FINE)), pb = Math.min(tb, smoothAt(grid, x + 1, y + (k + 1) / FINE));
+        if (ta - pa > GAP || tb - pb > GAP) { at(x + 1, y + k / FINE, ta, 1, 0); at(x + 1, y + (k + 1) / FINE, tb, 1, 0); at(x + 1, y + (k + 1) / FINE, pb, 1, tb - pb); at(x + 1, y + k / FINE, pa, 1, ta - pa); }
+      }
+    }
     const fa = wallFoot(grid, x, y, x + 1, y, 0, 0, z10), fb = wallFoot(grid, x, y, x + 1, y, 0, 1, z11);
-    if (fa < z10 || fb < z11) { at(x + 1, y, z10, 1, 0); at(x + 1, y + 1, z11, 1, 0); at(x + 1, y + 1, fb, 1, z11 - fb); at(x + 1, y, fa, 1, z10 - fa); }
+    if (!bare(x + 1, y) && (fa < z10 || fb < z11)) { at(x + 1, y, z10, 1, 0); at(x + 1, y + 1, z11, 1, 0); at(x + 1, y + 1, fb, 1, z11 - fb); at(x + 1, y, fa, 1, z10 - fa); }
     // AND ALONG y+1.
+    if (bare(x, y + 1)) {
+      for (let k = 0; k < FINE; k++) {
+        const ta = z01 + (z11 - z01) * k / FINE, tb = z01 + (z11 - z01) * (k + 1) / FINE;
+        const pa = Math.min(ta, smoothAt(grid, x + k / FINE, y + 1)), pb = Math.min(tb, smoothAt(grid, x + (k + 1) / FINE, y + 1));
+        if (ta - pa > GAP || tb - pb > GAP) { at(x + k / FINE, y + 1, ta, 2, 0); at(x + (k + 1) / FINE, y + 1, tb, 2, 0); at(x + (k + 1) / FINE, y + 1, pb, 2, tb - pb); at(x + k / FINE, y + 1, pa, 2, ta - pa); }
+      }
+    }
     const ga = wallFoot(grid, x, y, x, y + 1, 0, 0, z01), gb = wallFoot(grid, x, y, x, y + 1, 1, 0, z11);
-    if (ga < z01 || gb < z11) { at(x, y + 1, z01, 2, 0); at(x + 1, y + 1, z11, 2, 0); at(x + 1, y + 1, gb, 2, z11 - gb); at(x, y + 1, ga, 2, z01 - ga); }
+    if (!bare(x, y + 1) && (ga < z01 || gb < z11)) { at(x, y + 1, z01, 2, 0); at(x + 1, y + 1, z11, 2, 0); at(x + 1, y + 1, gb, 2, z11 - gb); at(x, y + 1, ga, 2, z01 - ga); }
     // AT THE MAP'S EDGE A SHORE IS CUT THROUGH: over the wall, which is the bank's own profile, the water's cut
     // face — from its level down to the drawn ground along that edge, and no further along it than the ground is
     // under the water. (Elsewhere the water's own mesh draws its sides; a shelf has none. @see water-gpu.ts)

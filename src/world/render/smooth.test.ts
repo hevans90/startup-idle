@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { createGrid, fillTerrain, idx, setHeight } from "../grid";
+import { createGrid, fillTerrain, idx, packRamp, setHeight, type RampDir } from "../grid";
 import { bandQuads } from "./ground-mesh";
 import { drawnCorner, drawnHeight, smoothAt, smoothPlain } from "./drawn";
 import { setGroundMode } from "./ground-mode";
@@ -70,6 +70,53 @@ describe("the ground as one continuous surface", () => {
     // Just off its edge, on bare ground: all but at its height; half a tile off, the bare ground's own.
     expect(Math.abs(smoothAt(grid, 6.02, 5.5) - h)).toBeLessThan(0.2);
     expect(smoothPlain(grid, 6.5, 5.5)).toBeCloseTo(grid.height[idx(grid, 6, 5)], 9);
+  });
+
+  test("no hole where bare ground and built ground part: whichever stands over the other in front of it has a face there", () => {
+    const grid = rough(14);
+    let seed = 7;
+    const rnd = () => (seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff) / 0x7fffffff;
+    // Roads laid anyhow: runs of paving at heights of their own, some of them ramps.
+    for (let n = 0; n < 14; n++) {
+      const x = 2 + Math.floor(rnd() * 10), y = 2 + Math.floor(rnd() * 10), h = Math.floor(rnd() * 6);
+      for (let k = 0; k < 3; k++) {
+        const i = idx(grid, Math.min(12, x + k), y);
+        grid.paved[i] = 1; grid.height[i] = h;
+        grid.ramp[i] = rnd() < 0.4 ? packRamp((1 + Math.floor(rnd() * 4)) as RampDir, 1) : 0;
+      }
+    }
+    grid.rev++;
+    const isBuilt = (x: number, y: number) => grid.paved[idx(grid, x, y)] === 1;
+    const plane = (x: number, y: number, u: number, v: number) => {
+      const c = (a: number, b: number) => drawnCorner(grid, x, y, a, b);
+      return (c(0, 0) * (1 - u) + c(1, 0) * u) * (1 - v) + (c(0, 1) * (1 - u) + c(1, 1) * u) * v;
+    };
+    // Every wall the mesh has, by the edge it stands on.
+    const walls = new Set<string>();
+    for (let b = 0; b < 27; b++) {
+      const q = bandQuads(grid, PALETTE, b);
+      for (let k = 0; k < q.quads; k++) {
+        const o = k * 4 * 7, kind = q.verts[o + 4];
+        if (kind < 0.5) continue;
+        walls.add([kind, q.verts[o + 2], q.verts[o + 3], q.verts[o + 7 + 2], q.verts[o + 7 + 3]].join(","));
+      }
+    }
+    let checked = 0;
+    for (let y = 1; y < 12; y++) for (let x = 1; x < 12; x++) for (const [dx, dy, kind] of [[1, 0, 1], [0, 1, 2]] as const) {
+      // The cell behind (x, y) and the one in front of it across this edge: one bare, one built.
+      const back = isBuilt(x, y), front = isBuilt(x + dx, y + dy);
+      if (back === front) continue;
+      for (let k = 0; k < 4; k++) {
+        const t0 = k / 4, t1 = (k + 1) / 4;
+        const p = (t: number): [number, number] => dx ? [x + 1, y + t] : [x + t, y + 1];
+        const zBack = (t: number) => back ? (dx ? plane(x, y, 1, t) : plane(x, y, t, 1)) : smoothAt(grid, ...p(t));
+        const zFront = (t: number) => front ? (dx ? plane(x + 1, y, 0, t) : plane(x, y + 1, t, 0)) : smoothAt(grid, ...p(t));
+        if (zBack(t0) - zFront(t0) <= 0.02 && zBack(t1) - zFront(t1) <= 0.02) continue;
+        checked++;
+        expect(walls.has([kind, ...p(t0), ...p(t1)].join(","))).toBe(true);
+      }
+    }
+    expect(checked).toBeGreaterThan(5);
   });
 
   test("it wanders: a straight crest is not drawn straight, level ground stays level, and it is never read more than a third of a tile aside", () => {
