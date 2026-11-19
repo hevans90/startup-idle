@@ -1237,7 +1237,7 @@ export function buildRough(g: Grid, material: number) {
 }
 
 /**
- * WHAT GROWS AND WHAT THE PLAYER DOES TO IT, on one map (open it on the continuous surface, `&ground=smooth`): a road
+ * WHAT GROWS AND WHAT THE PLAYER DOES TO IT, on one map: a road
  * across rolling grass; two farms with their fields, one each side of it; a hedge along a field's edge, a row of
  * trees along the road, beds of flowers; a young wood just planted and a grown one with a strip felled to stumps; a
  * pond with reeds; and open grass to plant on and farm. Played, a company with money for all of it.

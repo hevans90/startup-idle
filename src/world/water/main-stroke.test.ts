@@ -23,6 +23,10 @@ import { placeCommand } from "../structures/place";
 import { setWaterEdge, stepWater } from "./field";
 import { mainStroke } from "./main-stroke";
 import { mainProfile, mainReportAt, runMains } from "./mains";
+import { onSteps } from "../render/steps.test-kit";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
 
 const s = () => useWorldStore.getState();
 afterEach(() => { s().setPlaying(false); useMoneyStore.setState({ money: new Decimal(0) }); resetCooling(); });

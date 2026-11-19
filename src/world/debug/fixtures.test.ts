@@ -19,6 +19,7 @@ import {
   COLUMNS_PER_TILE, createWaterField, depthAt, runSources, stepWater, totalVolume, wetTiles,
 } from "../water/field";
 import { canCopyOut } from "../../fluid/gpu/state";
+import { setGroundMode } from "../render/ground-mode";
 
 const world = (w = 48, h = 48) => createGrid(w, h, 1);
 
@@ -211,6 +212,8 @@ describe("road fixtures", () => {
   });
 
   test("the split trap really is split on one arm and joined on the other", () => {
+    setGroundMode("steps");
+    try {
     const g = world(48, 48);
     applyFixture(g, "splitTrap", 1);
     const net = netOf(g);
@@ -227,6 +230,7 @@ describe("road fixtures", () => {
     const lowR = netIdAt(net, g, cx + 6, cy - 4);
     const highR = netIdAt(net, g, cx + 6, cy + 4);
     expect(lowR).toBe(highR);
+    } finally { setGroundMode("smooth"); }
   });
 
   test("erasing one cell of a loop splits it — what the overlay shows", () => {

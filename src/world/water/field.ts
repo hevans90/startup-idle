@@ -296,7 +296,11 @@ export function poolSnapshot(field: WaterField, grid: Grid, slot = 0): Uint8Arra
   for (let y = 0; y < grid.h; y++) {
     for (let x = 0; x < grid.w; x++) {
       if (slot === DECK_SLOT && grid.deck[idx(grid, x, y)] === 0) continue;
-      out[idx(grid, x, y)] = Math.min(255, Math.round(slotDepthAt(field, x, y, slot)));
+      const deep = slotDepthAt(field, x, y, slot);
+      // ON THE CONTINUOUS SURFACE, the water's LEVEL over the tile's own height: it is filled back to its level over
+      // the ground as drawn (@see fillPools), so a depth saved by a sloping shore would come back the wrong size.
+      const level = slot === 0 && deep > 0 && fieldWater() && groundMode() === "smooth" && structureAt(grid, x, y) < 0 ? surfaceOver(field, x, y) : null;
+      out[idx(grid, x, y)] = Math.min(255, Math.max(0, Math.round(level === null ? deep : level - grid.height[idx(grid, x, y)])));
     }
   }
   return out;

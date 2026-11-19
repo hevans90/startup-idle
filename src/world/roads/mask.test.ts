@@ -11,6 +11,10 @@ import {
   DIAG, DIR, FLANK, OPPOSITE, connects, diagOf, edgeHeight, isPaved,
   maskAt, maskDirtyCells, orthOf,
 } from "./mask";
+import { onSteps } from "../render/steps.test-kit";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
 
 const world = (w = 10, h = 10) => {
   const g = createGrid(w, h);

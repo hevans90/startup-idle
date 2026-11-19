@@ -6,6 +6,10 @@ import { rampDir } from "../iso";
 import { getNetwork } from "../../state/world.store";
 import { isConnected } from "./network";
 import { gradeRoad } from "./grade";
+import { onSteps } from "../render/steps.test-kit";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
 
 const flat = (w = 16, h = 8) => { const g = createGrid(w, h); fillTerrain(g, 1); return g; };
 const row = (y: number, x0: number, x1: number) => Array.from({ length: x1 - x0 + 1 }, (_, k) => ({ x: x0 + k, y }));

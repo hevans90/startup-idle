@@ -1,13 +1,13 @@
 /**
  * World v2 — HOW BARE GROUND IS DRAWN. `?ground=`:
  *
- *  - `steps` (as it is with nothing asked): the grid as it is — a level top a
- *    tile, a wall down every step;
+ *  - `steps`: the grid as it is — a level top a tile, a wall down every step
+ *    (the game's ground until 2026-11-19, kept to look back at);
  *  - `banks`: the first smoothing — a corner of the grid at the mean of the
  *    cells that meet there, a small step a bank and a big one a cliff, a fan a
  *    tile. Kept to look back at; it makes wedges of wall where a cliff dies
  *    out, and a point of every tile that stands alone;
- *  - `smooth`: ONE CONTINUOUS SURFACE through every tile's own height, with no
+ *  - `smooth` (as it is with nothing asked): ONE CONTINUOUS SURFACE through every tile's own height, with no
  *    choice anywhere between joining and parting — a big step is a steep face,
  *    not a wall — meshed four by four a tile, the grid the water's solver
  *    works on. The water goes with it as one smooth field. @see drawn.ts
@@ -19,7 +19,7 @@
 export type GroundMode = "steps" | "banks" | "smooth";
 const asked = (): GroundMode => {
   const v = typeof location !== "undefined" ? new URLSearchParams(location.search).get("ground") : null;
-  return v === "banks" || v === "smooth" ? v : "steps";
+  return v === "banks" || v === "steps" ? v : "smooth";
 };
 let mode: GroundMode = asked();
 export const groundMode = (): GroundMode => mode;

@@ -11,10 +11,14 @@ import { placeCommand } from "../structures/place";
 import {
   DECK_SLOT, createWaterField, depthAt, pourAt, setWaterEdge, slotDepthAt, stepWater, totalVolume,
 } from "../water/field";
+import { setGroundMode } from "../render/ground-mode";
 import {
   WORLD_FILE_VERSION, WorldFileError, deserializeWorld, fromJSON,
   serializeWorld, toJSON,
 } from "./serialize";
+
+/** A test of the stepped ground's own exactness: a tile's floor flat, so its depth comes back to the half step. */
+const onSteps = (fn: () => void) => () => { setGroundMode("steps"); try { fn(); } finally { setGroundMode("smooth"); } };
 
 const PAL = { terrain: [null, "grass.png", "dirt.png"], paved: [null, "road.png"] };
 
@@ -65,7 +69,7 @@ describe("round trip", () => {
     expect(grid.fluid[idx(grid, 5, 5)]).toBe(1);
   });
 
-  test("saving a RUNNING world keeps the water where it has got to", () => {
+  test("saving a RUNNING world keeps the water where it has got to", onSteps(() => {
     // Pouring is not an edit. It puts water into the running world rather than
     // into the grid, which is why it is not undoable and why the grid knows
     // nothing about it — so a file written from the grid alone comes back as
@@ -118,9 +122,26 @@ describe("round trip", () => {
       for (let x = 0; x < g.w; x++) slack += Math.min(depthAt(field, x, y), 0.5) * 16;
     }
     expect(Math.abs(totalVolume(again, wet) - totalVolume(field, g))).toBeLessThan(slack);
-  });
+  }));
 
-  test("and the water ON A BRIDGE comes back on the bridge", () => {
+  test("on the continuous surface a lake at rest by sloping shores comes back the same size, at the same level", () => {
+    // Saved as its LEVEL over each tile's height, as it is filled back: a depth saved by a shore came back short. (A
+    // shore tile whose middle stands over the water still comes back dry: what is lost is a shoreline's film.)
+    const g = createGrid(16, 16);
+    fillTerrain(g, 1);
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) setHeight(g, x, y, Math.min(0, Math.round(Math.hypot(x - 7.5, y - 7.5) * 2 - 10)));
+    const field = createWaterField(g);
+    setWaterEdge(field, false);
+    pourAt(field, 7, 7, 60, 1);
+    for (let n = 0; n < 6000; n++) stepWater(field, 1 / 30);
+    const again = createWaterField(deserializeWorld(serializeWorld(g, PAL, field)).grid);
+    const v0 = totalVolume(field, g), v1 = totalVolume(again, g);
+    expect(v0).toBeGreaterThan(100);
+    expect(Math.abs(v1 - v0) / v0).toBeLessThan(0.12);
+    expect(Math.abs(depthAt(again, 7, 7) - depthAt(field, 7, 7))).toBeLessThan(0.5);
+  }, 30_000);
+
+  test("and the water ON A BRIDGE comes back on the bridge", onSteps(() => {
     // The file's pool layer is one number a tile, and a bridged tile has two
     // surfaces. Saved from the ground storey alone, the puddle on the span
     // was lost and the river under it kept — or, poured from the old layer,
@@ -147,7 +168,7 @@ describe("round trip", () => {
     expect(slotDepthAt(again, 3, 4, DECK_SLOT)).toBe(before.deck);
     expect(depthAt(again, 3, 4)).toBe(before.ground);
     expect(depthAt(again, 4, 2)).toBe(before.channel);
-  });
+  }));
 
   test("and a deck taken down since drops what was saved on it", () => {
     // A deck pool with no deck has nothing to stand on. It is dropped rather

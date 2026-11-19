@@ -13,6 +13,10 @@ import {
   applyEdit, cellsAdjacentToNet, componentCount, componentSize,
   createNetwork, isConnected, netIdAt, rebuild,
 } from "./network";
+import { onSteps } from "../render/steps.test-kit";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
 
 const world = (w = 12, h = 12) => {
   const g = createGrid(w, h);

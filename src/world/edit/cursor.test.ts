@@ -10,6 +10,7 @@ import { HEIGHT_UNIT, HH, HW, cellToWorld } from "../iso";
 import {
   cursorSignature, footprintPerimeter, validateErase, validatePaint, validatorFor,
 } from "./cursor";
+import { onSteps } from "../render/steps.test-kit";
 
 const g = () => {
   const grid = createGrid(8, 8);
@@ -24,6 +25,7 @@ const rect = (x0: number, y0: number, w: number, h: number) => {
 };
 
 describe("footprintPerimeter", () => {
+  onSteps();
   test("a single cell is its whole diamond — four segments", () => {
     expect(footprintPerimeter(g(), [{ x: 3, y: 3 }], 1)).toHaveLength(4);
   });

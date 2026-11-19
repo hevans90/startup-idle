@@ -30,6 +30,7 @@ import { DEFAULT_GEN, GEN_SLIDERS } from "../world/gen/params";
 import { generatePlayableMap } from "../world/gen/generate-map";
 import { RAMP, rampDir, rampRise } from "../world/iso";
 import { COLUMNS_PER_TILE, SOLID_LIFT, pourAt } from "../world/water/field";
+import { onSteps } from "../world/render/steps.test-kit";
 
 const s = () => useWorldStore.getState();
 
@@ -74,6 +75,7 @@ describe("world store", () => {
 });
 
 describe("derived ramps", () => {
+  onSteps();
   beforeEach(() => {
     s().resize(12, 12);
     useWorldStore.setState({ palette: [...INITIAL_TERRAIN_PALETTE], material: GRASS });
@@ -198,6 +200,7 @@ describe("derived ramps", () => {
 });
 
 describe("road network", () => {
+  onSteps();
   beforeEach(() => { s().resize(12, 12); });
 
   const paveRun = (x: number, y0: number, y1: number) => {

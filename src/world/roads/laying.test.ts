@@ -18,6 +18,10 @@ import { buildLaneGraph } from "../agents/lanes/graph";
 import { isPaved, connects } from "./mask";
 import { rampNeed } from "./ramp-derive";
 import { looksOf } from "./looks";
+import { onSteps } from "../render/steps.test-kit";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
 
 const s = () => useWorldStore.getState();
 type Stroke = [number, number, number, number];

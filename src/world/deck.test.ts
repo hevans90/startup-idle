@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  createGrid, fillTerrain, idx, setDeck, setHeight, surfaceHeightAt, surfaceSampler,
+  createGrid, fillTerrain, idx, setDeck, setHeight, setPaved, surfaceHeightAt, surfaceSampler,
 } from "./grid";
 import { applyFixture } from "./debug/fixtures";
 import { generateMap } from "./gen/generate-map";
@@ -60,6 +60,8 @@ import { deserializeWorld, serializeWorld } from "./io/serialize";
 import { componentCount, createNetwork } from "./roads/network";
 import { derivedRamp, type SurfaceReader } from "./roads/ramp-derive";
 import { RAMP } from "./iso";
+import { onSteps } from "./render/steps.test-kit";
+import { setGroundMode } from "./render/ground-mode";
 
 const PALETTE = { terrain: [null, "grass.png"], paved: [null, "road.png"] };
 
@@ -133,6 +135,7 @@ describe("a deck", () => {
  * while it did.
  */
 describe("a river does not know there is a bridge over it", () => {
+  onSteps();
   const river = (withBridge: boolean) => {
     const g = createGrid(48, 48);
     applyFixture(g, withBridge ? "bridge" : "inlet", 1);
@@ -217,6 +220,7 @@ describe("a deck is road at the level it is laid", () => {
  * ramps appearing in a road the moment you poured near it.
  */
 describe("the ramp derivation reads the surface", () => {
+  onSteps();
   /** The reader an edit command builds, in both the right and the wrong form. */
   const readerFor = (g: ReturnType<typeof createGrid>, surface: boolean): SurfaceReader => ({
     inBounds: (x, y) => x >= 0 && y >= 0 && x < g.w && y < g.h,
@@ -483,6 +487,7 @@ describe("water on a deck", () => {
  * @see cornerValues
  */
 describe("a bridge and the road it meets are one surface", () => {
+  onSteps();
   /** A ditch with a span over it, level with the road either side. */
   const crossing = () => {
     const g = createGrid(16, 16);
@@ -848,8 +853,9 @@ describe("water crosses between a bridge and the road it meets", () => {
     for (let y = 0; y < g.h; y++) {
       for (let x = 0; x < g.w; x++) setHeight(g, x, y, x >= 7 && x <= 9 ? -20 : 0);
     }
-    // The span, at the level of the land either side of the ditch.
+    // The span, at the level of the land either side of the ditch; the road paved up to it, so it is flat to the edge.
     for (let y = 6; y <= 9; y++) for (let x = 7; x <= 9; x++) setDeck(g, x, y, 1, 0);
+    for (let y = 6; y <= 9; y++) for (let x = 0; x < g.w; x++) if (x < 7 || x > 9) setPaved(g, x, y, 1);
     const field = createWaterField(g);
     setWaterEdge(field, false);
     return { g, field };
@@ -939,6 +945,7 @@ describe("the mouth of a bridge", () => {
       }
     }
     for (let y = 6; y <= 9; y++) for (let x = 7; x <= 9; x++) setDeck(g, x, y, 1, 0);
+    for (let y = 6; y <= 9; y++) for (let x = 0; x < g.w; x++) if (x < 7 || x > 9) setPaved(g, x, y, 1);
     const field = createWaterField(g);
     setWaterEdge(field, false);
     return { g, field };
@@ -951,6 +958,10 @@ describe("the mouth of a bridge", () => {
   };
 
   test("does not let the road pour into the channel under it", () => {
+    // (On the stepped ground: on the continuous surface the foot of the lane's walls is drawn down to the road, and a
+    // trickle — a hundredth of what is poured — runs down its corner into the ditch, as water off a road would.)
+    setGroundMode("steps");
+    try {
     const { field } = lane();
     pourAt(field, 4, 7, 10, 1);
     for (let n = 0; n < 60 * 30; n++) stepWater(field, 1 / 60);
@@ -960,6 +971,7 @@ describe("the mouth of a bridge", () => {
     // order of magnitude, because pinning dust to its current digits is
     // pinning the arithmetic and not the rule. @see ColumnField.closed
     expect(inLane(field, 7, 9)).toBeLessThan(1e-3);
+    } finally { setGroundMode("smooth"); }
   }, 40_000);
 
   test("and the water gets across by going OVER the span", () => {

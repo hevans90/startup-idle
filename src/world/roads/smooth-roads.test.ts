@@ -33,7 +33,7 @@ const faults = (G: Grid) => {
 
 describe("roads on the continuous surface", () => {
   beforeAll(() => setGroundMode("smooth"));
-  afterAll(() => setGroundMode("steps"));
+  afterAll(() => setGroundMode("smooth"));
 
   test("what drives on a road is on its drawn top: no jump anywhere across it, and a twisted tile's two triangles", () => {
     const g = createGrid(8, 8); fillTerrain(g, 1);

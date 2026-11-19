@@ -8,6 +8,10 @@ import { describe, expect, test } from "bun:test";
 import { NEIGHBOUR } from "../../iso/dir";
 import { RAMP, rampDir, rampRise } from "../iso";
 import { derivedRamp, rampNeed, type SurfaceReader } from "./ramp-derive";
+import { onSteps } from "../render/steps.test-kit";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
 
 /** A tiny world described by two maps, so each test states only what matters. */
 const world = (paved: string[], height: Record<string, number> = {}): SurfaceReader => {

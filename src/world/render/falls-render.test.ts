@@ -31,6 +31,10 @@ import {
 import {
   LIGHTEST, SHADES, TINTS, createWaterLayer, destroyWaterLayer, drawWater,
   paleAt, surfaceLook, tierOf,} from "./water";
+import { onSteps } from "./steps.test-kit";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
 
 describe("the parabola a fall follows", () => {
   test("it goes out as the ROOT of how far it has come down", () => {

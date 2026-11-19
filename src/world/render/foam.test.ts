@@ -19,6 +19,10 @@ import { createWaterField, pourAt, stepWater, type WaterField } from "../water/f
 import { createGrid, fillTerrain, setHeight } from "../grid";
 import { OPEN_SKY } from "../../fluid/slots";
 import { createFoam, stepFoam, type FoamField } from "./foam";
+import { onSteps } from "./steps.test-kit";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
 
 /** Run the water and the foam together, the way the renderer does. */
 function run(field: WaterField, foam: FoamField, seconds: number) {

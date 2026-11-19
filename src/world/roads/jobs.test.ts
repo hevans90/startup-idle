@@ -16,6 +16,7 @@ import { roadCost } from "../../game/build-cost";
 import { ARRIVE, GANGS, GAP, PACE, SET_GAP, SET_STEPS, TILES_PER_LOAD, frontAt, frontOf, jobSeconds, lengthsOf, loadPrice, plannedGrid, setOutAt, setOutSeconds, stageOf, startOf } from "./jobs";
 import { connects, isPaved } from "./mask";
 import { rampNeed } from "./ramp-derive";
+import { groundMode, setGroundMode } from "../render/ground-mode";
 
 const s = () => useWorldStore.getState();
 const drag = (tool: "paintRoad" | "eraseRoad" | "demolish", x0: number, y0: number, x1: number, y1: number) => {
@@ -38,11 +39,13 @@ const run = (seconds: number, dt = 0.25) => { for (let t = 0; t < seconds; t += 
 const pavedCount = (g: Grid) => g.paved.reduce((n, v) => n + (v ? 1 : 0), 0);
 /** Every fault of the roads that stand: a cell no ramp can serve, two side by side that do not join. */
 function faults(G: Grid): Set<string> {
+  // (A cell no ramp can serve is a fault of the stepped ground only: the continuous surface has no ramps.)
+  const ramps = groundMode() !== "smooth";
   const read = { inBounds: (x: number, y: number) => x >= 0 && y >= 0 && x < G.w && y < G.h, paved: (x: number, y: number) => isPaved(G, x, y), height: (x: number, y: number) => (G.deck[idx(G, x, y)] ? G.deckZ[idx(G, x, y)] : G.height[idx(G, x, y)]) };
   const out = new Set<string>();
   for (let y = 0; y < G.h; y++) for (let x = 0; x < G.w; x++) {
     if (!isPaved(G, x, y)) continue;
-    if (rampNeed(read, x, y).kind === "unbridgeable") out.add(`U${x},${y}`);
+    if (ramps && rampNeed(read, x, y).kind === "unbridgeable") out.add(`U${x},${y}`);
     if (x + 1 < G.w && isPaved(G, x + 1, y) && !connects(G, x, y, "S")) out.add(`X${x},${y}`);
     if (y + 1 < G.h && isPaved(G, x, y + 1) && !connects(G, x, y, "W")) out.add(`Y${x},${y}`);
   }
@@ -260,7 +263,8 @@ describe("a road ordered in the game", () => {
 
 describe("roads ordered at random over generated maps", () => {
   test("ordered, worked a while, some cancelled: at every moment every road that stands is sound, and in the end every job is built or was refused", () => {
-    for (const start of [1, 2, 3]) {
+    for (const ground of ["smooth", "steps"] as const) for (const start of [1, 2, 3]) {
+      setGroundMode(ground);
       let seed = start;
       const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
       const pick = (n: number) => Math.floor(rnd() * n);
@@ -318,6 +322,7 @@ describe("roads ordered at random over generated maps", () => {
         } finally { done(); }
       }
     }
+    setGroundMode("smooth");
   }, 180_000);
 });
 

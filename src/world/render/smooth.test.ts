@@ -17,7 +17,7 @@ function rough(n = 12) {
 
 describe("the ground as one continuous surface", () => {
   beforeAll(() => setGroundMode("smooth"));
-  afterAll(() => setGroundMode("steps"));
+  afterAll(() => setGroundMode("smooth"));
 
   test("goes through every cell's own height at its middle", () => {
     const grid = rough();

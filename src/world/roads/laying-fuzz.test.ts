@@ -11,6 +11,10 @@ import { idx, type Grid } from "../grid";
 import { generateMap } from "../gen/generate-map";
 import { connects, isPaved } from "./mask";
 import { rampNeed } from "./ramp-derive";
+import { onSteps } from "../render/steps.test-kit";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
 const s = () => useWorldStore.getState();
 const drag = (x0: number, y0: number, x1: number, y1: number) => { s().setTool("paintRoad"); s().setBrush("line"); useWorldStore.setState({ notice: null }); s().beginStroke({ x: x0, y: y0 }); s().updateStroke({ x: x1, y: y1 }); s().endStroke(); return s().notice?.text ?? ""; };
 const faults = (G: Grid) => {

@@ -21,6 +21,14 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { createWaterField, setWaterEdge, stepWater } from "./field";
 import { findMains, layMain, mainReportsFor, mainsToPorts, planMain, runMains } from "./mains";
+import { onSteps } from "../render/steps.test-kit";
+import { setGroundMode } from "../render/ground-mode";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
+// (And now: the runs below are worked out as the file is read, before any test starts. On the continuous surface a
+// gravity run carries 4% less — twenty agents, not twenty-one — its lake rocking on a drawn floor.)
+setGroundMode("steps");
 
 afterEach(resetCooling);
 

@@ -68,6 +68,7 @@ describe("a house's mood", () => {
     const { COVER } = await import("../vegetation/fields");
     const g = createGrid(20, 20);
     for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) { g.veg.cover[y * 20 + x] = COVER.wood; g.veg.density[y * 20 + x] = 2; }
+    setGroundMode("steps");
     expect(greenAround(g)[4 * 20 + 7]).toBe(0);
     setGroundMode("smooth");
     try {
@@ -75,7 +76,7 @@ describe("a house's mood", () => {
       expect(green[4 * 20 + 7]).toBe(4);
       expect(green[4 * 20 + 4]).toBe(16);
       expect(green[4 * 20 + 9]).toBe(0);
-    } finally { setGroundMode("steps"); }
+    } finally { setGroundMode("smooth"); }
   });
 });
 

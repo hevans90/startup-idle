@@ -20,6 +20,10 @@ import { colourAt, quadAt, type QuadBatch } from "./quads";
 import {
   NO_SHEET, TIERS, asideAt, createWaterLayer, destroyWaterLayer, drawWater, tierOf,
 } from "./water";
+import { onSteps } from "./steps.test-kit";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
 
 /** Every quad a band's batch holds this frame, as flat point arrays. */
 function polysOf(b: QuadBatch): number[][] {

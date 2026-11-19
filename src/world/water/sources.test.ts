@@ -18,6 +18,10 @@ import {
 } from "./field";
 import { fluidIndexOf } from "./materials";
 import { flowEnergy } from "../../fluid/columns";
+import { onSteps } from "../render/steps.test-kit";
+
+/** The stepped ground's own rules. @see steps.test-kit */
+onSteps();
 
 const flat = (w = 24, h = 24) => {
   const g = createGrid(w, h);
