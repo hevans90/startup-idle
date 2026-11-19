@@ -12,7 +12,8 @@
  */
 import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { idx, inBounds, rampDir, rampRise, VOID, type Grid } from "../grid";
-import { RAMP } from "../iso";
+import { RAMP, MAX_RISE } from "../iso";
+import { groundMode } from "../render/ground-mode";
 
 export { DIR };
 
@@ -92,7 +93,20 @@ export function connects(
   if (!isPaved(g, x, y) || !isPaved(g, nx, ny)) return false;
   const here = edgeHeight(g, x, y, dir);
   const there = edgeHeight(g, nx, ny, OPPOSITE[dir]);
-  return here === there;
+  return meets(g, x, y, nx, ny, here, there);
+}
+
+/**
+ * Whether two road surfaces at `a` and `b` meet, between cells `(x, y)` and `(nx, ny)`. As blocks, only level with
+ * each other. ON THE CONTINUOUS SURFACE a road lies through corners it shares with the road round it, so two tiles a
+ * step apart or less are one slope (@see render/drawn.ts roadCorner); a bridge's deck is level and meets only its own
+ * level still.
+ */
+function meets(g: Grid, x: number, y: number, nx: number, ny: number, a: number, b: number): boolean {
+  if (a === b) return true;
+  if (groundMode() !== "smooth") return false;
+  if (g.deck[idx(g, x, y)] !== 0 || g.deck[idx(g, nx, ny)] !== 0) return false;
+  return Math.abs(a - b) <= MAX_RISE;
 }
 
 export const OPPOSITE: Record<keyof typeof DIR, keyof typeof DIR> = {
@@ -133,7 +147,7 @@ export function maskAt(g: Grid, x: number, y: number): number {
     const [dx, dy] = DIAG_NEIGHBOUR[dir];
     const nx = x + dx, ny = y + dy;
     if (!isPaved(g, nx, ny)) continue;
-    if (cornerHeight(g, nx, ny, -dx, -dy) !== cornerHeight(g, x, y, dx, dy)) continue;
+    if (!meets(g, x, y, nx, ny, cornerHeight(g, nx, ny, -dx, -dy), cornerHeight(g, x, y, dx, dy))) continue;
     m |= DIAG[dir];
   }
   return m;

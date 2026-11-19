@@ -29,6 +29,7 @@ import { MAX_RISE, RAMP, rampDir, rampRise } from "../iso";
 import { idx, inBounds, structureAt, type Grid } from "../grid";
 import { strokeCells, type Stroke } from "../edit/tools";
 import { rampNeed } from "./ramp-derive";
+import { groundMode } from "../render/ground-mode";
 
 export type GradeCell = { x: number; y: number };
 
@@ -263,6 +264,7 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
     for (let k = a; k <= b; k++) span[k] = z;
     a = b;
   }
+  if (groundMode() === "smooth") return gradeOnSurface(g, path, span);
   const on = new Set(path.map((c) => idx(g, c.x, c.y)));
   /** Road cells off the path whose ground a junction moves. */
   const levelled = new Map<number, number>();
@@ -516,6 +518,82 @@ export function gradeRoad(g: Grid, path: readonly GradeCell[]): Grade {
     if (g.deck[i] === 0 && out[k] !== g.height[i]) moved.push({ x, y, from: g.height[i], to: out[k] });
   }
   for (const [i, z] of levelled) if (!first.has(i) && z !== g.height[i]) moved.push({ x: i % g.w, y: (i / g.w) | 0, from: g.height[i], to: z });
+  return { heights: out, moved, decks, blocked: [], short: 0, why: "", brief: "" };
+}
+
+/**
+ * A ROAD ON THE CONTINUOUS SURFACE: no ramp, no level corner, no junction levelled — a road lies through the corners
+ * its tiles share, and two tiles a step apart or less are one slope (@see mask.ts meets). So the stroke's cells are
+ * graded to within a step of the cell before and after, and of any road beside them; a road already there is never
+ * moved, nor anything else held; a deck is level and the bank beside it meets it at its level. The ground cut and
+ * filled half way between, as a road on blocks is. Too steep only where two held places are further apart than a
+ * step a tile can climb. Pure.
+ */
+function gradeOnSurface(g: Grid, path: readonly GradeCell[], span: readonly (number | undefined)[]): Grade {
+  const n = path.length;
+  const on = new Set(path.map((c) => idx(g, c.x, c.y)));
+  const h = path.map((c) => surface(g, idx(g, c.x, c.y)));
+  const pin = new Array<boolean>(n).fill(false);
+  const lo = new Array<number>(n).fill(-Infinity), hi = new Array<number>(n).fill(Infinity);
+  for (let k = 0; k < n; k++) {
+    const { x, y } = path[k];
+    if (span[k] !== undefined) { h[k] = span[k]!; pin[k] = true; }
+    else if (held(g, x, y)) pin[k] = true;
+    if (pin[k]) { lo[k] = hi[k] = h[k]; continue; }
+    // THE ROAD BESIDE IT, off the stroke: within a step of it — level with it, if it is a bridge's deck.
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (!inBounds(g, nx, ny) || on.has(idx(g, nx, ny))) continue;
+      const j = idx(g, nx, ny);
+      if (g.paved[j] === 0) continue;
+      const z = surface(g, j), r = g.deck[j] !== 0 ? 0 : MAX_RISE;
+      lo[k] = Math.max(lo[k], z - r); hi[k] = Math.min(hi[k], z + r);
+    }
+  }
+  // EACH END stays where the ground is, unless it meets a road, which says where.
+  for (const k of n ? [0, n - 1] : []) if (!pin[k] && lo[k] === -Infinity && hi[k] === Infinity) { pin[k] = true; lo[k] = hi[k] = h[k]; }
+  // How far each cell may stand from the next along the stroke: a step, and none from a deck.
+  const lim = new Array<number>(Math.max(0, n - 1)).fill(MAX_RISE);
+  const decked = (k: number) => span[k] !== undefined || g.deck[idx(g, path[k].x, path[k].y)] !== 0;
+  for (let e = 0; e + 1 < n; e++) if (decked(e) !== decked(e + 1)) lim[e] = 0;
+  for (let k = 1; k < n; k++) { lo[k] = Math.max(lo[k], lo[k - 1] - lim[k - 1]); hi[k] = Math.min(hi[k], hi[k - 1] + lim[k - 1]); }
+  for (let k = n - 2; k >= 0; k--) { lo[k] = Math.max(lo[k], lo[k + 1] - lim[k]); hi[k] = Math.min(hi[k], hi[k + 1] + lim[k]); }
+  // A NEW DECK BESIDE A ROAD meets it only at its own level: a road alongside at another is not joined, and the
+  // stroke is refused there.
+  const askew: number[] = [];
+  for (let k = 0; k < n; k++) {
+    if (span[k] === undefined) continue;
+    const { x, y } = path[k];
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (!inBounds(g, nx, ny) || on.has(idx(g, nx, ny)) || g.paved[idx(g, nx, ny)] === 0) continue;
+      if (surface(g, idx(g, nx, ny)) !== span[k]) { askew.push(k); break; }
+    }
+  }
+  if (askew.length) return { heights: path.map((c) => surface(g, idx(g, c.x, c.y))), moved: [], decks: [], blocked: askew.map((k) => ({ x: path[k].x, y: path[k].y })), short: 0, why: ON_A_SLOPE, brief: briefly(0, ON_A_SLOPE) };
+  // TOO STEEP: held from both sides at once, so no height serves.
+  const refused: number[] = [];
+  let short = 0;
+  for (let k = 0; k < n; k++) if (lo[k] > hi[k]) { refused.push(k); short = Math.max(short, Math.ceil((lo[k] - hi[k]) / MAX_RISE)); }
+  if (refused.length) {
+    const why = tooSteep(short);
+    return { heights: path.map((c) => surface(g, idx(g, c.x, c.y))), moved: [], decks: [], blocked: refused.map((k) => ({ x: path[k].x, y: path[k].y })), short, why, brief: briefly(short, why) };
+  }
+  // THE CUT AND THE FILL, half way, within what is allowed.
+  const cut = h.slice(), fill = h.slice();
+  for (let k = 1; k < n; k++) { cut[k] = Math.min(cut[k], cut[k - 1] + lim[k - 1]); fill[k] = Math.max(fill[k], fill[k - 1] - lim[k - 1]); }
+  for (let k = n - 2; k >= 0; k--) { cut[k] = Math.min(cut[k], cut[k + 1] + lim[k]); fill[k] = Math.max(fill[k], fill[k + 1] - lim[k]); }
+  const out = h.map((_, k) => (pin[k] ? h[k] : Math.max(lo[k], Math.min(hi[k], Math.floor((cut[k] + fill[k]) / 2)))));
+  const moved: Grade["moved"] = [], decks: Grade["decks"] = [];
+  const first = new Map<number, number>();
+  for (let k = 0; k < n; k++) {
+    const { x, y } = path[k], i = idx(g, x, y);
+    const seen = first.get(i);
+    if (seen !== undefined) { out[k] = out[seen]; continue; }
+    first.set(i, k);
+    if (span[k] !== undefined) { decks.push({ x, y, z: span[k]! }); continue; }
+    if (g.deck[i] === 0 && out[k] !== g.height[i]) moved.push({ x, y, from: g.height[i], to: out[k] });
+  }
   return { heights: out, moved, decks, blocked: [], short: 0, why: "", brief: "" };
 }
 

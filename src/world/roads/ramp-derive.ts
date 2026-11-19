@@ -18,6 +18,7 @@
  */
 import { DIR, NEIGHBOUR } from "../../iso/dir";
 import { RAMP, packRamp, type RampDir } from "../iso";
+import { groundMode } from "../render/ground-mode";
 
 /** Rises a road can ramp, in half steps: a half step or a whole one. Taller, the road tool grades the ground. @see gradeRoad */
 export const PAVED_RAMP_RISES: readonly number[] = [1, 2];
@@ -82,6 +83,8 @@ export function rampNeed(read: SurfaceReader, x: number, y: number): RampNeed {
 
 /** The packed ramp byte a cell should hold. 0 for flat or unbridgeable. */
 export function derivedRamp(read: SurfaceReader, x: number, y: number): number {
+  // ON THE CONTINUOUS SURFACE a road lies through its tiles' shared corners and needs none. @see roads/mask.ts meets
+  if (groundMode() === "smooth") return RAMP.NONE;
   const need = rampNeed(read, x, y);
   return need.kind === "ramp" ? packRamp(need.dir, need.rise === 1 ? 1 : 2) : RAMP.NONE;
 }
