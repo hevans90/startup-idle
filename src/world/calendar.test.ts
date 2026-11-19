@@ -29,22 +29,22 @@ describe("the calendar", () => {
     }
   });
 
-  test("a tree's year: bare, budding, in leaf, thinning, bare, snowed on; a pine green under its snow", () => {
+  test("a tree's year: bare, budding, in leaf, thinning, bare; a pine green the year round (snow is the weather's)", () => {
     expect(treeStateAt("oak", 0.01, 0)).toBe("bare");
     expect(treeStateAt("oak", 0.09, 0)).toBe("bud");
     expect(treeStateAt("oak", 0.4, 0)).toBe("full");
     expect(treeStateAt("oak", 0.68, 0)).toBe("thin");
     expect(treeStateAt("oak", 0.76, 0)).toBe("bare");
-    expect(treeStateAt("oak", 0.88, 0)).toBe("snow");
+    expect(treeStateAt("oak", 0.88, 0)).toBe("bare");
     expect(treeStateAt("oak", 1.4, 0)).toBe("full");
     expect(treeStateAt("pine", 0.3, 0)).toBe("full");
-    expect(treeStateAt("pine", 0.88, 0)).toBe("snow");
+    expect(treeStateAt("pine", 0.88, 0)).toBe("full");
     // The turn under way is the one asked for, and its end is still to come — whenever and with whatever lag.
     for (let t = 0; t < 3; t += 0.0137) for (const lag of [-0.025, 0, 0.025]) for (const kind of ["oak", "birch", "pine"]) {
       const r = treeTurn(kind, t, lag);
       expect(r.t1).toBeGreaterThan(t);
       expect(r.t0).toBeLessThan(r.t1);
-      expect(r.t1 - t).toBeLessThan(kind === "pine" ? 0.9 : 0.6);
+      expect(r.t1 - t).toBeLessThan(kind === "pine" ? 1.01 : 0.6);
     }
     // A turn leads on to the next: what one turns to the next turns from.
     const a = treeTurn("oak", 0.2, 0), b = treeTurn("oak", a.t1 + 1e-6, 0);

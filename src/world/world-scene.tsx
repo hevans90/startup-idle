@@ -61,7 +61,9 @@ import { canopyGround, destroyGroundMesh, seasonGround, surfaceOf } from "./rend
 import { stepVegetation, wetFrom } from "./vegetation/step";
 import { farmsOf } from "./vegetation/tend";
 import { harvestPay } from "../game/vegetation-cost";
-import { groundSeason, yearPart } from "./calendar";
+import { groundSeason, yearPart, YEAR_SECONDS } from "./calendar";
+import { groundAt, weatherAt, type Lying } from "./weather";
+import { catchment, stepRain, type Catchment } from "./water/rain";
 import { useCalendarStore } from "../state/calendar.store";
 import { CLIFF, drawnSampler } from "./render/drawn";
 import { groundMode } from "./render/ground-mode";
@@ -252,7 +254,7 @@ import {
 import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, MAX_SUBSTEPS, maxStep, substepsFor } from "../fluid/columns";
-import { busyness, darkness, dayPhase, drawRain, HEAT_GRADE, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
+import { busyness, darkness, dayPhase, drawRain, drawSnow, HEAT_GRADE, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
 import { inForce } from "../game/culture";
 import { cultureNow } from "../game/culture-now";
 import { createCultureProps, type CultureProps } from "./render/culture-props";
@@ -473,6 +475,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const woodsRef = useRef<Woods | null>(null);
   /** When the vegetation last looked at where water stands, ms. @see wetFrom */
   const wetAtRef = useRef(-Infinity);
+  // THE WEATHER'S RUNOFF: where the land drains to, how lately, and the calendar's time when it last poured. @see water/rain
+  const rainRef = useRef<{ c: Catchment | null; at: number; cAt: number; rev: number; t: number; lying: Lying }>({ c: null, at: -Infinity, cAt: -Infinity, rev: -1, t: NaN, lying: { snow: 0, wet: 0, melt: 0, frost: 0 } });
   /** The traffic lights at the lights junctions. @see createSignals */
   const signalsRef = useRef<Signals | null>(null);
   /** The stops the bus routes call at, as last painted on the road. @see bayMarksOf */
@@ -608,6 +612,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const g = new Graphics(), r = new Graphics();
     g.eventMode = "none";
     r.eventMode = "none";
+    // (Drawn again every frame: batched, never its own draw list. @see per-frame-graphics-must-batch)
+    r.context.batchMode = "batch";
     g.zIndex = 1e9;
     r.zIndex = 1e9 + 1;
     // MULTIPLIED IN: a grade over everything, the water's own shaders included. @see NIGHT_GRADE
@@ -3861,6 +3867,22 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const st = useWorldStore.getState(), V = st.grid.veg;
         const field = st.getWaterField();
         if (field && now - wetAtRef.current > 2000) { wetAtRef.current = now; wetFrom(st.grid, (x, y) => depthAt(field, x, y)); }
+        // THE WEATHER: what lies, from the calendar; and every half second its runoff into the water, by where the
+        // land drains — that worked out again as the map or its water changes. @see world/weather, water/rain
+        const tCal = useCalendarStore.getState().now(), R = rainRef.current;
+        R.lying = groundAt(tCal);
+        if (field && now - R.at > 500) {
+          // (Again when the ground or the water has changed — the water at most every ten seconds.)
+          const key = st.grid.rev * 1e6 + V.rev;
+          if (!R.c || (R.rev !== key && (Math.floor(R.rev / 1e6) !== st.grid.rev || now - R.cAt > 10_000))) {
+            R.c = catchment(st.grid, (i) => st.grid.pool[i] > 0 || V.wet[i] === 1);
+            R.rev = key; R.cAt = now;
+          }
+          // (Time away is not poured: the water does not run while nobody is here either.)
+          const seconds = (tCal - R.t) * YEAR_SECONDS;
+          if (seconds > 0 && seconds < 60) stepRain(st.grid, field, R.c, tCal, seconds, R.lying);
+          R.t = tCal; R.at = now;
+        }
         stepVegetation(st.grid, st.palette, useCalendarStore.getState().now());
         if (V.changed.size) { if (tlRef.current?.ground) canopyGround(tlRef.current.ground, st.grid, st.palette, V.changed); V.changed.clear(); }
         // THE HARVEST, paid as the fields are cut: rising off each farm, its share. @see game/vegetation-cost
@@ -3873,9 +3895,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           }
         }
       }
-      if (woodsRef.current) { const st = useWorldStore.getState(); woodsRef.current.sync(st.grid, st.palette, st.revision, scale); }
+      if (woodsRef.current) { const st = useWorldStore.getState(); woodsRef.current.sync(st.grid, st.palette, st.revision, scale, groundMode() === "smooth" ? rainRef.current.lying.snow : 0); }
       // THE YEAR on the ground, where the ground is one surface. @see world/calendar
-      if (tlRef.current?.ground) seasonGround(tlRef.current.ground, groundMode() === "smooth" ? groundSeason(useCalendarStore.getState().now()) : null, yearPart(useCalendarStore.getState().now()));
+      if (tlRef.current?.ground) {
+        const tCal = useCalendarStore.getState().now(), smooth = groundMode() === "smooth", L = rainRef.current.lying;
+        // (The snow the weather has laid, not the calendar's.)
+        seasonGround(tlRef.current.ground, smooth ? { ...groundSeason(tCal), snow: L.snow } : null, yearPart(tCal), smooth ? L.wet : 0, smooth ? L.frost : 0);
+      }
       if (signalsRef.current) {
         // The lanes the town last drove on: kept current by stepTown. @see trafficOf
         const town = getTown(), T = town.traffic;
@@ -3976,7 +4002,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         r.clear();
         const st = useWorldStore.getState();
         const flood = st.playing && st.events.find((e) => e.kind === "river-flood" && e.phase !== "over");
-        if (flood) drawRain(r, app.screen.width, app.screen.height, performance.now() / 1000, flood.phase === "active" ? 1 : 0.5);
+        // RAIN AND SNOW FALLING as the weather has it, on the continuous surface; and a flood's rain, coming or here.
+        const w = groundMode() === "smooth" ? weatherAt(useCalendarStore.getState().now()) : null;
+        const pour = Math.max(flood ? (flood.phase === "active" ? 1 : 0.5) : 0, w ? w.rain : 0);
+        if (pour > 0.01) drawRain(r, app.screen.width, app.screen.height, performance.now() / 1000, pour, w?.storm ?? 0);
+        if (w && w.snow > 0.01) drawSnow(r, app.screen.width, app.screen.height, performance.now() / 1000, w.snow);
       }
     }
     perfAdd("fx", performance.now() - tFx);

@@ -57,13 +57,9 @@ const DECIDUOUS: readonly Turn[] = [
   { from: "bud", to: "full", t0: 0.1, t1: 0.16 },
   { from: "full", to: "thin", t0: 0.62, t1: 0.68 },
   { from: "thin", to: "bare", t0: 0.69, t1: 0.75 },
-  { from: "bare", to: "snow", t0: 0.79, t1: 0.83 },
-  { from: "snow", to: "bare", t0: 0.93, t1: 0.97 },
 ];
-const EVER: readonly Turn[] = [
-  { from: "full", to: "snow", t0: 0.79, t1: 0.83 },
-  { from: "snow", to: "full", t0: 0.93, t1: 0.97 },
-];
+// (Snow is the weather's, laid over whatever look a tree has: no turn of its own. @see world/weather)
+const EVER: readonly Turn[] = [{ from: "full", to: "full", t0: 0.5, t1: 0.55 }];
 /** Some kinds are early to leaf and late to fall, some the other way: a share of a year, added to every turn. */
 const LEAD: Readonly<Record<string, number>> = { flowers: -0.03, birch: -0.015, cherry: -0.02, oak: 0.015, hornbeam: 0.005, willow: -0.025, apple: -0.01, shrub: -0.02, poplar: 0.005 };
 

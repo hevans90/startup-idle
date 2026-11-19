@@ -1,6 +1,6 @@
 # Vegetation: trees, seasons, growth, weather
 
-Status (2026-11-19): phases 1–3 built — the seasons' look, woods as forests (`render/forest.ts`); the vegetation fields, biomes, six new kinds, growth, spread and catch-up (`vegetation/`); felling (stumps, timber), the Plant tool (woods, row, hedge, flowers) and farms with fields through the year paid at harvest (`vegetation/tend.ts`, `game/vegetation-cost.ts`). Sizes are the mature bake scaled by age, not three bakes. Street and park trees still the old props. On `?ground=smooth` only; the stepped ground keeps today's woods.
+Status (2026-11-19): phases 1–4 built — the seasons' look, woods as forests (`render/forest.ts`); the vegetation fields, biomes, six new kinds, growth, spread and catch-up (`vegetation/`); felling (stumps, timber), the Plant tool (woods, row, hedge, flowers) and farms with fields through the year paid at harvest (`vegetation/tend.ts`, `game/vegetation-cost.ts`). Sizes are the mature bake scaled by age, not three bakes. Weather (`weather.ts`) is pure on the calendar; snow lying and wet ground are one value for the map, varied in the shader, not a per-tile field; rain reaches the solver as runoff into sinks (`water/rain.ts`), not over every column. Roofs take no snow. Street and park trees still the old props. On `?ground=smooth` only; the stepped ground keeps today's woods.
 
 ## Decided (asked 2026-11-19)
 

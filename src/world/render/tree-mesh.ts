@@ -65,7 +65,7 @@ const hash = (x: number, y: number, k: number, salt: number) =>
   ((Math.imul(Math.imul(x, 0x2c1b3c6d) ^ Math.imul(y, 0x297a2d39) ^ Math.imul(k + 1, 0x9e3779b1) ^ salt, 0x85ebca6b) >>> 8) & 0xffff) / 0x10000;
 
 /** Floats a vertex. */
-const F = 32;
+const F = 40;
 
 /** A frame of a kind's look at a turn; a look it was not baked in, its leaves. */
 function frameOf(S: TreesSheet, kind: string, state: TreeState, turn: number): TreeFrame | undefined {
@@ -108,13 +108,15 @@ function writePart(S: Sheet, trees: readonly Tree[], t: number, scale: number, s
     const r = treeTurn(tr.kind, t, tr.lag);
     next = Math.min(next, r.t1);
     const A = frameOf(S.sheet, tr.kind, r.from, tr.turn), B = frameOf(S.sheet, tr.kind, r.to, tr.turn);
-    if (!A || !B) continue;
+    // (And its look under snow, for whenever the weather brings it. @see world/weather)
+    const C = frameOf(S.sheet, tr.kind, "snow", tr.turn) ?? B;
+    if (!A || !B || !C) continue;
     // Texels to world px; the foot on the screen.
     const k = (scale * tr.size) / res;
     const fx = (tr.u - tr.v) * HW * scale, fy = (tr.u + tr.v) * HH * scale - tr.z * HEIGHT_UNIT * scale;
     // The box, local px about the foot, both looks fit in.
-    const x0 = Math.min(-A[5], -B[5]) * k, x1 = Math.max(A[3] - A[5], B[3] - B[5]) * k;
-    const top = Math.min(-A[6], -B[6]) * k, bot = Math.max(A[4] - A[6], B[4] - B[6]) * k;
+    const x0 = Math.min(-A[5], -B[5], -C[5]) * k, x1 = Math.max(A[3] - A[5], B[3] - B[5], C[3] - C[5]) * k;
+    const top = Math.min(-A[6], -B[6], -C[6]) * k, bot = Math.max(A[4] - A[6], B[4] - B[6], C[4] - C[6]) * k;
     const ys = shadows ? [0, Math.max(bot, 0.5)] : [top, top * 0.45, 0];
     // How far its crown sways, px: by how tall it is. (Its shadow lies still.)
     const amp = shadows ? 0 : -top * 0.022;
@@ -133,6 +135,9 @@ function writePart(S: Sheet, trees: readonly Tree[], t: number, scale: number, s
         verts[o + 18] = A[0]; verts[o + 19] = B[0]; verts[o + 20] = A[3] + gap; verts[o + 21] = B[3] + gap;
         verts[o + 22] = r.t0; verts[o + 23] = r.t1; verts[o + 24] = KINDS.indexOf(tr.kind as (typeof KINDS)[number]); verts[o + 25] = tr.lag;
         verts[o + 26] = tr.tint[0]; verts[o + 27] = tr.tint[1]; verts[o + 28] = tr.tint[2];
+        verts[o + 29] = C[1] + C[5] + lx / k; verts[o + 30] = C[2] + C[6] + ly / k;
+        verts[o + 32] = C[1]; verts[o + 33] = C[2]; verts[o + 34] = C[1] + C[3]; verts[o + 35] = C[2] + C[4];
+        verts[o + 36] = C[0]; verts[o + 37] = C[3] + gap;
         n++;
       }
     }
@@ -145,7 +150,8 @@ function writePart(S: Sheet, trees: readonly Tree[], t: number, scale: number, s
 }
 
 export type TreeMesh = {
-  sync: (g: Grid, palette: readonly (string | null)[], rev: number, scale: number) => void;
+  /** `snow`: how much lies, 0–1, from the weather. @see world/weather groundAt */
+  sync: (g: Grid, palette: readonly (string | null)[], rev: number, scale: number, snow?: number) => void;
   destroy: () => void;
 };
 
@@ -161,7 +167,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
   let parts = new Map<number, Tree[]>();
   const dirty = new Set<number>();
   const uniforms = new UniformGroup({
-    // The year (as years since the calendar began); the wind's clock, s, and its strength; and a spare.
+    // The year (as years since the calendar began); the wind's clock, s, and its strength; and the snow lying, 0–1.
     uYear: { value: new Float32Array([0, 0, 1, 0]), type: "vec4<f32>" },
     uPages: { value: new Float32Array([2048, 2048, 2048, 2048]), type: "vec4<f32>" },
     uPages2: { value: new Float32Array([2048, 2048, 2048, 2048]), type: "vec4<f32>" },
@@ -198,6 +204,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
       attributes: {
         aPos: at(0, "float32x2"), aMove: at(2, "float32x4"), aUv: at(6, "float32x4"), aRectA: at(10, "float32x4"), aRectB: at(14, "float32x4"),
         aPage: at(18, "float32x4"), aTurn: at(22, "float32x4"), aTint: at(26, "float32x4"),
+        aUvC: at(29, "float32x2"), aRectC: at(32, "float32x4"), aPageC: at(36, "float32x2"),
       },
       indexBuffer: ib,
     });
@@ -209,13 +216,13 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
   };
 
   return {
-    sync(g, palette, rev, scale) {
+    sync(g, palette, rev, scale, snow = 0) {
       const S = sheetNow();
       if (!S) return;
       const t = useCalendarStore.getState().now();
       // THE WIND AND THE YEAR, every frame: uniforms only.
       const u = uniforms.uniforms.uYear as Float32Array, pg = uniforms.uniforms.uPages as Float32Array;
-      u[0] = t; u[1] = (performance.now() - t0) / 1000; u[2] = useGlobalSettingsStore.getState().motion === "calm" ? 0 : 1;
+      u[0] = t; u[1] = (performance.now() - t0) / 1000; u[2] = useGlobalSettingsStore.getState().motion === "calm" ? 0 : 1; u[3] = snow;
       const pg2 = uniforms.uniforms.uPages2 as Float32Array;
       S.sheet.pages.forEach((pp, k) => { const a = k < 2 ? pg : pg2, o = (k % 2) * 2; a[o] = pp.w; a[o + 1] = pp.h; });
       uniforms.update();
@@ -348,6 +355,9 @@ struct VSOutput {
   @location(5) vBlend: f32,
   @location(6) vLeaf: vec3<f32>,
   @location(7) vTint: vec4<f32>,
+  @location(8) vUvC: vec2<f32>,
+  @location(9) vRectC: vec4<f32>,
+  @location(10) vPageC: vec2<f32>,
 };
 
 fn hash(p: vec2<i32>) -> f32 {
@@ -366,7 +376,8 @@ fn rampAt(row: i32, y: f32) -> vec3<f32> {
 
 @vertex
 fn mainVertex(@location(0) aPos: vec2<f32>, @location(1) aMove: vec4<f32>, @location(2) aUv: vec4<f32>, @location(3) aRectA: vec4<f32>,
-  @location(4) aRectB: vec4<f32>, @location(5) aPage: vec4<f32>, @location(6) aTurn: vec4<f32>, @location(7) aTint: vec4<f32>) -> VSOutput {
+  @location(4) aRectB: vec4<f32>, @location(5) aPage: vec4<f32>, @location(6) aTurn: vec4<f32>, @location(7) aTint: vec4<f32>,
+  @location(8) aUvC: vec2<f32>, @location(9) aRectC: vec4<f32>, @location(10) aPageC: vec2<f32>) -> VSOutput {
   let mvp = globalUniforms.uProjectionMatrix * globalUniforms.uWorldTransformMatrix * localUniforms.uTransformMatrix;
   // THE WIND: a slow swing of its own, and a gust that rolls across the map.
   let tw = trees.uYear.y;
@@ -379,6 +390,7 @@ fn mainVertex(@location(0) aPos: vec2<f32>, @location(1) aMove: vec4<f32>, @loca
   out.vBlend = clamp((trees.uYear.x - aTurn.x) / max(aTurn.y - aTurn.x, 1e-5), 0.0, 1.0);
   out.vLeaf = rampAt(i32(aTurn.z + 0.5), trees.uYear.x + aTurn.w) * aTint.rgb;
   out.vTint = localUniforms.uColor * globalUniforms.uWorldColorAlpha;
+  out.vUvC = aUvC; out.vRectC = aRectC; out.vPageC = aPageC;
   return out;
 }
 
@@ -392,15 +404,18 @@ fn inside(uv: vec2<f32>, r: vec4<f32>) -> bool { return uv.x >= r.x && uv.y >= r
 
 @fragment
 fn mainFragment(@location(0) vUv: vec4<f32>, @location(1) vRectA: vec4<f32>, @location(2) vRectB: vec4<f32>, @location(3) vPage: vec4<f32>,
-  @location(4) vLocal: vec2<f32>, @location(5) vBlend: f32, @location(6) vLeaf: vec3<f32>, @location(7) vTint: vec4<f32>) -> @location(0) vec4<f32> {
+  @location(4) vLocal: vec2<f32>, @location(5) vBlend: f32, @location(6) vLeaf: vec3<f32>, @location(7) vTint: vec4<f32>,
+  @location(8) vUvC: vec2<f32>, @location(9) vRectC: vec4<f32>, @location(10) vPageC: vec2<f32>) -> @location(0) vec4<f32> {
   let dx = dpdx(vUv.xy); let dy = dpdy(vUv.xy);
   // THE TURN, clump by clump: a broad noise and a little of a fine one, each point of the tree its own moment in it.
   let n = vnoise(vLocal / 7.0) * 0.82 + hash(vec2<i32>(floor(vLocal / 4.0))) * 0.18;
   let b = n < vBlend * 1.02 - 0.01;
-  let uv = select(vUv.xy, vUv.zw, b);
-  let rect = select(vRectA, vRectB, b);
+  // SNOW as the weather lays it, clump by clump, the other way through the same noise. @see world/weather
+  let snowy = (1.0 - n) < trees.uYear.w * 1.02 - 0.01;
+  let uv = select(select(vUv.xy, vUv.zw, b), vUvC, snowy);
+  let rect = select(select(vRectA, vRectB, b), vRectC, snowy);
   if (!inside(uv, rect)) { discard; }
-  let page = select(vPage.x, vPage.y, b); let off = select(vPage.z, vPage.w, b);
+  let page = select(select(vPage.x, vPage.y, b), vPageC.x, snowy); let off = select(select(vPage.z, vPage.w, b), vPageC.y, snowy);
   let leaf = pageAt(page, uv, dx, dy);
   let rest = pageAt(page, uv + vec2<f32>(off, 0.0), dx, dy);
   let col = rest + vec4<f32>(leaf.rgb * vLeaf, leaf.a) * (1.0 - rest.a);
@@ -412,7 +427,9 @@ fn mainFragment(@location(0) vUv: vec4<f32>, @location(1) vRectA: vec4<f32>, @lo
 const GLSL_VERTEX = /* glsl */ `#version 300 es
 precision highp float;
 in vec2 aPos; in vec4 aMove; in vec4 aUv; in vec4 aRectA; in vec4 aRectB; in vec4 aPage; in vec4 aTurn; in vec4 aTint;
+in vec2 aUvC; in vec4 aRectC; in vec2 aPageC;
 out vec4 vUv; out vec4 vRectA; out vec4 vRectB; out vec4 vPage; out vec2 vLocal; out float vBlend; out vec3 vLeaf; out vec4 vTint;
+out vec2 vUvC; out vec4 vRectC; out vec2 vPageC;
 uniform mat3 uProjectionMatrix; uniform mat3 uWorldTransformMatrix; uniform vec4 uWorldColorAlpha; uniform vec2 uResolution;
 uniform mat3 uTransformMatrix; uniform vec4 uColor;
 uniform vec4 uYear; uniform vec4 uPages; uniform vec4 uPages2;
@@ -432,6 +449,7 @@ void main() {
   vBlend = clamp((uYear.x - aTurn.x) / max(aTurn.y - aTurn.x, 1e-5), 0.0, 1.0);
   vLeaf = rampAt(int(aTurn.z + 0.5), uYear.x + aTurn.w) * aTint.rgb;
   vTint = uColor * uWorldColorAlpha;
+  vUvC = aUvC; vRectC = aRectC; vPageC = aPageC;
 }
 `;
 
@@ -439,6 +457,7 @@ const GLSL_FRAGMENT = /* glsl */ `#version 300 es
 precision highp float;
 precision highp int;
 in vec4 vUv; in vec4 vRectA; in vec4 vRectB; in vec4 vPage; in vec2 vLocal; in float vBlend; in vec3 vLeaf; in vec4 vTint;
+in vec2 vUvC; in vec4 vRectC; in vec2 vPageC;
 out vec4 finalColor;
 uniform vec4 uYear; uniform vec4 uPages; uniform vec4 uPages2;
 uniform sampler2D uPage0; uniform sampler2D uPage1; uniform sampler2D uPage2; uniform sampler2D uPage3;
@@ -462,10 +481,11 @@ void main() {
   vec2 dx = dFdx(vUv.xy), dy = dFdy(vUv.xy);
   float n = vnoise(vLocal / 7.0) * 0.82 + hash(ivec2(floor(vLocal / 4.0))) * 0.18;
   bool b = n < vBlend * 1.02 - 0.01;
-  vec2 uv = b ? vUv.zw : vUv.xy;
-  vec4 rect = b ? vRectB : vRectA;
+  bool snowy = (1.0 - n) < uYear.w * 1.02 - 0.01;
+  vec2 uv = snowy ? vUvC : b ? vUv.zw : vUv.xy;
+  vec4 rect = snowy ? vRectC : b ? vRectB : vRectA;
   if (!inside(uv, rect)) discard;
-  float page = b ? vPage.y : vPage.x; float off = b ? vPage.w : vPage.z;
+  float page = snowy ? vPageC.x : b ? vPage.y : vPage.x; float off = snowy ? vPageC.y : b ? vPage.w : vPage.z;
   vec4 leaf = pageAt(page, uv, dx, dy);
   vec4 rest = pageAt(page, uv + vec2(off, 0.0), dx, dy);
   vec4 col = rest + vec4(leaf.rgb * vLeaf, leaf.a) * (1.0 - rest.a);

@@ -610,12 +610,12 @@ export function flushGround(gm: GroundMesh, grid: Grid, palette: Palette) {
   if (map[3] !== grid.maxHeight + 2) { map[3] = grid.maxHeight + 2; gm.uniforms.update(); }
 }
 
-/** THE YEAR on the ground, each frame: on the continuous surface only. @see world/calendar groundSeason */
-export function seasonGround(gm: GroundMesh, s: { bloom: number; dry: number; brown: number; snow: number } | null, yearShare = 0.3) {
+/** THE YEAR on the ground, each frame, and the weather's wet and frost on it: on the continuous surface only. @see world/calendar groundSeason, world/weather groundAt */
+export function seasonGround(gm: GroundMesh, s: { bloom: number; dry: number; brown: number; snow: number } | null, yearShare = 0.3, wet = 0, frost = 0) {
   const m = gm.uniforms.uniforms.uMode as Float32Array;
-  // (The year's share, for the fields: a step a day, so the uniforms are not sent each frame.)
-  const ys = Math.floor(yearShare * 120) / 120;
-  if (m[1] !== ys) { m[1] = ys; gm.uniforms.update(); }
+  // (The year's share, for the fields: a step a day; the ground's wet and frost in 64ths: so the uniforms are not sent each frame.)
+  const ys = Math.floor(yearShare * 120) / 120, wq = Math.round(wet * 64) / 64, fq = Math.round(frost * 64) / 64;
+  if (m[1] !== ys || m[2] !== wq || m[3] !== fq) { m[1] = ys; m[2] = wq; m[3] = fq; gm.uniforms.update(); }
   const u = gm.uniforms.uniforms.uSeason as Float32Array;
   const b = s ? s.bloom : 0, d = s ? s.dry : 0, r = s ? s.brown : 0, w = s ? s.snow : 0;
   if (u[0] === b && u[1] === d && u[2] === r && u[3] === w) return;
@@ -1287,6 +1287,22 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
     // SNOW where it lies: patchy as it comes and as it goes, more the higher, none on a slope too steep to hold it.
     // (None on a bed under standing water: it would show through.)
     let wetHere = i32(textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).w + 0.5) % 4 == 2;
+    // AFTER RAIN (uMode.z how wet): the ground darker, mud and then puddles in the level hollows, more the wetter;
+    // FROST (uMode.w) whitening it on a cold still morning. @see world/weather groundAt
+    let soaked = ground.uMode.z;
+    if (soaked > 0.01 && !wetHere) {
+      col = col * (1.0 - 0.16 * soaked);
+      let level = 1.0 - smoothstep(0.3, 1.2, steep);
+      let pud = vnoise(vGround * 2.2 + 31.0) * 0.6 + fbm(vGround * 0.7 + 3.0) * 0.4 + (vnoise(vGround * 7.0 + 2.0) - 0.5) * 0.05;
+      let edge = 0.82 - 0.14 * soaked;
+      col = mix(col, vec3<f32>(0.29, 0.23, 0.16), smoothstep(edge - 0.05, edge, pud) * level * 0.6 * soaked);
+      // (Frozen over in a frost.)
+      let sky = mix(vec3<f32>(0.52, 0.6, 0.68), vec3<f32>(0.8, 0.86, 0.91), ground.uMode.w) * (0.85 + 0.3 * vnoise(vGround * 5.0 + 7.0));
+      col = mix(col, sky, smoothstep(edge + 0.015, edge + 0.04, pud) * level * smoothstep(0.3, 0.6, soaked) * 0.85);
+    }
+    if (ground.uMode.w > 0.01 && !wetHere) {
+      col = mix(col, vec3<f32>(0.84, 0.88, 0.93), ground.uMode.w * 0.5 * (0.6 + 0.4 * vnoise(vGround * 9.0)) * (1.0 - smoothstep(2.2, 4.8, steep)));
+    }
     if (ground.uSeason.w > 0.0 && !wetHere) {
       let lie = ground.uSeason.w * 1.3 - 0.3 + (fbm(vGround * 1.3 + 5.0) - 0.5) * 0.7 + vWall.y * 0.008;
       let cover = smoothstep(0.0, 0.12, lie) * (1.0 - smoothstep(2.2, 4.8, steep));
@@ -1806,6 +1822,19 @@ void main() {
       }
     }
     bool wetHere = int(texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).w + 0.5) % 4 == 2;
+    float soaked = uMode.z;
+    if (soaked > 0.01 && !wetHere) {
+      col *= 1.0 - 0.16 * soaked;
+      float level = 1.0 - smoothstep(0.3, 1.2, steep);
+      float pud = vnoise(vGround * 2.2 + 31.0) * 0.6 + fbm(vGround * 0.7 + 3.0) * 0.4 + (vnoise(vGround * 7.0 + 2.0) - 0.5) * 0.05;
+      float edge = 0.82 - 0.14 * soaked;
+      col = mix(col, vec3(0.29, 0.23, 0.16), smoothstep(edge - 0.05, edge, pud) * level * 0.6 * soaked);
+      vec3 sky = mix(vec3(0.52, 0.6, 0.68), vec3(0.8, 0.86, 0.91), uMode.w) * (0.85 + 0.3 * vnoise(vGround * 5.0 + 7.0));
+      col = mix(col, sky, smoothstep(edge + 0.015, edge + 0.04, pud) * level * smoothstep(0.3, 0.6, soaked) * 0.85);
+    }
+    if (uMode.w > 0.01 && !wetHere) {
+      col = mix(col, vec3(0.84, 0.88, 0.93), uMode.w * 0.5 * (0.6 + 0.4 * vnoise(vGround * 9.0)) * (1.0 - smoothstep(2.2, 4.8, steep)));
+    }
     if (uSeason.w > 0.0 && !wetHere) {
       float lie = uSeason.w * 1.3 - 0.3 + (fbm(vGround * 1.3 + 5.0) - 0.5) * 0.7 + vWall.y * 0.008;
       float cover = smoothstep(0.0, 0.12, lie) * (1.0 - smoothstep(2.2, 4.8, steep));
