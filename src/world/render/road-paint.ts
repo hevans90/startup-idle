@@ -81,8 +81,8 @@ export function lodFor(pxPerFrame: number, current = -1): number {
 let DETAIL = 0;
 /** How far past its own edges a texture paints its neighbours, tiles: more than the AA of an edge. */
 const MARGIN = 0.03;
-/** Frame pixels of room round the diamond, and over it for a ramp rising up-screen. */
-const PAD = 4, RAMP_PAD = 36;
+/** Frame pixels of room round the diamond, and over it for a ramp rising up-screen — or a tile of road on the continuous surface, whose top corner can stand four half steps over its lowest. */
+const PAD = 4, RAMP_PAD = 76;
 
 const ASPHALT = 0x55575b, WHITE = 0xeeece4, YELLOW = 0xe6b437, IRON = 0x2f3236;
 const TARMAC = 0x6b6c6f;
@@ -98,7 +98,15 @@ const has = (open: number, s: number) => (open & (1 << s)) !== 0;
  * own cell, and its surface, `z0 + zu·u + zv·v` in height units up from the
  * texture's cell's base.
  */
-export type CellPaint = { look: Look; dx: number; dy: number; z0: number; zu: number; zv: number };
+export type CellPaint = {
+  look: Look; dx: number; dy: number; z0: number; zu: number; zv: number;
+  /**
+   * ON THE CONTINUOUS SURFACE, where its corners are not in one plane: its height at (0,0), (1,0), (1,1), (0,1),
+   * from the texture's cell's base. It is then painted as the two triangles the ground's mesh draws under it —
+   * split from (0,0) to (1,1) — each on its own plane, so a tile meets its neighbours exactly along every edge.
+   */
+  zc?: readonly [number, number, number, number];
+};
 
 /** A cell's surface plane from its ramp, its base `z` up. */
 export function planeOf(ramp: number, z: number): { z0: number; zu: number; zv: number } {
@@ -1239,29 +1247,50 @@ export function createRoadPainter(renderer: Renderer): RoadPainter {
       ctx.setTransform(RES, 0, 0, RES, 0, 0);
       ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
       ctx.clearRect(x, y, w, h);
-      // The tile's projection for a cell `dx, dy` from this one, `lift` frame pixels up.
-      const project = (c: CellPaint, lift: number) => {
-        const HU = HEIGHT_UNIT;
+      const HU = HEIGHT_UNIT;
+      // The tile's projection for a cell `dx, dy` from this one, on plane `p`, `lift` frame pixels up.
+      const project = (c: CellPaint, lift: number, p: { z0: number; zu: number; zv: number } = c) => {
         ctx.setTransform(
-          66 * RES, (33 - c.zu * HU) * RES,
-          -66 * RES, (33 - c.zv * HU) * RES,
+          66 * RES, (33 - p.zu * HU) * RES,
+          -66 * RES, (33 - p.zv * HU) * RES,
           (x + PAD + 66 + 66 * (c.dx - c.dy)) * RES,
-          (y + top + 33 * (c.dx + c.dy) - c.z0 * HU - lift) * RES,
+          (y + top + 33 * (c.dx + c.dy) - p.z0 * HU - lift) * RES,
         );
       };
       // Only this cell's diamond and a margin: the neighbours' parts that its sprite overlaps.
       const self = cells.find((c) => c.dx === 0 && c.dy === 0)!;
-      project(self, 0);
-      ctx.beginPath(); ctx.rect(-MARGIN, -MARGIN, 1 + 2 * MARGIN, 1 + 2 * MARGIN);
-      ctx.setTransform(RES, 0, 0, RES, 0, 0);
+      if (self.zc) {
+        // (Its corners not in one plane: the outline through them, each carried a margin out along its edges.)
+        const z = self.zc, M = MARGIN;
+        const at = (u: number, v: number) => {
+          const h = (z[0] * (1 - u) + z[1] * u) * (1 - v) + (z[3] * (1 - u) + z[2] * u) * v;
+          return [x + PAD + 66 + 66 * (u - v), y + top + 33 * (u + v) - h * HU] as const;
+        };
+        ctx.setTransform(RES, 0, 0, RES, 0, 0);
+        ctx.beginPath();
+        for (const [u, v] of [[-M, -M], [1 + M, -M], [1 + M, 1 + M], [-M, 1 + M]] as const) ctx.lineTo(...at(u, v));
+        ctx.closePath();
+      } else {
+        project(self, 0);
+        ctx.beginPath(); ctx.rect(-MARGIN, -MARGIN, 1 + 2 * MARGIN, 1 + 2 * MARGIN);
+        ctx.setTransform(RES, 0, 0, RES, 0, 0);
+      }
       ctx.clip();
       const E = 0.004;
       for (const pass of [0, 1]) for (const c of cells) {
-        ctx.save();
-        project(c, pass ? KERB_PX : 0);
-        ctx.beginPath(); ctx.rect(-E, -E, 1 + 2 * E, 1 + 2 * E); ctx.clip();
-        if (pass) paintRaised(ctx, c.look); else paintGround(ctx, c.look);
-        ctx.restore();
+        // A cell on one plane, painted once; one whose corners are not, as its two triangles, each a hair over the
+        // diagonal so no seam opens down it.
+        for (const k of c.zc ? [0, 1] : [-1]) {
+          ctx.save();
+          const z = c.zc;
+          project(c, pass ? KERB_PX : 0, !z ? c : k === 0 ? { z0: z[0], zu: z[1] - z[0], zv: z[2] - z[1] } : { z0: z[0], zu: z[2] - z[3], zv: z[3] - z[0] });
+          ctx.beginPath();
+          if (k < 0) ctx.rect(-E, -E, 1 + 2 * E, 1 + 2 * E);
+          else for (const [u, v] of (k === 0 ? [[-E, -E], [1 + E, -E], [1 + E, 1 + E], [1 - E, 1 + E], [-E, E]] : [[-E, -E], [E, -E], [1 + E, 1 - E], [1 + E, 1 + E], [-E, 1 + E]])) ctx.lineTo(u, v);
+          ctx.clip();
+          if (pass) paintRaised(ctx, c.look); else paintGround(ctx, c.look);
+          ctx.restore();
+        }
       }
       ctx.restore();
       DETAIL = 0;

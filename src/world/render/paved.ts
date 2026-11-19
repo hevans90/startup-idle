@@ -24,13 +24,18 @@ function baseOf(grid: Grid, x: number, y: number): number {
   if (!lies(grid, x, y)) return surfaceHeightAt(grid, x, y);
   return Math.min(roadCorner(grid, x, y), roadCorner(grid, x + 1, y), roadCorner(grid, x + 1, y + 1), roadCorner(grid, x, y + 1));
 }
-/** A cell's road as a plane over `z`: its ramp's, or on the continuous surface the plane nearest its four corners, right at its middle. */
-function planeAt(grid: Grid, x: number, y: number, ramp: number, z: number): { z0: number; zu: number; zv: number } {
+/**
+ * A cell's road surface over `z`: its ramp's plane; or on the continuous surface its four corners (@see CellPaint.zc),
+ * each as the ground's mesh has it, so the tile is painted on just what is drawn under it.
+ */
+function planeAt(grid: Grid, x: number, y: number, ramp: number, z: number): Pick<CellPaint, "z0" | "zu" | "zv" | "zc"> {
   if (!lies(grid, x, y)) return planeOf(ramp, surfaceHeightAt(grid, x, y) - z);
-  const a = roadCorner(grid, x, y), b = roadCorner(grid, x + 1, y), c = roadCorner(grid, x + 1, y + 1), d = roadCorner(grid, x, y + 1);
-  const q = (n: number) => Math.round(n * 48) / 48;
-  const zu = q((b + c - a - d) / 2), zv = q((d + c - a - b) / 2);
-  return { z0: q((a + b + c + d) / 4 - zu / 2 - zv / 2 - z), zu, zv };
+  // (To a 48th of a half step: what is the same is keyed the same.)
+  const q = (n: number) => Math.round((n - z) * 48) / 48;
+  const zc = [q(roadCorner(grid, x, y)), q(roadCorner(grid, x + 1, y)), q(roadCorner(grid, x + 1, y + 1)), q(roadCorner(grid, x, y + 1))] as const;
+  // On one plane, as a plane: a level tile, or one that climbs straight.
+  if (zc[0] + zc[2] === zc[1] + zc[3]) return { z0: zc[0], zu: zc[1] - zc[0], zv: zc[3] - zc[0] };
+  return { z0: zc[0], zu: zc[1] - zc[0], zv: zc[3] - zc[0], zc };
 }
 
 export type PavedLayer = {
@@ -147,9 +152,12 @@ function paintOf(looks: readonly (Look | null)[], grid: Grid, x: number, y: numb
       if (dx && dy ? !(L.diag & (1 << corner)) || L.ramp || N.ramp : !(L.open & (1 << side))) continue;
     }
     const plane = planeAt(grid, nx, ny, N.ramp, z);
-    if (plane.z0 > 0 || plane.zu || plane.zv) ramp = true;
+    if (plane.z0 > 0 || plane.zu || plane.zv || plane.zc) ramp = true;
+    const zc = plane.zc ? `,${plane.zc.join(",")}` : "";
     // A neighbour's wear is in its middle, never in the margin: leave it out of the key.
-    if (dx || dy) key += `|${dx},${dy},${plane.z0},${plane.zu},${plane.zv}:${keyOf({ ...N, vr: 0 })}`;
+    if (dx || dy) key += `|${dx},${dy},${plane.z0},${plane.zu},${plane.zv}${zc}:${keyOf({ ...N, vr: 0 })}`;
+    // (And its own: two tiles of one look on two slopes are two textures.)
+    else if (plane.z0 || plane.zu || plane.zv || zc) key += `|s${plane.z0},${plane.zu},${plane.zv}${zc}`;
     cells.push({ look: dx || dy ? { ...N, vr: 0 } : N, dx, dy, ...plane });
   }
   return { key, cells, ramp };
