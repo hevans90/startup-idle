@@ -28,12 +28,13 @@ describe("wear", () => {
 
   test("walkers off the paving tread a path, which shows as it wears and heals with nobody on it", () => {
     const g = land();
-    for (let k = 0; k < 4; k++) wearFrom(g, palette, [{ x: 3, y: 3, kind: "person" }]);
-    expect(W(g, 3, 3)).toBe(4 * WEAR.across);
+    // (Enough steps that it shows: an eighth worn.)
+    for (let k = 0; k < 8; k++) wearFrom(g, palette, [{ x: 3, y: 3, kind: "person" }]);
+    expect(W(g, 3, 3)).toBe(8 * WEAR.across);
     expect(g.veg.changed.has(idx(g, 3, 3))).toBe(true);
     g.veg.changed.clear();
     healWear(g, 0.01);
-    expect(W(g, 3, 3)).toBeLessThan(4 * WEAR.across);
+    expect(W(g, 3, 3)).toBeLessThan(8 * WEAR.across);
     for (let k = 0; k < 60; k++) healWear(g, 0.01);
     expect(W(g, 3, 3)).toBe(0);
     expect(g.veg.changed.has(idx(g, 3, 3))).toBe(true);

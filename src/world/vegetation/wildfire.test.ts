@@ -5,6 +5,7 @@ import { forestTrees } from "../render/forest";
 import { COVER, vegAll } from "./fields";
 import { stepVegetation } from "./step";
 import { startWildfire, stepWildfire, tinderAt, type FireWeather, type Wildfire } from "./wildfire";
+import { WILDFIRE_AFTER, WILDFIRE_AFTER_MS, fireAfterDry } from "../events/defs/wildfire";
 
 /** A WILDFIRE: catching where it is driest, running with the wind, stopped by roads and the brigade, leaving char. @see wildfire */
 const palette = [null, "grass", "wood3"] as const;
@@ -73,5 +74,18 @@ describe("wildfire", () => {
     const f = startWildfire(m, 8, 8);
     burnFor(m, f, 60);
     expect(f.burnt).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("a fire after the dry", () => {
+  const dry = { wildfire: { x: 3, y: 4, dryness: 0.6, burning: 0, burnt: 0, buildings: 0 } };
+  test("a drought or heatwave over, a wood left that would catch: a wildfire to come, as often as asked", () => {
+    expect(fireAfterDry("drought", dry, 0)).toEqual({ kind: "wildfire", inMs: WILDFIRE_AFTER_MS });
+    expect(fireAfterDry("heatwave", dry, WILDFIRE_AFTER - 0.01)?.kind).toBe("wildfire");
+    expect(fireAfterDry("drought", dry, WILDFIRE_AFTER)).toBeNull();
+  });
+  test("none with nothing dry enough, or after anything else", () => {
+    expect(fireAfterDry("drought", { wildfire: null }, 0)).toBeNull();
+    expect(fireAfterDry("earthquake", dry, 0)).toBeNull();
   });
 });

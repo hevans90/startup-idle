@@ -169,6 +169,7 @@ import { emptyFull, slopSpike, tanksOf } from "./slop/tanks";
 import { convoyTally, townMood } from "./events/town-events";
 import { createDirector, dueFollowUp, eventStarted, pickEvent, queueFollowUp, tickDirector } from "./events/director";
 import { EVENT_DEFS } from "./events/defs";
+import { fireAfterDry } from "./events/defs/wildfire";
 import { HACKATHON_CODERS } from "./events/defs/hackathon";
 import { FLOOD_MS } from "./events/defs/flood";
 import {
@@ -3495,7 +3496,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             // WHAT AN EVENT LEAVES BEHIND, once over. @see Outcome
             for (const { event, outcome } of stepped.ended) {
               if (outcome.money) useMoneyStore.getState().increaseMoney(outcome.money);
-              if (outcome.next) queueFollowUp(director.current, outcome.next.kind, view.now, outcome.next.inMs);
+              // (A wildfire, maybe, where the dry has left a wood that would catch — and nothing else is to come. @see fireAfterDry)
+              const after = outcome.next ?? fireAfterDry(event.kind, view, Math.random());
+              if (after) queueFollowUp(director.current, after.kind, view.now, after.inMs);
               outcome.then?.();
               if (event.kind === "river-flood") evacuees.current.clear();
               if (event.kind === "heatwave") overheated.current.clear();

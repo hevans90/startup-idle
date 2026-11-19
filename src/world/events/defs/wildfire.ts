@@ -5,7 +5,7 @@
  * runs out of woods, the rain comes or it burns itself out. Only when something is dry enough to catch, and the
  * likelier the drier. @see vegetation/wildfire, vegetation/stress
  */
-import { minutes, type EventDef } from "../events";
+import { minutes, type EventDef, type EventKind, type TownView } from "../events";
 
 /** The warning, and how long it burns if let. */
 export const WILDFIRE_WARN_MS = 30_000;
@@ -14,6 +14,20 @@ export const WILDFIRE_MS = 240_000;
 export const WILDFIRE_BRIGADE_MS = 60_000;
 /** Seconds of income the brigade costs. */
 export const WILDFIRE_BRIGADE_SECONDS = 180;
+
+/** How often a drought or heatwave that leaves a wood dry enough to catch is followed by a fire, and how soon. */
+export const WILDFIRE_AFTER = 0.4;
+export const WILDFIRE_AFTER_MS = 60_000;
+
+/**
+ * A FIRE AFTER THE DRY: what a drought or heatwave just over (`kind`) leaves to come, `roll` in [0, 1) — a wildfire,
+ * {@link WILDFIRE_AFTER} of the time, if a wood is dry enough to catch now. The director draws nothing while either is
+ * on, so without this a fire came only if it happened to be drawn the moment they were over. @see Outcome.next
+ */
+export function fireAfterDry(kind: EventKind, v: Pick<TownView, "wildfire">, roll: number): { kind: EventKind; inMs: number } | null {
+  if (kind !== "drought" && kind !== "heatwave") return null;
+  return v.wildfire && roll < WILDFIRE_AFTER ? { kind: "wildfire", inMs: WILDFIRE_AFTER_MS } : null;
+}
 
 export const WILDFIRE: EventDef = {
   kind: "wildfire",

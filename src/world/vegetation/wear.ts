@@ -11,7 +11,7 @@ import { vegAt } from "./fields";
 type Palette = readonly (string | null)[];
 
 /** Wear a sample gives, out of 255: to each verge beside a road a wheel is on, by how heavy; to unpaved ground a walker crosses. */
-export const WEAR = { wheel: 2, heavy: 4, foot: 1, across: 10 } as const;
+export const WEAR = { wheel: 1, heavy: 2, foot: 1, across: 5 } as const;
 /** Wear healed a year, as a share of the most. */
 export const HEAL = 3;
 

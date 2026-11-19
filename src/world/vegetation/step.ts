@@ -32,7 +32,7 @@ const CATCH_UP_STEPS = 8;
 /** Years from sapling to mature. */
 const GROW_YEARS = 2;
 /** Rates, a year: open ground beside a grown wood seeded; scrub grown up into a wood; a wood thickening by a tree; reeds coming and going. */
-const SEED = 0.25, SCRUB_UP = 0.6, THICKEN = 0.35, REEDS = 0.2, BURNT = 1, ROT = 1, FALLOW = 2;
+const SEED = 0.5, SCRUB_UP = 1, THICKEN = 0.6, REEDS = 0.2, BURNT = 1, ROT = 1, FALLOW = 2;
 /** A wood is old enough to seed from halfway grown. */
 const SEEDS_FROM = 128;
 
