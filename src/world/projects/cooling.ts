@@ -12,7 +12,9 @@ import { agentsARack } from "../../game/agents";
 import { questStandingWater } from "../../game/quests/effects";
 import { inAiDistrictNow } from "../ai/district";
 import { cooledOf, demandOf, drink, isDrinker, tankOf, type Drinker } from "../../game/cooling";
-import type { Grid, Structure } from "../grid";
+import { idx, inBounds, type Grid, type Structure } from "../grid";
+import { groundMode } from "../render/ground-mode";
+import { COVER } from "../vegetation/fields";
 import { powered } from "./racks";
 import { notable } from "../../game/machine";
 import { isDamaged } from "../events/damage";
@@ -25,6 +27,26 @@ import { isDamaged } from "../events/damage";
  */
 let heat = { thirst: 1, topUp: false };
 export const setHeat = (thirst: number, topUp: boolean) => { heat = { thirst, topUp }; };
+
+/** How much of a heatwave's extra thirst full shade takes off. @see shadeOf */
+export const SHADE_COOLS = 0.5;
+
+/**
+ * SHADE: the share of the ring of cells round a footprint with trees on them — a wood, a row, a hedge — on the
+ * continuous surface, where trees are drawn; none elsewhere.
+ */
+export function shadeOf(g: Grid, s: Structure): number {
+  if (groundMode() !== "smooth") return 0;
+  let trees = 0, ring = 0;
+  for (let y = s.y - 1; y <= s.y + s.h; y++) for (let x = s.x - 1; x <= s.x + s.w; x++) {
+    if (x >= s.x && x < s.x + s.w && y >= s.y && y < s.y + s.h) continue;
+    if (!inBounds(g, x, y)) continue;
+    ring++;
+    const i = idx(g, x, y), c = g.veg.cover[i];
+    if ((c === COVER.wood && g.veg.density[i] > 0) || c === COVER.row || c === COVER.hedge) trees++;
+  }
+  return ring ? trees / ring : 0;
+}
 
 export type Tank = { level: number; share: number; capacity: number; demand: number; agents: number; def: Drinker };
 
@@ -82,7 +104,8 @@ export function stepCooling(g: Grid, running: number, river: boolean, dt: number
     if (s.build || !isDrinker(s.def)) continue;
     live.add(s.id);
     const n = agents.get(s.id) ?? 0;
-    const demand = demandOf(s.def, n, river) * heat.thirst;
+    // (In the shade of trees a heatwave's thirst is less. @see shadeOf)
+    const demand = demandOf(s.def, n, river) * (heat.thirst > 1 ? 1 + (heat.thirst - 1) * (1 - SHADE_COOLS * shadeOf(g, s)) : heat.thirst);
     const capacity = tankOf(demand);
     const t = tanks.get(s.id) ?? { level: capacity, share: 1, capacity, demand, agents: n, def: s.def };
     // A STANDING SOURCE, the river given to it in the arc: its own kept in water. @see questStandingWater

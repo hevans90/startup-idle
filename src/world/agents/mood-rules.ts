@@ -18,6 +18,8 @@ export const MOOD = {
   polluted: -8,
   flooded: -20,
   derelict: -5,
+  /** Trees round it, on the continuous surface: a wood, a row, a hedge or a bed. @see GREEN_AT */
+  green: 4,
 } as const;
 /**
  * What each need met adds, by the kind it is met for: about what a café, a
@@ -27,6 +29,11 @@ export const NEED_MOOD: Record<GeneratorId, number> = { intern: 7, vibe_coder: 7
 /** How near a wonder and a derelict count, in tiles. */
 export const WONDER_REACH = 10;
 export const DERELICT_REACH = 4;
+/**
+ * GREENERY: how near trees count, in tiles, and how many cells of them within that make a home green — and quiet:
+ * woods round it are as good as a park against the crowding. @see greenAround
+ */
+export const GREEN_REACH = 2, GREEN_AT = 6;
 /** A house's mood never goes past this, either way. */
 export const MOOD_LIMIT = 40;
 /** At or below this, people start to leave; one every this many seconds. */
@@ -60,6 +67,7 @@ export const WHY = {
   planned: "AI-planned",
   culture: "company culture",
   street: "a fine street",
+  green: "greenery",
 } as const;
 export type Why = (typeof WHY)[keyof typeof WHY];
 

@@ -62,6 +62,8 @@ const FIXTURES: [FixtureId, string][] = [
   ["cascade", "cascade"],
   // Farms, hedges, rows, beds, stumps: what the player does to what grows. @see buildFarms
   ["farms", "farms"],
+  // The farms with their wood dry and sick, and a farm against it: a wildfire waiting to happen. @see buildWildfire
+  ["wildfire", "wildfire"],
   ["lake", "lake"],
   ["islands", "islands"],
   ["plunge", "plunge"],

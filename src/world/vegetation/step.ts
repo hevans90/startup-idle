@@ -11,12 +11,15 @@
  *   water, or in the meadows a slow noise leaves open.
  * - **The shore**: reeds take the grass at the water's edge, and give it back where the water has gone — the water
  *   as it stands now (@see wetFrom); under it nothing else grows.
- * - Burnt ground grasses over in a year, stumps rot into it. (Stress, which burns and thins, is a later phase.)
+ * - Burnt ground grasses over in a year, stumps rot into it.
+ * - **Stress** after each step: pollution, drought and heat, flooding wearing health down, and the sick thinned.
+ *   @see ./stress
  * - **What the player planted** grows up and stays as it is: a row, a hedge, a bed. A field with no farm in reach
  *   goes back to grass; one with, is cut each harvest (@see HARVEST), and counted in `veg.harvest` to be paid.
  */
 import { idx, inBounds, type Grid } from "../grid";
 import { COVER, HARVEST, MATURE, covered, growable, vegAt, vegHash, vegNoise, waterNear } from "./fields";
+import { stressStep, type Stress } from "./stress";
 import { farmsOf, harvestable, tended } from "./tend";
 
 type Palette = readonly (string | null)[];
@@ -66,7 +69,7 @@ export function vegStep(g: Grid, palette: Palette, dt: number, k: number): boole
     const r = vegHash(i, k, 0x7ea5), r2 = vegHash(i, k, 0x51de);
     // GROWTH, as a whole number of the age byte: what is left over, by chance.
     let grown = age;
-    if (age < MATURE && (cover === COVER.wood || cover === COVER.scrub || cover === COVER.row || cover === COVER.hedge)) {
+    if (age < MATURE && (cover === COVER.wood || cover === COVER.scrub || cover === COVER.row || cover === COVER.hedge || cover === COVER.burnt)) {
       const inc = (dt * MATURE) / GROW_YEARS, whole = Math.floor(inc);
       grown = Math.min(MATURE, age + whole + (vegHash(i, k, 0x6a0e) < inc - whole ? 1 : 0));
     }
@@ -98,7 +101,9 @@ export function vegStep(g: Grid, palette: Palette, dt: number, k: number): boole
         if (r2 < chance(REEDS * 2, dt) && waterNear(g, x, y, 1) > 1) set(i, COVER.grass, 0, MATURE);
         break;
       case COVER.burnt:
+        // (Its age the time since: the char greening over. @see render/ground-mesh)
         if (r < chance(BURNT, dt)) set(i, COVER.grass, 0, MATURE);
+        else if (grown !== age) set(i, cover, density, grown);
         break;
       case COVER.stumps:
         if (r < chance(ROT, dt)) set(i, COVER.grass, 0, MATURE);
@@ -147,17 +152,23 @@ function reap(g: Grid, t0: number, t1: number) {
  * Bring the fields to the calendar's year `t`: a step every {@link VEG_DT}, and a longer gap — time away — in at
  * most eight. A map never stepped, or a calendar set back, starts from where it is.
  */
-export function stepVegetation(g: Grid, palette: Palette, t: number): boolean {
+export function stepVegetation(g: Grid, palette: Palette, t: number, stress?: Stress): boolean {
   const V = g.veg;
   if (V.t < 0 || t < V.t) { V.t = t; return false; }
   const gap = t - V.t, n = Math.floor(gap / VEG_DT);
   if (!n) return false;
+  // (Growth and spread, then what hurts them: stress only where it is asked for, so the tests of growth stand alone.)
+  const step = (dt: number) => {
+    const k = Math.round(V.t / VEG_DT);
+    const a = vegStep(g, palette, dt, k);
+    return (stress ? stressStep(g, palette, dt, V.t, k, stress) : false) || a;
+  };
   let any = false;
   if (n <= CATCH_UP_STEPS) {
-    for (let s = 0; s < n; s++) { reap(g, V.t, V.t + VEG_DT); V.t += VEG_DT; any = vegStep(g, palette, VEG_DT, Math.round(V.t / VEG_DT)) || any; }
+    for (let s = 0; s < n; s++) { reap(g, V.t, V.t + VEG_DT); V.t += VEG_DT; any = step(VEG_DT) || any; }
   } else {
     const dt = gap / CATCH_UP_STEPS;
-    for (let s = 0; s < CATCH_UP_STEPS; s++) { reap(g, V.t, V.t + dt); V.t += dt; any = vegStep(g, palette, dt, Math.round(V.t / VEG_DT)) || any; }
+    for (let s = 0; s < CATCH_UP_STEPS; s++) { reap(g, V.t, V.t + dt); V.t += dt; any = step(dt) || any; }
   }
   return any;
 }

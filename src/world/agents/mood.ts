@@ -35,7 +35,7 @@ export * from "./mood-rules";
 import {
   DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, NEED_MOOD, NEED_WHY, WHY, WONDER_REACH, type MoodParts,
 } from "./mood-rules";
-import { liveDesireMaps, seesWater } from "./desirability";
+import { isGreen, liveDesireMaps, seesWater } from "./desirability";
 import { BEAUTY_MOOD, liveBeauty } from "./beauty";
 
 /** Tiles between two footprints, the nearer edges, along either axis. */
@@ -56,6 +56,8 @@ export function moodsOf(
   polluted: ReadonlySet<number> = new Set(),
   /** The level of the street each house is on. @see liveBeauty */
   street: ReadonlyMap<number, number> = new Map(),
+  /** Houses with trees round them: greener, and quiet as a park. @see isGreen */
+  green: (s: Structure) => boolean = () => false,
 ): Map<number, MoodParts> {
   const wonders: Structure[] = [], derelicts: Structure[] = [];
   // Kinds with somewhere to work: with none at all, there is no commute to
@@ -91,7 +93,9 @@ export function moodsOf(
     if (!met.length && wantsAny(g, who)) parts.push({ why: WHY.unmet, points: MOOD.unmet });
     for (const n of met) parts.push({ why: NEED_WHY[n], points: NEED_MOOD[who] });
     const tier = tierOf(s.def);
-    if ((tier === "t2" || tier === "landmark") && mindsCrowding(s.def) && !have.has("quiet")) parts.push({ why: WHY.crowded, points: MOOD.crowded });
+    const leafy = green(s);
+    if ((tier === "t2" || tier === "landmark") && mindsCrowding(s.def) && !have.has("quiet") && !leafy) parts.push({ why: WHY.crowded, points: MOOD.crowded });
+    if (leafy) parts.push({ why: WHY.green, points: MOOD.green });
     if (water(s)) parts.push(polluted.has(s.id) ? { why: WHY.polluted, points: hazard(MOOD.polluted) } : { why: WHY.waterView, points: fusionNow().waterView });
     if (wonders.some((w) => gap(s, w) <= WONDER_REACH)) parts.push({ why: WHY.wonder, points: MOOD.wonder });
     if (derelicts.some((d) => gap(s, d) <= DERELICT_REACH)) parts.push({ why: WHY.derelict, points: MOOD.derelict });
@@ -159,12 +163,12 @@ export function liveMoods(g: Grid, net: Network): Map<number, MoodParts> {
   for (const s of g.structures.values()) if (s.build) sites++;
   // A Zoner fused into the founder. @see game/fusion
   const planning = fusionNow().houseDesire;
-  const sludge = townRevNow() + "|" + [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + [...fouled].sort((a, b) => a - b).join(",") + "|" + planning + "|" + cultureVersion();
+  const sludge = townRevNow() + "|" + [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + [...fouled].sort((a, b) => a - b).join(",") + "|" + planning + "|" + cultureVersion() + "|" + g.veg.rev;
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.sludge !== sludge) {
     const maps = liveDesireMaps(g, net);
     memo = {
       g, rev: g.rev, sites, sludge,
-      value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), sludged, flooded, (s) => seesWater(maps, g, s), planning, fouled, liveBeauty(g, net).home),
+      value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), sludged, flooded, (s) => seesWater(maps, g, s), planning, fouled, liveBeauty(g, net).home, (s) => isGreen(maps, g, s)),
     };
   }
   return memo.value;

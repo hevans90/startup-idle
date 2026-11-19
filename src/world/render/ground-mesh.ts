@@ -430,7 +430,10 @@ function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number, palette: P
   const field = groundMode() === "smooth" && grid.veg.cover[vegAt(grid, palette, x, y)] === COVER.field && !built(grid, x, y) ? 256 : 0;
   // And 512 × how thick the heath is, in eighths: the heather's carpet. @see heatherAt
   const heath = groundMode() === "smooth" && !built(grid, x, y) ? Math.round(heathAt(grid, palette, x, y) * 7) : 0;
-  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0) + (built(grid, x, y) ? 16 : 0) + canopy * 32 + field + heath * 512;
+  // And 4096 × how charred, in eighths, where a fire went through: greening as it ages. @see vegetation/wildfire
+  const vi = vegAt(grid, palette, x, y);
+  const char = groundMode() === "smooth" && grid.veg.cover[vi] === COVER.burnt && !built(grid, x, y) ? 7 - (grid.veg.age[vi] >> 5) : 0;
+  e[o + 6] = level; e[o + 7] = (grid.pool[idx(grid, x, y)] > 0 ? 2 : 1) + (jx ? 4 : 0) + (jy ? 8 : 0) + (built(grid, x, y) ? 16 : 0) + canopy * 32 + field + heath * 512 + Math.max(0, char) * 4096;
 }
 
 export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale = 1): GroundMesh {
@@ -921,6 +924,24 @@ fn heathFieldAt(p: vec2<f32>) -> f32 {
   let q = p - 0.5; let c = vec2<i32>(floor(q)); let f = q - floor(q);
   return mix(mix(heathCell(c), heathCell(c + vec2<i32>(1, 0)), f.x), mix(heathCell(c + vec2<i32>(0, 1)), heathCell(c + vec2<i32>(1, 1)), f.x), f.y);
 }
+// How charred a cell is, and at a point, blended between the cells round it. @see writeEdges
+fn charCell(c: vec2<i32>) -> f32 {
+  let n = vec2<i32>(i32(ground.uMap.x), i32(ground.uMap.y));
+  if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) { return 0.0; }
+  return (floor((textureLoad(uEdges, vec2<i32>(c.x * 2 + 1, c.y), 0).w + 0.5) / 4096.0) % 8.0) / 7.0;
+}
+fn charFieldAt(p: vec2<f32>) -> f32 {
+  let q = p - 0.5; let c = vec2<i32>(floor(q)); let f = q - floor(q);
+  return mix(mix(charCell(c), charCell(c + vec2<i32>(1, 0)), f.x), mix(charCell(c + vec2<i32>(0, 1)), charCell(c + vec2<i32>(1, 1)), f.x), f.y);
+}
+// BURNT GROUND: black char and grey ash, the grass coming back through it in tufts as it greens. (base: what it was.)
+fn charOver(base: vec3<f32>, p: vec2<f32>, fp: f32, k: f32) -> vec3<f32> {
+  var c = mix(vec3<f32>(0.09, 0.08, 0.07), vec3<f32>(0.3, 0.28, 0.26), smoothstep(0.45, 0.8, fbm(p * 2.1 + 83.0)));
+  c = c * (1.0 + (vnoise(p * 24.0) - 0.5) * 0.4 * shows(24.0, fp));
+  let edge = k + (fbm(p * 1.7 + 91.0) - 0.5) * 0.5 + (vnoise(p * 8.0 + 4.0) - 0.5) * 0.15;
+  let green = smoothstep(0.55, 0.85, vnoise(p * 6.0 + 17.0) + (1.0 - k) * 0.6);
+  return mix(base, mix(c, base, green * (1.0 - k) * 0.8), smoothstep(0.15, 0.45, edge));
+}
 // HEATHER: a low carpet of wiry dark green-brown cushions, lit on their tops, the tips speckled — fresh green in
 // spring, purple flowers late in the summer, gone over to rust in the winter. (uMode.y the year's share.)
 fn heatherAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
@@ -1299,6 +1320,9 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
       // HEATHER where the heath is, as thick as it is, ragged at its edge, grass coming through it. @see forest.ts heathAt
       let hth = heathFieldAt(vGround);
       if (hth > 0.02) { col = mix(col, heatherAt(vGround, fp), smoothstep(0.12, 0.5, hth + (fbm(vGround * 2.3 + 41.0) - 0.5) * 0.5 + (vnoise(vGround * 9.0 + 3.0) - 0.5) * 0.12)); }
+      // CHARRED where a fire went through. @see vegetation/wildfire
+      let chr = charFieldAt(vGround);
+      if (chr > 0.02) { col = charOver(col, vGround, fp, chr); }
       if (fieldCell(vec2<i32>(floor(vGround)))) { col = fieldOver(col, vGround, fp); }
     }
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
@@ -1560,6 +1584,22 @@ float heathCell(ivec2 c) {
 float heathFieldAt(vec2 p) {
   vec2 q = p - 0.5; ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
   return mix(mix(heathCell(c), heathCell(c + ivec2(1, 0)), f.x), mix(heathCell(c + ivec2(0, 1)), heathCell(c + ivec2(1, 1)), f.x), f.y);
+}
+float charCell(ivec2 c) {
+  ivec2 n = ivec2(int(uMap.x), int(uMap.y));
+  if (c.x < 0 || c.y < 0 || c.x >= n.x || c.y >= n.y) return 0.0;
+  return mod(floor((texelFetch(uEdges, ivec2(c.x * 2 + 1, c.y), 0).w + 0.5) / 4096.0), 8.0) / 7.0;
+}
+float charFieldAt(vec2 p) {
+  vec2 q = p - 0.5; ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
+  return mix(mix(charCell(c), charCell(c + ivec2(1, 0)), f.x), mix(charCell(c + ivec2(0, 1)), charCell(c + ivec2(1, 1)), f.x), f.y);
+}
+vec3 charOver(vec3 base, vec2 p, float fp, float k) {
+  vec3 c = mix(vec3(0.09, 0.08, 0.07), vec3(0.3, 0.28, 0.26), smoothstep(0.45, 0.8, fbm(p * 2.1 + 83.0)));
+  c *= 1.0 + (vnoise(p * 24.0) - 0.5) * 0.4 * shows(24.0, fp);
+  float edge = k + (fbm(p * 1.7 + 91.0) - 0.5) * 0.5 + (vnoise(p * 8.0 + 4.0) - 0.5) * 0.15;
+  float green = smoothstep(0.55, 0.85, vnoise(p * 6.0 + 17.0) + (1.0 - k) * 0.6);
+  return mix(base, mix(c, base, green * (1.0 - k) * 0.8), smoothstep(0.15, 0.45, edge));
 }
 vec3 heatherAt(vec2 p, float fp) {
   float y = uMode.y;
@@ -1875,6 +1915,8 @@ void main() {
       if (can > 0.02) col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88);
       float hth = heathFieldAt(vGround);
       if (hth > 0.02) col = mix(col, heatherAt(vGround, fp), smoothstep(0.12, 0.5, hth + (fbm(vGround * 2.3 + 41.0) - 0.5) * 0.5 + (vnoise(vGround * 9.0 + 3.0) - 0.5) * 0.12));
+      float chr = charFieldAt(vGround);
+      if (chr > 0.02) col = charOver(col, vGround, fp, chr);
       if (fieldCell(ivec2(floor(vGround)))) col = fieldOver(col, vGround, fp);
     }
     float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;

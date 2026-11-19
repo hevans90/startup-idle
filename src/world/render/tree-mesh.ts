@@ -22,6 +22,7 @@ import type { BandLayer } from "./bands";
 import { drawnCorner, drawnHeight } from "./drawn";
 import { canopyOf, forestTrees } from "./forest";
 import { ageStep } from "../vegetation/step";
+import { sickness } from "../vegetation/stress";
 import { COVER } from "../vegetation/fields";
 
 const BASE = "/isometric_assets/derived";
@@ -59,6 +60,8 @@ const sheetNow = () => { if (!loading) loading = load().then((s) => (loaded = s)
 type Tree = {
   kind: string; u: number; v: number; z: number; turn: number; size: number; lag: number; tint: [number, number, number]; phase: number;
   band: number; shade: number;
+  /** How burnt, 0–1: a snag, drawn bare and blackened. @see vegetation/wildfire */
+  char: number;
 };
 
 const hash = (x: number, y: number, k: number, salt: number) =>
@@ -107,9 +110,12 @@ function writePart(S: Sheet, trees: readonly Tree[], t: number, scale: number, s
   for (const tr of trees) {
     const r = treeTurn(tr.kind, t, tr.lag);
     next = Math.min(next, r.t1);
-    const A = frameOf(S.sheet, tr.kind, r.from, tr.turn), B = frameOf(S.sheet, tr.kind, r.to, tr.turn);
+    // (A snag is bare all year: an evergreen's, a broadleaf's bare crown.)
+    // (A burnt evergreen has no bare look of its own: a tall narrow one's skeleton stands for it.)
+    const bare = tr.char > 0 ? (S.sheet.looks[tr.kind]?.bare ? frameOf(S.sheet, tr.kind, "bare", tr.turn) : frameOf(S.sheet, "hornbeam", "bare", tr.turn)) : null;
+    const A = bare ?? frameOf(S.sheet, tr.kind, r.from, tr.turn), B = bare ?? frameOf(S.sheet, tr.kind, r.to, tr.turn);
     // (And its look under snow, for whenever the weather brings it. @see world/weather)
-    const C = frameOf(S.sheet, tr.kind, "snow", tr.turn) ?? B;
+    const C = bare ?? frameOf(S.sheet, tr.kind, "snow", tr.turn) ?? B;
     if (!A || !B || !C) continue;
     // Texels to world px; the foot on the screen.
     const k = (scale * tr.size) / res;
@@ -137,7 +143,7 @@ function writePart(S: Sheet, trees: readonly Tree[], t: number, scale: number, s
         verts[o + 26] = tr.tint[0]; verts[o + 27] = tr.tint[1]; verts[o + 28] = tr.tint[2];
         verts[o + 29] = C[1] + C[5] + lx / k; verts[o + 30] = C[2] + C[6] + ly / k;
         verts[o + 32] = C[1]; verts[o + 33] = C[2]; verts[o + 34] = C[1] + C[3]; verts[o + 35] = C[2] + C[4];
-        verts[o + 36] = C[0]; verts[o + 37] = C[3] + gap;
+        verts[o + 36] = C[0]; verts[o + 37] = C[3] + gap; verts[o + 38] = tr.char;
         n++;
       }
     }
@@ -204,7 +210,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
       attributes: {
         aPos: at(0, "float32x2"), aMove: at(2, "float32x4"), aUv: at(6, "float32x4"), aRectA: at(10, "float32x4"), aRectB: at(14, "float32x4"),
         aPage: at(18, "float32x4"), aTurn: at(22, "float32x4"), aTint: at(26, "float32x4"),
-        aUvC: at(29, "float32x2"), aRectC: at(32, "float32x4"), aPageC: at(36, "float32x2"),
+        aUvC: at(29, "float32x2"), aRectC: at(32, "float32x4"), aPageC: at(36, "float32x4"),
       },
       indexBuffer: ib,
     });
@@ -242,26 +248,30 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
           let any = 0, ck = "";
           for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const c = at(x + dx, y + dy); any += c; ck += `${Math.round(c * 72)},`; }
           const i = idx(g, x, y), cv = g.veg.cover[i];
-          // (Reeds, heath and what the player made stand where there is no canopy.)
-          if (!any && cv !== COVER.reeds && cv !== COVER.meadow && cv < COVER.stumps) continue;
+          // (Reeds, heath, snags where a wood burnt and what the player made stand where there is no canopy.)
+          if (!any && cv !== COVER.reeds && cv !== COVER.meadow && cv !== COVER.burnt && cv < COVER.stumps) continue;
           // (A hedge joins those beside it.)
           if (cv === COVER.hedge) for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) ck += x + dx >= 0 && y + dy >= 0 && x + dx < W && y + dy < g.h && g.veg.cover[idx(g, x + dx, y + dy)] === COVER.hedge ? "h" : "-";
           // (What is built on a cell takes what grew there: a building, a deck, a main.)
-          ck += `${g.paved[i]}|${g.pool[i] > 0}|${g.structureAt[i] >= 0}|${g.deck[i]}|${g.main[i]}|${g.terrain[i]}|${g.veg.cover[i]},${g.veg.density[i]},${ageStep(g.veg.age[i])}|${drawnCorner(g, x, y, 0, 0)},${drawnCorner(g, x, y, 1, 0)},${drawnCorner(g, x, y, 1, 1)},${drawnCorner(g, x, y, 0, 1)}`;
+          ck += `${g.paved[i]}|${g.pool[i] > 0}|${g.structureAt[i] >= 0}|${g.deck[i]}|${g.main[i]}|${g.terrain[i]}|${g.veg.cover[i]},${g.veg.density[i]},${ageStep(g.veg.age[i])},${g.veg.health[i] >> 5}|${drawnCorner(g, x, y, 0, 0)},${drawnCorner(g, x, y, 1, 0)},${drawnCorner(g, x, y, 1, 1)},${drawnCorner(g, x, y, 0, 1)}`;
           seen.add(i);
           const was = cells.get(i);
           if (was?.key === ck) continue;
           changed = true;
           if (was) touch(was.trees);
           const b = bandOf(x, y);
+          const sick = sickness(g.veg.health[i]);
           const trees = forestTrees(g, palette, x, y, at).map((w): Tree => {
             const h = (salt: number) => hash(Math.round(w.seed * 65536), salt, 0, 0x5eed);
             const greener = h(1) < 0.5, how = 0.25 * h(2);
+            // (Sick: yellowing to brown, each tree a little its own. @see vegetation/stress)
+            const ill = sick * (0.7 + 0.6 * h(5)), t0: [number, number, number] = greener ? [1 + how * 0.3, 1 + how * 0.15, 1 - how * 0.5] : [1 - how * 0.5, 1 - how * 0.35, 1 - how * 0.45];
             return {
               kind: w.kind, u: w.u, v: w.v, z: drawnHeight(g, w.u + 0.5, w.v + 0.5), turn: w.turn, size: w.size,
               // Up to a fortnight either way: no two trees of a wood turn together.
               lag: (h(3) - 0.5) * 0.05,
-              tint: greener ? [1 + how * 0.3, 1 + how * 0.15, 1 - how * 0.5] : [1 - how * 0.5, 1 - how * 0.35, 1 - how * 0.45],
+              tint: [t0[0] * (1 + 0.25 * ill), t0[1] * (1 - 0.22 * ill), t0[2] * (1 - 0.6 * ill)],
+              char: w.char ?? 0,
               phase: h(4) * Math.PI * 2,
               band: b, shade: shadeBand(S.sheet, w.kind, w.turn, w.size, w.u, w.v, b),
             };
@@ -377,7 +387,7 @@ fn rampAt(row: i32, y: f32) -> vec3<f32> {
 @vertex
 fn mainVertex(@location(0) aPos: vec2<f32>, @location(1) aMove: vec4<f32>, @location(2) aUv: vec4<f32>, @location(3) aRectA: vec4<f32>,
   @location(4) aRectB: vec4<f32>, @location(5) aPage: vec4<f32>, @location(6) aTurn: vec4<f32>, @location(7) aTint: vec4<f32>,
-  @location(8) aUvC: vec2<f32>, @location(9) aRectC: vec4<f32>, @location(10) aPageC: vec2<f32>) -> VSOutput {
+  @location(8) aUvC: vec2<f32>, @location(9) aRectC: vec4<f32>, @location(10) aPageC: vec4<f32>) -> VSOutput {
   let mvp = globalUniforms.uProjectionMatrix * globalUniforms.uWorldTransformMatrix * localUniforms.uTransformMatrix;
   // THE WIND: a slow swing of its own, and a gust that rolls across the map.
   let tw = trees.uYear.y;
@@ -390,7 +400,9 @@ fn mainVertex(@location(0) aPos: vec2<f32>, @location(1) aMove: vec4<f32>, @loca
   out.vBlend = clamp((trees.uYear.x - aTurn.x) / max(aTurn.y - aTurn.x, 1e-5), 0.0, 1.0);
   out.vLeaf = rampAt(i32(aTurn.z + 0.5), trees.uYear.x + aTurn.w) * aTint.rgb;
   out.vTint = localUniforms.uColor * globalUniforms.uWorldColorAlpha;
-  out.vUvC = aUvC; out.vRectC = aRectC; out.vPageC = aPageC;
+  out.vUvC = aUvC; out.vRectC = aRectC; out.vPageC = aPageC.xy;
+  // (Burnt: blackened. @see vegetation/wildfire)
+  out.vTint = vec4<f32>(out.vTint.rgb * (1.0 - 0.78 * aPageC.z), out.vTint.a);
   return out;
 }
 
@@ -427,7 +439,7 @@ fn mainFragment(@location(0) vUv: vec4<f32>, @location(1) vRectA: vec4<f32>, @lo
 const GLSL_VERTEX = /* glsl */ `#version 300 es
 precision highp float;
 in vec2 aPos; in vec4 aMove; in vec4 aUv; in vec4 aRectA; in vec4 aRectB; in vec4 aPage; in vec4 aTurn; in vec4 aTint;
-in vec2 aUvC; in vec4 aRectC; in vec2 aPageC;
+in vec2 aUvC; in vec4 aRectC; in vec4 aPageC;
 out vec4 vUv; out vec4 vRectA; out vec4 vRectB; out vec4 vPage; out vec2 vLocal; out float vBlend; out vec3 vLeaf; out vec4 vTint;
 out vec2 vUvC; out vec4 vRectC; out vec2 vPageC;
 uniform mat3 uProjectionMatrix; uniform mat3 uWorldTransformMatrix; uniform vec4 uWorldColorAlpha; uniform vec2 uResolution;
@@ -449,7 +461,8 @@ void main() {
   vBlend = clamp((uYear.x - aTurn.x) / max(aTurn.y - aTurn.x, 1e-5), 0.0, 1.0);
   vLeaf = rampAt(int(aTurn.z + 0.5), uYear.x + aTurn.w) * aTint.rgb;
   vTint = uColor * uWorldColorAlpha;
-  vUvC = aUvC; vRectC = aRectC; vPageC = aPageC;
+  vUvC = aUvC; vRectC = aRectC; vPageC = aPageC.xy;
+  vTint = vec4(vTint.rgb * (1.0 - 0.78 * aPageC.z), vTint.a);
 }
 `;
 

@@ -34,7 +34,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough" | "farms";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough" | "farms" | "wildfire";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -1287,13 +1287,26 @@ export function buildFarms(g: Grid, material: number) {
 }
 
 /**
+ * A WILDFIRE WAITING TO HAPPEN: the farms' map (@see buildFarms) with its grown wood dry and sick, so a wildfire
+ * can come to it (in development `window.__eventNow = "wildfire"` brings one now), and a third farm built hard
+ * against the wood's edge for it to burn out. @see vegetation/wildfire, vegetation/stress
+ */
+export function buildWildfire(g: Grid, material: number) {
+  buildFarms(g, material);
+  for (let y = 3; y <= 16; y++) for (let x = 36; x <= 46; x++) g.veg.health[idx(g, x, y)] = 40;
+  const def = structureDef(FARM), cmd = def && placeCommand(g, def, 34, 13);
+  if (cmd) commit(g, createHistory(), cmd);
+  edited(g);
+}
+
+/**
  * Fixtures that want a map of their own size, rather than the one on screen.
  *
  * A rig is a size as much as it is a shape: `brink` is five tiles because five
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48, farms: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48, farms: 48, wildfire: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1305,7 +1318,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough", "farms",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough", "farms", "wildfire",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1355,6 +1368,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "terrain": buildTerrain(g, material); recomputeHeightRange(g); return;
     case "rough": buildRough(g, material); recomputeHeightRange(g); return;
     case "farms": buildFarms(g, material); recomputeHeightRange(g); return;
+    case "wildfire": buildWildfire(g, material); recomputeHeightRange(g); return;
   }
 }
 

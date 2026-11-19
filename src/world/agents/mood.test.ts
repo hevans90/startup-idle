@@ -54,6 +54,29 @@ describe("a house's mood", () => {
     expect(moods.get(1)!.parts.map((p) => p.why)).toEqual(["a doctor", "crowded", "near a wonder"]);
     expect(moods.get(2)!.parts.map((p) => p.why)).toEqual(["food", "near a wonder"]);
   });
+
+  test("trees round a house are greenery, and quiet it as a park would", () => {
+    const g = town([{ def: "kit:10x_dev.t2", x: 5, y: 5, residents: 12 }]);
+    const moods = moodsOf(g, new Map(), cover([[1, ["health"]]]), new Set(), new Set(), () => false, 0, new Set(), new Map(), () => true);
+    expect(moods.get(1)!.parts.map((p) => p.why)).toEqual(["a doctor", "greenery"]);
+    expect(moods.get(1)!.total).toBe(NEED_MOOD["10x_dev"] + MOOD.green);
+  });
+
+  test("greenery is counted from the trees within reach, and only on the continuous surface", async () => {
+    const { greenAround } = await import("./desirability");
+    const { setGroundMode } = await import("../render/ground-mode");
+    const { COVER } = await import("../vegetation/fields");
+    const g = createGrid(20, 20);
+    for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) { g.veg.cover[y * 20 + x] = COVER.wood; g.veg.density[y * 20 + x] = 2; }
+    expect(greenAround(g)[4 * 20 + 7]).toBe(0);
+    setGroundMode("smooth");
+    try {
+      const green = greenAround(g);
+      expect(green[4 * 20 + 7]).toBe(4);
+      expect(green[4 * 20 + 4]).toBe(16);
+      expect(green[4 * 20 + 9]).toBe(0);
+    } finally { setGroundMode("steps"); }
+  });
 });
 
 describe("the town's mood", () => {

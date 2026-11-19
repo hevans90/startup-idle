@@ -19,7 +19,7 @@ import { formatCurrency } from "../../utils/money-utils";
 export type EventKind =
   | "river-flood" | "convoy" | "diligence" | "hackathon" | "offer" | "heatwave" | "drought" | "inspector" | "strike"
   | "road-works" | "poaching" | "viral" | "tenants" | "agents" | "fire"
-  | "burst-main" | "sewer-backup" | "blackout" | "earthquake";
+  | "burst-main" | "sewer-backup" | "blackout" | "earthquake" | "wildfire";
 
 type Spot = { x: number; y: number };
 
@@ -94,6 +94,12 @@ export type TownView = {
    * onto it, and burning it out. Null with nothing overheated. @see FIRE
    */
   smoking: (Spot & { id: number; hydrant: boolean; spread: number; hose: () => void; burnOut: () => void }) | null;
+  /**
+   * A WILDFIRE: before it, the driest wood that would catch, and how dry (0–1); while it burns, where it started,
+   * the cells burning and burnt, and the buildings it has burnt out. Null with nothing dry enough to catch.
+   * @see WILDFIRE, vegetation/wildfire
+   */
+  wildfire: (Spot & { dryness: number; burning: number; burnt: number; buildings: number }) | null;
   /** The levee a flood could be met with: the walls it would be, their price, and raising it. @see leveeCells */
   levee: { walls: number; price: number; build: () => void } | null;
   /** The kinds a flood's evacuation has put out of their homes. */

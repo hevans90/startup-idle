@@ -1,6 +1,6 @@
 # Vegetation: trees, seasons, growth, weather
 
-Status (2026-11-19): phases 1–4 built — the seasons' look, woods as forests (`render/forest.ts`); the vegetation fields, biomes, six new kinds, growth, spread and catch-up (`vegetation/`); felling (stumps, timber), the Plant tool (woods, row, hedge, flowers) and farms with fields through the year paid at harvest (`vegetation/tend.ts`, `game/vegetation-cost.ts`). Sizes are the mature bake scaled by age, not three bakes. Weather (`weather.ts`) is pure on the calendar; snow lying and wet ground are one value for the map, varied in the shader, not a per-tile field; rain reaches the solver as runoff into sinks (`water/rain.ts`), not over every column. Roofs take no snow. Street and park trees still the old props. On `?ground=smooth` only; the stepped ground keeps today's woods.
+Status (2026-11-19): phases 1–5 built — the seasons' look, woods as forests (`render/forest.ts`); the vegetation fields, biomes, six new kinds, growth, spread and catch-up (`vegetation/`); felling (stumps, timber), the Plant tool (woods, row, hedge, flowers) and farms with fields through the year paid at harvest (`vegetation/tend.ts`, `game/vegetation-cost.ts`). Sizes are the mature bake scaled by age, not three bakes. Weather (`weather.ts`) is pure on the calendar; snow lying and wet ground are one value for the map, varied in the shader, not a per-tile field; rain reaches the solver as runoff into sinks (`water/rain.ts`), not over every column. Roofs take no snow. Stress and wildfire (`stress.ts`, `wildfire.ts`, the `wildfire` event) are in; the game has no air pollution or noise, so woods damp the crowding penalty (as quiet) and pollution means fouled water. Fire reaches buildings (asked 2026-11-19), through the burnt-out repair queue. Street and park trees still the old props. On `?ground=smooth` only; the stepped ground keeps today's woods.
 
 ## Decided (asked 2026-11-19)
 
@@ -131,7 +131,7 @@ Each phase ends with headless screenshots of the four seasons at three zooms, a 
 ## To settle when we get there
 
 - Balance: clearing cost against timber, how fast woods spread, and what a farm earns. Tuned in phases 2–3 and shown before committing.
-- Whether fire can reach buildings.
+- ~~Whether fire can reach buildings.~~ Yes: what is built beside a burning cell burns out.
 - Whether winter slows anything in the economy (no, unless asked).
 - Rain's cost to the solver at full map. If it doesn't fit in the budget, rain falls only where the player is looking.
 

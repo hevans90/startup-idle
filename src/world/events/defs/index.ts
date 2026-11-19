@@ -19,6 +19,7 @@ import { ROAD_WORKS } from "./road-works";
 import { STRIKE } from "./strike";
 import { TENANTS } from "./tenants";
 import { VIRAL } from "./viral";
+import { WILDFIRE } from "./wildfire";
 
 export const EVENT_DEFS: Readonly<Record<EventKind, EventDef>> = {
   "river-flood": FLOOD,
@@ -40,4 +41,5 @@ export const EVENT_DEFS: Readonly<Record<EventKind, EventDef>> = {
   "sewer-backup": SEWER_BACKUP,
   blackout: BLACKOUT,
   earthquake: EARTHQUAKE,
+  wildfire: WILDFIRE,
 };

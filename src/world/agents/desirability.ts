@@ -21,7 +21,9 @@ import { connects, isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { cultureVersion } from "../../game/culture-now";
 import { commuteEfficiency, walkFrom, WORKPLACES } from "./commute";
-import { DERELICT_REACH, MOOD, MOOD_LIMIT, NEED_MOOD, NEED_WHY, WATER_REACH, WHY, WONDER_REACH, type MoodParts } from "./mood-rules";
+import { DERELICT_REACH, GREEN_AT, GREEN_REACH, MOOD, MOOD_LIMIT, NEED_MOOD, NEED_WHY, WATER_REACH, WHY, WONDER_REACH, type MoodParts } from "./mood-rules";
+import { groundMode } from "../render/ground-mode";
+import { COVER } from "../vegetation/fields";
 import { fusionNow } from "../../game/fusion";
 import { placesOf, type Place } from "./roads";
 import { RANGE, serviceIn, townRevNow } from "./services";
@@ -62,7 +64,34 @@ export type DesireMaps = {
   water: Uint8Array;
   /** The level of the street each road tile is on, on the live map. @see liveBeauty */
   street?: Int8Array;
+  /** Cells with trees within `GREEN_REACH` of each tile, on the continuous surface. @see greenAround */
+  green: Uint8Array;
 };
+
+/** Whether a cell has trees standing on it: a wood, a row, a hedge or a bed. */
+const treed = (g: Grid, i: number) => {
+  const c = g.veg.cover[i];
+  return (c === COVER.wood && g.veg.density[i] > 0) || c === COVER.row || c === COVER.hedge || c === COVER.bed;
+};
+
+/** GREENERY: each tile's count of cells with trees within `GREEN_REACH` — none but on the continuous surface, where they are drawn. */
+export function greenAround(g: Grid): Uint8Array {
+  const out = new Uint8Array(g.w * g.h);
+  if (groundMode() !== "smooth") return out;
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+    if (!treed(g, idx(g, x, y)) || g.structureAt[idx(g, x, y)] >= 0) continue;
+    for (let dy = -GREEN_REACH; dy <= GREEN_REACH; dy++) for (let dx = -GREEN_REACH; dx <= GREEN_REACH; dx++) {
+      if (inBounds(g, x + dx, y + dy)) { const j = idx(g, x + dx, y + dy); if (out[j] < 255) out[j]++; }
+    }
+  }
+  return out;
+}
+
+/** Whether a footprint is green: trees enough round any tile of it. @see GREEN_AT */
+export function isGreen(maps: DesireMaps, g: Grid, s: Structure): boolean {
+  for (let y = s.y; y < s.y + s.h; y++) for (let x = s.x; x < s.x + s.w; x++) if (maps.green[idx(g, x, y)] >= GREEN_AT) return true;
+  return false;
+}
 
 /** The maps, from the map and where its doors are. */
 export function desireMapsOf(g: Grid, places: readonly Place[]): DesireMaps {
@@ -102,10 +131,10 @@ export function desireMapsOf(g: Grid, places: readonly Place[]): DesireMaps {
       }
     }
   }
-  return { need, work, derelicts, wonders, water };
+  return { need, work, derelicts, wonders, water, green: greenAround(g) };
 }
 
-let memo: { g: Grid | null; rev: number; town: number; sites: number; deck: number; value: DesireMaps | null } = { g: null, rev: -1, town: -1, sites: -1, deck: -1, value: null };
+let memo: { g: Grid | null; rev: number; veg: number; town: number; sites: number; deck: number; value: DesireMaps | null } = { g: null, rev: -1, veg: -1, town: -1, sites: -1, deck: -1, value: null };
 
 /** The maps for this map now, worked out again only when it has changed. */
 export function liveDesireMaps(g: Grid, net: Network): DesireMaps {
@@ -113,8 +142,9 @@ export function liveDesireMaps(g: Grid, net: Network): DesireMaps {
   for (const s of g.structures.values()) if (s.build) sites++;
   // And the culture deck: Shuttle Bus moves what a commute costs. @see CARDS
   const deck = cultureVersion();
-  if (memo.g !== g || memo.rev !== g.rev || memo.town !== townRevNow() || memo.sites !== sites || memo.deck !== deck || !memo.value) {
-    memo = { g, rev: g.rev, town: townRevNow(), sites, deck, value: { ...desireMapsOf(g, placesOf(g, net)), street: liveBeauty(g, net).tile } };
+  // (And the trees, as they grow, are felled and burn.)
+  if (memo.g !== g || memo.rev !== g.rev || memo.veg !== g.veg.rev || memo.town !== townRevNow() || memo.sites !== sites || memo.deck !== deck || !memo.value) {
+    memo = { g, rev: g.rev, veg: g.veg.rev, town: townRevNow(), sites, deck, value: { ...desireMapsOf(g, placesOf(g, net)), street: liveBeauty(g, net).tile } };
   }
   return memo.value!;
 }
@@ -148,6 +178,7 @@ export function desireAt(g: Grid, maps: DesireMaps, x: number, y: number, who: G
   if (!met.length && wantsAny(g, who)) parts.push({ why: WHY.unmet, points: MOOD.unmet });
   for (const n of met) parts.push({ why: NEED_WHY[n], points: NEED_MOOD[who] });
   if (maps.water[idx(g, x, y)]) parts.push({ why: WHY.waterView, points: fusionNow().waterView });
+  if (maps.green[idx(g, x, y)] >= GREEN_AT) parts.push({ why: WHY.green, points: MOOD.green });
   // A Zoner fused into the founder, for every house. @see game/fusion
   if (fusionNow().houseDesire) parts.push({ why: WHY.planned, points: fusionNow().houseDesire });
   if (maps.wonders.some((w) => gapTo(x, y, w) <= WONDER_REACH)) parts.push({ why: WHY.wonder, points: MOOD.wonder });

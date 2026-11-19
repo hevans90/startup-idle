@@ -4,7 +4,8 @@ import { createGrid, fillTerrain, idx } from "../grid";
 import { YEAR_SECONDS } from "../calendar";
 import { runoffAt, weatherAt } from "../weather";
 import { createWaterField, totalVolume } from "./field";
-import { catchment, stepRain } from "./rain";
+import { catchment, soakOf, stepRain } from "./rain";
+import { COVER } from "../vegetation/fields";
 
 /** RAIN INTO THE WATER: the land drains downhill to standing water, and what runs off it is poured there. @see rain */
 /** A 16² slope falling east to a pond in the last two columns, with a hollow on it. */
@@ -43,5 +44,16 @@ describe("runoff", () => {
     // A sink is never a fountain, however much drains to it.
     expect(poured / c.n / 10).toBeLessThanOrEqual(1.5);
     expect(YEAR_SECONDS).toBe(3600);
+  });
+
+  test("a wood soaks rain up, paving sheds it all", () => {
+    const g = slope(), bare = catchment(g, pond);
+    for (let i = 0; i < 256; i++) if (i % 16 < 8) { g.veg.cover[i] = COVER.wood; g.veg.density[i] = 3; }
+    for (let y = 0; y < 16; y++) g.paved[idx(g, 10, y)] = 1;
+    const sum = (c: typeof bare) => c.runoff.reduce((a, b) => a + b, 0);
+    const wooded = catchment(g, pond);
+    expect(sum(wooded)).toBeLessThan(sum(bare) * 0.8);
+    expect(soakOf(g, idx(g, 10, 3))).toBeGreaterThan(1);
+    expect(soakOf(g, idx(g, 2, 3))).toBeLessThan(0.5);
   });
 });

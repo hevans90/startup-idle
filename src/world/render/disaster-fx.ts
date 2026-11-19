@@ -85,7 +85,10 @@ export type Wanted = Map<string, { at: EmitAt; recipe: keyof typeof RECIPES }>;
  * THE EMITTERS WANTED NOW: steam off what overheated, and haze off what
  * drinks while a heatwave is on. Pure. @see sync
  */
-export function emittersWanted(g: Grid, damaged: Iterable<readonly [number, DamageCause]>, heatwave: boolean, drinkers: Iterable<number>, drawn?: RoofOf, fire: { burning: readonly number[]; smouldering: readonly number[] } = { burning: [], smouldering: [] }): Wanted {
+/** The most burning cells of a wildfire given flames: the rest share them. */
+const WILD_MOST = 36;
+
+export function emittersWanted(g: Grid, damaged: Iterable<readonly [number, DamageCause]>, heatwave: boolean, drinkers: Iterable<number>, drawn?: RoofOf, fire: { burning: readonly number[]; smouldering: readonly number[]; wild?: readonly { x: number; y: number }[]; wildSmoke?: { x: number; y: number } | null } = { burning: [], smouldering: [] }): Wanted {
   const out: Wanted = new Map();
   // A FIRE: flames, smoke and embers off what burns; smoke off what smoulders.
   const roofAt = (id: number) => {
@@ -99,6 +102,16 @@ export function emittersWanted(g: Grid, damaged: Iterable<readonly [number, Dama
     out.set(`smoke:${id}`, { at: { ...at, rise: at.rise + 24 }, recipe: "smoke" });
     out.set(`embers:${id}`, { at, recipe: "embers" });
   }
+  // A WILDFIRE: flames off every burning cell (at most so many, spread over them), smoke off every few; before it
+  // catches, smoke off the smouldering wood. @see vegetation/wildfire
+  const wild = fire.wild ?? [], every = Math.max(1, Math.ceil(wild.length / WILD_MOST));
+  for (let k = 0; k < wild.length; k += every) {
+    const c = wild[k], at = { x: c.x, y: c.y, w: 1, h: 1, rise: 22 };
+    out.set(`wflames:${c.x},${c.y}`, { at, recipe: "flames" });
+    if ((k / every) % 3 === 0) out.set(`wsmoke:${c.x},${c.y}`, { at: { ...at, rise: 50 }, recipe: "smoke" });
+    if ((k / every) % 4 === 1) out.set(`wembers:${c.x},${c.y}`, { at, recipe: "embers" });
+  }
+  if (fire.wildSmoke) out.set("wsmoulder", { at: { x: fire.wildSmoke.x, y: fire.wildSmoke.y, w: 1, h: 1, rise: 18 }, recipe: "smoulder" });
   for (const id of fire.smouldering) {
     const at = roofAt(id);
     if (at && !fire.burning.includes(id)) out.set(`smoulder:${id}`, { at, recipe: "smoulder" });

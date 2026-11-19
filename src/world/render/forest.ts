@@ -12,7 +12,8 @@ import { COVER, MATURE, covered, growable, heathOf, heightShare, vegAt, waterNea
 import { ageStep } from "../vegetation/step";
 
 /** One tree: what it is, where its foot is (tiles), which way round, how big. */
-export type ForestTree = { kind: string; u: number; v: number; turn: number; size: number; seed: number };
+/** `char`: burnt, a snag (@see vegetation/wildfire). */
+export type ForestTree = { kind: string; u: number; v: number; turn: number; size: number; seed: number; char?: number };
 
 type Palette = readonly (string | null)[];
 
@@ -157,6 +158,15 @@ function madeOn(g: Grid, palette: Palette, x: number, y: number, i: number): For
   const at = (u: number, v: number, kind: string, size: number, salt: number) =>
     out.push({ kind, u, v, turn: Math.floor(hash(x * 13 + salt, y, 0xd1) * 4), size, seed: hash(x, y * 13 + salt, 0xd2) });
   switch (cover) {
+    case COVER.burnt: {
+      // SNAGS where a wood burnt: its trees bare and charred, as many as it had, of its own kinds.
+      const mix = biomeOf(g, x, y, i);
+      for (let k = 0; k < Math.min(6, V.density[i] * 2); k++) {
+        const kind = pick(mix, hash(x * 3 + k, y, 0xe1));
+        out.push({ kind, u: x + (hash(x * 5 + k, y, 0xe2) - 0.5) * 0.85, v: y + (hash(x, y * 5 + k, 0xe3) - 0.5) * 0.85, turn: Math.floor(hash(x + k, y, 0xe4) * 4), size: 0.6 + 0.35 * hash(x + k, y, 0xe5), seed: hash(x, y + k, 0xe6), char: 1 });
+      }
+      break;
+    }
     case COVER.stumps:
       for (let k = 0; k < Math.min(6, V.density[i]); k++) at(x + (hash(x * 5 + k, y, 0xd3) - 0.5) * 0.8, y + (hash(x, y * 5 + k, 0xd4) - 0.5) * 0.8, "stump", 1.4 + 0.6 * hash(x + k, y, 0xd5), k);
       break;

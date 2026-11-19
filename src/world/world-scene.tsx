@@ -5,7 +5,10 @@
  * reconciled directly, with React only mounting the container. Same pattern as
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
-import { fouledHouses } from "./water/pollution";
+import { fouledHouses, pollutionOf } from "./water/pollution";
+import { POLLUTED } from "../game/pollution";
+import { weatherDry } from "./vegetation/stress";
+import { startWildfire, stepWildfire, tinderAt, windAt, type Wildfire } from "./vegetation/wildfire";
 import { suggestionsKept } from "./pipes/suggest";
 import { movableEnd, stretchAt } from "./pipes/stretch";
 import { founderIs } from "../game/founder-rules";
@@ -555,6 +558,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const overheated = useRef(new Set<number>());
   /** The building a fire is at while one is under way, and what it has spread to (null: not yet). @see FIRE */
   const fireAt = useRef<{ id: number; spread: number[] | null } | null>(null);
+  /** A WILDFIRE: the fire while one burns, where it started, what it has burnt out; the driest wood, looked for now and then. @see WILDFIRE */
+  const wildRef = useRef<{ fire: Wildfire | null; event: number; at: { x: number; y: number } | null; built: Set<number>; tinder: { x: number; y: number; dryness: number } | null; lookedAt: number }>({ fire: null, event: -1, at: null, built: new Set(), tinder: null, lookedAt: -Infinity });
   /** A blackout's district, as it was when it struck; and the earthquake already felt, by event id. @see BLACKOUT, EARTHQUAKE */
   const blackoutIds = useRef<{ event: number; ids: number[] } | null>(null);
   const quakeFelt = useRef<number | null>(null);
@@ -3349,6 +3354,33 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               : firstOverheated(st.grid);
             if (fireEv && !fireAt.current && smokeId !== null) fireAt.current = { id: smokeId, spread: null };
             const smokeS = smokeId !== null ? st.grid.structures.get(smokeId) : undefined;
+            // A WILDFIRE, where the ground is one surface: the fire stepped while one burns; else the driest wood
+            // that would catch, looked for every few seconds. @see WILDFIRE, vegetation/wildfire
+            const WF = wildRef.current, wildEv = st.events.find((e) => e.kind === "wildfire" && e.phase !== "over");
+            const tCal = useCalendarStore.getState().now();
+            const dryNow = Math.max(st.events.some((e) => e.kind === "drought" && e.phase === "active") ? 1 : 0, st.events.some((e) => e.kind === "heatwave" && e.phase === "active") ? 0.75 : 0, weatherDry(tCal));
+            if (!wildEv || wildEv.id !== WF.event) {
+              // (Over, or another: what still burns goes out where it is.)
+              WF.fire = null; WF.at = null; WF.built = new Set(); WF.event = wildEv?.id ?? -1;
+            }
+            if (groundMode() !== "smooth") WF.tinder = null;
+            else if (!wildEv && Date.now() - WF.lookedAt > 5000) { WF.lookedAt = Date.now(); WF.tinder = tinderAt(st.grid, st.palette, dryNow); }
+            else if (wildEv?.phase === "warning" && Date.now() - WF.lookedAt > 5000) {
+              // (Rain on it calls it off.)
+              WF.lookedAt = Date.now();
+              if (weatherAt(tCal).rain > 0.3) WF.tinder = null;
+            }
+            if (wildEv?.phase === "active" && !WF.fire && st.playing) { WF.at = { x: wildEv.where.x, y: wildEv.where.y }; WF.fire = startWildfire(st.grid, WF.at.x, WF.at.y); }
+            if (wildEv?.phase === "active" && WF.fire && st.playing) {
+              const { near } = stepWildfire(st.grid, st.palette, WF.fire, 0.5, { dry: dryNow, wind: windAt(tCal), rain: weatherAt(tCal).rain, brigade: wildEv.chosen === "brigade" });
+              // WHAT IS BUILT BESIDE IT burns out — once each. @see burn
+              const fresh = [...near].filter((id) => !WF.built.has(id) && st.grid.structures.has(id) && !st.grid.structures.get(id)!.build);
+              if (fresh.length) { for (const id of fresh) WF.built.add(id); burn(st.grid, fresh); }
+            }
+            const wildView: TownView["wildfire"] = wildEv?.phase === "active" && WF.fire && WF.at
+              ? { ...WF.at, dryness: 1, burning: WF.fire.burning.size, burnt: WF.fire.burnt, buildings: WF.built.size }
+              : wildEv?.phase === "warning" ? (WF.tinder && { x: wildEv.where.x, y: wildEv.where.y, dryness: WF.tinder.dryness, burning: 0, burnt: 0, buildings: 0 })
+              : WF.tinder && { ...WF.tinder, burning: 0, burnt: 0, buildings: 0 };
             const view: TownView = {
               now: Date.now(),
               income: useGeneratorStore.getState().getMoneyPerSecond(),
@@ -3356,6 +3388,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               river,
               flooded: floodedCount.current,
               overheated: overheated.current.size,
+              wildfire: wildView,
               smoking: smokeS ? {
                 x: smokeS.x, y: smokeS.y, id: smokeS.id, hydrant: onMains(smokeS.id),
                 spread: fireAt.current?.spread?.length ?? 0,
@@ -3604,7 +3637,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const sRest = section("tick: repairs, training, cooling");
         // THE REPAIR CREW, round the damaged buildings once the water is down.
         // None while a fire burns either: the crew does not go in. @see FIRE
-        const burning = st.events.some((e) => e.kind === "fire" && e.phase === "active");
+        const burning = st.events.some((e) => (e.kind === "fire" || e.kind === "wildfire") && e.phase === "active");
         if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult, !!floodBase.current || burning);
         // A TRAINING RUN finished: its jump, and the log. @see useTrainingStore
         if (st.playing) useTrainingStore.getState().tick();
@@ -3756,8 +3789,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // A FIRE: smoking while it is coming, burning once caught — and what it spread to, once it has. @see FIRE
         fire: (() => {
           const f = st.playing ? st.events.find((e) => e.kind === "fire" && e.phase !== "over") : undefined, at = fireAt.current;
-          if (!f || !at) return { burning: [], smouldering: [] };
-          return f.phase === "active" ? { burning: [at.id, ...(at.spread ?? [])], smouldering: [] } : { burning: [], smouldering: [at.id] };
+          // (And a wildfire's burning cells, or the wood smouldering before it catches.)
+          const wf = st.playing ? st.events.find((e) => e.kind === "wildfire" && e.phase !== "over") : undefined, W = wildRef.current;
+          const wild = wf?.phase === "active" && W.fire ? [...W.fire.burning.keys()].map((i) => ({ x: i % st.grid.w, y: (i / st.grid.w) | 0 })) : [];
+          const wildSmoke = wf?.phase === "warning" ? wf.where : null;
+          if (!f || !at) return { burning: [], smouldering: [], wild, wildSmoke };
+          return f.phase === "active" ? { burning: [at.id, ...(at.spread ?? [])], smouldering: [], wild, wildSmoke } : { burning: [], smouldering: [at.id], wild, wildSmoke };
         })(),
         spray: (() => { const e = active("burst-main"); return e ? [e.where] : []; })(),
         bubble: (() => { const e = active("sewer-backup"); return e ? [e.where] : []; })(),
@@ -3883,7 +3920,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (seconds > 0 && seconds < 60) stepRain(st.grid, field, R.c, tCal, seconds, R.lying);
           R.t = tCal; R.at = now;
         }
-        stepVegetation(st.grid, st.palette, useCalendarStore.getState().now());
+        // (What hurts it: fouled water by it, and a drought or heatwave under way. @see vegetation/stress)
+        const pol = field ? pollutionOf(field.columns) : null, foul = POLLUTED * 255;
+        const evDry = Math.max(st.events.some((e) => e.kind === "drought" && e.phase === "active") ? 1 : 0, st.events.some((e) => e.kind === "heatwave" && e.phase === "active") ? 0.75 : 0);
+        stepVegetation(st.grid, st.palette, useCalendarStore.getState().now(), {
+          fouled: pol?.any ? (x, y) => x < pol.w && y < pol.h && pol.level[y * pol.w + x] > foul : undefined,
+          dry: evDry,
+        });
         if (V.changed.size) { if (tlRef.current?.ground) canopyGround(tlRef.current.ground, st.grid, st.palette, V.changed); V.changed.clear(); }
         // THE HARVEST, paid as the fields are cut: rising off each farm, its share. @see game/vegetation-cost
         if (V.harvest > 0) {
