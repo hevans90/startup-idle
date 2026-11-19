@@ -7,7 +7,7 @@ import { HEIGHT_UNIT } from "../iso";
 import type { HousesSheet } from "./houses-format";
 import { housePieces, houseTint, type HouseLook, type HousePart } from "./houses-sheet";
 import { HOUSE_FLOORS, HOUSE_KITS } from "./kits";
-import { HOUSES, houseOf } from "./models";
+import { HOUSES, houseOf, snowOver } from "./models";
 
 describe("the houses, as models", () => {
   test("there is one for every kit, in the kits' order", () => {
@@ -54,9 +54,42 @@ describe("a house in the game", () => {
     expect(housePieces(look, "intern.t2", 2, 0).map((p) => p.walls)).toEqual([true, false, true, false, true, false]);
   });
 
+  test("its roof's snow last of all, lifted with the roof", () => {
+    const snowy: HouseLook = { ...look, snow: { tex: [Texture.EMPTY, Texture.WHITE], anchor: [{ x: 0, y: 0 }, { x: 0.5, y: 0.5 }] } };
+    const ps = housePieces(snowy, "intern.t2", 3, 0), roof = ps[ps.length - 2], snow = ps[ps.length - 1];
+    expect(snow.snow).toBe(true);
+    expect(snow.walls).toBe(false);
+    expect(snow.lift).toBe(roof.lift);
+    expect(housePieces(look, "intern.t2", 3, 0).some((p) => p.snow)).toBe(false);
+  });
+
   test("keeps its colour: the same building is always tinted the same, and a street of them is not all one", () => {
     expect(houseTint("intern.t0", 7)).toBe(houseTint("intern.t0", 7));
     expect(new Set(Array.from({ length: 40 }, (_, k) => houseTint("intern.t0", k))).size).toBeGreaterThan(2);
     expect(houseOf("intern.t0")!.tints).toContain(houseTint("intern.t0", 3));
+  });
+});
+
+describe("snow on a roof", () => {
+  test("lies on what faces the sky, lifted off it, and nowhere else", () => {
+    for (const h of HOUSES) {
+      const roof = h.parts().roof, snow = snowOver(roof);
+      expect(snow.length).toBeGreaterThan(0);
+      for (const t of snow) {
+        expect(t.mat).toBe("snow");
+        expect(t.n[2]).toBeGreaterThanOrEqual(0.42);
+      }
+      // Each over a face of the roof turned up, a little above it.
+      const up = roof.filter((t) => t.n[2] >= 0.42 && t.mat !== "pane");
+      expect(snow.length).toBe(up.length);
+      snow.forEach((t, k) => expect(t.p[0][2]).toBeGreaterThan(up[k].p[0][2]));
+    }
+    // A wall, a window: none.
+    expect(snowOver([{ p: [[0, 0, 0], [1, 0, 0], [1, 0, 1]], mat: "wall", n: [0, 1, 0] }])).toEqual([]);
+  });
+
+  test("the sheet has each kit's", () => {
+    const sheet = JSON.parse(readFileSync("public/isometric_assets/derived/houses.json", "utf8")) as HousesSheet;
+    for (const h of HOUSES) expect(sheet.kits[h.id].snow?.length).toBeGreaterThan(3);
   });
 });

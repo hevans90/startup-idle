@@ -13,7 +13,7 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { bakeTris, type Tri } from "../src/world/agents/cars/raster.ts";
-import { HOUSES, houseLayerOf } from "../src/world/houses/models.ts";
+import { HOUSES, houseLayerOf, snowOver } from "../src/world/houses/models.ts";
 import { HOUSE_GAP, HOUSE_LAYERS, HOUSE_RES, type HouseFrame, type HousesSheet } from "../src/world/houses/houses-format.ts";
 import { encodePng, type Image } from "./png-min.ts";
 
@@ -57,7 +57,15 @@ for (const h of HOUSES) {
     all.push({ layers: b.layers.map((img) => crop(img, b.ox, b.oy)), frame });
     return frame;
   };
-  sheet.kits[h.id] = { ground: bake(parts.ground, true), mids: parts.mids.map((m) => bake(m, false)), roof: bake(parts.roof, false) };
+  // The snow on the roof: baked with the roof so the roof hides what it should, and kept alone — the roof's own
+  // layer let go. (The top floor under it is the roof's to hide; what stands lower is never in front of it.)
+  const snowed = (): HouseFrame => {
+    const b = bakeTris([...parts.roof, ...snowOver(parts.roof)], 0, HOUSE_RES, { layers: HOUSE_LAYERS, layerOf: (m) => (m === "snow" ? 1 : 0), shadow: { ...h.shadow, strength: 0 } });
+    const frame: HouseFrame = [];
+    all.push({ layers: [{ img: { w: 0, h: 0, px: new Uint8Array(0) }, ox: 0, oy: 0 }, crop(b.layers[1], b.ox, b.oy)], frame });
+    return frame;
+  };
+  sheet.kits[h.id] = { ground: bake(parts.ground, true), mids: parts.mids.map((m) => bake(m, false)), roof: bake(parts.roof, false), snow: snowed() };
 }
 const tall = (b: Baked) => Math.max(...b.layers.map((l) => l.img.h));
 for (const b of [...all].sort((p, q) => tall(q) - tall(p))) {

@@ -15,6 +15,7 @@ import { pen } from "./project-renderer";
 import { footprintCells, idx, inBounds, type Grid, type Structure } from "../grid";
 import { bandOf, cellToWorld } from "../iso";
 import { housePieces, housesLoaded, houseTint } from "../houses/houses-sheet";
+import { fadeWithSnow } from "../render/snow-cover";
 import { kitFloors, type StructureDef } from "./def";
 import { PIECE_TILE, registerRenderer, type RenderCtx, type StructureHandle, type StructureRenderer } from "./render";
 
@@ -167,6 +168,7 @@ function buildSprites(
       sp.position.set(wx, wy - p.lift * ctx.scale);
       sp.scale.set(ctx.scale / H.res);
       if (p.walls) sp.tint = tint;
+      if (p.snow) fadeWithSnow(sp);
       sp.eventMode = "none";
       parent.addChild(sp);
       PIECE_TILE.set(sp, cell);

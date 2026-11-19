@@ -98,6 +98,9 @@ export type Pen = {
 /** The tile a pen draws, by its column and row in the footprint; null for no clipping at all. */
 export type Cell = { c: number; r: number } | null;
 
+/** Snow lying, as a building's tops are whitened by it. @see makePen */
+const SNOW = 0xe8edf3;
+
 /**
  * A pen for one TILE of a footprint — column `c`, row `r` — whose local
  * origin is the world point `(ou, ov)` on ground `ground` half steps up, at
@@ -111,8 +114,12 @@ export type Cell = { c: number; r: number } | null;
  * is in front of that part of it and in an earlier band. Everything drawn in
  * a tile stays inside that tile's strip of the screen, so tiles drawn band by
  * band are drawn back to front.
+ *
+ * `snow`: how much lies on what it draws, whitening every face turned to the sky.
  */
-export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc: number, cell: Cell): Pen {
+export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc: number, cell: Cell, snow = 0): Pen {
+  /** A face turned to the sky, under the snow lying (0–1) on it. */
+  const up = (c: number) => (snow > 0 ? mix(c, SNOW, snow * 0.85) : c);
   const P = (u: number, v: number, z: number): Pt => [
     (ou + u - (ov + v)) * HW * sc,
     (ou + u + ov + v) * HH * sc - (ground + z) * HEIGHT_UNIT * sc,
@@ -133,7 +140,7 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
     const a = Math.max(u0, cu0), b = Math.min(u1, cu1);
     const c = Math.max(v0, cv0), d = Math.min(v1, cv1);
     if (b <= a + EPS || d <= c + EPS) return;
-    poly([P(a, c, z), P(b, c, z), P(b, d, z), P(a, d, z)], colour, alpha);
+    poly([P(a, c, z), P(b, c, z), P(b, d, z), P(a, d, z)], up(colour), alpha);
   };
   const onV: Pen["onV"] = (v, a0, a1, z0, z1, colour, alpha = 1) => {
     const a = Math.max(a0, cu0), b = Math.min(a1, cu1);
@@ -153,7 +160,7 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
     // The +u face, then the +v, then the top: the top's edges lie over both.
     if (ownsU(u1)) poly([P(u1, c, z1), P(u1, d, z1), P(u1, d, z0), P(u1, c, z0)], o.right ?? tone(colour, RIGHT), alpha);
     if (ownsV(v1)) poly([P(a, v1, z1), P(b, v1, z1), P(b, v1, z0), P(a, v1, z0)], colour, alpha);
-    if (!o.noTop) poly([P(a, c, z1), P(b, c, z1), P(b, d, z1), P(a, d, z1)], o.top ?? tone(colour, TOP), alpha);
+    if (!o.noTop) poly([P(a, c, z1), P(b, c, z1), P(b, d, z1), P(a, d, z1)], up(o.top ?? tone(colour, TOP)), alpha);
   };
   /** The part of a segment from `a` to `b`, as a range of its parameter, inside one slab of the tile. */
   const slab = (a: number, b: number, lo: number, hi: number, t: [number, number]): boolean => {
@@ -185,7 +192,7 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
     const a = Math.max(u0, cu0), b = Math.min(u1, cu1);
     const c = Math.max(v0, cv0), d = Math.min(v1, cv1);
     if (b <= a + EPS || d <= c + EPS) return;
-    poly([P(a, c, z(a, c)), P(b, c, z(b, c)), P(b, d, z(b, d)), P(a, d, z(a, d))], colour, alpha);
+    poly([P(a, c, z(a, c)), P(b, c, z(b, c)), P(b, d, z(b, d)), P(a, d, z(a, d))], up(colour), alpha);
   };
   const gable: Pen["gable"] = (axis, at, top, z0, colour, alpha = 1) => {
     if (axis === "u" ? !ownsU(at) : !ownsV(at)) return;
@@ -220,12 +227,12 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
     }
     const cap = o.cap ?? 0, M = 24;
     if (cap <= 0) {
-      poly(Array.from({ length: M }, (_, k) => P(u + r * Math.cos((k / M) * Math.PI * 2), v + r * Math.sin((k / M) * Math.PI * 2), z1)), o.top ?? tone(colour, TOP));
+      poly(Array.from({ length: M }, (_, k) => P(u + r * Math.cos((k / M) * Math.PI * 2), v + r * Math.sin((k / M) * Math.PI * 2), z1)), up(o.top ?? tone(colour, TOP)));
       return;
     }
     // A cone: its triangles back to front, each lit by the way it faces.
     const tris = Array.from({ length: M }, (_, k) => (k / M) * Math.PI * 2).sort((p, q) => Math.cos(p) + Math.sin(p) - (Math.cos(q) + Math.sin(q)));
-    const top = o.top ?? colour;
+    const top = up(o.top ?? colour);
     for (const t of tris) {
       const t1 = t + (Math.PI * 2) / M;
       poly([P(u, v, z1 + cap), P(u + r * Math.cos(t), v + r * Math.sin(t), z1), P(u + r * Math.cos(t1), v + r * Math.sin(t1), z1)], tone(top, 0.86 + 0.26 * ((Math.sin(t + Math.PI / M) - Math.cos(t + Math.PI / M)) / Math.SQRT2) * 0.5 + 0.12));

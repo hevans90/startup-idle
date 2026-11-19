@@ -15,7 +15,7 @@ const BASE = "/isometric_assets/derived";
 
 /** A part's layers: each a texture and its anchor, the middle of the plot at the ground. */
 export type HousePart = { tex: Texture[]; anchor: { x: number; y: number }[] };
-export type HouseLook = { ground: HousePart; mids: HousePart[]; roof: HousePart };
+export type HouseLook = { ground: HousePart; mids: HousePart[]; roof: HousePart; snow?: HousePart };
 export type HouseSprites = { res: number; kits: Map<string, HouseLook> };
 
 export async function loadHouseSprites(): Promise<HouseSprites> {
@@ -34,7 +34,7 @@ export async function loadHouseSprites(): Promise<HouseSprites> {
     return { tex, anchor };
   };
   const kits: HouseSprites["kits"] = new Map();
-  for (const [id, k] of Object.entries(sheet.kits)) kits.set(id, { ground: cut(k.ground), mids: k.mids.map(cut), roof: cut(k.roof) });
+  for (const [id, k] of Object.entries(sheet.kits)) kits.set(id, { ground: cut(k.ground), mids: k.mids.map(cut), roof: cut(k.roof), ...(k.snow ? { snow: cut(k.snow) } : {}) });
   return { res: sheet.res, kits };
 }
 
@@ -49,12 +49,12 @@ export const housesLoaded = () => loaded;
 export const setHouseSprites = (h: HouseSprites | null) => { loaded = h; };
 
 /** One sprite to draw: its texture, its anchor, how far up the stack it is lifted (px at scale 1), and whether it is the tinted walls. */
-export type HousePiece = { tex: Texture; anchor: { x: number; y: number }; lift: number; walls: boolean };
+export type HousePiece = { tex: Texture; anchor: { x: number; y: number }; lift: number; walls: boolean; snow?: boolean };
 
 /**
  * A house of `floors` storeys as the sprites to draw, lowest first: the
  * ground floor, a floor for each storey over it (which of the kit's, by
- * `seed`, so a street of one kit is not a street of one house) and the roof.
+ * `seed`, so a street of one kit is not a street of one house), the roof, and the snow that lies on it.
  */
 export function housePieces(look: HouseLook, kit: string, floors: number, seed: number): HousePiece[] {
   const storey = (houseOf(kit)?.storey ?? 0) * HALF_STEPS_PER_M * HEIGHT_UNIT;
@@ -64,6 +64,9 @@ export function housePieces(look: HouseLook, kit: string, floors: number, seed: 
   const n = look.mids.length ? Math.max(1, floors) : 1;
   for (let f = 1; f < n; f++) add(look.mids[(seed + f) % look.mids.length], (f - 1) * storey);
   add(look.roof, (n - 1) * storey);
+  // (The snow alone is its second layer.)
+  const snow = look.snow?.tex[1];
+  if (snow && snow !== Texture.EMPTY) out.push({ tex: snow, anchor: look.snow!.anchor[1], lift: (n - 1) * storey, walls: false, snow: true });
   return out;
 }
 

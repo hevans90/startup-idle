@@ -28,7 +28,7 @@ function baseOf(grid: Grid, x: number, y: number): number {
  * A cell's road surface over `z`: its ramp's plane; or on the continuous surface its four corners (@see CellPaint.zc),
  * each as the ground's mesh has it, so the tile is painted on just what is drawn under it.
  */
-function planeAt(grid: Grid, x: number, y: number, ramp: number, z: number): Pick<CellPaint, "z0" | "zu" | "zv" | "zc"> {
+export function planeAt(grid: Grid, x: number, y: number, ramp: number, z: number): Pick<CellPaint, "z0" | "zu" | "zv" | "zc"> {
   if (!lies(grid, x, y)) return planeOf(ramp, surfaceHeightAt(grid, x, y) - z);
   // (To a 48th of a half step: what is the same is keyed the same.)
   const q = (n: number) => Math.round((n - z) * 48) / 48;

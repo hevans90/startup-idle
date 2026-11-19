@@ -20,6 +20,7 @@ import { heightOf } from "../agents/people/cast";
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { propSprite, propSprites, propsLoaded } from "../props/props-sheet";
 import { TREES } from "../props/models";
+import { SNOW_STEPS, fadeWithSnow, snowStep } from "../render/snow-cover";
 import { plantsTrees, setPlanted } from "../render/planted";
 
 /** What of a building's props are trees: on the continuous surface, the woods' mesh's. */
@@ -171,7 +172,8 @@ const frontBand = (s: Structure, ctx: RenderCtx) =>
 const stateOf = (s: Structure) => {
   const b = s.build;
   // (Done, and drawn again when the baked buildings' sheet comes in. @see placeBaked)
-  if (!b) return landmarksLoaded() ? "done:baked" : "done";
+  // (And as the snow lying on its tops changes, a step at a time — a finished one's: a site's ground is worked. @see snow-cover)
+  if (!b) return `${landmarksLoaded() ? "done:baked" : "done"}:${snowStep()}`;
   // (Finer while its ground is worked: a pile's head is drawn as the rig leaves it.)
   const p = b.done / b.need, g = groundShare(b.deliveries, s.def);
   return `${Math.floor(p * 400)}:${p < g ? Math.floor((p / g) * 700) : ""}:${b.delivered}:${b.priority === 0}`;
@@ -451,6 +453,20 @@ function placeBaked(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numb
         PIECE_TILE.set(sp, { x: s.x + c, y: s.y + r });
         h.baked.push(sp);
       });
+      // THE SNOW ON IT, a tile's over that tile, faded in by how much lies. @see snow-cover
+      h.cells.forEach(({ c, r }) => {
+        const t = look!.snow[r * s.w + c];
+        if (!t) return;
+        const sp = new Sprite(t.tex);
+        sp.eventMode = "none";
+        sp.anchor.set(t.anchor.x, t.anchor.y);
+        sp.position.set(at.wx, at.wy);
+        sp.scale.set(ctx.scale / sheet!.snowRes);
+        ctx.bands.structureOf[bandOfTile(s, ctx, c, r)].addChild(sp);
+        PIECE_TILE.set(sp, { x: s.x + c, y: s.y + r });
+        fadeWithSnow(sp);
+        h.baked.push(sp);
+      });
       // ITS CANOPIES, over whatever the game stands on their tiles: a shed's roof over the lorries parked in it.
       h.cells.forEach(({ c, r }) => {
         const t = look!.over[r * s.w + c];
@@ -463,6 +479,21 @@ function placeBaked(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numb
         sp.zIndex = 6;
         ctx.bands.dynamicOf[bandOfTile(s, ctx, c, r)].addChild(sp);
         PIECE_TILE.set(sp, { x: s.x + c, y: s.y + r });
+        h.baked.push(sp);
+      });
+      // (And on them.)
+      h.cells.forEach(({ c, r }) => {
+        const t = look!.snowOver[r * s.w + c];
+        if (!t) return;
+        const sp = new Sprite(t.tex);
+        sp.eventMode = "none";
+        sp.anchor.set(t.anchor.x, t.anchor.y);
+        sp.position.set(at.wx, at.wy);
+        sp.scale.set(ctx.scale / sheet!.snowRes);
+        sp.zIndex = 6.01;
+        ctx.bands.dynamicOf[bandOfTile(s, ctx, c, r)].addChild(sp);
+        PIECE_TILE.set(sp, { x: s.x + c, y: s.y + r });
+        fadeWithSnow(sp);
         h.baked.push(sp);
       });
     }
@@ -498,7 +529,7 @@ function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): 
     g.context.batchMode = h.growing ? "no-batch" : "batch";
     g.clear();
     if (baked) return;
-    const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, h.cells[k]);
+    const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, h.cells[k], site ? 0 : snowStep() / SNOW_STEPS);
     if (site) drawSite(p, h.model, f, site, stockOf(s), laidUp(s));
     else {
       if (h.model.lawn && !lawnless) h.model.lawn(p, f);

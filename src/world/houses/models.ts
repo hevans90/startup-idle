@@ -38,6 +38,21 @@ export type House = {
 /** The tinted layer: the walls. */
 export const houseLayerOf = (m: Mat) => (m === "wall" ? 0 : 1);
 
+/**
+ * SNOW LYING on what `tris` holds up: a coat over every face turned to the sky (a slope, a deck, a coping, a
+ * chimney's cap), lifted off it a little along the way it faces. Baked with what it lies on, so what stands in
+ * front of it hides it. @see dev/bake-houses
+ */
+export function snowOver(tris: readonly Tri[], lift = 0.09, steep = 0.42): Tri[] {
+  const out: Tri[] = [];
+  for (const t of tris) {
+    if (t.n[2] < steep || t.mat === "pane") continue;
+    const up = (q: V3): V3 => [q[0] + t.n[0] * lift, q[1] + t.n[1] * lift, q[2] + t.n[2] * lift];
+    out.push({ p: [up(t.p[0]), up(t.p[1]), up(t.p[2])], mat: "snow", n: t.n, ...(t.tag ? { tag: t.tag } : {}) });
+  }
+  return out;
+}
+
 type Out = Tri[];
 type Win = { frame?: Mat; pane?: Mat; sill?: boolean; bar?: boolean };
 

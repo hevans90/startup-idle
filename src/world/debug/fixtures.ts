@@ -1543,6 +1543,9 @@ export function buildShops(g: Grid, material: number, cx: number, cy: number) {
  * along each, on the north side its front on the street, on the south its
  * street behind it, and down the east road on the faces that look east; the
  * buildings of their own along a fourth street. @see pinBeauty, street-props
+ *
+ * Its trees through the year (`&year=6.1`, `6.66`); in the winter (`&year=6.9`) snow on the roofs and the roads,
+ * slush where the traffic goes. @see planted, snow-cover, road-snow
  */
 export function buildStreets(g: Grid, material: number) {
   clear(g, material);

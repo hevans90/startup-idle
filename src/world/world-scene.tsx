@@ -8,6 +8,8 @@
 import { fouledHouses, pollutionOf } from "./water/pollution";
 import { POLLUTED } from "../game/pollution";
 import { weatherDry } from "./vegetation/stress";
+import { setSnowLying } from "./render/snow-cover";
+import { createRoadSnow, syncRoadSnow } from "./render/road-snow";
 import { startWildfire, stepWildfire, tinderAt, windAt, type Wildfire } from "./vegetation/wildfire";
 import { suggestionsKept } from "./pipes/suggest";
 import { movableEnd, stretchAt } from "./pipes/stretch";
@@ -417,6 +419,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const blRef = useRef<BandLayer | null>(null);
   const tlRef = useRef<TerrainLayer | null>(null);
   const plRef = useRef<PavedLayer | null>(null);
+  const roadSnowRef = useRef(createRoadSnow());
   const slRef = useRef<StructureLayer | null>(null);
   const flRef = useRef<WaterLayer | null>(null);
   // The water's mesh is built in a vertex shader unless `?cpuwater=1` asks for
@@ -1834,6 +1837,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (slRef.current) clearStructureLayer(slRef.current);
       setShownStructures(null);
       if (tlRef.current?.ground) destroyGroundMesh(tlRef.current.ground);
+      // (The roads' snow goes with the bands it is in.)
+      roadSnowRef.current = createRoadSnow();
       if (blRef.current) destroyBandLayer(blRef.current);
       slRef.current = null;
       flRef.current = null;
@@ -3960,6 +3965,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // (A drought scorches the grass past the summer's straw: dry over one. @see ground-mesh seasonGrass)
         const gs = groundSeason(tCal), evs = useWorldStore.getState().events;
         const scorch = Math.max(evs.some((e) => e.kind === "drought" && e.phase === "active") ? 1 : 0, evs.some((e) => e.kind === "heatwave" && e.phase === "active") ? 0.6 : 0, weatherDry(tCal) * 0.5);
+        setSnowLying(smooth ? L.snow : 0);
+        if (plRef.current && blRef.current) syncRoadSnow(roadSnowRef.current, blRef.current, useWorldStore.getState().grid, plRef.current.looks, smooth && L.snow > 0.004, scale, performance.now());
         seasonGround(tlRef.current.ground, smooth ? { ...gs, dry: Math.min(2, gs.dry + scorch), snow: L.snow } : null, yearPart(tCal), smooth ? L.wet : 0, smooth ? L.frost : 0);
       }
       if (signalsRef.current) {

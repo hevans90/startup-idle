@@ -17,7 +17,11 @@ export const HOUSE_LAYERS = 2;
 export type HouseFrame = number[];
 
 /** A kit's parts: its ground floor, the floors that stack on it, and its roof. */
-export type HouseFrames = { ground: HouseFrame; mids: HouseFrame[]; roof: HouseFrame };
+export type HouseFrames = {
+  ground: HouseFrame; mids: HouseFrame[]; roof: HouseFrame;
+  /** The snow lying on its roof, alone, as the roof hides it: its second layer. @see houses/models snowOver */
+  snow?: HouseFrame;
+};
 
 export type HousesSheet = {
   res: number;

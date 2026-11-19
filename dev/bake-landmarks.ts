@@ -16,8 +16,9 @@ import { join } from "node:path";
 
 import { TILES_PER_M } from "../src/world/agents/cars/models.ts";
 import { bakeTris } from "../src/world/agents/cars/raster.ts";
-import { LANDMARK_RES, type LandmarkPiece, type LandmarksSheet } from "../src/world/landmarks/landmarks-format.ts";
+import { LANDMARK_RES, LANDMARK_SNOW_RES, type LandmarkPiece, type LandmarksSheet } from "../src/world/landmarks/landmarks-format.ts";
 import { LANDMARK_IDS, YARD_PLOT, landmarkTris, type LandmarkId } from "../src/world/landmarks/models.ts";
+import { snowOver } from "../src/world/houses/models.ts";
 import { encodePng, type Image } from "./png-min.ts";
 
 const OUT_DIR = "public/isometric_assets/derived";
@@ -35,6 +36,20 @@ function bake(id: LandmarkId, res: number, back = false) {
   return bakeTris(landmarkTris(id, back), 0, res, {
     // (Twice over: each tile's share of the building, then each tile's share of its canopies.)
     layers: PW * PH * 2, layerOf: () => 0, layerAt: (_m, p, t) => tileAt(p[0], p[1]) + (t.tag ? PW * PH : 0),
+    shadow: { hl: 1, hw: 1, edge: 0.1, soft: 0.4, strength: 0, reach: 0 },
+  });
+}
+/**
+ * The snow lying on it, as it hides it: baked with the building, each tile's snow (and its canopies') kept and the
+ * building itself let go, in the last layer.
+ */
+function bakeSnow(id: LandmarkId, res: number, back = false) {
+  const tris = landmarkTris(id, back), N = PW * PH;
+  // (On what stands up off the yard: the yard's own paving is the ground's, and its snow the ground's.)
+  const raised = tris.filter((t) => Math.min(t.p[0][2], t.p[1][2], t.p[2][2]) > 0.3);
+  return bakeTris([...tris, ...snowOver(raised)], 0, res, {
+    layers: N * 2 + 1, layerOf: () => 0,
+    layerAt: (m, p, t) => (m === "snow" ? tileAt(p[0], p[1]) + (t.tag ? N : 0) : N * 2),
     shadow: { hl: 1, hw: 1, edge: 0.1, soft: 0.4, strength: 0, reach: 0 },
   });
 }
@@ -85,14 +100,17 @@ function place(w: number, h: number): { page: number; x: number; y: number } {
   x += w + GAP; shelf = Math.max(shelf, h);
   return at;
 }
-const sheet: LandmarksSheet = { res: LANDMARK_RES, pages: [], marks: {} };
+const sheet: LandmarksSheet = { res: LANDMARK_RES, snowRes: LANDMARK_SNOW_RES, pages: [], marks: {} };
 const all: { piece: ReturnType<typeof crop>; set: (p: LandmarkPiece) => void }[] = [];
 // (Each twice: its yard to the front of its plot, and to the back — `id~back`.)
 for (const [id, back] of LANDMARK_IDS.flatMap((q) => [[q, false], [q, true]] as const)) {
   const b = bake(id, LANDMARK_RES, back), tiles: LandmarkPiece[] = new Array(PW * PH).fill(null), over: LandmarkPiece[] = new Array(PW * PH).fill(null);
   order.forEach((t, k) => all.push({ piece: crop(b.layers[k], b.ox, b.oy), set: (p) => { tiles[t.r * PW + t.c] = p; } }));
   order.forEach((t, k) => all.push({ piece: crop(b.layers[PW * PH + k], b.ox, b.oy), set: (p) => { over[t.r * PW + t.c] = p; } }));
-  sheet.marks[back ? `${id}~back` : id] = { w: PW, h: PH, tiles, over };
+  const sb = bakeSnow(id, LANDMARK_SNOW_RES, back), snow: LandmarkPiece[] = new Array(PW * PH).fill(null), snowOn: LandmarkPiece[] = new Array(PW * PH).fill(null);
+  order.forEach((t, k) => all.push({ piece: crop(sb.layers[k], sb.ox, sb.oy), set: (p) => { snow[t.r * PW + t.c] = p; } }));
+  order.forEach((t, k) => all.push({ piece: crop(sb.layers[PW * PH + k], sb.ox, sb.oy), set: (p) => { snowOn[t.r * PW + t.c] = p; } }));
+  sheet.marks[back ? `${id}~back` : id] = { w: PW, h: PH, tiles, over, snow, snowOver: snowOn };
   console.log(`${id}: ${b.layers[0].w}×${b.layers[0].h}`);
 }
 for (const a of [...all].sort((p, q) => q.piece.img.h - p.piece.img.h)) {

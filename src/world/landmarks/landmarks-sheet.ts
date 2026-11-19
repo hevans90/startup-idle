@@ -13,8 +13,8 @@ const BASE = "/isometric_assets/derived";
 
 /** A tile's share: its texture and its anchor, the middle of the plot at the ground. Null where the tile shows nothing. */
 export type LandmarkTile = { tex: Texture; anchor: { x: number; y: number } } | null;
-export type LandmarkLook = { w: number; h: number; tiles: LandmarkTile[]; over: LandmarkTile[] };
-export type LandmarkSprites = { res: number; marks: Map<string, LandmarkLook> };
+export type LandmarkLook = { w: number; h: number; tiles: LandmarkTile[]; over: LandmarkTile[]; snow: LandmarkTile[]; snowOver: LandmarkTile[] };
+export type LandmarkSprites = { res: number; snowRes: number; marks: Map<string, LandmarkLook> };
 
 export async function loadLandmarkSprites(): Promise<LandmarkSprites> {
   const sheet: LandmarksSheet = await Assets.load({ src: `${BASE}/landmarks.json`, loadParser: "loadJson" });
@@ -25,10 +25,10 @@ export async function loadLandmarkSprites(): Promise<LandmarkSprites> {
   for (const [id, m] of Object.entries(sheet.marks)) {
     marks.set(id, {
       w: m.w, h: m.h,
-      tiles: m.tiles.map(cut), over: (m.over ?? []).map(cut),
+      tiles: m.tiles.map(cut), over: (m.over ?? []).map(cut), snow: (m.snow ?? []).map(cut), snowOver: (m.snowOver ?? []).map(cut),
     });
   }
-  return { res: sheet.res, marks };
+  return { res: sheet.res, snowRes: sheet.snowRes ?? sheet.res, marks };
 }
 
 let loading: Promise<LandmarkSprites | null> | null = null;
