@@ -57,7 +57,8 @@ import {
 } from "./render/bands";
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
 import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
-import { destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
+import { canopyGround, destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
+import { stepVegetation, wetFrom } from "./vegetation/step";
 import { groundSeason } from "./calendar";
 import { useCalendarStore } from "../state/calendar.store";
 import { CLIFF, drawnSampler } from "./render/drawn";
@@ -468,6 +469,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const roadPlantRef = useRef<RoadPlant | null>(null);
   /** The woods' trees, stood on shaded grass. @see createWoods */
   const woodsRef = useRef<Woods | null>(null);
+  /** When the vegetation last looked at where water stands, ms. @see wetFrom */
+  const wetAtRef = useRef(-Infinity);
   /** The traffic lights at the lights junctions. @see createSignals */
   const signalsRef = useRef<Signals | null>(null);
   /** The stops the bus routes call at, as last painted on the road. @see bayMarksOf */
@@ -3850,6 +3853,14 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (shopsRef.current) {
         shopsRef.current.sync(useWorldStore.getState().grid, useWorldStore.getState().revision, scale);
         shopsRef.current.tick(now / 1000);
+      }
+      // WHAT GROWS, through the calendar's years, where the ground is one surface: and the forest floor after it. @see vegetation/step
+      if (groundMode() === "smooth") {
+        const st = useWorldStore.getState(), V = st.grid.veg;
+        const field = st.getWaterField();
+        if (field && now - wetAtRef.current > 2000) { wetAtRef.current = now; wetFrom(st.grid, (x, y) => depthAt(field, x, y)); }
+        stepVegetation(st.grid, st.palette, useCalendarStore.getState().now());
+        if (V.changed.size) { if (tlRef.current?.ground) canopyGround(tlRef.current.ground, st.grid, st.palette, V.changed); V.changed.clear(); }
       }
       if (woodsRef.current) { const st = useWorldStore.getState(); woodsRef.current.sync(st.grid, st.palette, st.revision, scale); }
       // THE YEAR on the ground, where the ground is one surface. @see world/calendar

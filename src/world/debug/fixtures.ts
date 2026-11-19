@@ -23,7 +23,7 @@ import { portsOf } from "../water/ports";
 import { derivedRamp } from "../roads/ramp-derive";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import {
-  MAIN_BORE, SEWER_GRATE, edited, fillTerrain, idx, inBounds, recomputeHeightRange, setDeck, setInflow, setSource, type Grid,
+  MAIN_BORE, SEWER_GRATE, createVeg, edited, fillTerrain, idx, inBounds, recomputeHeightRange, setDeck, setInflow, setSource, type Grid,
 } from "../grid";
 
 export type FixtureId =
@@ -55,6 +55,8 @@ const clear = (g: Grid, material: number) => {
   g.deckPool.fill(0);
   g.main.fill(0);
   g.mainEnd.fill(0);
+  // What grows: taken afresh from the new ground. @see vegetation/fields
+  g.veg = createVeg(g.w * g.h);
 };
 
 /**

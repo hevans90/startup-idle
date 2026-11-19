@@ -18,7 +18,7 @@
  * DETERMINISTIC. Everything comes from the two, so a map is stored as a number
  * and a settings object, and the same company always founds on the same ground.
  */
-import { edited, fillTerrain, idx, inBounds, recomputeHeightRange, type Grid } from "../grid";
+import { createVeg, edited, fillTerrain, idx, inBounds, recomputeHeightRange, type Grid } from "../grid";
 import { HEIGHT_MAX, HEIGHT_MIN } from "../edit/height-tools";
 import { fbm, valueNoise } from "./noise";
 import { layRoad, type Road } from "./road";
@@ -114,6 +114,8 @@ export function generateMap(g: Grid, opts: GenOptions): GenReport {
   g.mainEnd.fill(0);
   g.sewer.fill(0);
   g.sewerFit.fill(0);
+  // What grows: taken afresh from the new ground. @see vegetation/fields
+  g.veg = createVeg(g.w * g.h);
 
   // 1. THE STREET, first, because everything else is measured from it.
   const road: Road = layRoad(g, p, rng, paved);

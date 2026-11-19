@@ -24,6 +24,7 @@ import { serviceDef } from "../agents/needs";
 import { startLadder, unlockedOf } from "../agents/unlocks";
 import { setSuggestOpen, suggestOpen } from "../pipes/suggest";
 import { pipesToMains } from "../water/mains";
+import { vegAll } from "../vegetation/fields";
 
 export const WORLD_FILE_VERSION = 1;
 
@@ -109,6 +110,17 @@ export type WorldFile = {
   /** base64 Uint8Arrays of the SEWERS underground: the sides each joins, and what it has at the surface. Optional: older maps have none. */
   sewer?: string;
   sewerFit?: string;
+  /**
+   * WHAT GROWS: base64 of the vegetation fields' cover and trees, a byte a cell (`cover | density << 3`); their
+   * age, health and wear each only where any cell is not mature, healthy, untrodden; and the calendar's year they
+   * were last brought to. Optional: a map from before them has its fields taken from its ground on first reading.
+   * @see vegetation/fields
+   */
+  veg?: string;
+  vegAge?: string;
+  vegHealth?: string;
+  vegWear?: string;
+  vegT?: number;
   /**
    * Placed structures, as readable JSON — they are few, and worth eyeballing
    * in a diff.
@@ -224,6 +236,23 @@ function decodeI8(b64: string, expected: number): Int8Array {
  * building a map, a fixture written out. Those get the authored layer, which
  * is the right answer for them.
  */
+/** The vegetation fields as the file has them: every cell read first, so none is saved never taken from its ground. */
+function vegSaved(grid: Grid, palette: readonly (string | null)[]): Pick<WorldFile, "veg" | "vegAge" | "vegHealth" | "vegWear" | "vegT"> {
+  // (Without the names of the ground there is nothing to take them from, and the live map's fields are not to be
+  // taken from nothing: a copy made only to be read back, as the masterplan's town model is. @see town-model)
+  if (!palette.length) return {};
+  vegAll(grid, palette);
+  const n = grid.w * grid.h, V = grid.veg, packed = new Uint8Array(n);
+  for (let i = 0; i < n; i++) packed[i] = V.cover[i] | (V.density[i] << 3);
+  return {
+    veg: encodeU8(packed),
+    ...(V.age.some((a) => a !== 255) ? { vegAge: encodeU8(V.age) } : {}),
+    ...(V.health.some((a) => a !== 255) ? { vegHealth: encodeU8(V.health) } : {}),
+    ...(V.wear.some(Boolean) ? { vegWear: encodeU8(V.wear) } : {}),
+    ...(V.t >= 0 ? { vegT: V.t } : {}),
+  };
+}
+
 export function serializeWorld(
   grid: Grid,
   palette: { terrain: readonly (string | null)[]; paved: readonly (string | null)[] },
@@ -249,6 +278,7 @@ export function serializeWorld(
     // Likewise the sewers under the ground.
     ...(grid.sewer.some(Boolean) || grid.sewerFit.some(Boolean) ? { sewer: encodeU8(grid.sewer), sewerFit: encodeU8(grid.sewerFit) } : {}),
     ramp: encodeU8(grid.ramp),
+    ...vegSaved(grid, palette.terrain),
     structures: [...grid.structures.values()],
     // Roads ordered and still being built. @see roads/jobs
     ...(grid.roadJobs.length ? { roadJobs: grid.roadJobs } : {}),
@@ -362,6 +392,17 @@ export function deserializeWorld(
   if (typeof f.mainEnd === "string") grid.mainEnd.set(decodeU8(f.mainEnd, n));
   if (typeof f.sewer === "string") grid.sewer.set(decodeU8(f.sewer, n));
   if (typeof f.sewerFit === "string") grid.sewerFit.set(decodeU8(f.sewerFit, n));
+  if (typeof f.veg === "string") {
+    const packed = decodeU8(f.veg, n), V = grid.veg;
+    for (let i = 0; i < n; i++) { V.cover[i] = packed[i] & 7; V.density[i] = packed[i] >> 3; }
+    V.age.fill(255); V.health.fill(255); V.wear.fill(0);
+    if (typeof f.vegAge === "string") V.age.set(decodeU8(f.vegAge, n));
+    if (typeof f.vegHealth === "string") V.health.set(decodeU8(f.vegHealth, n));
+    if (typeof f.vegWear === "string") V.wear.set(decodeU8(f.vegWear, n));
+    // (Read from this ground: not to be taken from it again.)
+    V.seen.set(grid.terrain);
+    V.t = typeof f.vegT === "number" ? f.vegT : -1;
+  }
   grid.structureAt.fill(-1);
   if (Array.isArray(f.razeJobs)) grid.razeJobs = f.razeJobs.map((j) => ({ ...j }));
   if (Array.isArray(f.lineJobs)) { grid.lineJobs = f.lineJobs.map((j) => ({ ...j, cells: j.cells.map((c) => ({ ...c })), coming: [...(j.coming ?? [])] })); grid.nextLineJob = Math.max(1, ...grid.lineJobs.map((j) => j.id + 1)); }

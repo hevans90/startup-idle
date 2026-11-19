@@ -577,6 +577,17 @@ export function markGround(gm: GroundMesh, grid: Grid, palette: Palette, x: numb
   for (let k = b - 3 - far; k <= b + 3 + far; k++) if (k >= 0 && k < gm.meshes.length) gm.dirty.add(k);
 }
 
+/** What grows changed on these cells: the canopy over them and round them, and the texels sent. @see vegetation/step */
+export function canopyGround(gm: GroundMesh, grid: Grid, palette: Palette, cells: Iterable<number>) {
+  let any = false;
+  for (const i of cells) {
+    const x = i % grid.w, y = (i / grid.w) | 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(grid, x + dx, y + dy)) writeEdges(gm, grid, x + dx, y + dy, palette);
+    any = true;
+  }
+  if (any) gm.edgeSource.update();
+}
+
 /** Rebuild the bands marked, and send the texels. */
 export function flushGround(gm: GroundMesh, grid: Grid, palette: Palette) {
   if (!gm.dirty.size) return;

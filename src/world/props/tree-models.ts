@@ -7,7 +7,7 @@
 import type { Mat } from "../agents/cars/models";
 import type { Tri, V3 } from "../agents/cars/raster";
 import { ball, limb } from "../agents/people/figures";
-import { seeded, shadowOf, TREES, type PropShadow } from "./models";
+import { crown, seeded, shadowOf, trunk, TREES, type Prop, type PropShadow } from "./models";
 import type { TreeState } from "../calendar";
 
 /** A kind's habit: how its trunk, limbs and twigs go, metres. */
@@ -34,6 +34,10 @@ const HABIT: Readonly<Record<string, Habit>> = {
   lime: { seed: 123, base: [2.2, 4.6], z: 5.2, rx: 2.3, rz: 2.6, r: 0.17, leader: 0.85, limbs: 6, twigs: 3, rise: 0.6, trunk: "bark", twig: "bark", shade: 2.4 },
   hornbeam: { seed: 137, base: [1.8, 5.5], z: 4.8, rx: 1.4, rz: 2.9, r: 0.15, leader: 0.9, limbs: 7, twigs: 3, rise: 0.8, trunk: "bark", twig: "bark", shade: 1.6 },
   cherry: { seed: 141, base: [1.5, 2.4], z: 3.6, rx: 2.8, rz: 1.4, r: 0.16, leader: 0.3, limbs: 5, twigs: 4, rise: 0.4, trunk: "bark", twig: "bark", shade: 2.8 },
+  willow: { seed: 171, base: [1.8, 2.8], z: 4.4, rx: 3.0, rz: 1.8, r: 0.3, leader: 0.3, limbs: 7, twigs: 4, rise: 0.75, droop: 1.8, trunk: "bark", twig: "bark", shade: 3.0 },
+  poplar: { seed: 181, base: [1.4, 8.2], z: 6.8, rx: 1.25, rz: 4.4, r: 0.2, leader: 1.0, limbs: 14, twigs: 3, rise: 0.95, trunk: "bark", twig: "bark", shade: 1.4 },
+  apple: { seed: 191, base: [1.2, 1.8], z: 3.0, rx: 2.4, rz: 1.3, r: 0.16, leader: 0.2, limbs: 5, twigs: 4, rise: 0.45, trunk: "bark", twig: "bark", shade: 2.5 },
+  shrub: { seed: 201, base: [0.1, 0.5], z: 0.9, rx: 1.0, rz: 0.6, r: 0.06, leader: 0.4, limbs: 7, twigs: 2, rise: 0.75, trunk: "bark", twig: "bark", shade: 1.1 },
   birch: { seed: 153, base: [3.4, 6.4], z: 5.6, rx: 1.5, rz: 2.2, r: 0.12, leader: 1.0, limbs: 7, twigs: 3, rise: 0.55, droop: 0.6, trunk: "birchBark", twig: "bark", shade: 1.8 },
 };
 
@@ -128,21 +132,102 @@ function pineSnow(out: Tri[]) {
   ball([0, 0, 9.45], [0.18, 0.18, 0.22], "snow", out, undefined, 8, 5);
 }
 
+/**
+ * THE KINDS ONLY THE FOREST HAS, in leaf: a weeping willow and a poplar by the water, a wild apple, a shrub of the
+ * scrub a wood comes back through, heather on the heights and reeds at the shore. @see render/forest biomes
+ */
+export const WILD: readonly Prop[] = [
+  {
+    // A willow: a broad crown on a short stout trunk, its leaves hanging in curtains to the ground.
+    id: "willow", shadow: shadowOf(3.0),
+    tris: () => {
+      const r = seeded(171), out: Tri[] = [];
+      trunk(r, out, 2.4, 0.3, "bark", 4, 1.6);
+      crown(r, out, 10, 4.6, 2.6, 1.3, 0.8, 1.2);
+      for (let k = 0; k < 30; k++) {
+        const a = (k / 30) * Math.PI * 2 + r() * 0.3, d = 2.2 + 0.9 * r(), len = 1.3 + 1.2 * r();
+        ball([Math.cos(a) * d, Math.sin(a) * d, 4.3 - len * 0.6], [0.42, 0.42, len], "leaf", out, undefined, 8, 6);
+      }
+      return out;
+    },
+  },
+  {
+    // A poplar: a tall narrow column.
+    id: "poplar", shadow: shadowOf(1.4),
+    tris: () => {
+      const r = seeded(181), out: Tri[] = [];
+      trunk(r, out, 2.0, 0.2, "bark", 0);
+      ball([0, 0, 6.6], [1.05, 1.05, 4.6], "leaf", out, undefined, 14, 10);
+      for (let k = 0; k < 14; k++) { const a = r() * Math.PI * 2, z = 3 + r() * 7.4, w = 0.75 * Math.sin(((z - 2) / 9.2) * Math.PI) + 0.2; ball([Math.cos(a) * w, Math.sin(a) * w, z], [0.55, 0.55, 0.85], "leaf", out, undefined, 9, 6); }
+      return out;
+    },
+  },
+  {
+    // A wild apple: low and round, white in blossom.
+    id: "apple", shadow: shadowOf(2.5),
+    tris: () => { const r = seeded(191), out: Tri[] = []; trunk(r, out, 1.6, 0.16, "bark", 4, 1.4); crown(r, out, 13, 3.0, 2.4, 1.3, 0.6, 1.0); return out; },
+  },
+  {
+    // A shrub: a mound of leaves on no trunk to speak of.
+    id: "shrub", shadow: shadowOf(1.1, 0.24),
+    tris: () => {
+      const r = seeded(201), out: Tri[] = [];
+      ball([0, 0, 0.7], [0.95, 0.95, 0.7], "leaf", out, undefined, 12, 8);
+      for (let k = 0; k < 9; k++) { const a = r() * Math.PI * 2, d = 0.5 + 0.4 * r(); ball([Math.cos(a) * d, Math.sin(a) * d, 0.5 + r() * 0.7], [0.45 + 0.2 * r(), 0.45 + 0.2 * r(), 0.4], "leaf", out, undefined, 9, 6); }
+      return out;
+    },
+  },
+  {
+    // Heather: a low cushion, knee high.
+    id: "heather", shadow: shadowOf(0.8, 0.16),
+    tris: () => {
+      const r = seeded(211), out: Tri[] = [];
+      for (let k = 0; k < 9; k++) { const a = r() * Math.PI * 2, d = 0.9 * r(); ball([Math.cos(a) * d, Math.sin(a) * d, 0.15], [0.6 + 0.2 * r(), 0.6 + 0.2 * r(), 0.45], "leaf", out, undefined, 9, 6); }
+      return out;
+    },
+  },
+  {
+    // Reeds: a clump of tall thin blades, leaning, a few brown heads.
+    id: "reeds", shadow: shadowOf(0.7, 0.14),
+    tris: () => {
+      const r = seeded(221), out: Tri[] = [];
+      for (let k = 0; k < 34; k++) {
+        const a = r() * Math.PI * 2, d = 0.45 * Math.sqrt(r()), h = 1.4 + 1.1 * r(), lean = 0.15 + 0.35 * r();
+        const foot: V3 = [Math.cos(a) * d, Math.sin(a) * d, 0], tip: V3 = [foot[0] + Math.cos(a) * lean, foot[1] + Math.sin(a) * lean, h];
+        limb(foot, tip, 0.07, 0.02, "leaf", out, 5, false);
+        if (k % 7 === 0) ball([tip[0], tip[1], tip[2] - 0.15], [0.06, 0.06, 0.2], "bark", out, undefined, 6, 4);
+      }
+      return out;
+    },
+  },
+];
+
+/** Snow on what is low and round: pads lying on its top. */
+function cushionSnow(out: Tri[], seed: number, r: number, z: number) {
+  const rand = seeded(seed);
+  for (let k = 0; k < 6; k++) { const a = rand() * Math.PI * 2, d = r * 0.5 * rand(); ball([Math.cos(a) * d, Math.sin(a) * d, z], [r * 0.45, r * 0.45, r * 0.14], "snow", out, undefined, 8, 5); }
+}
+
 export type TreeLook = { id: string; state: TreeState; tris: () => Tri[]; shadow: PropShadow };
 
-/** Every kind in every look it takes; a pine only in needles and in snow. */
-export const TREE_LOOKS: readonly TreeLook[] = TREES.flatMap((t): TreeLook[] => {
-  if (t.id === "pine") return [
+/** Every kind in every look it takes; a pine, heather and reeds only as they are and in snow. */
+export const TREE_LOOKS: readonly TreeLook[] = [...TREES, ...WILD].flatMap((t): TreeLook[] => {
+  const withSnow = (f: (o: Tri[]) => void): TreeLook[] => [
     { id: t.id, state: "full", tris: t.tris, shadow: t.shadow },
-    { id: t.id, state: "snow", tris: () => { const out = t.tris(); pineSnow(out); return out; }, shadow: t.shadow },
+    { id: t.id, state: "snow", tris: () => { const out = t.tris(); f(out); return out; }, shadow: t.shadow },
   ];
+  if (t.id === "pine") return withSnow(pineSnow);
+  if (t.id === "heather") return withSnow((o) => cushionSnow(o, 907, 1.4, 0.58));
+  if (t.id === "reeds") return withSnow((o) => cushionSnow(o, 911, 0.7, 0.5));
   const h = HABIT[t.id];
   if (!h) return [{ id: t.id, state: "full", tris: t.tris, shadow: t.shadow }];
   const out = (f: (o: Tri[]) => void) => () => { const o: Tri[] = []; f(o); return o; };
+  // (A shrub's buds are its leaves' size: it is small all over.)
+  const small = t.id === "shrub" ? 0.35 : 1;
   return [
     { id: t.id, state: "full", tris: t.tris, shadow: t.shadow },
-    { id: t.id, state: "bud", tris: out((o) => { branches(h, o, false); clumps(h, o, 0.26, 1); }), shadow: shadowOf(h.shade, 0.16) },
-    { id: t.id, state: "thin", tris: out((o) => { branches(h, o, false); clumps(h, o, 0.75, 0.55); }), shadow: shadowOf(h.shade, 0.2) },
+    { id: t.id, state: "bud", tris: out((o) => { branches(h, o, false); clumps(h, o, 0.26 * small, 1); }), shadow: shadowOf(h.shade, 0.16) },
+    { id: t.id, state: "thin", tris: out((o) => { branches(h, o, false); clumps(h, o, 0.75 * small, 0.55); }), shadow: shadowOf(h.shade, 0.2) },
     { id: t.id, state: "bare", tris: out((o) => branches(h, o, false)), shadow: shadowOf(h.shade, 0.12) },
     { id: t.id, state: "snow", tris: out((o) => branches(h, o, true)), shadow: shadowOf(h.shade, 0.12) },
   ];

@@ -48,7 +48,7 @@ export const TREE_STATES = ["bud", "full", "thin", "bare", "snow"] as const;
 export type TreeState = (typeof TREE_STATES)[number];
 
 /** Whether a kind keeps its leaves the year round. */
-export const EVERGREEN: ReadonlySet<string> = new Set(["pine"]);
+export const EVERGREEN: ReadonlySet<string> = new Set(["pine", "heather", "reeds"]);
 
 /** One change in a tree's year: from one look to another over [`t0`, `t1`] of the year. */
 type Turn = { from: TreeState; to: TreeState; t0: number; t1: number };
@@ -65,7 +65,7 @@ const EVER: readonly Turn[] = [
   { from: "snow", to: "full", t0: 0.93, t1: 0.97 },
 ];
 /** Some kinds are early to leaf and late to fall, some the other way: a share of a year, added to every turn. */
-const LEAD: Readonly<Record<string, number>> = { birch: -0.015, cherry: -0.02, oak: 0.015, hornbeam: 0.005 };
+const LEAD: Readonly<Record<string, number>> = { birch: -0.015, cherry: -0.02, oak: 0.015, hornbeam: 0.005, willow: -0.025, apple: -0.01, shrub: -0.02, poplar: 0.005 };
 
 /**
  * WHERE A TREE IS IN ITS YEAR at `t` (years): the look it has (`from`), the next it turns to (`to`), and when that
@@ -100,6 +100,12 @@ export const LEAF_YEAR: Readonly<Record<string, readonly [number, number][]>> = 
   hornbeam: [[0.04, 0xa4c95e], [0.16, 0x4f8a3e], [0.52, 0x4f8a3e], [0.6, 0x9b9a3c], [0.67, 0xc28e36], [0.75, 0xa77a35]],
   cherry: [[0.02, 0xf6c3d6], [0.1, 0xf2b3cb], [0.15, 0x7aa34a], [0.5, 0x5f8f3e], [0.57, 0xb87a35], [0.64, 0xc4452e], [0.72, 0xa83a2a]],
   birch: [[0.03, 0xbcd96c], [0.15, 0x8fb552], [0.5, 0x8fb552], [0.57, 0xc9c64a], [0.63, 0xe8c83c], [0.72, 0xd8b33a]],
+  willow: [[0.03, 0xc8dc78], [0.14, 0x9fbd5e], [0.5, 0x9fbd5e], [0.6, 0xc4c25a], [0.68, 0xd8c048], [0.75, 0xbfa640]],
+  poplar: [[0.04, 0xa8c860], [0.16, 0x5e9244], [0.52, 0x5e9244], [0.6, 0xc4b83c], [0.66, 0xe6c432], [0.73, 0xd0a832]],
+  apple: [[0.03, 0xf4ecec], [0.11, 0xf0dde2], [0.16, 0x7aa34a], [0.52, 0x628f40], [0.6, 0xa89a3c], [0.67, 0xb07a34], [0.74, 0x8f6430]],
+  shrub: [[0.03, 0xb0d064], [0.14, 0x5c8a3c], [0.52, 0x5c8a3c], [0.6, 0x9a7a34], [0.66, 0xa4462c], [0.74, 0x7e3a26]],
+  heather: [[0.0, 0x6e6c4c], [0.2, 0x6f7c4c], [0.38, 0x76784e], [0.44, 0x8a6a84], [0.54, 0x93668e], [0.62, 0x7a6a6c], [0.75, 0x6e6c4c]],
+  reeds: [[0.0, 0xb8a46a], [0.12, 0x9fb060], [0.22, 0x6f9a44], [0.52, 0x7c9a46], [0.6, 0xb4a85c], [0.7, 0xc4ad70], [0.85, 0xb8a46a]],
   pine: [[0.0, 0x2c5636], [0.2, 0x2f5e3a], [0.7, 0x2f5e3a], [0.85, 0x2a5234]],
 };
 

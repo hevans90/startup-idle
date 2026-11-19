@@ -271,7 +271,47 @@ export type Grid = {
    * to it.
    */
   rev: number;
+  /**
+   * WHAT GROWS on each cell — its own state, which the sun and the years change and no edit does: so outside
+   * {@link rev}, with a count of its own. @see world/vegetation/fields
+   */
+  veg: Veg;
 };
+
+/**
+ * THE VEGETATION FIELDS, a byte a cell each, saved; what they mean is `world/vegetation/fields`. Read through its
+ * `vegAt`, which first takes each cell's word from its ground material where the material has changed since —
+ * so a map from before the fields, a new map and a cell painted in the editor all come right on their own.
+ */
+export type Veg = {
+  /** What covers it: `COVER`. */
+  cover: Uint8Array;
+  /** Trees on it, 0–3. */
+  density: Uint8Array;
+  /** How grown they are, 0 a sapling to 255 mature. */
+  age: Uint8Array;
+  /** 255 healthy; less under stress. */
+  health: Uint8Array;
+  /** How trampled, 0 not at all. */
+  wear: Uint8Array;
+  /** 1 where water stands on the cell now, as the step last saw it. Not saved. @see vegetation/step */
+  wet: Uint8Array;
+  /** The ground material each cell's fields were taken from: 0xffff never. Not saved. */
+  seen: Uint16Array;
+  /** The calendar's year (@see calendar store) the fields were last brought to; < 0 never. */
+  t: number;
+  /** Counts each change to the fields, as {@link Grid.rev} does the map's. */
+  rev: number;
+  /** Cells whose fields changed since the ground last looked. */
+  changed: Set<number>;
+};
+
+export function createVeg(n: number): Veg {
+  return {
+    cover: new Uint8Array(n), density: new Uint8Array(n), age: new Uint8Array(n), health: new Uint8Array(n).fill(255),
+    wear: new Uint8Array(n), wet: new Uint8Array(n), seen: new Uint16Array(n).fill(0xffff), t: -1, rev: 0, changed: new Set(),
+  };
+}
 
 /**
  * Say that the map has changed.
@@ -316,6 +356,7 @@ export function createGrid(w: number, h: number, terrainFill = VOID): Grid {
     minHeight: 0,
     maxHeight: 0,
     rev: 0,
+    veg: createVeg(n),
   };
   if (terrainFill !== VOID) g.terrain.fill(terrainFill);
   g.structureAt.fill(-1);

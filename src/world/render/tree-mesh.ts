@@ -21,14 +21,16 @@ import { useGlobalSettingsStore } from "../../state/global-settings.store";
 import type { BandLayer } from "./bands";
 import { drawnCorner, drawnHeight } from "./drawn";
 import { canopyOf, forestTrees } from "./forest";
+import { ageStep } from "../vegetation/step";
+import { COVER } from "../vegetation/fields";
 
 const BASE = "/isometric_assets/derived";
 /** The kinds, a row of the leaves' ramp each. */
-const KINDS = ["oak", "lime", "hornbeam", "cherry", "birch", "pine"] as const;
+const KINDS = ["oak", "lime", "hornbeam", "cherry", "birch", "pine", "willow", "poplar", "apple", "shrub", "heather", "reeds"] as const;
 /** Columns of the ramp: the year in this many steps. */
 const RAMP = 96;
 /** Pages the shader reads. */
-const PAGES = 2;
+const PAGES = 4;
 
 type Sheet = { sheet: TreesSheet; pages: TextureSource[]; ramp: BufferImageSource };
 let loading: Promise<Sheet> | null = null;
@@ -162,6 +164,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
     // The year (as years since the calendar began); the wind's clock, s, and its strength; and a spare.
     uYear: { value: new Float32Array([0, 0, 1, 0]), type: "vec4<f32>" },
     uPages: { value: new Float32Array([2048, 2048, 2048, 2048]), type: "vec4<f32>" },
+    uPages2: { value: new Float32Array([2048, 2048, 2048, 2048]), type: "vec4<f32>" },
   });
   let shader: Shader | null = null;
   let key = "", lastT = NaN, scaleNow = 1;
@@ -213,11 +216,12 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
       // THE WIND AND THE YEAR, every frame: uniforms only.
       const u = uniforms.uniforms.uYear as Float32Array, pg = uniforms.uniforms.uPages as Float32Array;
       u[0] = t; u[1] = (performance.now() - t0) / 1000; u[2] = useGlobalSettingsStore.getState().motion === "calm" ? 0 : 1;
-      S.sheet.pages.forEach((pp, k) => { pg[k * 2] = pp.w; pg[k * 2 + 1] = pp.h; });
+      const pg2 = uniforms.uniforms.uPages2 as Float32Array;
+      S.sheet.pages.forEach((pp, k) => { const a = k < 2 ? pg : pg2, o = (k % 2) * 2; a[o] = pp.w; a[o + 1] = pp.h; });
       uniforms.update();
 
       // THE MAP: cells whose woods, height or ground changed — a cell's trees are by the canopy round it.
-      const mk = `${rev}|${scale}|${palette.length}`;
+      const mk = `${rev}|${g.veg.rev}|${scale}|${palette.length}`;
       if (mk !== key) {
         key = mk;
         const W = g.w, can = new Float32Array(W * g.h);
@@ -230,9 +234,10 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
         for (let y = 0; y < g.h; y++) for (let x = 0; x < W; x++) {
           let any = 0, ck = "";
           for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const c = at(x + dx, y + dy); any += c; ck += `${Math.round(c * 72)},`; }
-          if (!any) continue;
-          const i = idx(g, x, y);
-          ck += `${g.paved[i]}|${g.pool[i] > 0}|${g.terrain[i]}|${drawnCorner(g, x, y, 0, 0)},${drawnCorner(g, x, y, 1, 0)},${drawnCorner(g, x, y, 1, 1)},${drawnCorner(g, x, y, 0, 1)}`;
+          const i = idx(g, x, y), cv = g.veg.cover[i];
+          // (Reeds and heath stand where there is no canopy.)
+          if (!any && cv !== COVER.reeds && cv !== COVER.meadow) continue;
+          ck += `${g.paved[i]}|${g.pool[i] > 0}|${g.terrain[i]}|${g.veg.cover[i]},${g.veg.density[i]},${ageStep(g.veg.age[i])}|${drawnCorner(g, x, y, 0, 0)},${drawnCorner(g, x, y, 1, 0)},${drawnCorner(g, x, y, 1, 1)},${drawnCorner(g, x, y, 0, 1)}`;
           seen.add(i);
           const was = cells.get(i);
           if (was?.key === ck) continue;
@@ -288,7 +293,7 @@ function treeShader(S: Sheet, uniforms: UniformGroup): Shader {
       vertex: { source: WGSL, entryPoint: "mainVertex" }, fragment: { source: WGSL, entryPoint: "mainFragment" }, name: "trees",
       // Written out, not left to Pixi, which would show textures to the fragment stage only: the leaves' ramp is
       // read a vertex at a time. @see ground-mesh.ts groundShader
-      layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { trees: 0, uPage0: 1, uPage1: 2, uSampler: 3, uRamp: 4 }],
+      layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { trees: 0, uPage0: 1, uPage1: 2, uSampler: 3, uRamp: 4, uPage2: 5, uPage3: 6 }],
       gpuLayout: [
         [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
         [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
@@ -298,13 +303,16 @@ function treeShader(S: Sheet, uniforms: UniformGroup): Shader {
           { binding: 2, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
           { binding: 3, visibility: 2, sampler: { type: "filtering" } },
           { binding: 4, visibility: 3, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+          { binding: 5, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+          { binding: 6, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
         ],
       ],
     }),
     gl: GlProgram.from({ vertex: GLSL_VERTEX, fragment: GLSL_FRAGMENT, name: "trees" }),
   };
-  const p0 = S.pages[0], p1 = S.pages[1] ?? S.pages[0];
-  return new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { trees: uniforms, uPage0: p0, uPage1: p1, uSampler: p0.style, uRamp: S.ramp } });
+  // (A page the sheet has not: the first again, never read.)
+  const p = (k: number) => S.pages[k] ?? S.pages[0];
+  return new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { trees: uniforms, uPage0: p(0), uPage1: p(1), uSampler: p(0).style, uRamp: S.ramp, uPage2: p(2), uPage3: p(3) } });
 }
 
 /*
@@ -318,10 +326,12 @@ struct GlobalUniforms { uProjectionMatrix: mat3x3<f32>, uWorldTransformMatrix: m
 @group(0) @binding(0) var<uniform> globalUniforms : GlobalUniforms;
 struct LocalUniforms { uTransformMatrix: mat3x3<f32>, uColor: vec4<f32>, uRound: f32 };
 @group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
-struct Trees { uYear: vec4<f32>, uPages: vec4<f32> };
+struct Trees { uYear: vec4<f32>, uPages: vec4<f32>, uPages2: vec4<f32> };
 @group(2) @binding(0) var<uniform> trees : Trees;
 @group(2) @binding(1) var uPage0 : texture_2d<f32>;
 @group(2) @binding(2) var uPage1 : texture_2d<f32>;
+@group(2) @binding(5) var uPage2 : texture_2d<f32>;
+@group(2) @binding(6) var uPage3 : texture_2d<f32>;
 @group(2) @binding(3) var uSampler : sampler;
 @group(2) @binding(4) var uRamp : texture_2d<f32>;
 
@@ -370,6 +380,8 @@ fn mainVertex(@location(0) aPos: vec2<f32>, @location(1) aMove: vec4<f32>, @loca
 }
 
 fn pageAt(page: f32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
+  if (page > 2.5) { return textureSampleGrad(uPage3, uSampler, uv / trees.uPages2.zw, dx / trees.uPages2.zw, dy / trees.uPages2.zw); }
+  if (page > 1.5) { return textureSampleGrad(uPage2, uSampler, uv / trees.uPages2.xy, dx / trees.uPages2.xy, dy / trees.uPages2.xy); }
   if (page > 0.5) { return textureSampleGrad(uPage1, uSampler, uv / trees.uPages.zw, dx / trees.uPages.zw, dy / trees.uPages.zw); }
   return textureSampleGrad(uPage0, uSampler, uv / trees.uPages.xy, dx / trees.uPages.xy, dy / trees.uPages.xy);
 }
@@ -400,7 +412,7 @@ in vec2 aPos; in vec4 aMove; in vec4 aUv; in vec4 aRectA; in vec4 aRectB; in vec
 out vec4 vUv; out vec4 vRectA; out vec4 vRectB; out vec4 vPage; out vec2 vLocal; out float vBlend; out vec3 vLeaf; out vec4 vTint;
 uniform mat3 uProjectionMatrix; uniform mat3 uWorldTransformMatrix; uniform vec4 uWorldColorAlpha; uniform vec2 uResolution;
 uniform mat3 uTransformMatrix; uniform vec4 uColor;
-uniform vec4 uYear; uniform vec4 uPages;
+uniform vec4 uYear; uniform vec4 uPages; uniform vec4 uPages2;
 uniform sampler2D uRamp;
 vec3 rampAt(int row, float y) {
   float q = fract(y) * ${RAMP}.0; int i = int(floor(q)) % ${RAMP}; int j = (i + 1) % ${RAMP};
@@ -425,8 +437,8 @@ precision highp float;
 precision highp int;
 in vec4 vUv; in vec4 vRectA; in vec4 vRectB; in vec4 vPage; in vec2 vLocal; in float vBlend; in vec3 vLeaf; in vec4 vTint;
 out vec4 finalColor;
-uniform vec4 uYear; uniform vec4 uPages;
-uniform sampler2D uPage0; uniform sampler2D uPage1;
+uniform vec4 uYear; uniform vec4 uPages; uniform vec4 uPages2;
+uniform sampler2D uPage0; uniform sampler2D uPage1; uniform sampler2D uPage2; uniform sampler2D uPage3;
 float hash(ivec2 p) {
   uint h = uint(p.x) * 1664525u + uint(p.y) * 1013904223u;
   h = h ^ (h >> 16u); h = h * 0x7feb352du; h = h ^ (h >> 15u); h = h * 0x846ca68bu; h = h ^ (h >> 16u);
@@ -437,6 +449,8 @@ float vnoise(vec2 p) {
   return mix(mix(hash(i), hash(i + ivec2(1, 0)), u.x), mix(hash(i + ivec2(0, 1)), hash(i + ivec2(1, 1)), u.x), u.y);
 }
 vec4 pageAt(float page, vec2 uv, vec2 dx, vec2 dy) {
+  if (page > 2.5) return textureGrad(uPage3, uv / uPages2.zw, dx / uPages2.zw, dy / uPages2.zw);
+  if (page > 1.5) return textureGrad(uPage2, uv / uPages2.xy, dx / uPages2.xy, dy / uPages2.xy);
   if (page > 0.5) return textureGrad(uPage1, uv / uPages.zw, dx / uPages.zw, dy / uPages.zw);
   return textureGrad(uPage0, uv / uPages.xy, dx / uPages.xy, dy / uPages.xy);
 }
