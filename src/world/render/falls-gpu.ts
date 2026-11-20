@@ -28,6 +28,7 @@ import type { Container } from "pixi.js";
 
 import { QUAD_WORDS } from "../../fluid/gpu/sheet";
 import type { BandLayer } from "./bands";
+import { POUR_WGSL, lookSource, waterLookGroup } from "./water-gpu";
 
 /** Bytes one quad's instance data takes. @see QUAD_WORDS */
 const STRIDE = QUAD_WORDS * 4;
@@ -63,7 +64,10 @@ struct LocalUniforms {
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
+  // The sheet's own colour off the ramp and its cover, NOT premultiplied: the look is finished per pixel.
   @location(0) vColor: vec4<f32>,
+  // Where on the layer (its own pixels, so it does not swim as the camera moves): the streaks hang off it.
+  @location(1) vPos: vec2<f32>,
 };
 
 @vertex
@@ -93,17 +97,59 @@ fn mainVertex(
   let clip = mvp * vec3<f32>(pos, 1.0);
   var out: VSOutput;
   out.position = vec4<f32>(clip.xy, 0.0, 1.0);
-  out.vColor = vec4<f32>(c.rgb * c.a, c.a)
-             * localUniforms.uColor
-             * globalUniforms.uWorldColorAlpha;
+  out.vColor = c;
+  out.vPos = pos;
   return out;
 }
 `;
 
 const FRAGMENT_WGSL = /* wgsl */ `
+struct GlobalUniforms {
+  uProjectionMatrix: mat3x3<f32>,
+  uWorldTransformMatrix: mat3x3<f32>,
+  uWorldColorAlpha: vec4<f32>,
+  uResolution: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> globalUniforms : GlobalUniforms;
+struct LocalUniforms {
+  uTransformMatrix: mat3x3<f32>,
+  uColor: vec4<f32>,
+  uRound: f32,
+};
+@group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
+// THE WATER'S CLOCK, the one the surface runs on. @see water-gpu waterLookGroup
+struct Look { uLook: vec4<f32>, };
+@group(2) @binding(0) var<uniform> look : Look;
+
+${lookSource("wgsl")}
+${POUR_WGSL}
+
+// A FALL OFF A DECK IN THE SURFACE'S OWN WATER: the look of the surface it leaves, a sheet a hand thick, so the
+// water arcing off the edge and the water on the deck are one. Fluted at the lip — ridges long down the fall,
+// moving with it, lit along their crests — and as it falls and breaks (the ramp's paling is how far it has) it
+// opens into strands with air between them and froths, off-white, never a white panel and never clear glass.
+// The ramp's cover is how much water there is: a trickle is strands from the start. @see water-gpu pourOver
 @fragment
-fn mainFragment(@location(0) vColor: vec4<f32>) -> @location(0) vec4<f32> {
-  return vColor;
+fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vPos: vec2<f32>) -> @location(0) vec4<f32> {
+  // (The ramp lifts the fluid's colour toward white as it aerates; under that, the fluid's own.)
+  let pale = clamp((min(vColor.r, min(vColor.g, vColor.b)) - 0.15) / 0.8, 0.0, 1.0);
+  let lit = clamp((vColor.rgb - vec3<f32>(pale)) / max(1.0 - pale, 0.2), vec3<f32>(0.0), vec3<f32>(1.0));
+  // Back from the layer's pixels to tiles across and height units down. @see waterLookGroup
+  let across = vPos.x * look.uLook.z;
+  let z = -vPos.y * look.uLook.w;
+  let thick = clamp(vColor.a, 0.0, 1.0);
+  // (How broken it is, from the ramp — but each ribbon of the sheet has its own, so only softly: what makes the
+  // flutes and the strands is where on the sheet a pixel is, the same across every ribbon.)
+  let broke = clamp(pale * 0.8 + (1.0 - thick) * 0.3, 0.0, 1.0);
+  // THE FLUTES: two scales of ridge, long down the fall and running down it.
+  let s = pourNoise(vec2<f32>(across * 7.0, z * 0.05 + look.uLook.x * 2.2)) * 0.6
+    + pourNoise(vec2<f32>(across * 19.0 + 3.1, z * 0.09 + look.uLook.x * 3.1)) * 0.4;
+  let body = waterLook(vec4<f32>(lit * (0.85 + (s - 0.5) * 0.6), 0.5), vec2<f32>(1.2, 0.0),
+    vec2<f32>(across, z * 0.5), look.uLook) * localUniforms.uColor * globalUniforms.uWorldColorAlpha;
+  let r = pourOver(body, across, z, 0.4 + 0.6 * broke, look.uLook, 0.7);
+  // AIR BETWEEN THE STRANDS, soft, only where it has broken up.
+  let keep = mix(1.0, smoothstep(0.25, 0.6, s), broke * 0.7);
+  return r * keep;
 }
 `;
 
@@ -123,6 +169,7 @@ function sheetShader(): Shader {
       vertex: "#version 300 es\nvoid main(){gl_Position=vec4(0.0);}",
       fragment: "#version 300 es\nprecision mediump float;out vec4 o;void main(){o=vec4(0.0);}",
     }),
+    resources: { look: waterLookGroup },
   });
   return shared;
 }

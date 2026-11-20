@@ -32,7 +32,7 @@ import {
 export type FixtureId =
   | "flat" | "ziggurat" | "occluder" | "rampFan"
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
-  | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "cascade" | "lake" | "islands" | "plunge"
+  | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "spill" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
   | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough" | "farms" | "wildfire" | "ground";
 
@@ -755,6 +755,24 @@ export function buildCrossing(g: Grid, material: number) {
   for (let x = bed.x0; x <= bed.x1; x++) tap(g, x, 1, SPRING * 6);
 }
 
+/**
+ * WATER GOING OFF A DECK: the crossing, with the road dammed at its far end and fed hard, so the water backs up
+ * over the span, tops its parapets and falls into the channel. The scene a fall off a bridge is drawn and checked
+ * on. @see buildCrossing, water-gpu's sidePart
+ */
+export function buildSpill(g: Grid, material: number) {
+  buildCrossing(g, material);
+  const mid = Math.round(g.h / 2);
+  for (let y = mid - 1; y <= mid + 1; y++) {
+    // (Dammed at BOTH ends: the map's edge is open, and the road would drain off it.)
+    set(g, 2, y, CROSSING_VERGE);
+    set(g, g.w - 4, y, CROSSING_VERGE);
+    tap(g, 1, y, 0);
+    tap(g, 5, y, SPRING * 3);
+  }
+  edited(g);
+}
+
 /** How far the channel is cut below the road that crosses it. */
 const CROSSING_BED = -14;
 
@@ -1333,7 +1351,7 @@ export function buildGround(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48, farms: 48, wildfire: 48, ground: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, spill: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48, farms: 48, wildfire: 48, ground: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1343,7 +1361,7 @@ export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, br
  */
 export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
-  "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "cascade", "lake", "islands",
+  "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "spill", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
   "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough", "farms", "wildfire", "ground",
 ];
@@ -1371,6 +1389,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "cranes": buildCranes(g, material); recomputeHeightRange(g); return;
     case "bridge": buildBridge(g, material); recomputeHeightRange(g); return;
     case "crossing": buildCrossing(g, material); recomputeHeightRange(g); return;
+    case "spill": buildSpill(g, material); recomputeHeightRange(g); return;
     case "cascade": buildCascade(g, material); recomputeHeightRange(g); return;
     case "lake": buildLake(g, material); recomputeHeightRange(g); return;
     case "islands": buildIslands(g, material); recomputeHeightRange(g); return;

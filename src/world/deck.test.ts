@@ -615,7 +615,16 @@ describe("water going off a bridge is drawn falling", () => {
     return { g, field, bands };
   };
 
+  // On the smooth map a fall down the GROUND is the water surface's own pour
+  // film, but water off a deck is still a sheet (it arcs into the air), on
+  // either ground.
   test("the lips are on the DECK's plane, and the sheet is drawn from them", () => {
+    setGroundMode("steps");
+    try { lipsAndSheet(); } finally { setGroundMode("smooth"); }
+  });
+  test("on smooth ground too, a sheet is drawn off a deck", () => lipsAndSheet());
+
+  const lipsAndSheet = () => {
     const { field, bands } = span();
     const c = field.columns;
     const fl = createFallLayer(bands, 1);
@@ -645,7 +654,7 @@ describe("water going off a bridge is drawn falling", () => {
     // ...and it is drawn on its way down. Nought was the bug.
     expect(quads).toBeGreaterThan(0);
     destroyFallLayer(fl);
-  });
+  };
 
   test("a drop shed off a deck starts AT the deck", () => {
     // The same decode, one level down. A drop comes off the sheet at a

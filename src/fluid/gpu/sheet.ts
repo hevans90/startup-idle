@@ -65,8 +65,9 @@
  */
 import { BRINK_REACH } from "../../world/render/corner-rule";
 import { DRAWDOWN, SHADES, SHOW_DEPTH } from "../../world/render/water";
-import { LIP_BIAS, NAPPE_STEPS, sheetRuleSource } from "../../world/render/nappe";
+import { DECK_THROW, LIP_BIAS, NAPPE_STEPS, sheetRuleSource } from "../../world/render/nappe";
 import { FALL_GRAVITY } from "../falls";
+import { groundMode } from "../../world/render/ground-mode";
 import { STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 64;
@@ -93,7 +94,7 @@ struct Say {
   proj: vec4<f32>,
   // bands, cap per band, columns per tile, tiles high
   dims: vec4<i32>,
-  // pieces a sheet is cut into, spare, spare, spare
+  // pieces a sheet is cut into, whether the ground is one smooth surface, spare, spare
   lod: vec4<i32>,
 };
 @group(1) @binding(0) var<uniform> say : Say;
@@ -286,6 +287,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // throw, the lip it hangs from — belongs to that one, and hung from the
   // low-index side regardless a westward fall drew a sheet climbing out of
   // the floor it lands on. The twin of falls-render. @see dropAt
+  // ON GROUND DRAWN AS ONE SMOOTH SURFACE, NO SHEET DOWN THE GROUND: a fall there is the surface's own, carried
+  // down the face. Only water off a DECK — a pair with a storey in it — is a sheet, which arcs out into the air
+  // as no face of the surface can; it is shaded as the surface's pour. @see quad-rule's pouredAt, falls-gpu
+  if (say.lod.y == 1 && pl == 0) { return; }
   let rev = dropAt(i, axis, sa, sb) < 0.0;
   let stepBack = select(0, select(nx(), 1, axis == 0), rev);
   let src = select(slotBase(sa) + i, slotBase(sb) + i + stepBack, rev);
@@ -311,10 +316,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // component keeps its sign. The twin of outward() in falls-render. Hidden
   // while the device's throw could not go negative, which made it a no-op on
   // every east and south lip.
-  let axThrow = alongX(share(throwXAt(src), throwXAt(bi), back), axis, rev);
-  let ayThrow = alongY(share(throwYAt(src), throwYAt(bi), back), axis, rev);
-  let bxThrow = alongX(share(throwXAt(src), throwXAt(fi), fwd), axis, rev);
-  let byThrow = alongY(share(throwYAt(src), throwYAt(fi), fwd), axis, rev);
+  var axThrow = alongX(share(throwXAt(src), throwXAt(bi), back), axis, rev);
+  var ayThrow = alongY(share(throwYAt(src), throwYAt(bi), back), axis, rev);
+  var bxThrow = alongX(share(throwXAt(src), throwXAt(fi), fwd), axis, rev);
+  var byThrow = alongY(share(throwYAt(src), throwYAt(fi), fwd), axis, rev);
+  // OFF A DECK ON SMOOTH GROUND, at least DECK_THROW out, so the sheet springs clear and arcs. The twin of falls-render.
+  if (say.lod.y == 1 && pl > 0) {
+    let m = ${num(DECK_THROW)};
+    if (axis == 0) {
+      axThrow = select(max(axThrow, m), min(axThrow, -m), rev);
+      bxThrow = select(max(bxThrow, m), min(bxThrow, -m), rev);
+    } else {
+      ayThrow = select(max(ayThrow, m), min(ayThrow, -m), rev);
+      byThrow = select(max(byThrow, m), min(byThrow, -m), rev);
+    }
+  }
 
   // THE FOAM OF THE SLOT IT IS LEAVING; the wash is the world's and per
   // column, so it keeps the column index. @see stepFoam
@@ -580,7 +596,7 @@ export function createSheet(
       const buf = new ArrayBuffer(48);
       new Float32Array(buf, 0, 4).set([hw, hh, hu, scale]);
       new Int32Array(buf, 16, 4).set([bandN, cap, cpt, tilesHigh]);
-      new Int32Array(buf, 32, 4).set([steps, 0, 0, 0]);
+      new Int32Array(buf, 32, 4).set([steps, groundMode() === "smooth" ? 1 : 0, 0, 0]);
       device.queue.writeBuffer(uniform, 0, buf);
     },
     spill: (enc, dests) => {

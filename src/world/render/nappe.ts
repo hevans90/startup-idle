@@ -69,6 +69,16 @@ const num = (v: number) => (Number.isInteger(v) ? `${v}.0` : `${v}`);
  */
 export const NAPPE_STEPS = 24;
 
+/**
+ * The least a sheet off a DECK is thrown out from its edge, in tiles a second, on ground drawn as one smooth surface.
+ *
+ * Water over a kerb leaves it at least as fast as it crests — a weir's sheet springs clear of the face and arcs —
+ * but the solver's slow overflow along a whole span threw nearly nothing, so the sheet hung straight down from the
+ * kerb as a flat wall over the bridge. At this, a ten half step drop lands about a third of a tile out, the top
+ * leaving level and curling over. Drawn only: the drops it sheds still go as the solver throws them.
+ */
+export const DECK_THROW = 0.75;
+
 /** The fewest pieces a sheet is ever cut into. @see nappeStepsAt */
 export const NAPPE_STEPS_MIN = 3;
 

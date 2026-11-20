@@ -97,6 +97,12 @@ import { createFoam, stepFoam, type FoamField } from "./foam";
  * a procedural draw — it walks what could exist rather than what does — and it
  * is worth paying for the other end of the range.
  */
+/**
+ * HOW THE WATER IS LIT this frame — its clock and the night — ONE group for every band and for the falls, so a frame
+ * is one upload and a fall runs on the same clock as the pool it leaves. @see waterLook, falls-gpu
+ */
+export const waterLookGroup = new UniformGroup({ uLook: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } });
+
 export function waterOnGpu(): boolean {
   if (typeof location === "undefined") return true;
   return !new URLSearchParams(location.search).has("cpuwater");
@@ -467,6 +473,39 @@ function quadListSource(list: QuadList): TextureSource {
 
 /** How deep water on sloped ground still lies on it as it is drawn, half steps; by three times that it is level. */
 const THIN_ON_SLOPE = 0.5;
+/** How thick the film the surface lays down a face water is pouring down, in height units. @see pouredAt */
+export const POUR_FILM = "0.35";
+/** How far above one a corner's cover goes where it is wholly pouring. @see fieldCorner, mainFragment */
+const POUR_FLAG = "0.45";
+/** How steep a corner has to be, in height units a column, before it asks whether water pours down it. */
+const POUR_FACE = "2.0";
+/**
+ * WATER POURING, as the surface draws it down a rock face and a deck's sheet draws it off the edge — one recipe, so
+ * the two are the same water: streaks long down the fall line and narrow across, falling on the water's clock, lit
+ * along them and foaming in them; off-white, and never a white panel. Over a colour already finished (premultiplied)
+ * by waterLook; `across` is x − y in tiles, `z` the height in height units, `fall` how much of it is pouring,
+ * `close` how near opaque it is (a film down rock nearly; a sheet in the air by how thick it is).
+ */
+export const POUR_WGSL = /* wgsl */ `
+fn pourNoise(p: vec2<f32>) -> f32 {
+  let i = floor(p); let q = fract(p); let u = q * q * (3.0 - 2.0 * q);
+  return mix(mix(lookHash(i), lookHash(i + vec2<f32>(1.0, 0.0)), u.x),
+    mix(lookHash(i + vec2<f32>(0.0, 1.0)), lookHash(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
+}
+fn pourOver(c: vec4<f32>, across: f32, z: f32, fall: f32, u: vec4<f32>, close: f32) -> vec4<f32> {
+  let ac = across * 5.0;
+  let down = z * 0.35 + u.x * 2.2;
+  // (Two layers, offset and at their own rates, so no grid shows.)
+  let s2 = pourNoise(vec2<f32>(ac, down)) * 0.6 + pourNoise(vec2<f32>(ac * 1.9 + 7.3, down * 1.6 + 2.1)) * 0.4;
+  let froth = vec3<f32>(0.78, 0.86, 0.9) * (1.0 - 0.45 * u.y);
+  let foam = smoothstep(0.45, 0.9, s2) * 0.55 * fall;
+  let lift = (s2 - 0.5) * 0.18 * fall;
+  let a = max(c.a, close * fall);
+  // (Premultiplied: closing it up brings its colour up with it.)
+  let body = c.rgb * (a / max(c.a, 0.001)) * (1.0 + lift);
+  return vec4<f32>(mix(body, froth * a, foam), a);
+}
+`;
 
 const WGSL = /* wgsl */ `
 struct GlobalUniforms {
@@ -913,6 +952,45 @@ fn pieceOf(cx: i32, cy: i32, qx: i32, qy: i32, vx: i32, vy: i32) -> bool {
   let sb = groundAt(qx, qy, 0) + select(0.0, db, wet(db));
   return min(sa, sb) > max(ga, gb) + 0.1;
 }
+// WHICH OF THE FOUR COLUMNS AT A CORNER (vx, vy) ARE ON ONE PIECE WITH COLUMN (cx, cy), as a mask (bit k for the
+// column at vx - 1 + k % 2, vy - 1 + k / 2): of a piece with it, OR WITH ONE THAT IS. Pieces are not transitive —
+// a road's water stands over the bank beside it, and the bank runs on into the river, while the road's water is
+// nothing to the river's — and asked only of itself each column put the corner at a height of its own: the mesh
+// tore there, in holes and spikes. Joined through one another, every column of the piece puts it at one height.
+fn cornerPiece(vx: i32, vy: i32, cx: i32, cy: i32) -> i32 {
+  var m = 0;
+  var adj = 0;
+  for (var k = 0; k < 4; k++) {
+    let qx = vx - 1 + (k % 2);
+    let qy = vy - 1 + (k / 2);
+    if (!inside(qx, qy)) { continue; }
+    if (qx == cx && qy == cy) { m = m | (1 << u32(k)); }
+    // (The pairs: k with each column after it — six in all.)
+    for (var j = k + 1; j < 4; j++) {
+      let rx = vx - 1 + (j % 2);
+      let ry = vy - 1 + (j / 2);
+      if (inside(rx, ry) && pieceOf(qx, qy, rx, ry, vx, vy)) { adj = adj | (1 << u32(k * 4 + j)); }
+    }
+  }
+  // (Not a column of this corner — a neighbour's, for a slope: what it is of a piece with, directly.)
+  if (m == 0) {
+    for (var k = 0; k < 4; k++) {
+      let qx = vx - 1 + (k % 2);
+      let qy = vy - 1 + (k / 2);
+      if (inside(qx, qy) && pieceOf(cx, cy, qx, qy, vx, vy)) { m = m | (1 << u32(k)); }
+    }
+  }
+  for (var r = 0; r < 3; r++) {
+    for (var k = 0; k < 4; k++) {
+      for (var j = k + 1; j < 4; j++) {
+        if (((adj >> u32(k * 4 + j)) & 1) == 0) { continue; }
+        if (((m >> u32(k)) & 1) != 0) { m = m | (1 << u32(j)); }
+        if (((m >> u32(j)) & 1) != 0) { m = m | (1 << u32(k)); }
+      }
+    }
+  }
+  return m;
+}
 // The water at a corner, as the piece column (cx, cy) is on has it — its surface, and its depth: the mean over the
 // columns of that piece that meet there. For the slope its light is taken from.
 fn fieldHeight(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> vec2<f32> {
@@ -926,7 +1004,7 @@ fn fieldHeight(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> vec2<f32> {
   }
   return vec2<f32>(s, dd) / max(n, 1.0);
 }
-struct FieldCorner { g: f32, d: f32, foam: f32, wash: f32, speed: f32, cover: f32, hx: i32, hy: i32 };
+struct FieldCorner { g: f32, d: f32, foam: f32, wash: f32, speed: f32, cover: f32, brink: f32, hx: i32, hy: i32 };
 // A corner of the grid of columns, as the piece of ground column (cx, cy) is on has it: the ground there and the
 // water's depth there — the mean over the columns of that piece that meet at it, a dry one counting as none — and
 // what the water carries; and which wet column to colour it by.
@@ -935,24 +1013,45 @@ fn fieldCorner(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> FieldCorner {
   var n = 0.0; var wets = 0.0; var g = 0.0; var d = 0.0;
   var vel = vec2<f32>(0.0, 0.0);
   o.hx = cx; o.hy = cy;
+  // (The four grounds kept, for how steep the corner is below. Off the map or under a roof, no face there.)
+  var gq = array<f32, 4>(0.0, 0.0, 0.0, 0.0);
+  var edge = false;
+  var spanned = false;
+  let piece = cornerPiece(vx, vy, cx, cy);
   for (var k = 0; k < 4; k++) {
     let qx = vx - 1 + (k % 2);
     let qy = vy - 1 + (k / 2);
-    if (!inside(qx, qy)) { continue; }
-    if (!pieceOf(cx, cy, qx, qy, vx, vy)) { continue; }
-    n += 1.0; g += groundAt(qx, qy, a);
+    if (!inside(qx, qy)) { edge = true; continue; }
+    let gk = groundAt(qx, qy, a);
+    gq[k] = gk;
+    // (UNDER A DECK the ground there is the channel's bed, roofed by the span: no face the water lies on. At a
+    // bridge's mouth the road's water runs on level onto the deck, and read as a cliff it was cut away.)
+    if (roofAt(qx, qy, a) < ${OPEN_SKY}) { edge = true; spanned = true; }
+    if (((piece >> u32(k)) & 1) == 0) { continue; }
+    n += 1.0; g += gk;
     let dq = depthAt(qx, qy, a);
     if (!wet(dq)) { continue; }
     if (wets == 0.0) { o.hx = qx; o.hy = qy; }
     // (Drawn down toward a lip exactly as the sheet that falls from it is — @see falls-render's sharedBrink — so
     // the surface comes to the brink where that sheet begins, and the two are one.)
-    wets += 1.0; d += dq * (1.0 - ${DRAWDOWN} * atBrink(qx, qy, a));
+    let brink = atBrink(qx, qy, a);
+    o.brink = max(o.brink, brink);
+    wets += 1.0; d += dq * (1.0 - ${DRAWDOWN} * brink);
     o.wash += textureLoad(uWash, vec2<i32>(qx, qy), 0).r;
     o.foam += textureLoad(uFoam, vec2<i32>(qx, slotRow(qy, a)), 0).r;
     vel += flowAt(qx, qy, dq, a);
   }
   o.g = g / max(n, 1.0);
   o.d = d / max(n, 1.0);
+  // AT THE MOUTH OF A SPAN the road's water runs on level onto the deck, a storey up, and the deck's corner rule
+  // has the two as one sheet there: so the field puts the corner where that rule does, or the two left a strip
+  // of bare road between them along the mouth. Only where this column's sheet does reach a storey above.
+  if (spanned && a == 0) {
+    let mk = cornerMask(vx, vy, contribOf(vx, vy, cx, cy, 0));
+    var up = false;
+    for (var m = 0; m < 4 * slots(); m++) { if (bitAt(mk, m) == 1 && (m % slots()) > 0) { up = true; } }
+    if (up) { o.d = max(cornerOf(vx, vy, mk).x - o.g, 0.0); }
+  }
   if (wets > 0.0) { o.wash = o.wash / wets; o.foam = o.foam / wets; o.speed = length(vel / wets); }
   // HOW MUCH ROUND IT IS WATER, smoothed over the sixteen columns round the corner, the near ones counting for
   // more: so the line the surface is cut along bends round a front. Off the map, and any other piece of ground —
@@ -963,9 +1062,98 @@ fn fieldCorner(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> FieldCorner {
     let qy = vy - 2 + (j / 4);
     let wgt = select(1.0, 3.0, (j % 4) == 1 || (j % 4) == 2) * select(1.0, 3.0, (j / 4) == 1 || (j / 4) == 2);
     if (!inside(qx, qy)) { cover += wgt; continue; }
-    if (wet(depthAt(qx, qy, a)) || !pieceOf(cx, cy, qx, qy, vx, vy)) { cover += wgt; }
+    // (The four at the corner, by the corner's own pieces, so every column that shares it agrees. @see cornerPiece)
+    let ix = (j % 4) - 1; let iy = (j / 4) - 1;
+    let near = ix >= 0 && ix <= 1 && iy >= 0 && iy <= 1;
+    var mine = false;
+    if (near) { mine = ((piece >> u32(ix + iy * 2)) & 1) != 0; } else { mine = pieceOf(cx, cy, qx, qy, vx, vy); }
+    if (wet(depthAt(qx, qy, a)) || !mine) { cover += wgt; }
   }
   o.cover = cover / 64.0;
+  // NOT ON A ROCK FACE. On ground drawn as one smooth surface a cliff is a steep slope, and the thin water lying
+  // on it was drawn as a body clinging to the face in tongues. Where the GROUND under the corner is that steep and
+  // the water on it that thin, it is not drawn; a pool at the foot is deep. Off the ground and not the surface, so a wave front on level
+  // ground, however steep, is untouched.
+  let rise = select(max(abs(gq[1] + gq[3] - gq[0] - gq[2]), abs(gq[2] + gq[3] - gq[0] - gq[1])) * 0.5, 0.0, edge);
+  // (Except at a BRINK — water going over a lip, which the fall's sheet hangs from and the two are one.)
+  let face = smoothstep(2.0, 3.5, rise) * (1.0 - smoothstep(0.3, 0.8, o.d)) * (1.0 - smoothstep(0.0, 0.05, o.brink));
+  o.cover = o.cover * (1.0 - face);
+  // UNLESS WATER IS POURING DOWN IT: then the surface carries on down the face, a film over the rock, wholly
+  // covered — and how much of the corner is pouring rides ABOVE ONE in the cover, which the fragment clamps for
+  // the edge and reads for the falling look: up to POUR_FLAG over, short of the 1.5 that marks a shelf's shore. (No new varying: they cost more than the shading.) @see pouredAt
+  // (Only on a face, and only UP it: from the corner's low side along the way it climbs most, in each of the two
+  // rows or columns that meet at it — two short walks, not one a column a way.)
+  if (rise > ${POUR_FACE}) {
+    let gx = gq[1] + gq[3] - gq[0] - gq[2];
+    let gy = gq[2] + gq[3] - gq[0] - gq[1];
+    var pour = false;
+    if (abs(gx) >= abs(gy)) {
+      let dx = select(1, -1, gx > 0.0);
+      let lx = select(vx, vx - 1, gx > 0.0);
+      pour = pouredFrom(lx, vy - 1, dx, 0, a) || pouredFrom(lx, vy, dx, 0, a);
+    } else {
+      let dy = select(1, -1, gy > 0.0);
+      let ly = select(vy, vy - 1, gy > 0.0);
+      pour = pouredFrom(vx - 1, ly, 0, dy, a) || pouredFrom(vx, ly, 0, dy, a);
+    }
+    if (pour && a == 0) {
+      o.d = max(o.d, ${POUR_FILM});
+      o.cover = 1.0 + ${POUR_FLAG};
+    }
+  }
+  return o;
+}
+
+// AS ONE SMOOTH FIELD, A FACE DOWN A STEP THE FIELD PARTS AT — a kerb, a quay, a road's edge: the field has no
+// sides, and where the ground parts the water the high side's surface stopped at the step with nothing under it.
+// One end of the far edge (axis) of column (cx, cy), at its top (corners 0, 1: this column's water as its own
+// piece has it there) or its foot (2, 3: the water, or the ground, of the piece across). Where the two are one
+// piece they agree and the face is nothing. Not into a channel under a span: that is the bridge's. @see quad-rule's fieldStep
+struct FieldFace { ok: bool, fx: f32, fy: f32, h: f32, fall: f32, d: f32, foam: f32 };
+fn fieldFace(cx: i32, cy: i32, axis: i32, corner: i32, a: i32) -> FieldFace {
+  var o: FieldFace;
+  o.ok = false;
+  let jx = cx + select(0, 1, axis == 0);
+  let jy = cy + select(1, 0, axis == 0);
+  if (!inside(jx, jy) || roofAt(jx, jy, a) < ${OPEN_SKY}) { return o; }
+  // (Only where something BUILT parts the water — bare ground is one piece, however steep — and only between two
+  // tiles: asked first, as it is cheap, and most of the edges the gathering keeps are not one.) @see pieceOf
+  let cpt = i32(water.uGrid.z);
+  let ax = cx / cpt; let ay = cy / cpt; let bx = jx / cpt; let by = jy / cpt;
+  if (ax == bx && ay == by) { return o; }
+  let builtA = (i32(textureLoad(uShore, vec2<i32>(ax * 2 + 1, ay), 0).w + 0.5) & 16) != 0;
+  let builtB = (i32(textureLoad(uShore, vec2<i32>(bx * 2 + 1, by), 0).w + 0.5) & 16) != 0;
+  if (!builtA && !builtB && water.uList.w > 0.5) { return o; }
+  let far = corner == 1 || corner == 2;
+  let vx = cx + select(select(0, 1, far), 1, axis == 0);
+  let vy = cy + select(1, select(0, 1, far), axis == 0);
+  let c = fieldCorner(vx, vy, cx, cy, a);
+  let top = c.g + c.d;
+  let q = fieldCorner(vx, vy, jx, jy, a);
+  let step = 1.0 / f32(cpt);
+  o.fx = f32(vx) * step - 0.5;
+  o.fy = f32(vy) * step - 0.5;
+  o.h = select(top, min(top, q.g + q.d), corner >= 2);
+  o.fall = c.brink;
+  o.d = c.d;
+  o.foam = c.foam;
+  o.ok = true;
+  return o;
+}
+
+// HOW A FACE DOWN A STEP IS SHADED: where the water is going over it, as the surface's own water pouring down a
+// face (the pour flag over one in the cover, the look a thin film's); where it only stands at it, as the body of
+// the water cut through, as at the map's edge. @see fieldFace, mainFragment
+struct StepLook { rgb: vec3<f32>, alpha: f32, cover: f32, look: vec2<f32> };
+fn stepLook(cx: i32, cy: i32, f: FieldFace, a: i32) -> StepLook {
+  var o: StepLook;
+  let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
+  let tint = fouled(textureLoad(uTint, vec2<i32>(0, mat), 0).rgb, cx, cy, a);
+  let pour = smoothstep(0.0, 0.05, f.fall);
+  o.rgb = mix(tint * vec3<f32>(0.2, 0.3, 0.42), tint, pour);
+  o.alpha = mix(0.86, 0.5, pour);
+  o.cover = 1.0 + ${POUR_FLAG} * pour;
+  o.look = select(vec2<f32>(-1.0, 0.0), vec2<f32>(max(f.d, ${POUR_FILM}), f.foam), pour > 0.0);
   return o;
 }
 
@@ -1093,8 +1281,15 @@ fn mainVertex(
     // ocx/ocy ARE that column, and the tier gate above has already been asked
     // about it, once, where every part asks.
     if (!facesOn()) { return out; }
-    // (As one smooth field the water has no sides but at the map's edge, and those are the column's own.)
-    if (fieldOn() && a == 0) { return out; }
+    // (As one smooth field the water has no sides but at the map's edge, which are the column's own, and down a
+    // step the field parts at, filed forward as any face is.)
+    if (fieldOn() && a == 0) {
+      let f = fieldFace(ocx, ocy, part, corner, a);
+      if (!f.ok) { return out; }
+      fx = f.fx; fy = f.fy; h = f.h;
+      let st = stepLook(ocx, ocy, f, a);
+      rgb = st.rgb; alpha = st.alpha; out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, st.cover); out.vLook = st.look;
+    } else {
     // (A shelf has no sides: its water is cut to the ground, not stood on a bed. @see mainFragment)
     let okind = groundKind(ocx / cpt, ocy / cpt, a);
     if (okind == 1) { return out; }
@@ -1107,6 +1302,7 @@ fn mainVertex(
       fx0 - select(0.0, step, part == 0), fy0 - select(step, 0.0, part == 0), step, bd, a);
     if (!p.ok) { return out; }
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
+    }
   } else if (part == 2 && fieldOn() && a == 0) {
     // THE SURFACE, AS ONE SMOOTH FIELD: of a wet column, or of a dry one beside water (its edge runs through it).
     let ox = ((corner + 1) >> 1) & 1;
@@ -1233,7 +1429,15 @@ fn mainVertex(
       let axis = part - 3;
       let jx = cx + select(0, 1, axis == 0);
       let jy = cy + select(1, 0, axis == 0);
-      if (inside(jx, jy)) { return out; }
+      if (inside(jx, jy)) {
+        // (DOWN A STEP the field parts at, unless filed forward into the band in front. @see fieldFace)
+        if (forward(cx, cy, axis, cpt, a)) { return out; }
+        let f = fieldFace(cx, cy, axis, corner, a);
+        if (!f.ok) { return out; }
+        fx = f.fx; fy = f.fy; h = f.h;
+        let st = stepLook(cx, cy, f, a);
+        rgb = st.rgb; alpha = st.alpha; out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, st.cover); out.vLook = st.look;
+      } else {
       // Along the edge: its two ends, each at the top (corners 0, 1) or the foot (2, 3).
       let far = corner == 1 || corner == 2;
       let vx = cx + select(select(0, 1, far), 1, axis == 0);
@@ -1246,6 +1450,7 @@ fn mainVertex(
       alpha = 0.86;
       let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
       rgb = fouled(textureLoad(uTint, vec2<i32>(0, mat), 0).rgb, cx, cy, a) * vec3<f32>(0.2, 0.3, 0.42);
+      }
     } else {
     let kind = groundKind(cx / cpt, cy / cpt, a);
     if (kind == 1) { return out; }
@@ -1297,7 +1502,7 @@ fn mainVertex(
  * Foam on top as it always was: toward white, and closing the surface up. Nothing here makes water where the solver
  * has none — it only says how the water it has looks. @see surfaceLook, water-is-the-sim
  */
-function lookSource(lang: "wgsl" | "glsl"): string {
+export function lookSource(lang: "wgsl" | "glsl"): string {
   const w = lang === "wgsl";
   const f = w ? "f32" : "float";
   const v2 = w ? "vec2<f32>" : "vec2";
@@ -1396,12 +1601,20 @@ fn shoreNoise(p: vec2<f32>) -> f32 {
   return mix(mix(shoreHash(i), shoreHash(i + vec2<f32>(1.0, 0.0)), u.x), mix(shoreHash(i + vec2<f32>(0.0, 1.0)), shoreHash(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
 }
 ${lookSource("wgsl")}
+${POUR_WGSL}
 @fragment
 fn mainFragment(@location(0) vLit: vec4<f32>, @location(1) vShore: vec4<f32>, @location(2) vLook: vec2<f32>) -> @location(0) vec4<f32> {
   let vCover = min(vShore.w, 1.0);
   var vColor = vLit;
   if (vLook.x >= 0.0) {
     vColor = waterLook(vLit, vLook, vShore.xy, look.uLook) * localUniforms.uColor * globalUniforms.uWorldColorAlpha;
+  }
+  {
+    // POURING DOWN A ROCK FACE: the same water, running down it — streaks long down the fall line (down the
+    // screen) and narrow across, falling on the water's clock, lit along them and foaming in them; off-white,
+    // more as it goes down, and never a white panel. @see pouredAt, fieldCorner
+    let fall = clamp((vShore.w - 1.0) / ${POUR_FLAG}, 0.0, 1.0);
+    if (fall > 0.0) { vColor = pourOver(vColor, vShore.x - vShore.y, vShore.z, fall, look.uLook, 0.92); }
   }
   // AS ONE SMOOTH FIELD, THE WATER'S EDGE: along a line of how much round each point is water, soft, with a faint
   // broken line of foam. @see fieldCorner
@@ -2163,7 +2376,13 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
   const meshes: Mesh<Geometry, Shader>[] = [];
   const under: Mesh<Geometry, Shader>[] = [];
   // ONE for every band, so a frame's clock is one upload and not one a band. @see waterLook
-  const look = new UniformGroup({ uLook: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } });
+  const look = waterLookGroup;
+  // (And how big a tile and a height unit are on the layer, for the falls' sheets, which have only pixels. @see pourOver)
+  {
+    const lk = look.uniforms.uLook as Float32Array;
+    lk[2] = 1 / (HW * scale); lk[3] = 1 / (HEIGHT_UNIT * scale);
+    look.update();
+  }
   for (let b = 0; b < bands.bands.length; b++) {
     // The tiles on this diagonal, and where they start.
     const tx0 = Math.max(0, b - (bands.h - 1));

@@ -33,6 +33,12 @@
 import { FALL_STOP } from "../../fluid/falls";
 import { OPEN_SKY } from "../../fluid/slots";
 import type { Dialect } from "./corner-rule";
+import { PIECE_STEP } from "./water-piece";
+
+/** How many columns up a face a lip can be and still pour down to this one. @see pouredAt */
+export const POUR_REACH = 8;
+/** How steep a step up a face has to be to be part of it, in height units a column. @see pouredAt */
+export const POUR_STEEP = 1.5;
 
 export function quadRuleSource(dialect: Dialect): string {
   const wgsl = dialect === "wgsl";
@@ -139,6 +145,54 @@ ${wgsl
 }
 
 ${wgsl
+    ? "fn pouredFrom(cx: i32, cy: i32, dx: i32, dy: i32, a: i32) -> bool {"
+    : "bool pouredFrom(int cx, int cy, int dx, int dy, int a) {"}
+  // UP THE FACE from (cx, cy), against the way the water runs (dx, dy): every step a steep one, to a wet LIP — a
+  // column the brink rule says water is leaving over a drop. @see pouredAt
+  ${wgsl ? "var" : "int"} px = cx;
+  ${wgsl ? "var" : "int"} py = cy;
+  for (${wgsl ? "var" : "int"} k = 0; k < ${POUR_REACH}; k++) {
+    ${INT} ux = px - dx;
+    ${INT} uy = py - dy;
+    if (!inside(ux, uy)) { return false; }
+    if (groundAt(ux, uy, a) - groundAt(px, py, a) < ${POUR_STEEP}) { return false; }
+    if (wet(depthAt(ux, uy, a)) && atBrink(ux, uy, a) > 0.01) { return true; }
+    px = ux; py = uy;
+  }
+  return false;
+}
+
+${wgsl
+    ? "fn pouredAt(cx: i32, cy: i32, a: i32) -> bool {"
+    : "bool pouredAt(int cx, int cy, int a) {"}
+  // WHETHER WATER IS POURING DOWN THE ROCK FACE THIS COLUMN IS ON, from a lip up the slope in any of the four
+  // directions. On ground drawn as one smooth surface a cliff is a steep slope; the water going over it is in the
+  // air, so the solver has next to none standing on the face, and drawn as the surface it was bare rock under a
+  // lip. A fall is drawn as the surface carried down the face instead, shaded as falling water. Ground storey only.
+  // @see water-gpu's fieldCorner
+  if (a != 0 || !skirtOn()) { return false; }
+  return pouredFrom(cx, cy, 1, 0, a) || pouredFrom(cx, cy, -1, 0, a)
+    || pouredFrom(cx, cy, 0, 1, a) || pouredFrom(cx, cy, 0, -1, a);
+}
+
+${wgsl
+    ? "fn fieldStep(cx: i32, cy: i32, axis: i32, a: i32) -> bool {"
+    : "bool fieldStep(int cx, int cy, int axis, int a) {"}
+  // AS ONE SMOOTH FIELD, A STEP DOWN across this column's far edge that the field may not draw down — a kerb, a
+  // quay, a road's edge, where the ground parts the water. Whether there is a face there, and what it is, the
+  // vertex shader works out: this only keeps the quads that could be one. Off the map is the map's edge's. @see water-gpu's fieldFace
+  ${INT} jx = cx + select(0, 1, axis == 0);
+  ${INT} jy = cy + select(1, 0, axis == 0);
+  if (!inside(jx, jy)) { return true; }
+  if (roofAt(jx, jy, a) < ${OPEN_SKY}.0) { return false; }
+  ${NUM} gj = groundAt(jx, jy, a);
+  ${NUM} dj = depthAt(jx, jy, a);
+  // (A step down in the ground, and the water standing higher on this side than over there.)
+  return groundAt(cx, cy, a) - gj >= ${PIECE_STEP}
+    && groundAt(cx, cy, a) + depthAt(cx, cy, a) > gj + select(0.0, dj, wet(dj)) + 0.05;
+}
+
+${wgsl
     ? "fn quadDraws(cx: i32, cy: i32, part: i32, cpt: i32, faces: bool, a: i32) -> bool {"
     : "bool quadDraws(int cx, int cy, int part, int cpt, bool faces, int a) {"}
   if (!inside(cx, cy)) { return false; }
@@ -154,6 +208,7 @@ ${wgsl
     if (!inside(bx, by)) { return false; }
     if (!shows(bx, by, a)) { return false; }
     if (!forward(bx, by, axis2, cpt, a)) { return false; }
+    if (skirtOn() && a == 0) { return fieldStep(bx, by, axis2, a); }
     return sideShows(bx, by, axis2, a);
   }
   // A SLOT THAT IS NOT A SURFACE DRAWS NOTHING OF ITS OWN — dry, or running
@@ -163,12 +218,14 @@ ${wgsl
   // the deck's edge. @see shows
   // OR, AS ONE SMOOTH FIELD, A DRY COLUMN BESIDE WATER on its own piece of ground: the water's edge is cut along
   // a line that runs through it, so it draws a surface for that line to be on. @see water-gpu's fieldCorner
-  if (part == 2) { return shows(cx, cy, a) || (skirtOn() && skirtAt(cx, cy, a)); }
+  // AND A ROCK FACE WATER IS POURING DOWN. @see pouredAt
+  if (part == 2) { return shows(cx, cy, a) || (skirtOn() && (skirtAt(cx, cy, a) || pouredAt(cx, cy, a))); }
   if (!faces) { return false; }
   // A SIDE OF THIS COLUMN, unless it is filed forward into the band in front.
   if (!shows(cx, cy, a)) { return false; }
   ${INT} axis = part - 3;
   if (forward(cx, cy, axis, cpt, a)) { return false; }
+  if (skirtOn() && a == 0) { return fieldStep(cx, cy, axis, a); }
   return sideShows(cx, cy, axis, a);
 }
 `;

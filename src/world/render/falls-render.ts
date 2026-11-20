@@ -47,8 +47,9 @@ import {
 import { DRAWDOWN, FULL_FALL_FLUX, aerate, litAt, shownDepth } from "./water";
 import { atBrink } from "./corner-rule";
 import { FALL_MIN } from "../../fluid/falls";
+import { groundMode } from "./ground-mode";
 import {
-  nappeSteps, sheetLook, type NappeStep, type SheetLook,
+  DECK_THROW, nappeSteps, sheetLook, type NappeStep, type SheetLook,
 } from "./nappe";
 
 export type FallLayer = {
@@ -349,6 +350,9 @@ export function drawFalls(
     if (jx >= columns.nx || jy >= columns.ny) continue;
     const reach = fallExtent(columns, ci, axis, pl);
     if (!reach) continue;
+    // ON GROUND DRAWN AS ONE SMOOTH SURFACE, NO SHEET DOWN THE GROUND: a fall there is the surface's own, carried
+    // down the face. Only water off a DECK (a pair with a storey in it) is a sheet. The twin of sheet.ts.
+    if (groundMode() === "smooth" && pl === 0) continue;
 
     // WHICH OF THE EDGE'S TWO COLUMNS THE WATER LEAVES, which is the sign of
     // the drop — see `dropAt`. An edge belongs to the column on its low-index
@@ -387,7 +391,12 @@ export function drawFalls(
     // ALONG THE AXIS IT POURS OVER, never back into the rock — see
     // `outward`. The across component keeps whichever way it points, which
     // is what takes a sheet off a convex corner along the flow.
-    const along = (v: number) => outward(v, back);
+    // (Off a deck on smooth ground, at least DECK_THROW out, so the sheet springs clear and arcs.)
+    const sprung = groundMode() === "smooth" && pl > 0;
+    const along = (v: number) => {
+      const o = outward(v, back);
+      return sprung ? (back ? Math.min(o, -DECK_THROW) : Math.max(o, DECK_THROW)) : o;
+    };
     const across = (v: number) => v;
     const onX = axis === 0 ? along : across;
     const onY = axis === 0 ? across : along;
