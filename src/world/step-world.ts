@@ -54,6 +54,14 @@ import { keepsPorts, portTileSet } from "./water/ports";
 import { runSources, type WaterField } from "./water/field";
 import { stepPollution } from "./water/pollution";
 
+/**
+ * THE WORKS' OWN CLOCK, seconds: the time the sites, roads and lines have been stepped by — which runs slower than
+ * the wall's whenever the water's step is held back. What draws a job's machines at work goes by this, not the wall,
+ * so a bucket swung or a machine driven keeps pace with the work it is doing. @see stepSites
+ */
+let worksTime = 0;
+export const worksClock = () => worksTime;
+
 type Owned = Partial<Record<GeneratorId, number>>;
 
 /** Pump houses paid from the company's money, a second's upkeep at a time. @see pumpUpkeep */
@@ -151,6 +159,7 @@ export type WorksSeen = { rev: number };
  * setting off.
  */
 export function stepSites(g: Grid, net: Network, seen: WorksSeen, dt: number, playing: boolean, lorrySent?: (lorry: Mover, port: number) => void): void {
+  worksTime += dt;
   const works = getWorks(), town = getTown();
   stepYards(getTraffic().yards, dt, (port) => {
     const door = town.places.find((pl) => pl.kind === "door" && pl.structure === port);

@@ -35,7 +35,7 @@ import { PAVER_LOOKS, SPOIL_LOOKS, TIP_LOOKS } from "../agents/cars/models";
 import { ARRIVE, CONCRETE_LAG, GANGS, GAP, PACE, ROAD_PLANT, frontAt, setOutAt, setOutSeconds, type RoadJob } from "../roads/jobs";
 import { PLANT_COLOUR, type Plant, type PlantKind } from "../fleet/plant";
 import type { BandLayer } from "./bands";
-import { ARM, BLUE, CONCRETE, DIG, DIG_ALL, DRUM, EARTH, mixerLook, M, PPM, STONE, T, TAR, YELLOW, drawSpill, follow, makeSpill, makeUnit, poseUnit, type Spill, type Standing, type Stuff, type Unit } from "./plant-kit";
+import { ARM, BLUE, CONCRETE, DIG, DIG_ALL, DRUM, EARTH, mixerLook, M, PPM, STONE, T, TAR, YELLOW, drawSpill, follow, handedOn, makeSpill, makeUnit, poseUnit, type Spill, type Standing, type Stuff, type Unit } from "./plant-kit";
 import { COLUMN, carry, stepPour, type PourRun } from "./pour-sim";
 
 /** The lining truck's white. (The contractor's yellow and the lorries' blue are every site's. @see plant-kit) */
@@ -164,6 +164,8 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
     sync(g, scale, t) {
       const dt = last < 0 ? 0 : Math.min(0.1, Math.max(0, t - last));
       last = t;
+      // (Machines handed on from a job just done: the same ones, under the next job's name.)
+      handedOn([poses, kept, units], g.roadJobs);
       const seenU = new Set<string>(), seenH = new Set<string>(), seenS = new Set<string>();
       if (g.roadJobs.length && bakedCars()) {
         if (!cars && !asked) { asked = true; void loadCarSprites().then((s) => { cars = s; }); }

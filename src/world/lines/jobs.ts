@@ -64,6 +64,10 @@ export type LineJob = {
    * and which are still to set off home. `false` with no yard or no road to bring them: they are simply there.
    */
   plant?: false | Plant;
+  /** WAITING FOR THE MACHINES OF THE LINE NEARBY (its id), to come straight on from it when it is done: not worked till then. @see fleet/plant handOn */
+  after?: number;
+  /** Done, its machines handed on to the next: kept on the list only while its lorries come back down its track. */
+  handed?: boolean;
 };
 /** What each kind of job sends for, in the order they set off. A dredger comes by water. */
 export const LINE_PLANT: Readonly<Record<LineKind, readonly PlantKind[]>> = {

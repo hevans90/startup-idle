@@ -139,6 +139,23 @@ export function drawSpill(G: Graphics, S: PourSim, stuff: Stuff, scale: number):
  * work to the next, to stand by the road when its trade is not at work — a tracked one on the low-loader that brought
  * it — and, the job done, to where its way home begins. Never set down, never taken up.
  */
+/**
+ * A JOB'S MACHINES HANDED ON TO THE NEXT (@see fleet/plant handOn): what is kept of each by its name — `job:unit` —
+ * filed under the next job's number, so each drives over from where it stands rather than being drawn anew.
+ */
+export function handedOn(maps: readonly Map<string, unknown>[], jobs: readonly { id: number; plant?: false | { from?: number } }[]): void {
+  for (const j of jobs) {
+    const from = j.plant ? j.plant.from : undefined;
+    if (from === undefined) continue;
+    const was = `${from}:`;
+    for (const m of maps) for (const [key, v] of [...m]) {
+      if (!key.startsWith(was)) continue;
+      m.delete(key);
+      const to = `${j.id}:${key.slice(was.length)}`;
+      if (!m.has(to)) m.set(to, v);
+    }
+  }
+}
 export type Standing = { x: number; y: number; heading: number; k: number };
 export type Following = {
   /** Where to draw it and facing which way; whether it is on the move (its work — a pour, a rope — waits for it). Null: not on the job — not come yet, or gone home. */

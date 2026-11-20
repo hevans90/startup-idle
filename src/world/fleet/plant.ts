@@ -40,7 +40,28 @@ export type Plant = {
   lows?: { x: number; y: number; heading: number; t: number; to?: { x: number; y: number; heading: number }; go?: number; gone?: boolean }[];
   called?: number;
   back?: { x: number; y: number; heading: number; t: number }[];
+  /** HANDED ON: the job these machines came from, on site already — they drive over from its works, not from the yard. @see handOn */
+  from?: number;
 };
+
+/** Tiles from a job to the next one's start within which its machines are handed on to it rather than going home. */
+export const HAND_ON = 6;
+/** Whether `b` (by its first cell) is near enough to job `a`'s cells for `a`'s machines to go straight on to it. */
+export const nearJob = (a: readonly { x: number; y: number }[], b: readonly { x: number; y: number }[]) =>
+  !!b.length && a.some((c) => Math.abs(c.x - b[0].x) + Math.abs(c.y - b[0].y) <= HAND_ON);
+/** Whether a job's machines can still be handed on: coming or at work, or done but every one of them still on site. */
+export function canHandOn(p: false | Plant | undefined, kinds: readonly PlantKind[]): p is Plant {
+  if (!p) return false;
+  return p.leaving === undefined || (!p.to && !p.called && (p.home === undefined || p.home.length === kinds.length));
+}
+/**
+ * A JOB'S MACHINES GO STRAIGHT ON TO THE NEXT NEARBY, rather than home to the yard and out again: the same machines,
+ * there already — from where each stands now (the drawing drives them over: @see plant-kit follow) — and `head` the
+ * road tile the next job's own come to.
+ */
+export function handOn(p: Plant, from: number, head: { x: number; y: number }): Plant {
+  return { queue: [], t: 0, here: true, head: { x: head.x, y: head.y }, ...(p.at ? { at: p.at } : {}), from };
+}
 /** Each kind's paint on the road: its model, and how one that has come is told. @see cars/fleet */
 export const PLANT_COLOUR: Readonly<Record<PlantKind, number>> = {
   crane: PLANT_CRANE_COLOUR, mixer: PLANT_MIXER_COLOUR, loader: PLANT_LOADER_COLOUR, pickup: PLANT_PICKUP_COLOUR, tipper: FLEET_TIPPER_EMPTY_COLOUR, spoil: FLEET_TIPPER_EMPTY_COLOUR,

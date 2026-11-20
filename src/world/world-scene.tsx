@@ -54,7 +54,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { demolishLifts, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
 import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
-import { stepGrowth, stepHarbour, stepPeople, stepPlumbing, stepSites, type WorksSeen } from "./step-world";
+import { stepGrowth, stepHarbour, stepPeople, stepPlumbing, stepSites, worksClock, type WorksSeen } from "./step-world";
 import {
   bandShown, createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
   type BandLayer,
@@ -3992,9 +3992,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       // A BRIDGE'S PIERS AND SIDES, again when the map changes. @see bridge-props
       if (roadWorksRef.current) { const st = useWorldStore.getState(); roadWorksRef.current.sync(st.grid, st.revision, st.roadRev, scale, plRef.current); }
-      if (roadPlantRef.current) roadPlantRef.current.sync(useWorldStore.getState().grid, scale, performance.now() / 1000);
+      if (roadPlantRef.current) roadPlantRef.current.sync(useWorldStore.getState().grid, scale, worksClock());
       // MAINS, SEWERS AND CHANNELS being laid. @see line-works
-      if (lineWorksRef.current) { const st = useWorldStore.getState(), field = st.getWaterField(); lineWorksRef.current.sync(st.grid, st.lineRev + st.revision, scale, performance.now() / 1000, field ? (x, y) => depthAt(field, x, y) : undefined); }
+      if (lineWorksRef.current) { const st = useWorldStore.getState(), field = st.getWaterField(); lineWorksRef.current.sync(st.grid, st.lineRev + st.revision, scale, worksClock(), field ? (x, y) => depthAt(field, x, y) : undefined); }
       if (bridgePropsRef.current) {
         const st = useWorldStore.getState(), field = st.getWaterField();
         // (`?bridge=arch|trestle|girder|truss|stay`: every bridge that kind, for looking at one. @see bridge-props kindOf)

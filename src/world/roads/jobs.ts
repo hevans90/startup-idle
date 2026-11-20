@@ -35,6 +35,8 @@ export type RoadJob = {
   id: number;
   /** ITS MACHINES, from the yard and home: not worked till they are there, not over till they have gone. `false` with no yard to send them. @see fleet/plant */
   plant?: false | import("../fleet/plant").Plant;
+  /** WAITING FOR THE MACHINES OF THE JOB NEARBY (its id), to come straight on from it when it is done: not worked till then, and nothing sent from the yard for it. @see fleet/plant handOn */
+  after?: number;
   cells: JobCell[];
   levelled: JobLevel[];
   /** Seconds it has been worked: the earthworks' clock, which needs nothing brought. */

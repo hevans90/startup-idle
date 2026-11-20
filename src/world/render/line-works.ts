@@ -29,7 +29,7 @@ import { getTown } from "../../state/world.store";
 import { PIPE_EMPTY_COLOUR } from "../agents/cars/fleet";
 import type { BandLayer } from "./bands";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, follow, makeUnit, mixerLook, poseUnit, shuttled, type Standing, type Unit } from "./plant-kit";
+import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, follow, handedOn, makeUnit, mixerLook, poseUnit, shuttled, type Standing, type Unit } from "./plant-kit";
 import { RAZE, createRazeFx } from "./raze-fx";
 import { shownStructures } from "../structures/layer";
 import { walkRound, type Walker } from "./road-plant";
@@ -744,6 +744,8 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
       const dt = last < 0 ? 0 : Math.min(0.1, Math.max(0, t - last));
       last = t;
       const jobs = g.lineJobs;
+      // (Machines handed on from a line just done: the same ones, under the next line's name.)
+      handedOn([poses, units], jobs);
       const k = `${rev}|${scale}|${jobs.map((j) => [0, 1, 2].map((q) => Math.floor(lineFront(j, q) * FINE)).join(".")).join("|")}`;
       if (k !== key) {
         key = k;
@@ -811,7 +813,8 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
         // ITS MACHINES COME AND GO BY ROAD (@see line-loads stepLinePlant): none of them on it till they have come from
         // the yard; then each DRIVES — from where it turned off the road to its work, from one place of work to the
         // next, back to the road when its trade is done and when the job is — never set down and never taken up.
-        const plant = j.plant || null, here = !plant || plant.here, leaving = plant?.leaving !== undefined;
+        // (Done with its machines gone on, or waiting for them to come from the line beside it: none of them here.)
+        const plant = j.plant || null, here = !j.handed && j.after === undefined && (!plant || plant.here), leaving = plant?.leaving !== undefined;
         const sent = plant?.home ? LINE_PLANT[j.kind].filter((k) => k !== "loader" && !plant.home!.includes(k)) : [];
         const loadersLeft = plant?.home ? plant.home.filter((k) => k === "loader").length : Infinity;
         const loaders = LINE_PLANT[j.kind].filter((k) => k === "loader").length;
