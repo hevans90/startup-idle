@@ -164,8 +164,15 @@ const PARTS = 5;
 
 /** How many corners the spare table has room for — four entries each. @see cornerTableSource */
 export const SPARE_CORNERS = 16384;
-/** How many deck quads the deck table has room for. @see deckCorner */
-export const DECK_SLOTS = 4096;
+/**
+ * How many quads the deck table — and the rare table, which shares its slots — has room for: every quad but the
+ * smooth field's surface, which is a few hundred on a busy fixture. @see deckCorner, rareTable
+ */
+export const DECK_SLOTS = 16384;
+/** Where the rare table starts in the deck table's buffer: after the deck corners, two texels each. @see rareTable */
+const RARE_AT = DECK_SLOTS * 8;
+/** Workgroups striding over the rare table. @see rareTable */
+const RARE_WG = 64;
 /**
  * Workgroups for the spare table's work and for the deck table's, striding over however much there is: enough that
  * a busy frame's (some 800 spare corners, 150 deck quads) is done in one stride. @see cornerRest
@@ -520,6 +527,11 @@ fn pourOver(c: vec4<f32>, across: f32, z: f32, fall: f32, u: vec4<f32>, close: f
 `;
 
 const WGSL = /* wgsl */ `
+// THE SLIM DRAW, where the gathering has sent every quad but the smooth field's surface to the rare table: the
+// vertex shader is then only the surface from the corner table and the rare quads as the rare pass left them, and
+// everything else is compiled out of it — a shader that big ran every vertex slower, whatever path it took.
+// @see rareTable, slimProgram
+const SLIM = false;
 struct GlobalUniforms {
   uProjectionMatrix: mat3x3<f32>,
   uWorldTransformMatrix: mat3x3<f32>,
@@ -585,6 +597,13 @@ struct Water {
 // is. @see deckCorner
 @group(2) @binding(18) var<storage, read> uDeck : array<vec4<u32>>;
 @group(2) @binding(19) var<storage, read> uDeckAt : array<u32>;
+// (Read through these, which the corner pass's source points at the tables it writes. @see cornerTableSource)
+fn tableAt(i: u32) -> vec4<u32> { return uCorner[i]; }
+fn spareTableAt(i: u32) -> vec4<u32> { return uCornerX[i]; }
+fn deckEntry(i: u32) -> vec4<u32> { return uDeck[i]; }
+// THE BAND AND TIER BEING DRAWN: the mesh's own in the draw, the quad's own in the rare pass. @see rareTable
+var<private> bandAt: vec4<f32> = vec4<f32>(0.0);
+var<private> roofedAt: bool = false;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -612,7 +631,7 @@ fn slots() -> i32 { return i32(water.uSlots.x); }
  * before the paving for water with something over it, one after for the rest,
  * and each skips the quads that are not its own. See BandLayer.underOf.
  */
-fn roofedTier() -> bool { return water.uSlots.y > 0.5; }
+fn roofedTier() -> bool { return roofedAt; }
 /**
  * A SLOT'S ROW. Every per-slot field is a stack of planes, one per storey,
  * because that is what the arrays already are: slot a of column i sits at
@@ -1242,11 +1261,11 @@ fn tableCorner(vx: i32, vy: i32, cx: i32, cy: i32) -> TableCorner {
   var o: TableCorner;
   o.ok = false;
   if (water.uTable.x < 0.5) { return o; }
-  var t = uCorner[u32(vy) * u32(water.uTable.y) + u32(vx)];
+  var t = tableAt(u32(vy) * u32(water.uTable.y) + u32(vx));
   if ((t.w & 17u) == 16u) {
     // (Each column's own, in the spare table.)
     let i = i32(t.w >> 8u) * 4 + (cx - vx + 1) + 2 * (cy - vy + 1);
-    t = uCornerX[u32(i)];
+    t = spareTableAt(u32(i));
   }
   if ((t.w & 1u) == 0u) { return o; }
   o.ok = true;
@@ -1349,37 +1368,16 @@ fn groundFan(tx: i32, ty: i32, u: f32, v: f32) -> f32 {
   return m + t * (mix(ea, eb, s) - m);
 }
 
-@vertex
-fn mainVertex(
-  @location(0) aVertexId: f32,
-  @builtin(instance_index) inst: u32,
-) -> VSOutput {
-  var out: VSOutput;
-  out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-  out.vColor = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-  out.vShore = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-  out.vLook = vec2<f32>(-1.0, 0.0);
+struct QuadOut { ok: bool, fx: f32, fy: f32, h: f32, rgb: vec3<f32>, alpha: f32, shore: vec4<f32>, look: vec2<f32> };
+// ONE CORNER OF ONE QUAD — everything a vertex is but where it lands on the screen — for the draw, and for the rare
+// pass to work out the quads the slim draw leaves to it. ("out" as it was in the vertex shader, so it reads as it did.)
+fn quadCorner(raw: u32, deckSlot: i32, corner: i32) -> QuadOut {
+  var out: QuadOut;
+  out.ok = false;
+  out.shore = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+  out.look = vec2<f32>(-1.0, 0.0);
   let cpt = i32(water.uGrid.z);
   let per = cpt * cpt;
-  // ONE INSTANCE PER QUAD, four vertices each. The band's instance count is
-  // how many quads it has to draw, which is what lets it draw the ones that
-  // survive rather than all the ones that might.
-  let corner = i32(aVertexId);
-  // WHICH QUAD THIS INSTANCE STANDS FOR. The identity unless something has
-  // gathered the list, in which case it is the n'th quad that actually draws.
-  // Nought is an EMPTY slot and not quad nought. @see quadCap
-  // THE LIST IS FLAT, stored two-dimensionally. A band's slots run from its
-  // own offset, so the texel is that offset plus the instance, unwrapped by
-  // the list's width. @see quadList
-  let at = i32(water.uList.x) + i32(inst);
-  let lw = i32(water.uList.y);
-  var raw = textureLoad(uQuads, vec2<i32>(at % lw, at / lw), 0).r;
-  // A DECK QUAD'S ENTRY points at its slot in the deck table, which says which quad it is. @see deckCorner
-  var deckSlot = -1;
-  if ((raw >> 31u) == 1u) {
-    deckSlot = i32(raw & 0x7fffffffu);
-    raw = uDeckAt[u32(deckSlot)];
-  }
   // A WHOLE TILE: zoomed out, a flat tile's surface is one quad from its
   // first column to its far corner, marked by the gathering. Only ever set in
   // a gathered list, so the identity draws as it always did. @see LOD_TILE_PX
@@ -1409,10 +1407,10 @@ fn mainVertex(
   let tileIdx = slot / per;
   let sub = slot % per;
 
-  if (f32(tileIdx) >= water.uBand.w) { return out; }
+  if (f32(tileIdx) >= bandAt.w) { return out; }
 
-  let tx = i32(water.uBand.y) + tileIdx;
-  let ty = i32(water.uBand.x) - tx;
+  let tx = i32(bandAt.y) + tileIdx;
+  let ty = i32(bandAt.x) - tx;
   let sx = sub % cpt;
   let sy = sub / cpt;
   let cx = tx * cpt + sx;
@@ -1454,6 +1452,7 @@ fn mainVertex(
     //
     // ocx/ocy ARE that column, and the tier gate above has already been asked
     // about it, once, where every part asks.
+    if (SLIM) { return out; }
     if (!facesOn()) { return out; }
     // (As one smooth field the water has no sides but at the map's edge, which are the column's own, and down a
     // step the field parts at, filed forward as any face is.)
@@ -1462,7 +1461,7 @@ fn mainVertex(
       if (!f.ok) { return out; }
       fx = f.fx; fy = f.fy; h = f.h;
       let st = stepLook(ocx, ocy, f, a);
-      rgb = st.rgb; alpha = st.alpha; out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, st.cover); out.vLook = st.look;
+      rgb = st.rgb; alpha = st.alpha; out.shore = vec4<f32>(fx + 0.5, fy + 0.5, h, st.cover); out.look = st.look;
     } else {
     // (A shelf has no sides: its water is cut to the ground, not stood on a bed. @see mainFragment)
     let okind = groundKind(ocx / cpt, ocy / cpt, a);
@@ -1493,22 +1492,24 @@ fn mainVertex(
     let t = tableCorner(ccx + ox, ccy + oy, ccx, ccy);
     if (t.ok) {
       h = t.c.g + t.c.d;
-      out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, t.c.cover);
+      out.shore = vec4<f32>(fx + 0.5, fy + 0.5, h, t.c.cover);
       alpha = clamp(t.lit, 0.0, 1.0);
       hx = t.c.hx; hy = t.c.hy;
-      out.vLook = vec2<f32>(t.c.d, t.c.foam);
+      out.look = vec2<f32>(t.c.d, t.c.foam);
     } else {
+      if (SLIM) { return out; }
       let c = fieldCorner(ccx + ox, ccy + oy, ccx, ccy, a);
       h = c.g + c.d;
-      out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, c.cover);
+      out.shore = vec4<f32>(fx + 0.5, fy + 0.5, h, c.cover);
       alpha = clamp(fieldLit(c, ccx + ox, ccy + oy, ccx, ccy, a), 0.0, 1.0);
       hx = c.hx; hy = c.hy;
-      out.vLook = vec2<f32>(c.d, c.foam);
+      out.look = vec2<f32>(c.d, c.foam);
     }
     let mat = i32(textureLoad(uMaterial, vec2<i32>(hx, slotRow(hy, a)), 0).r * 255.0 + 0.5);
     rgb = fouled(textureLoad(uTint, vec2<i32>(0, mat), 0).rgb, hx, hy, a);
   } else if (part == 2) {
     // THE SURFACE.
+    if (SLIM) { return out; }
     if (d <= water.uBand.z) { return out; }
     let ox = ((corner + 1) >> 1) & 1;
     let oy = corner >> 1;
@@ -1525,8 +1526,8 @@ fn mainVertex(
     // its own rather than in the band's draw — and where it was not, worked out here. @see deckCorner
     var dc: DeckCorner;
     if (deckSlot >= 0 && water.uTable.x > 0.5) {
-      let e0 = uDeck[u32(deckSlot * 8 + corner * 2)];
-      let e1 = uDeck[u32(deckSlot * 8 + corner * 2 + 1)];
+      let e0 = deckEntry(u32(deckSlot * 8 + corner * 2));
+      let e1 = deckEntry(u32(deckSlot * 8 + corner * 2 + 1));
       dc.h = bitcast<f32>(e0.x); dc.hs = bitcast<f32>(e0.y); dc.lit = bitcast<f32>(e0.z); dc.shelf = e0.w == 1u;
       dc.look = vec2<f32>(bitcast<f32>(e1.x), bitcast<f32>(e1.y));
     } else {
@@ -1536,13 +1537,14 @@ fn mainVertex(
     let mat = i32(textureLoad(uMaterial, vec2<i32>(ccx, slotRow(ccy, a)), 0).r * 255.0 + 0.5);
     rgb = fouled(textureLoad(uTint, vec2<i32>(0, mat), 0).rgb, ccx, ccy, a);
     alpha = clamp(dc.lit, 0.0, 1.0);
-    out.vLook = dc.look;
+    out.look = dc.look;
     // (At a shelf, the surface as it stood before it was laid on a slope: the fragment cuts it to the shore.)
-    out.vShore = select(vec4<f32>(fx + 0.5, fy + 0.5, h, 1.0), vec4<f32>(fx + 0.5, fy + 0.5, dc.hs, 2.0), dc.shelf);
+    out.shore = select(vec4<f32>(fx + 0.5, fy + 0.5, h, 1.0), vec4<f32>(fx + 0.5, fy + 0.5, dc.hs, 2.0), dc.shelf);
   } else {
     // A SIDE of this column. Hung from the very corners the surface quad
     // used, so the two share vertices and there is no seam between them.
     // Skipped where it is filed FORWARD instead — see PARTS.
+    if (SLIM) { return out; }
     if (d <= water.uBand.z) { return out; }
     if (!facesOn()) { return out; }
     if (fieldOn() && a == 0) {
@@ -1557,7 +1559,7 @@ fn mainVertex(
         if (!f.ok) { return out; }
         fx = f.fx; fy = f.fy; h = f.h;
         let st = stepLook(cx, cy, f, a);
-        rgb = st.rgb; alpha = st.alpha; out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, st.cover); out.vLook = st.look;
+        rgb = st.rgb; alpha = st.alpha; out.shore = vec4<f32>(fx + 0.5, fy + 0.5, h, st.cover); out.look = st.look;
       } else {
       // Along the edge: its two ends, each at the top (corners 0, 1) or the foot (2, 3).
       let far = corner == 1 || corner == 2;
@@ -1583,6 +1585,63 @@ fn mainVertex(
     fx = p.fx; fy = p.fy; h = p.h; rgb = p.colour; alpha = p.alpha;
     }
   }
+
+  out.ok = true;
+  out.fx = fx; out.fy = fy; out.h = h; out.rgb = rgb; out.alpha = alpha;
+  return out;
+}
+
+@vertex
+fn mainVertex(
+  @location(0) aVertexId: f32,
+  @builtin(instance_index) inst: u32,
+) -> VSOutput {
+  var out: VSOutput;
+  out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+  out.vColor = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+  out.vShore = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+  out.vLook = vec2<f32>(-1.0, 0.0);
+  // ONE INSTANCE PER QUAD, four vertices each. The band's instance count is
+  // how many quads it has to draw, which is what lets it draw the ones that
+  // survive rather than all the ones that might.
+  let corner = i32(aVertexId);
+  // WHICH QUAD THIS INSTANCE STANDS FOR. The identity unless something has
+  // gathered the list, in which case it is the n'th quad that actually draws.
+  // Nought is an EMPTY slot and not quad nought. @see quadCap
+  // THE LIST IS FLAT, stored two-dimensionally. A band's slots run from its
+  // own offset, so the texel is that offset plus the instance, unwrapped by
+  // the list's width. @see quadList
+  let at = i32(water.uList.x) + i32(inst);
+  let lw = i32(water.uList.y);
+  var raw = textureLoad(uQuads, vec2<i32>(at % lw, at / lw), 0).r;
+  // A DECK QUAD'S ENTRY points at its slot in the deck table, which says which quad it is. @see deckCorner
+  var deckSlot = -1;
+  if ((raw >> 31u) == 1u) {
+    deckSlot = i32(raw & 0x7fffffffu);
+    if (!SLIM) { raw = uDeckAt[u32(deckSlot)]; }
+  }
+  bandAt = water.uBand;
+  roofedAt = water.uSlots.y > 0.5;
+  // A RARE QUAD in the slim draw, as the rare pass worked it out; any other, worked out here. @see rareTable
+  var q: QuadOut;
+  if (SLIM && deckSlot >= 0) {
+    let base = u32(${RARE_AT} + deckSlot * 16 + corner * 4);
+    let e0 = uDeck[base];
+    let e1 = uDeck[base + 1u];
+    let e2 = uDeck[base + 2u];
+    let e3 = uDeck[base + 3u];
+    q.ok = e0.w == 1u;
+    q.fx = bitcast<f32>(e0.x); q.fy = bitcast<f32>(e0.y); q.h = bitcast<f32>(e0.z);
+    q.rgb = bitcast<vec3<f32>>(e1.xyz); q.alpha = bitcast<f32>(e1.w);
+    q.shore = bitcast<vec4<f32>>(e2);
+    q.look = bitcast<vec2<f32>>(e3.xy);
+  } else {
+    q = quadCorner(raw, deckSlot, corner);
+  }
+  if (!q.ok) { return out; }
+  let fx = q.fx; let fy = q.fy; let h = q.h; let rgb = q.rgb; let alpha = q.alpha;
+  out.vShore = q.shore;
+  out.vLook = q.look;
 
   let px = (fx - fy) * water.uIso.x;
   let py = (fx + fy) * water.uIso.y - h * water.uIso.z;
@@ -1624,7 +1683,15 @@ fn mainVertex(
  * it is filled, whether a column there is wet, and which. @see the surface branch of mainVertex
  */
 export const CORNER_WG = 8;
-export const cornerTableSource = () => WGSL + /* wgsl */ `
+const withoutVertex = (src: string) => {
+  const at = src.indexOf("@vertex\nfn mainVertex(");
+  return src.slice(0, at) + src.slice(src.indexOf("\n}\n", at) + 3);
+};
+export const cornerTableSource = () => withoutVertex(WGSL)
+  // (No vertex entry here: the draw's, through these, would reach the tables this pass writes.)
+  .replace("{ return uCorner[i]; }", "{ return cornerOut[i]; }")
+  .replace("{ return uCornerX[i]; }", "{ return spareOut[i]; }")
+  .replace("{ return uDeck[i]; }", "{ return deckOut[i]; }") + /* wgsl */ `
 @group(2) @binding(20) var<storage, read_write> cornerOut : array<vec4<u32>>;
 @group(2) @binding(21) var<storage, read_write> spareOut : array<vec4<u32>>;
 @group(2) @binding(22) var<storage, read_write> spareN : atomic<u32>;
@@ -1662,15 +1729,8 @@ fn cornerEntry(vx: i32, vy: i32) -> vec4<u32> {
   let cpt = i32(water.uGrid.z);
   let nx = i32(water.uGrid.x);
   let ny = i32(water.uGrid.y);
-  // (Nothing wet round it, nothing to work out: a quad that draws there anyway — a dry face water pours down — asks
-  // for itself.)
-  var seen = false;
-  for (var j = 0; j < 16; j++) {
-    let qx = vx - 2 + (j % 4);
-    let qy = vy - 2 + (j / 4);
-    if (inside(qx, qy) && wet(depthAt(qx, qy, 0))) { seen = true; }
-  }
-  if (!seen) { return vec4<u32>(0u); }
+  // (Every corner a kept quad reads, wet round it or not — zoomed out, a dry tile's whole surface beside water has
+  // corners with nothing wet near, and the slim draw has nothing but the table to ask. @see SLIM)
   // ONE ANSWER FOR ALL FOUR where nothing is built in the sixteen, or the ground across them all is within a step of
   // itself — then every column there is one piece with every other (@see pieceOf) — and nothing is roofed at the
   // corner, where it is the deck rule's (@see fieldCorner).
@@ -1769,20 +1829,25 @@ fn deckRest(w: u32, li: u32) {
   let n = base + li / 4u;
   let way = li % 4u;
   let slot = n / 4u;
-  let live = n < total;
+  var live = n < total;
   var ccx = 0; var ccy = 0; var vcx = 0; var vcy = 0; var a = 0;
   var mine = 0;
   var c = vec4<f32>(0.0);
   if (live) {
   let corner = i32(n % 4u);
   let raw = deckAt[slot];
-  let b = i32(atomicLoad(&deckMeta[4u + slot]));
+  let said = atomicLoad(&deckMeta[4u + slot]);
+  let b = i32(said & 0xffffu);
+  roofedAt = (said >> 16u) == 1u;
   let whole = ((raw >> 30u) & 1u) == 1u;
   let cheap = ((raw >> 29u) & 1u) == 1u;
   let quad = i32(raw & 0x1fffffffu) - 1;
   let cpt = i32(water.uGrid.z);
   let per = cpt * cpt;
   let L = slots();
+  // (Only the surfaces off the deck rule: the rest of the rare table's quads ask nothing of it. @see rareTable)
+  live = (quad / L) % ${PARTS} == 2;
+  if (live) {
   let qa = quad % L;
   let at = (quad / L) / ${PARTS};
   let tileIdx = at / per;
@@ -1804,6 +1869,7 @@ fn deckRest(w: u32, li: u32) {
   let d = vec2<i32>(select(select(1, -1, way == 0u), 0, way >= 2u), select(0, select(1, -1, way == 2u), way >= 2u));
   deckWays[li] = deckSlope(vcx, vcy, d.x, d.y, whole || cheap, a, mine, c.x);
   }
+  }
   workgroupBarrier();
   if (live && way == 0u) {
     let dc = deckCornerOf(ccx, ccy, vcx, vcy, a, mine, c,
@@ -1812,6 +1878,31 @@ fn deckRest(w: u32, li: u32) {
     deckOut[n * 2u + 1u] = vec4<u32>(bitcast<u32>(dc.look.x), bitcast<u32>(dc.look.y), 0u, 0u);
   }
   workgroupBarrier();
+  }
+}
+// THE RARE TABLE: every quad the slim draw does not work out for itself — faces, sides, a storey above the ground,
+// the surface wherever it is not the smooth field — worked out whole, a thread a corner, by the vertex shader's own
+// rule, after the corner and deck tables it reads. Its band and tier are the quad's own. @see SLIM, quadCorner
+fn bandOf(b: i32) -> vec4<f32> {
+  let cpt = i32(water.uGrid.z);
+  let tx0 = max(0, b - (i32(water.uGrid.y) / cpt - 1));
+  let tx1 = min(i32(water.uGrid.x) / cpt - 1, b);
+  return vec4<f32>(f32(b), f32(tx0), water.uBand.z, f32(max(0, tx1 - tx0 + 1)));
+}
+@compute @workgroup_size(64)
+fn rareTable(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let total = min(atomicLoad(&deckMeta[0]), ${DECK_SLOTS}u) * 4u;
+  for (var n = gid.x; n < total; n += ${RARE_WG * 64}u) {
+    let slot = n / 4u;
+    let said = atomicLoad(&deckMeta[4u + slot]);
+    bandAt = bandOf(i32(said & 0xffffu));
+    roofedAt = (said >> 16u) == 1u;
+    let q = quadCorner(deckAt[slot], i32(slot), i32(n % 4u));
+    let base = ${RARE_AT}u + n * 4u;
+    deckOut[base] = vec4<u32>(bitcast<u32>(q.fx), bitcast<u32>(q.fy), bitcast<u32>(q.h), select(0u, 1u, q.ok));
+    deckOut[base + 1u] = vec4<u32>(bitcast<vec3<u32>>(q.rgb), bitcast<u32>(q.alpha));
+    deckOut[base + 2u] = bitcast<vec4<u32>>(q.shore);
+    deckOut[base + 3u] = vec4<u32>(bitcast<vec2<u32>>(q.look), 0u, 0u);
   }
 }
 @compute @workgroup_size(${CORNER_WG}, ${CORNER_WG})
@@ -2482,6 +2573,8 @@ export type GpuWaterLayer = {
   deckAt: Buffer;
   /** Whether the meshes are told to read it. @see drawGpuWater */
   tableOn: number;
+  /** Whether the bands draw with the slim program. @see SLIM */
+  slimOn: boolean;
   /** The gathering that fills it, where there is a device to do it. */
   gather: QuadGather | null;
   /**
@@ -2605,7 +2698,7 @@ function nameLayout(): Record<string, number>[] {
   return [{ globalUniforms: 0 }, { localUniforms: 0 }, own];
 }
 
-let shared: { gpu: GpuProgram; gl: GlProgram } | null = null;
+let shared: { gpu: GpuProgram; slim: GpuProgram; gl: GlProgram } | null = null;
 function programs() {
   if (!shared) {
     shared = {
@@ -2613,6 +2706,14 @@ function programs() {
         vertex: { source: WGSL, entryPoint: "mainVertex" },
         fragment: { source: FRAGMENT_WGSL, entryPoint: "mainFragment" },
         name: "water-surface",
+        layout: nameLayout(),
+        gpuLayout: gpuLayout(),
+      }),
+      // (The same, with everything but the field's surface and the rare table's quads compiled out. @see SLIM)
+      slim: new GpuProgram({
+        vertex: { source: WGSL.replace("const SLIM = false;", "const SLIM = true;"), entryPoint: "mainVertex" },
+        fragment: { source: FRAGMENT_WGSL, entryPoint: "mainFragment" },
+        name: "water-surface-slim",
         layout: nameLayout(),
         gpuLayout: gpuLayout(),
       }),
@@ -2747,7 +2848,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     data: new Uint32Array(SPARE_CORNERS * 4 * 4), usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
   });
   const deckTex = new Buffer({
-    data: new Uint32Array(DECK_SLOTS * 8 * 4), usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
+    data: new Uint32Array((RARE_AT + DECK_SLOTS * 16) * 4), usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
   });
   const deckAtTex = new Buffer({
     data: new Uint32Array(DECK_SLOTS), usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
@@ -2866,7 +2967,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     tint,
     look, lookT: 0,
     quads,
-    corner: cornerTex, cornerRow, cornerRows: ny + 1, cornerSpare: spareTex, deck: deckTex, deckAt: deckAtTex, tableOn: 0,
+    corner: cornerTex, cornerRow, cornerRows: ny + 1, cornerSpare: spareTex, deck: deckTex, deckAt: deckAtTex, tableOn: 0, slimOn: false,
     wash, foam, layers, gather: null, fed: new Set(),
     groundSent: -1,
     groundOf: null,
@@ -3073,7 +3174,7 @@ type CornerPass = {
 };
 
 let cornerModule: {
-  device: GPUDevice; pipeline: GPUComputePipeline; rest: GPUComputePipeline;
+  device: GPUDevice; pipeline: GPUComputePipeline; rest: GPUComputePipeline; rare: GPUComputePipeline;
   layout: GPUBindGroupLayout;
 } | null = null;
 
@@ -3111,9 +3212,14 @@ function createCornerPass(
       layout: device.createPipelineLayout({ bindGroupLayouts: [empty, empty, layout] }),
       compute: { module, entryPoint: "cornerRest" },
     });
-    cornerModule = { device, pipeline, rest, layout };
+    const rare = device.createComputePipeline({
+      label: "water rare quads",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [empty, empty, layout] }),
+      compute: { module, entryPoint: "rareTable" },
+    });
+    cornerModule = { device, pipeline, rest, rare, layout };
   }
-  const { pipeline, rest, layout } = cornerModule;
+  const { pipeline, rest, rare, layout } = cornerModule;
   const nx = (wl.sources[0] as unknown as { width: number }).width;
   const ny = wl.cornerRows - 1;
   const uniform = device.createBuffer({
@@ -3172,6 +3278,8 @@ function createCornerPass(
       pass.dispatchWorkgroups(Math.ceil((nx + 1) / CORNER_WG), Math.ceil((ny + 1) / CORNER_WG));
       pass.setPipeline(rest);
       pass.dispatchWorkgroups(SPARE_WG + DECK_WG);
+      pass.setPipeline(rare);
+      pass.dispatchWorkgroups(RARE_WG);
       pass.end();
     },
     destroy: () => { uniform.destroy(); need.destroy(); spareN.destroy(); spareAt.destroy(); deckMeta.destroy(); },
@@ -3576,13 +3684,18 @@ export function drawGpuWater(
   // textures the device has filled — not on the host's path, where they go up after it and it would be a frame
   // behind the rest of the mesh. @see cornerTableSource
   const table = carried && wl.gather?.corners && wl.gather.gathered ? 1 : 0;
-  if (wl.tableOn !== table) {
+  // AND WITH IT, AS ONE SMOOTH FIELD, THE SLIM DRAW: every quad but the surface is in the rare table then. @see SLIM
+  const slim = table === 1 && fieldWater() && groundMode() === "smooth";
+  if (wl.tableOn !== table || wl.slimOn !== slim) {
     wl.tableOn = table;
+    wl.slimOn = slim;
+    const { gpu, slim: slimGpu } = programs();
     for (const m of [...wl.meshes, ...wl.under]) {
       const grp = m.shader?.resources.water as UniformGroup | undefined;
-      if (!grp) continue;
+      if (!grp || !m.shader) continue;
       (grp.uniforms.uTable as Float32Array)[0] = table;
       grp.update();
+      m.shader.gpuProgram = slim ? slimGpu : gpu;
     }
   }
   const latch = !carried || wl.fed.has(FALLING_AT) ? 1 : 0;

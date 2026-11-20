@@ -87,20 +87,22 @@ struct Say {
 // @see water-gpu's cornerTableSource
 @group(0) @binding(11) var<storage, read_write> need : array<atomic<u32>>;
 fn needCorner(vx: i32, vy: i32) { atomicStore(&need[vy * say.e.x + vx], 1u); }
-// AND THE DECK TABLE'S QUADS: each surface quad off the deck rule a slot, its list entry pointing there.
+// AND THE DECK TABLE'S QUADS: every quad but the smooth field's surface a slot, its list entry pointing there.
 // @see water-gpu's deckCorner
 @group(0) @binding(12) var<storage, read_write> deckAt : array<u32>;
 // [0] how many, from [4] each slot's band
 @group(0) @binding(13) var<storage, read_write> deckMeta : array<atomic<u32>>;
-fn listEntry(id: u32, band: i32) -> u32 {
+fn listEntry(id: u32, band: i32, tier: u32) -> u32 {
   if (say.e.w <= 0) { return id; }
   let q = i32(id & 0x1fffffffu) - 1;
   let L = slots();
-  if ((q / L) % ${PARTS} != 2 || (q % L == 0 && say.e.z > 0)) { return id; }
+  // (The smooth field's surface is the corner table's; every other quad takes a slot, and the deck rule's surfaces
+  // and the slim draw's rare quads are worked out in it. @see water-gpu's rareTable)
+  if ((q / L) % ${PARTS} == 2 && q % L == 0 && say.e.z > 0) { return id; }
   let s = atomicAdd(&deckMeta[0], 1u);
   if (s >= u32(say.e.w)) { return id; }
   deckAt[s] = id;
-  atomicStore(&deckMeta[4u + s], u32(band));
+  atomicStore(&deckMeta[4u + s], u32(band) | (tier << 16u));
   return s | 0x80000000u;
 }
 
@@ -405,10 +407,10 @@ fn compact(
     if (v == 0u) { continue; }
     let id = v & 0x7fffffffu;
     if ((v >> 31u) == 1u) {
-      list[second + here.x + rr] = listEntry(id, band);
+      list[second + here.x + rr] = listEntry(id, band, 1u);
       rr = rr + 1u;
     } else {
-      list[here.x + w] = listEntry(id, band);
+      list[here.x + w] = listEntry(id, band, 0u);
       w = w + 1u;
     }
   }
