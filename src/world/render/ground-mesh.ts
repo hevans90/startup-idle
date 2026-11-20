@@ -1333,7 +1333,8 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   }
   if (vWall.x > 2.5) {
     let f = fringeColour(vGround, vWall.y) * (1.0 - smoothstep(0.3, 0.7, ground.uSeason.w));
-    if (f.a <= 0.003) { discard; }
+    // Nothing, not a discard: it leaves the pixel as it was, and a discard stops tile-based GPUs shading ahead.
+    if (f.a <= 0.003) { return vec4<f32>(0.0); }
     return vec4<f32>(f.rgb * f.a, f.a) * vTint;
   }
   var col: vec3<f32>;
@@ -1959,7 +1960,7 @@ void main() {
   }
   if (vWall.x > 2.5) {
     vec4 f = fringeColour(vGround, vWall.y) * (1.0 - smoothstep(0.3, 0.7, uSeason.w));
-    if (f.a <= 0.003) discard;
+    if (f.a <= 0.003) { finalColor = vec4(0.0); return; }
     finalColor = vec4(f.rgb * f.a, f.a) * vTint;
     return;
   }
