@@ -1962,7 +1962,10 @@ fn mainFragment(@location(0) vLit: vec4<f32>, @location(1) vShore: vec4<f32>, @l
   // AS ONE SMOOTH FIELD, THE WATER'S EDGE: along a line of how much round each point is water, soft, with a faint
   // broken line of foam. @see fieldCorner
   if (vCover < 0.999) {
-    if (vCover < 0.36) { discard; }
+    // (NOTHING, NOT A DISCARD, where there is no water: blended premultiplied, nothing leaves the pixel as it was —
+    // and a shader that can discard is one the GPU cannot shade ahead of its draw order; it cost a lake half its
+    // water's time.)
+    if (vCover < 0.36) { return vec4<f32>(0.0); }
     var body = vColor * smoothstep(0.36, 0.46, vCover);
     let lace = (1.0 - smoothstep(0.38, 0.54, vCover)) * (0.1 + 0.3 * smoothstep(0.35, 0.7, shoreNoise(vShore.xy * 1.7 + 3.0)));
     body = mix(body, vec4<f32>(0.94, 0.97, 0.96, 1.0), lace * body.a);
@@ -1986,7 +1989,7 @@ fn mainFragment(@location(0) vLit: vec4<f32>, @location(1) vShore: vec4<f32>, @l
     if (f.y > 0.0) { ea = c.w; eb = c.z; } else { eb = c.y; }
   }
   let deep = vShore.z - (m + t * (mix(ea, eb, s) - m));
-  if (deep <= 0.0) { discard; }
+  if (deep <= 0.0) { return vec4<f32>(0.0); }  // (Nothing, not a discard: as at the field's edge.)
   // How far from the waterline, in tiles along the ground: the depth over how fast that triangle falls.
   let out = deep / max(length(vec2<f32>(ea + eb - 2.0 * m, eb - ea)), 0.05);
   var col = vColor * mix(0.4, 1.0, smoothstep(0.0, 0.25, deep));
