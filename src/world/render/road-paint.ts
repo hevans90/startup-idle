@@ -467,6 +467,26 @@ function runRect(ctx: Ctx, ax: "u" | "v", a0: number, a1: number, q0: number, q1
   poly(ctx, ax === "u" ? [[a0, q0], [a1, q0], [a1, q1], [a0, q1]] : [[q0, a0], [q1, a0], [q1, a1], [q0, a1]]);
 }
 
+/** A central reservation's run: its middle line's points, and which of its ends are rounded (1 the first, 2 the last). */
+type Median = { caps: number; pts: number[][] };
+/** The cell's central reservations, as its markings lay them. @see paintMarks */
+const mediansOf = (L: Look): Median[] =>
+  L.mk ? L.mk.split(";").filter((it) => it[0] === "M").map((it) => {
+    const cut = it.indexOf(":");
+    return { caps: Number(it.slice(1, cut)), pts: it.slice(cut + 1).split(" ").map((q) => q.split(",").map(Number)) };
+  }) : [];
+/** A strip `w` either side of a reservation's middle, its ends rounded where its run ends, `(du, dv)` aside. */
+function medianStrip(ctx: Ctx, M: Median, w: number, colour: string, du = 0, dv = 0) {
+  const { pts, caps } = M;
+  ctx.save(); ctx.translate(du, dv);
+  ctx.strokeStyle = colour; ctx.lineWidth = 2 * w; ctx.lineJoin = "round"; ctx.lineCap = "butt";
+  ctx.beginPath(); pts.forEach(([u, v], k) => (k ? ctx.lineTo(u, v) : ctx.moveTo(u, v))); ctx.stroke();
+  ctx.fillStyle = colour;
+  if (caps & 1) { ctx.beginPath(); ctx.arc(pts[0][0], pts[0][1], w, 0, Math.PI * 2); ctx.fill(); }
+  if (caps & 2) { const e = pts[pts.length - 1]; ctx.beginPath(); ctx.arc(e[0], e[1], w, 0, Math.PI * 2); ctx.fill(); }
+  ctx.restore();
+}
+
 /**
  * A WIDE ROAD'S MARKINGS, as its lanes have them: the shapes `roads/marks` worked out for this cell, painted. On the
  * road (`raised` false): its lines, studs, arrows, the lines its lanes wait at, the hatching where its middle ends,
@@ -483,16 +503,7 @@ function paintMarks(ctx: Ctx, L: Look, raised: boolean) {
     if (kind === "M") {
       // THE CENTRAL RESERVATION: a concrete strip a kerb's height up, lit along one edge, a steel barrier down it.
       const caps = Number(arg), kc = KERB_OF[L.lvl];
-      const strip = (w: number, colour: string, du = 0, dv = 0) => {
-        ctx.save(); ctx.translate(du, dv);
-        ctx.strokeStyle = colour; ctx.lineWidth = 2 * w; ctx.lineJoin = "round"; ctx.lineCap = "butt";
-        path(pts); ctx.stroke();
-        // Rounded where its run ends.
-        ctx.fillStyle = colour;
-        if (caps & 1) { ctx.beginPath(); ctx.arc(pts[0][0], pts[0][1], w, 0, Math.PI * 2); ctx.fill(); }
-        if (caps & 2) { const e = pts[pts.length - 1]; ctx.beginPath(); ctx.arc(e[0], e[1], w, 0, Math.PI * 2); ctx.fill(); }
-        ctx.restore();
-      };
+      const strip = (w: number, colour: string, du = 0, dv = 0) => medianStrip(ctx, { caps, pts }, w, colour, du, dv);
       if (!raised) { strip(MEDIAN_HALF + 0.014, css(0x000000, 0.16), 0.008, 0.008); strip(MEDIAN_HALF, css(tone(kc, 0.55))); continue; }
       strip(MEDIAN_HALF, css(kc));
       strip(MEDIAN_HALF - 0.016, css(tone(kc, 0.86)));
@@ -1090,6 +1101,38 @@ function kerbRuns(S: Shape): KerbRun[] {
 }
 
 const CLUMPS_OF = new Map<string, Clump[]>();
+/**
+ * Along each foot of a reservation, the runs its bank of snow is thrown up along: a straight's slots by where they
+ * are along the tile, as a kerb's are, so a bank runs on from tile to tile.
+ */
+function medianRuns(M: Median): KerbRun[] {
+  const runs: KerbRun[] = [];
+  for (let k = 1; k < M.pts.length; k++) {
+    const [pu, pv] = M.pts[k - 1], [qu, qv] = M.pts[k], du = qu - pu, dv = qv - pv, len = Math.hypot(du, dv);
+    if (len < 1e-6) continue;
+    const alongU = Math.abs(du) >= Math.abs(dv), p0 = alongU ? pu : pv, q0 = alongU ? qu : qv;
+    if (Math.abs(q0 - p0) < 1e-6) continue;
+    const nu = -dv / len, nv = du / len;
+    for (const side of [-1, 1]) {
+      runs.push({
+        at: (a, d) => { const t = (a - p0) / (q0 - p0), o = side * (MEDIAN_HALF + d); return [pu + du * t + nu * o, pv + dv * t + nv * o]; },
+        f0: Math.min(p0, q0), f1: Math.max(p0, q0), n: CLUMPS, key: 400 + side * 7.3 + (alongU ? 0 : 3.1), wrap: true, dMax: 1,
+      });
+    }
+  }
+  // Round a rounded end, too.
+  const P = M.pts, ends = [[P[0], P[1], 1], [P[P.length - 1], P[P.length - 2], 2]] as const;
+  for (const [e, f, bit] of ends) {
+    if (!(M.caps & bit) || !f) continue;
+    const out = Math.atan2(e[1] - f[1], e[0] - f[0]);
+    runs.push({
+      at: (t, d) => { const th = out - Math.PI / 2 + Math.PI * t, r = MEDIAN_HALF + d; return [e[0] + Math.cos(th) * r, e[1] + Math.sin(th) * r]; },
+      f0: 0, f1: 1, n: Math.max(3, Math.round(Math.PI * MEDIAN_HALF * CLUMPS)), key: 450 + bit * 5.9, wrap: false, dMax: 1,
+    });
+  }
+  return runs;
+}
+
 /** A lump of snow: where, how big, its turn and squash, how white, whether gritted. */
 type Clump = { u: number; v: number; r: number; turn: number; sq: number; white: number; grit: number };
 
@@ -1097,9 +1140,9 @@ type Clump = { u: number; v: number; r: number; turn: number; sq: number; white:
  * The clumps along a kerb: a solid core against it, lumps thinning out over the road, and loose chunks beyond —
  * each from its slot's own hash, the same whichever tile paints it.
  */
-function clumpsOf(S: Shape): Clump[] {
+function clumpsOf(runs: KerbRun[]): Clump[] {
   const out: Clump[] = [];
-  for (const R of kerbRuns(S)) {
+  for (const R of runs) {
     const j0 = Math.floor(R.f0 * R.n - 1), j1 = Math.ceil(R.f1 * R.n + 1);
     for (let j = j0; j <= j1; j++) {
       const jm = R.wrap ? ((j % R.n) + R.n) % R.n : j;
@@ -1184,10 +1227,16 @@ function drawClumps(ctx: Ctx, all: Clump[], base: () => void, dirt = 0) {
 function paintGroundSnow(ctx: Ctx, L: Look) {
   const S = shapeOf(L);
   // (Worked out once a shape: by what makes it.)
-  const sk = `${L.open}.${L.diag}.${L.wx}.${L.bay}`;
+  const meds = mediansOf(L);
+  const sk = `${L.open}.${L.diag}.${L.wx}.${L.bay}|${meds.map((M) => M.pts.join(" ")).join(";")}`;
   let cl = CLUMPS_OF.get(sk);
-  if (!cl) { if (CLUMPS_OF.size > 400) CLUMPS_OF.clear(); CLUMPS_OF.set(sk, (cl = clumpsOf(S))); }
-  drawClumps(ctx, cl, () => alongKerb(ctx, S, WALK - 0.01, WALK + 0.035, css(0xeaeff4)));
+  if (!cl) { if (CLUMPS_OF.size > 400) CLUMPS_OF.clear(); CLUMPS_OF.set(sk, (cl = clumpsOf([...kerbRuns(S), ...meds.flatMap(medianRuns)]))); }
+  drawClumps(ctx, cl, () => {
+    alongKerb(ctx, S, WALK - 0.01, WALK + 0.035, css(0xeaeff4));
+    for (const M of meds) medianStrip(ctx, M, MEDIAN_HALF + 0.035, css(0xeaeff4));
+  });
+  // A reservation's kerb face, as a pavement's.
+  for (const M of meds) medianStrip(ctx, M, MEDIAN_HALF, css(SNOW_SHADE));
   const c = L.ctr;
   if (!L.box && !L.rb && !L.zeb && (c === "u" || c === "U" || c === "v" || c === "V")) {
     // SLUSH DOWN THE MIDDLE: a ridge of dirty lumps, broken, on a grey smear, between the ways the wheels go.
@@ -1233,6 +1282,15 @@ function paintRaisedSnow(ctx: Ctx, L: Look) {
   ctx.fill();
   const pat = grainFill(ctx);
   if (pat) { ctx.globalAlpha = 0.3; ctx.fillStyle = pat; footprint(ctx, S); ctx.fill(); ctx.globalAlpha = 1; }
+  // THE CENTRAL RESERVATION under snow: white over, its edge in shade, and the barrier down it still dark, snow
+  // lying along its top rail.
+  for (const M of mediansOf(L)) {
+    medianStrip(ctx, M, MEDIAN_HALF, css(0xd9dfe6));
+    medianStrip(ctx, M, MEDIAN_HALF - 0.01, css(SNOW_TOP));
+    medianStrip(ctx, M, 0.012, css(0xc6cdd5), 0.005, 0.005);
+    medianStrip(ctx, M, 0.009, css(0x7d858d));
+    medianStrip(ctx, M, 0.005, css(0xf4f7fa), -0.003, -0.003);
+  }
   if (L.rb) {
     const { u, v, r } = islandOf(L);
     ctx.fillStyle = css(0xdfe5ec);
