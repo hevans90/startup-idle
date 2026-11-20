@@ -2,7 +2,7 @@
  * SNOW ON WHAT IS BUILT: how much lies on the roofs and the roads, 0–1, the calendar's snow lying (@see weather
  * groundAt) as the scene sets it each frame — and what shows it: each house's baked snow over its roof, faded in
  * by it (@see houses-sheet), the roofs a building is drawn with whitened (@see structures/projects/pen), the roads'
- * snow (@see road-snow). On the continuous surface only, as the ground's snow is.
+ * snow, each road's over it (@see paved snowPaved). On the continuous surface only, as the ground's snow is.
  */
 import type { Container } from "pixi.js";
 

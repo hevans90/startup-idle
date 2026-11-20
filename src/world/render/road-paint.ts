@@ -752,24 +752,29 @@ function fittings(ctx: Ctx, L: Look, S: Shape) {
   }
 }
 
+/** A straight road's lane middles, across it from the low edge of the `across` axis; null where it is not straight. */
+function lanesOf(L: Look): { across: "u" | "v"; mids: number[] } | null {
+  const c = L.ctr;
+  if (c === "u" || c === "U" || c === "v" || c === "V") {
+    const half = (0.5 - WALK) / 2;
+    return { across: c.toLowerCase() === "u" ? "v" : "u", mids: [0.5 - half, 0.5 + half] };
+  }
+  if (c[0] === "h" || c[0] === "H") {
+    const s = Number(c[1]) as Side, lane = (1 - WALK) / 2;
+    return { across: s < 2 ? "u" : "v", mids: [s & 1 ? 1 - lane : lane] };
+  }
+  return null;
+}
+
 /**
  * Close up, where the tyres run: two darker, polished tracks in each lane of a
  * straight road, the length of the tile so they run on into the next.
  */
 function wheelTracks(ctx: Ctx, L: Look) {
   if (L.box || L.zeb || L.rb) return;
-  const c = L.ctr;
-  // Lane middles, across the road, from the low edge of the across axis.
-  let across: "u" | "v", mids: number[];
-  if (c === "u" || c === "U" || c === "v" || c === "V") {
-    across = c.toLowerCase() === "u" ? "v" : "u";
-    const half = (0.5 - WALK) / 2;
-    mids = [0.5 - half, 0.5 + half];
-  } else if (c[0] === "h" || c[0] === "H") {
-    const s = Number(c[1]) as Side, lane = (1 - WALK) / 2;
-    across = s < 2 ? "u" : "v";
-    mids = [s & 1 ? 1 - lane : lane];
-  } else return;
+  const lanes = lanesOf(L);
+  if (!lanes) return;
+  const { across, mids } = lanes;
   ctx.fillStyle = css(0x1f2023, 0.09);
   for (const m of mids) for (const o of [-0.055, 0.055]) {
     const c0 = m + o - 0.018, c1 = m + o + 0.018;
@@ -1047,6 +1052,217 @@ function paintRaised(ctx: Ctx, L: Look) {
   if (L.zeb) for (const s of acrossOf(L.zeb)) if (!has(L.open, s)) { ctx.fillStyle = css(mix(kc, 0xffffff, 0.2)); bandRect(ctx, s, 0.3, 0.7, PAVE, WALK); ctx.fill(); }
 }
 
+// ─── SNOW ON THE ROAD ────────────────────────────────────────────────────────
+//
+// Painted over the road in its own tile, at the strength the snow lies (@see
+// paved snowPaved): the pavements white, a bank along each kerb, the road
+// itself still to be seen.
+
+const SNOW_TOP = 0xf2f5f9, SNOW_SHADE = 0xb4bdc8, SNOW_TROD = 0xc9d0d9;
+
+/** Slots for clumps a tile along a kerb: their places repeat each tile, so a bank runs on into the next. */
+const CLUMPS = 22;
+/** A kerb's run: a point `f` along it and `d` out over the road from its kerb; `f` from f0 to f1, `n` slots a tile. */
+type KerbRun = { at: (f: number, d: number) => [number, number]; f0: number; f1: number; n: number; key: number; wrap: boolean; dMax: number };
+function kerbRuns(S: Shape): KerbRun[] {
+  const runs: KerbRun[] = [];
+  for (const B of S.bands) {
+    runs.push({
+      at: (a, d) => bandPt(B.s, a, wAt(B, Math.min(B.a1, Math.max(B.a0, a))) + d),
+      // (Past a tile's edge, where the bank runs on, the next tile's own clumps: cut off by the tile's outline.)
+      f0: B.a0 > 0 ? B.a0 : -0.08, f1: B.a1 < 1 ? B.a1 : 1.08, n: CLUMPS, key: B.s * 31.7, wrap: true, dMax: 1,
+    });
+  }
+  for (const R of S.rounds) {
+    runs.push({ at: (t, d) => roundPt(R, t * Math.PI / 2, R.rc - d), f0: 0, f1: 1, n: Math.max(3, Math.round(R.rc * Math.PI / 2 * CLUMPS)), key: 100 + R.c * 13.1, wrap: false, dMax: R.rc * 0.7 });
+  }
+  for (const c of S.nubs) {
+    runs.push({ at: (t, d) => nubPt(c, t * Math.PI / 2, WALK + d), f0: 0, f1: 1, n: Math.max(3, Math.round(WALK * Math.PI / 2 * CLUMPS)), key: 200 + c * 17.3, wrap: false, dMax: 1 });
+  }
+  for (const K of S.cuts) {
+    const [p, q] = cutEdge(K, WALK), len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    runs.push({
+      at: (t, d) => { const [e0, e1] = cutEdge(K, WALK + d / Math.SQRT2); return [e0[0] + (e1[0] - e0[0]) * t, e0[1] + (e1[1] - e0[1]) * t]; },
+      f0: 0, f1: 1, n: Math.max(3, Math.round(len * CLUMPS)), key: 300 + K.c * 7.7, wrap: false, dMax: 1,
+    });
+  }
+  return runs;
+}
+
+const CLUMPS_OF = new Map<string, Clump[]>();
+/** A lump of snow: where, how big, its turn and squash, how white, whether gritted. */
+type Clump = { u: number; v: number; r: number; turn: number; sq: number; white: number; grit: number };
+
+/**
+ * The clumps along a kerb: a solid core against it, lumps thinning out over the road, and loose chunks beyond —
+ * each from its slot's own hash, the same whichever tile paints it.
+ */
+function clumpsOf(S: Shape): Clump[] {
+  const out: Clump[] = [];
+  for (const R of kerbRuns(S)) {
+    const j0 = Math.floor(R.f0 * R.n - 1), j1 = Math.ceil(R.f1 * R.n + 1);
+    for (let j = j0; j <= j1; j++) {
+      const jm = R.wrap ? ((j % R.n) + R.n) % R.n : j;
+      for (let k = 0; k < 13; k++) {
+        const h = (x: number) => hash(jm * 7.31 + k * 91.7 + R.key + x * 13.37);
+        const f = (j + 0.5 + (h(3) - 0.5) * 0.9) / R.n;
+        if (f < R.f0 || f > R.f1) continue;
+        // THE BANK SWELLS AND THINS along the kerb, where the plough left more or less: whole waves a tile.
+        const swell = R.wrap ? 0.8 + 0.3 * Math.sin((f + R.key) * Math.PI * 2) + 0.15 * Math.sin((f * 3 + R.key * 0.3) * Math.PI * 2) : 1;
+        let d: number, r: number;
+        // A solid core against the kerb; lumps out from it, fewer and smaller the further; a few loose chunks.
+        if (k < 3) { d = 0.01 + h(1) * 0.03; r = 0.022 + 0.02 * h(2); }
+        else if (k < 7) { if (h(0) > 0.6) continue; d = 0.035 + Math.pow(h(1), 1.6) * 0.07; r = 0.008 + 0.022 * h(2) * (1 - d / 0.13); }
+        else if (k < 9) { if (h(0) > 0.3) continue; d = 0.08 + h(1) * 0.08; r = 0.004 + 0.007 * h(2); }
+        // A dusting over the road, thinner out from the bank: flakes the wind and the wheels left.
+        else { if (h(0) > 0.55) continue; d = 0.06 + Math.pow(h(1), 1.8) * 0.22; r = 0.0018 + 0.0022 * h(2); }
+        d = Math.min(d * swell, R.dMax);
+        if (k < 7) r *= 0.75 + 0.35 * swell;
+        const [u, v] = R.at(f, d);
+        out.push({ u, v, r, turn: h(4) * Math.PI, sq: 0.65 + 0.35 * h(5), white: h(6), grit: h(7) });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * What of the cell being painted shows in the tile, in its own (u, v): all of it for the tile's own cell, the
+ * strip along the edge it shares for a neighbour — whose clumps elsewhere are cut away, and were most of the work.
+ */
+let SEEN = { u0: -1, u1: 2, v0: -1, v1: 2 };
+
+/** Clumps drawn: a wet dark halo round them, dirty slush at their feet, soft shadows, them lit from up the screen. */
+function drawClumps(ctx: Ctx, all: Clump[], base: () => void, dirt = 0) {
+  // (Zoomed out, a flake is less than a pixel: only lumps.)
+  const S = SEEN, least = DETAIL > 0 ? 0 : 0.006;
+  const clumps = all.filter((c) => c.r > least && c.u + 2.2 * c.r > S.u0 && c.u - 2.2 * c.r < S.u1 && c.v + 2.2 * c.r > S.v0 && c.v - 2.2 * c.r < S.v1);
+  // Each layer one path and one fill: the clumps in it run together.
+  const layer = (style: string, list: Clump[], s: (c: Clump) => number, off: (c: Clump) => number) => {
+    if (!list.length) return;
+    ctx.fillStyle = style;
+    ctx.beginPath();
+    for (const c of list) {
+      const o = off(c), x = c.u + o, y = c.v + o;
+      ctx.moveTo(x + Math.cos(c.turn) * c.r * s(c), y + Math.sin(c.turn) * c.r * s(c));
+      ctx.ellipse(x, y, c.r * s(c), c.r * s(c) * c.sq, c.turn, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  };
+  const big = clumps.filter((c) => c.r > 0.005);
+  // THE ROAD WET round the snow.
+  layer(css(0x15171a, 0.12), big, () => 2, () => 0.005);
+  // Grey mush at its feet, road dirt in it: thrown up by the wheels, half melted.
+  layer(css(mix(0xaeaba4, 0x8a8780, dirt), 0.4), big, () => 1.55, () => 0.004);
+  // Shadows down the screen, away from the light: blue, soft, snow's.
+  layer(css(0x8e9aa9, 0.5), clumps, () => 1.04, (c) => c.r * 0.28);
+  base();
+  // The lumps, run together: each a touch bigger than its place, so a bank is one thing with a lumpy edge.
+  for (let k = 0; k < 3; k++) {
+    layer(css(mix(mix(0xe2e8ef, 0xf3f6f9, k / 2), 0xb9b8b2, dirt)), clumps.filter((c) => Math.min(2, Math.floor(c.white * 3)) === k), () => 1.1, () => 0);
+  }
+  if (DETAIL === 0) return;
+  // Lit on their tops, softly.
+  layer(css(0xffffff, 0.45), clumps.filter((c) => c.r > 0.008), () => 0.6, (c) => -c.r * 0.25);
+  // Grit thrown on them, a little, here and there.
+  ctx.fillStyle = css(0x6a5f53, 0.4);
+  ctx.beginPath();
+  for (const c of clumps) {
+    if (c.grit > 0.12 || c.r < 0.016) continue;
+    for (let g = 0; g < 2; g++) {
+      const a = c.turn * 3 + g * 2.1, d = c.r * 0.5 * ((g + 1) / 2), x = c.u + Math.cos(a) * d, y = c.v + Math.sin(a) * d;
+      ctx.moveTo(x + 0.0018, y); ctx.arc(x, y, 0.0018, 0, Math.PI * 2);
+    }
+  }
+  ctx.fill();
+}
+
+/**
+ * The snow on the carriageway: the road itself left to be seen, the snow ploughed and thrown up against each kerb
+ * in a clumpy bank, and on a street a broken line of dirty slush down its middle, between the ways the wheels go.
+ */
+function paintGroundSnow(ctx: Ctx, L: Look) {
+  const S = shapeOf(L);
+  // (Worked out once a shape: by what makes it.)
+  const sk = `${L.open}.${L.diag}.${L.wx}.${L.bay}`;
+  let cl = CLUMPS_OF.get(sk);
+  if (!cl) { if (CLUMPS_OF.size > 400) CLUMPS_OF.clear(); CLUMPS_OF.set(sk, (cl = clumpsOf(S))); }
+  drawClumps(ctx, cl, () => alongKerb(ctx, S, WALK - 0.01, WALK + 0.035, css(0xeaeff4)));
+  const c = L.ctr;
+  if (!L.box && !L.rb && !L.zeb && (c === "u" || c === "U" || c === "v" || c === "V")) {
+    // SLUSH DOWN THE MIDDLE: a ridge of dirty lumps, broken, on a grey smear, between the ways the wheels go.
+    const along = c.toLowerCase() === "u", P = (a: number, o: number): [number, number] => (along ? [a, 0.5 + o] : [0.5 + o, a]);
+    ctx.fillStyle = css(0x9a9ea4, 0.22);
+    ctx.beginPath();
+    const n = 24;
+    for (let t = 0; t <= n; t++) { const a = -0.1 + 1.2 * t / n; ctx.lineTo(...P(a, -0.035 - 0.012 * Math.sin(a * 4 * Math.PI))); }
+    for (let t = n; t >= 0; t--) { const a = -0.1 + 1.2 * t / n; ctx.lineTo(...P(a, 0.035 + 0.012 * Math.sin(a * 6 * Math.PI + 1))); }
+    ctx.closePath(); ctx.fill();
+    const mid: Clump[] = [], N = 24;
+    for (let j = -1; j <= N + 1; j++) for (let k = 0; k < 4; k++) {
+      const jm = ((j % N) + N) % N, h = (x: number) => hash(jm * 5.17 + k * 43.1 + x * 11.9 + 500);
+      // (Thicker in places, gone in others: whole waves a tile.)
+      const a = (j + h(1)) / N, thick = 0.55 + 0.45 * Math.sin(a * 2 * Math.PI + 0.7);
+      if (h(0) > 0.25 + 0.6 * thick) continue;
+      const [u, v] = P(a, (h(2) - 0.5) * (k < 2 ? 0.03 : 0.07));
+      mid.push({ u, v, r: k < 2 ? 0.01 + 0.012 * h(3) * thick : 0.004 + 0.006 * h(3), turn: h(4) * Math.PI, sq: 0.6 + 0.4 * h(5), white: h(6), grit: h(7) });
+    }
+    drawClumps(ctx, mid, () => {}, 0.35);
+  }
+  if (L.rb) {
+    // Snow thrown up round the island too.
+    const { u, v, r } = islandOf(L);
+    const ring: Clump[] = [];
+    for (let j = 0; j < 40; j++) for (let k = 0; k < 2; k++) {
+      const h = (x: number) => hash(j * 3.3 + k * 17.9 + x * 7.7 + 900), a = (j + h(1)) / 40 * Math.PI * 2, d = r + 0.01 + h(2) * (k ? 0.06 : 0.025);
+      ring.push({ u: u + Math.cos(a) * d, v: v + Math.sin(a) * d, r: k ? 0.006 + 0.01 * h(3) : 0.016 + 0.012 * h(3), turn: h(4) * Math.PI, sq: 0.65 + 0.35 * h(5), white: h(6), grit: h(7) });
+    }
+    drawClumps(ctx, ring, () => { ctx.fillStyle = css(0xeef2f6); ctx.beginPath(); ctx.arc(u, v, r + 0.012, 0, Math.PI * 2); ctx.fill(); });
+  }
+  // The kerb's face, snow on its edge.
+  ctx.fillStyle = css(SNOW_SHADE);
+  footprint(ctx, S);
+  ctx.fill();
+}
+
+/** The snow on the pavement: clean, a way trodden along it, and the kerb's top and edge still to be seen. */
+function paintRaisedSnow(ctx: Ctx, L: Look) {
+  const S = shapeOf(L);
+  ctx.fillStyle = css(SNOW_TOP);
+  footprint(ctx, S);
+  ctx.fill();
+  const pat = grainFill(ctx);
+  if (pat) { ctx.globalAlpha = 0.3; ctx.fillStyle = pat; footprint(ctx, S); ctx.fill(); ctx.globalAlpha = 1; }
+  if (L.rb) {
+    const { u, v, r } = islandOf(L);
+    ctx.fillStyle = css(0xdfe5ec);
+    ctx.beginPath(); ctx.arc(u, v, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = css(SNOW_TOP);
+    ctx.beginPath(); ctx.arc(u, v, r - 0.035, 0, Math.PI * 2); ctx.fill();
+    // The shrubs, humps under it.
+    for (let k = 0; k < 14; k++) {
+      const a = (k / 14) * Math.PI * 2, x = u + Math.cos(a) * (r - 0.075), y = v + Math.sin(a) * (r - 0.075);
+      ctx.fillStyle = css(0xd2d9e1); ctx.beginPath(); ctx.arc(x + 0.006, y + 0.006, 0.03, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = css(0xffffff); ctx.beginPath(); ctx.arc(x - 0.004, y - 0.004, 0.024, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  if (S.full) return;
+  // THE WAY WALKED, a little in from the kerb: greyer, and close up the prints in it.
+  alongKerb(ctx, S, 0.06, 0.15, css(mix(SNOW_TOP, SNOW_TROD, 0.55)));
+  alongKerb(ctx, S, 0.08, 0.13, css(mix(SNOW_TOP, SNOW_TROD, 0.75)));
+  // THE KERB under it: a lit edge, its top, the shadow down its face.
+  alongKerb(ctx, S, PAVE, WALK, css(0xe7ecf1));
+  alongKerb(ctx, S, PAVE - 0.004, PAVE + 0.006, css(0xffffff));
+  alongKerb(ctx, S, WALK - 0.008, WALK, css(0xc3cbd4));
+  if (DETAIL > 0) {
+    ctx.fillStyle = css(0xd5dce3);
+    for (const B of S.bands) for (let k = 1; k < 6; k++) {
+      const a = k / 6;
+      if (a > B.a0 && a < B.a1) { bandQuad(ctx, B, a - 0.002, a + 0.002, PAVE + 0.006, WALK - 0.008); ctx.fill(); }
+    }
+  }
+}
+
 // ─── THE ATLAS ───────────────────────────────────────────────────────────────
 
 type Page = { lod: number; rt: RenderTexture; x: number; y: number; row: number };
@@ -1059,7 +1275,7 @@ export type RoadPainter = {
    * first time it is asked for. Every level's texture is the same size in
    * frame pixels, so a sprite can swap between them and not move.
    */
-  textureFor(key: string, cells: CellPaint[], ramp: boolean, lod?: number): Texture;
+  textureFor(key: string, cells: CellPaint[], ramp: boolean, lod?: number, snow?: number): Texture;
   /** A key's texture at a level, if painted yet. Asking is drawing it: it is no longer idle. @see keep */
   peek(key: string, lod: number): Texture | undefined;
   /**
@@ -1134,6 +1350,8 @@ export function createRoadPainter(renderer: Renderer): RoadPainter {
     return st;
   };
   const stage = new Container(), rubbers: Sprite[] = [], stamps: Sprite[] = [];
+  /** A canvas a level the size of its strip, the snow painted on before it is laid over the road. */
+  const scratch: (Ctx | undefined)[] = [];
   let dead = false;
 
   const newPage = (lod: number): Page => {
@@ -1230,7 +1448,7 @@ export function createRoadPainter(renderer: Renderer): RoadPainter {
   };
 
   const painter: RoadPainter = {
-    textureFor(key, cells, ramp, lod = 0) {
+    textureFor(key, cells, ramp, lod = 0, snow = 0) {
       const tier = tiers[lod];
       const hit = tier.cache.get(key);
       if (hit) { tier.idle.delete(key); return hit.tex; }
@@ -1240,59 +1458,84 @@ export function createRoadPainter(renderer: Renderer): RoadPainter {
       const slot = place(lod, ramp, w, h, top);
       const st = stripOf(lod);
       if (st.waiting.length === STRIP[lod]) flush();
-      const ctx = st.ctx, x = st.waiting.length * CELL_W, y = 0;
+      const x = st.waiting.length * CELL_W, y = 0;
       st.waiting.push(slot);
       DETAIL = lod;
-      ctx.save();
-      ctx.setTransform(RES, 0, 0, RES, 0, 0);
-      ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
-      ctx.clearRect(x, y, w, h);
-      const HU = HEIGHT_UNIT;
-      // The tile's projection for a cell `dx, dy` from this one, on plane `p`, `lift` frame pixels up.
-      const project = (c: CellPaint, lift: number, p: { z0: number; zu: number; zv: number } = c) => {
-        ctx.setTransform(
-          66 * RES, (33 - p.zu * HU) * RES,
-          -66 * RES, (33 - p.zv * HU) * RES,
-          (x + PAD + 66 + 66 * (c.dx - c.dy)) * RES,
-          (y + top + 33 * (c.dx + c.dy) - p.z0 * HU - lift) * RES,
-        );
-      };
-      // Only this cell's diamond and a margin: the neighbours' parts that its sprite overlaps.
-      const self = cells.find((c) => c.dx === 0 && c.dy === 0)!;
-      if (self.zc) {
-        // (Its corners not in one plane: the outline through them, each carried a margin out along its edges.)
-        const z = self.zc, M = MARGIN;
-        const at = (u: number, v: number) => {
-          const h = (z[0] * (1 - u) + z[1] * u) * (1 - v) + (z[3] * (1 - u) + z[2] * u) * v;
-          return [x + PAD + 66 + 66 * (u - v), y + top + 33 * (u + v) - h * HU] as const;
+      // Painted on `ctx`: the road, or the snow over it.
+      const paintOn = (ctx: Ctx, snowy: boolean) => {
+        ctx.save();
+        ctx.setTransform(RES, 0, 0, RES, 0, 0);
+        ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+        ctx.clearRect(x, y, w, h);
+        const HU = HEIGHT_UNIT;
+        // The tile's projection for a cell `dx, dy` from this one, on plane `p`, `lift` frame pixels up.
+        const project = (c: CellPaint, lift: number, p: { z0: number; zu: number; zv: number } = c) => {
+          ctx.setTransform(
+            66 * RES, (33 - p.zu * HU) * RES,
+            -66 * RES, (33 - p.zv * HU) * RES,
+            (x + PAD + 66 + 66 * (c.dx - c.dy)) * RES,
+            (y + top + 33 * (c.dx + c.dy) - p.z0 * HU - lift) * RES,
+          );
         };
-        ctx.setTransform(RES, 0, 0, RES, 0, 0);
-        ctx.beginPath();
-        for (const [u, v] of [[-M, -M], [1 + M, -M], [1 + M, 1 + M], [-M, 1 + M]] as const) ctx.lineTo(...at(u, v));
-        ctx.closePath();
-      } else {
-        project(self, 0);
-        ctx.beginPath(); ctx.rect(-MARGIN, -MARGIN, 1 + 2 * MARGIN, 1 + 2 * MARGIN);
-        ctx.setTransform(RES, 0, 0, RES, 0, 0);
-      }
-      ctx.clip();
-      const E = 0.004;
-      for (const pass of [0, 1]) for (const c of cells) {
-        // A cell on one plane, painted once; one whose corners are not, as its two triangles, each a hair over the
-        // diagonal so no seam opens down it.
-        for (const k of c.zc ? [0, 1] : [-1]) {
-          ctx.save();
-          const z = c.zc;
-          project(c, pass ? KERB_PX : 0, !z ? c : k === 0 ? { z0: z[0], zu: z[1] - z[0], zv: z[2] - z[1] } : { z0: z[0], zu: z[2] - z[3], zv: z[3] - z[0] });
+        // Only this cell's diamond and a margin: the neighbours' parts that its sprite overlaps.
+        const self = cells.find((c) => c.dx === 0 && c.dy === 0)!;
+        if (self.zc) {
+          // (Its corners not in one plane: the outline through them, each carried a margin out along its edges.)
+          const z = self.zc, M = MARGIN;
+          const at = (u: number, v: number) => {
+            const h = (z[0] * (1 - u) + z[1] * u) * (1 - v) + (z[3] * (1 - u) + z[2] * u) * v;
+            return [x + PAD + 66 + 66 * (u - v), y + top + 33 * (u + v) - h * HU] as const;
+          };
+          ctx.setTransform(RES, 0, 0, RES, 0, 0);
           ctx.beginPath();
-          if (k < 0) ctx.rect(-E, -E, 1 + 2 * E, 1 + 2 * E);
-          else for (const [u, v] of (k === 0 ? [[-E, -E], [1 + E, -E], [1 + E, 1 + E], [1 - E, 1 + E], [-E, E]] : [[-E, -E], [E, -E], [1 + E, 1 - E], [1 + E, 1 + E], [-E, 1 + E]])) ctx.lineTo(u, v);
-          ctx.clip();
-          if (pass) paintRaised(ctx, c.look); else paintGround(ctx, c.look);
-          ctx.restore();
+          for (const [u, v] of [[-M, -M], [1 + M, -M], [1 + M, 1 + M], [-M, 1 + M]] as const) ctx.lineTo(...at(u, v));
+          ctx.closePath();
+        } else {
+          project(self, 0);
+          ctx.beginPath(); ctx.rect(-MARGIN, -MARGIN, 1 + 2 * MARGIN, 1 + 2 * MARGIN);
+          ctx.setTransform(RES, 0, 0, RES, 0, 0);
         }
+        ctx.clip();
+        const E = 0.004;
+        for (const pass of [0, 1]) for (const c of cells) {
+          // A cell on one plane, painted once; one whose corners are not, as its two triangles, each a hair over the
+          // diagonal so no seam opens down it.
+          for (const k of c.zc ? [0, 1] : [-1]) {
+            ctx.save();
+            const z = c.zc;
+            project(c, pass ? KERB_PX : 0, !z ? c : k === 0 ? { z0: z[0], zu: z[1] - z[0], zv: z[2] - z[1] } : { z0: z[0], zu: z[2] - z[3], zv: z[3] - z[0] });
+            ctx.beginPath();
+            if (k < 0) ctx.rect(-E, -E, 1 + 2 * E, 1 + 2 * E);
+            else for (const [u, v] of (k === 0 ? [[-E, -E], [1 + E, -E], [1 + E, 1 + E], [1 - E, 1 + E], [-E, E]] : [[-E, -E], [E, -E], [1 + E, 1 - E], [1 + E, 1 + E], [-E, 1 + E]])) ctx.lineTo(u, v);
+            ctx.clip();
+            if (snowy) {
+              const M = MARGIN + 0.01;
+              SEEN = { u0: Math.max(-0.1, -M - c.dx), u1: Math.min(1.1, 1 + M - c.dx), v0: Math.max(-0.1, -M - c.dy), v1: Math.min(1.1, 1 + M - c.dy) };
+              if (pass) paintRaisedSnow(ctx, c.look); else paintGroundSnow(ctx, c.look);
+            }
+            else if (pass) paintRaised(ctx, c.look); else paintGround(ctx, c.look);
+            ctx.restore();
+          }
+        }
+        ctx.restore();
+      };
+      // SNOW, `snow` of it: painted on a canvas of its own and laid over the road at that strength — one layer, so
+      // what is in it is not seen through itself.
+      paintOn(st.ctx, false);
+      if (snow > 0) {
+        const sc = (scratch[lod] ??= (() => {
+          const c = document.createElement("canvas");
+          c.width = st.ctx.canvas.width; c.height = st.ctx.canvas.height;
+          return c.getContext("2d")!;
+        })());
+        paintOn(sc, true);
+        const c = st.ctx;
+        c.save();
+        c.setTransform(1, 0, 0, 1, 0, 0);
+        c.globalAlpha = snow;
+        c.drawImage(sc.canvas, x * RES, y * RES, w * RES, h * RES, x * RES, y * RES, w * RES, h * RES);
+        c.restore();
       }
-      ctx.restore();
       DETAIL = 0;
       if (!flushing) { flushing = true; queueMicrotask(flush); }
       tier.cache.set(key, slot);

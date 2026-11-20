@@ -8,8 +8,7 @@
 import { fouledHouses, pollutionOf } from "./water/pollution";
 import { POLLUTED } from "../game/pollution";
 import { weatherDry } from "./vegetation/stress";
-import { setSnowLying } from "./render/snow-cover";
-import { createRoadSnow, syncRoadSnow } from "./render/road-snow";
+import { setSnowLying, snowStep } from "./render/snow-cover";
 import { startWildfire, stepWildfire, tinderAt, windAt, type Wildfire } from "./vegetation/wildfire";
 import { suggestionsKept } from "./pipes/suggest";
 import { movableEnd, stretchAt } from "./pipes/stretch";
@@ -74,7 +73,7 @@ import { catchment, stepRain, type Catchment } from "./water/rain";
 import { useCalendarStore } from "../state/calendar.store";
 import { CLIFF, drawnSampler } from "./render/drawn";
 import { groundMode } from "./render/ground-mode";
-import { buildPaved, createPavedLayer, dressPaved, evictUnused, lodPaved, refreshLooks, syncPaved, type PavedLayer } from "./render/paved";
+import { buildPaved, createPavedLayer, dressPaved, evictUnused, lodPaved, refreshLooks, snowPaved, syncPaved, type PavedLayer } from "./render/paved";
 import { lodFor } from "./render/road-paint";
 import { lookDirtyCells } from "./roads/looks";
 import {
@@ -420,7 +419,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const blRef = useRef<BandLayer | null>(null);
   const tlRef = useRef<TerrainLayer | null>(null);
   const plRef = useRef<PavedLayer | null>(null);
-  const roadSnowRef = useRef(createRoadSnow());
   const slRef = useRef<StructureLayer | null>(null);
   const flRef = useRef<WaterLayer | null>(null);
   // The water's mesh is built in a vertex shader unless `?cpuwater=1` asks for
@@ -1838,8 +1836,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (slRef.current) clearStructureLayer(slRef.current);
       setShownStructures(null);
       if (tlRef.current?.ground) destroyGroundMesh(tlRef.current.ground);
-      // (The roads' snow goes with the bands it is in.)
-      roadSnowRef.current = createRoadSnow();
       if (blRef.current) destroyBandLayer(blRef.current);
       slRef.current = null;
       flRef.current = null;
@@ -3969,7 +3965,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const gs = groundSeason(tCal), evs = useWorldStore.getState().events;
         const scorch = Math.max(evs.some((e) => e.kind === "drought" && e.phase === "active") ? 1 : 0, evs.some((e) => e.kind === "heatwave" && e.phase === "active") ? 0.6 : 0, weatherDry(tCal) * 0.5);
         setSnowLying(smooth ? L.snow : 0);
-        if (plRef.current && blRef.current) syncRoadSnow(roadSnowRef.current, blRef.current, useWorldStore.getState().grid, plRef.current.looks, smooth && L.snow > 0.004, scale, performance.now());
+        if (plRef.current) snowPaved(plRef.current, useWorldStore.getState().grid, snowStep());
         seasonGround(tlRef.current.ground, smooth ? { ...gs, dry: Math.min(2, gs.dry + scorch), snow: L.snow } : null, yearPart(tCal), smooth ? L.wet : 0, smooth ? L.frost : 0);
       }
       if (signalsRef.current) {
@@ -4271,8 +4267,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
 
   // ROADS IN DETAIL CLOSE UP: the cells on screen painted at the resolution the
   // zoom shows them at, a few new ones a frame. Asked again only when the zoom
-  // crosses a level, the view moves a tile, roads are laid (new textures), or
-  // cells are still waiting.
+  // crosses a level, the view moves a tile, roads are laid (new textures), the
+  // snow on them changes, or cells are still waiting.
   const lodView = useRef({ pl: null as PavedLayer | null, want: -1, x: NaN, y: NaN, w: NaN, keys: -1, waiting: false });
   useTick(() => {
     const pl = plRef.current, vp = useWorldStore.getState().viewport;
@@ -4283,7 +4279,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const keys = pl.painter.stats().keys;
     const L = lodView.current, step = 66 * scale;
     const x = Math.round(vp.left / step), y = Math.round(vp.top / step), w = Math.round(vp.worldScreenWidth / step);
-    if (pl === L.pl && want === L.want && x === L.x && y === L.y && w === L.w && keys === L.keys && !L.waiting) return;
+    if (pl === L.pl && want === L.want && x === L.x && y === L.y && w === L.w && keys === L.keys && !L.waiting && !pl.snowing) return;
     const e = section("tick: road detail");
     L.waiting = !lodPaved(pl, useWorldStore.getState().grid, want, { left: vp.left, top: vp.top, right: vp.right, bottom: vp.bottom }, 4);
     e();

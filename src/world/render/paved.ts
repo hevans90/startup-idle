@@ -16,6 +16,7 @@ import { idx, inBounds, surfaceHeightAt, VOID, type Grid } from "../grid";
 import type { BandLayer } from "./bands";
 import { road, roadCorner } from "./drawn";
 import { groundMode } from "./ground-mode";
+import { SNOW_STEPS } from "./snow-cover";
 
 /** Whether a cell's road lies on the continuous surface, through its drawn corners, and is not a level block or a ramp's plane. @see drawn.ts roadCorner */
 const lies = (grid: Grid, x: number, y: number) => groundMode() === "smooth" && road(grid, x, y);
@@ -41,6 +42,8 @@ export function planeAt(grid: Grid, x: number, y: number, ramp: number, z: numbe
 export type PavedLayer = {
   /** Sprite per cell, parallel to the grid; null where unpaved. */
   sprites: (Sprite | null)[];
+  /** How much snow lies on the roads, in steps of {@link SNOW_STEPS}: painted into every tile. @see snowPaved */
+  snow: number;
   /** The look last painted for each cell, as its key. */
   frames: (string | null)[];
   scale: number;
@@ -52,6 +55,8 @@ export type PavedLayer = {
   dress: Uint8Array | undefined;
   /** Where the parking bays are, per cell, as the lanes have them: set by the scene. @see agents/lanes/graph bayMarksOf */
   bays?: (grid: Grid) => Uint16Array | undefined;
+  /** Whether tiles are still waiting to be painted with the snow as it is now. @see snowPaved */
+  snowing?: boolean;
   /** Each cell's level of detail, as its sprite draws it now. @see lodPaved */
   lod: Uint8Array;
   /** The level wanted on screen, as last asked for. */
@@ -74,6 +79,7 @@ export function createPavedLayer(grid: Grid, scale = 1, renderer?: Renderer, pai
   const n = grid.w * grid.h;
   return {
     sprites: new Array(n).fill(null),
+    snow: 0,
     frames: new Array(n).fill(null),
     scale,
     painter,
@@ -134,7 +140,7 @@ export function plannedTile(pl: PavedLayer, planned: Grid, looks: readonly (Look
 }
 
 /** The cells a cell's texture paints, itself and the neighbours it joins, and their key. */
-function paintOf(looks: readonly (Look | null)[], grid: Grid, x: number, y: number): { key: string; cells: CellPaint[]; ramp: boolean } | null {
+function paintOf(looks: readonly (Look | null)[], grid: Grid, x: number, y: number, snow = 0): { key: string; cells: CellPaint[]; ramp: boolean; snow: number } | null {
   const L = looks[idx(grid, x, y)];
   if (!L) return null;
   const z = baseOf(grid, x, y);
@@ -160,7 +166,28 @@ function paintOf(looks: readonly (Look | null)[], grid: Grid, x: number, y: numb
     else if (plane.z0 || plane.zu || plane.zv || zc) key += `|s${plane.z0},${plane.zu},${plane.zv}${zc}`;
     cells.push({ look: dx || dy ? { ...N, vr: 0 } : N, dx, dy, ...plane });
   }
-  return { key, cells, ramp };
+  // (Whole a little before the ground's is: what is built shows every flake, and a thin cover as one.) Keyed by the
+  // strength it is painted at, so two steps that look the same are one tile, painted once.
+  const strength = Math.min(1, (snow / SNOW_STEPS) * 1.4);
+  if (strength) key += `|❄${Math.round(strength * 100)}`;
+  return { key, cells, ramp, snow: strength };
+}
+
+/**
+ * SNOW ON THE ROADS: `step` of {@link SNOW_STEPS} lying, painted into every road's tile over the road — the
+ * pavements white, the kerbs still to be seen, the gutters ploughed up, slush in the tyre tracks (@see road-paint
+ * paintGroundSnow). Each tile its own key a step, so going back and forth is the painter's cache; the tiles are
+ * painted again a few a frame by {@link lodPaved}, each keeping what it had till then.
+ */
+export function snowPaved(pl: PavedLayer, grid: Grid, step: number): void {
+  if (step === pl.snow || !pl.painter) return;
+  pl.snow = step;
+  pl.snowing = true;
+  if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
+  for (let i = 0; i < pl.sprites.length; i++) {
+    if (!pl.sprites[i]) continue;
+    pl.frames[i] = paintOf(pl.looks, grid, i % grid.w, (i / grid.w) | 0, step)?.key ?? null;
+  }
 }
 
 /** Reconcile one cell's road sprite: add, re-texture, reposition or remove. */
@@ -188,14 +215,21 @@ export function syncPaved(
 
   if (!pl.painter) return;
   if (pl.looks.length !== grid.w * grid.h) refreshLooks(pl, grid);
-  const paint = paintOf(pl.looks, grid, x, y);
+  const paint = paintOf(pl.looks, grid, x, y, pl.snow);
   if (!paint) return;
   const { wx, wy } = cellToWorld(x, y, baseOf(grid, x, y), pl.scale);
   const sy = spriteY(wy, GROUND_FRAME_H, pl.scale);
   // At the level the screen shows it at, from its first frame: a road laid
   // close up is never drawn blurred and then sharpened.
   pl.lod[i] = pl.lodView && inView(pl, wx, sy, pl.lodView) ? pl.lodWant : 0;
-  const tex = pl.painter.textureFor(paint.key, paint.cells, paint.ramp, pl.lod[i]);
+  // UNDER SNOW, its bare road first if its snowy tile is not painted yet, the snow a few tiles a frame after: a
+  // winter's map all at once was seconds. @see lodPaved
+  let tex = paint.snow ? pl.painter.peek(paint.key, pl.lod[i]) : undefined;
+  if (!tex && paint.snow) {
+    const bare = paintOf(pl.looks, grid, x, y, 0)!;
+    tex = pl.painter.textureFor(bare.key, bare.cells, bare.ramp, pl.lod[i]);
+    pl.snowing = true;
+  } else tex ??= pl.painter.textureFor(paint.key, paint.cells, paint.ramp, pl.lod[i], paint.snow);
   let s = existing;
   if (!s) {
     s = new Sprite(tex);
@@ -242,11 +276,12 @@ export function lodPaved(pl: PavedLayer, grid: Grid, want: number, view: View, b
     const lod = inView(pl, s.x, s.y, view) ? want : 0;
     let tex = P.peek(key, lod);
     if (!tex) {
-      // The map's own level is cheap and always wanted; a closer one waits its turn.
-      if (lod > 0 && performance.now() - t0 > budgetMs) { done = false; continue; }
-      const paint = paintOf(pl.looks, grid, i % grid.w, (i / grid.w) | 0);
+      // The map's own level is cheap and always wanted; a closer one waits its turn — and so does a tile the snow
+      // has changed, which keeps what it has (the whole map's, all at once, was a hitch).
+      if ((lod > 0 || pl.snowing) && performance.now() - t0 > budgetMs) { done = false; continue; }
+      const paint = paintOf(pl.looks, grid, i % grid.w, (i / grid.w) | 0, pl.snow);
       if (!paint) continue;
-      tex = P.textureFor(paint.key, paint.cells, paint.ramp, lod);
+      tex = P.textureFor(paint.key, paint.cells, paint.ramp, lod, paint.snow);
     }
     if (s.texture !== tex) s.texture = tex;
     pl.lod[i] = lod;
@@ -273,6 +308,7 @@ export function lodPaved(pl: PavedLayer, grid: Grid, want: number, view: View, b
       if (l === want) pl.lodIdle[l] = undefined;
       else pl.lodIdle[l] ??= performance.now();
     }
+    pl.snowing = false;
   } else pl.lodIdle[want] = undefined;
   // Painted this frame, shown this frame. @see RoadPainter.flush
   P.flush();
