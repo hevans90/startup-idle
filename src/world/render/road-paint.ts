@@ -1385,12 +1385,12 @@ function wayAt(R: KerbRun, w: (typeof WALKERS)[number], f: number) {
  * way runs on into the next.
  */
 type Step = { u: number; v: number; tu: number; tv: number; side: number; h: number };
-const TROD_OF = new Map<string, { trod: [number, number, number][]; steps: Step[]; drift: Clump[] }>();
-/** A shape's way walked and its drifts, all of them: worked out once a shape, by what makes it. */
+const TROD_OF = new Map<string, { trod: [number, number, number][]; steps: Step[] }>();
+/** A shape's way walked, all of it: worked out once a shape, by what makes it. */
 function walkedOf(L: Look, S: Shape) {
   const key = `${L.open}.${L.diag}.${L.wx}.${L.bay}`;
   let w = TROD_OF.get(key);
-  if (!w) { if (TROD_OF.size > 400) TROD_OF.clear(); TROD_OF.set(key, (w = { ...wayOf(S), drift: driftOf(S) })); }
+  if (!w) { if (TROD_OF.size > 400) TROD_OF.clear(); TROD_OF.set(key, (w = wayOf(S))); }
   return w;
 }
 /** Each walker's way along a shape's kerbs: the trodden patches, and the steps. */
@@ -1458,49 +1458,39 @@ function trodden(ctx: Ctx, L: Look, S: Shape) {
 }
 
 /**
- * The pavement's back, where it meets the ground's snow: shaded as the ground's is, and drifts lying over the line —
- * so no straight edge shows between them. Along each band's side, the same each tile.
+ * How the pavement's back gives way to the ground's snow: each step's depth into the pavement, and how much of the
+ * tile it takes away there — so at its very edge the ground's own snow shows, shaded as the ground is.
  */
-function driftOf(S: Shape): Clump[] {
-  const cl: Clump[] = [];
+const BACK_FADE = [[0.022, 0.9], [0.045, 0.55], [0.075, 0.3]] as const;
+
+/**
+ * A step of that fade, added to the path: along each band's back, out to `depth` and ragged at it — lumps of drift
+ * whose places repeat each tile, so the edge runs on into the next.
+ */
+function backFadePath(ctx: Ctx, S: Shape, depth: number, step: number, V: typeof SEEN) {
+  const pt = (s: Side, a: number, d: number) => bandPt(s, a, d);
   for (const B of S.bands) {
-    const n = 18, j0 = Math.floor((B.a0 > 0 ? B.a0 : -0.08) * n), j1 = Math.ceil((B.a1 < 1 ? B.a1 : 1.08) * n);
-    for (let j = j0; j <= j1; j++) {
+    // (Only where the tile shows it: a neighbour's band, along the side it shares.)
+    const [p0, p1] = [pt(B.s, B.a0, 0), pt(B.s, B.a1, 0.1)];
+    if (Math.max(p0[0], p1[0]) < V.u0 || Math.min(p0[0], p1[0]) > V.u1 || Math.max(p0[1], p1[1]) < V.v0 || Math.min(p0[1], p1[1]) > V.v1) continue;
+    const q = [pt(B.s, B.a0, -0.05), pt(B.s, B.a1, -0.05), pt(B.s, B.a1, depth), pt(B.s, B.a0, depth)];
+    ctx.moveTo(q[0][0], q[0][1]);
+    for (const p of q.slice(1)) ctx.lineTo(p[0], p[1]);
+    ctx.closePath();
+    const n = 16;
+    for (let j = Math.floor(B.a0 * n) - 1; j <= Math.ceil(B.a1 * n); j++) {
       const jm = ((j % n) + n) % n;
-      for (let k = 0; k < 3; k++) {
-        const h = (x: number) => hash(jm * 3.71 + k * 47.3 + B.s * 19.9 + x * 7.77);
-        const a = (j + h(0)) / n;
-        if (a < B.a0 - 0.02 || a > B.a1 + 0.02) continue;
-        const d = 0.02 + Math.pow(h(1), 1.5) * 0.08, r = (k < 2 ? 0.02 : 0.009) * (0.6 + 0.6 * h(2)) * (1 - d * 4);
-        const [u, v] = bandPt(B.s, a, d);
-        if (r > 0.003) cl.push({ u, v, r, turn: h(3) * Math.PI, sq: 0.55 + 0.3 * h(4), white: h(5), grit: 1 });
+      for (let k = 0; k < 2; k++) {
+        const h = (x: number) => hash(jm * 4.37 + k * 29.1 + B.s * 13.3 + step * 51.7 + x * 9.13);
+        const a = (j + k * 0.5 + h(0) * 0.5) / n;
+        if (a < B.a0 - 0.01 || a > B.a1 + 0.01) continue;
+        const r = 0.008 + 0.014 * h(1), [u, v] = pt(B.s, a, depth + (h(2) - 0.6) * 0.02);
+        if (u + r < V.u0 || u - r > V.u1 || v + r < V.v0 || v - r > V.v1) continue;
+        ctx.moveTo(u + r, v);
+        ctx.ellipse(u, v, r, r * (0.6 + 0.3 * h(3)), h(4) * Math.PI, 0, Math.PI * 2);
       }
     }
   }
-  return cl;
-}
-function backDrift(ctx: Ctx, L: Look, S: Shape) {
-  // The ground's tone over its back, fading into the pavement's.
-  for (const [d0, d1, t] of [[0, 0.05, 1], [0.05, 0.075, 0.6], [0.075, 0.095, 0.3]] as const) {
-    ctx.fillStyle = css(mix(SNOW_TOP, SNOW_GROUND, t));
-    ctx.beginPath();
-    for (const B of S.bands) { bandRect(ctx, B.s, B.a0 - 0.01, B.a1 + 0.01, d0 - 0.01, d1); ctx.fill(); }
-  }
-  const V = SEEN, cl = walkedOf(L, S).drift.filter((c) => c.u > V.u0 - 0.05 && c.u < V.u1 + 0.05 && c.v > V.v0 - 0.05 && c.v < V.v1 + 0.05);
-  if (!cl.length) return;
-  const layer = (style: string, s: number, off: number, list = cl) => {
-    ctx.fillStyle = style; ctx.beginPath();
-    for (const c of list) {
-      const x = c.u + off * c.r, y = c.v + off * c.r;
-      ctx.moveTo(x + Math.cos(c.turn) * c.r * s, y + Math.sin(c.turn) * c.r * s);
-      ctx.ellipse(x, y, c.r * s, c.r * s * c.sq, c.turn, 0, Math.PI * 2);
-    }
-    ctx.fill();
-  };
-  // Soft: a faint blue shade down the screen, the drift, its top lit.
-  layer(css(0xb9c5d3, 0.35), 1.05, 0.3);
-  layer(css(mix(SNOW_GROUND, SNOW_TOP, 0.5)), 1, 0);
-  if (DETAIL > 0) layer(css(0xffffff, 0.5), 0.6, -0.25, cl.filter((c) => c.r > 0.008));
 }
 
 /** The snow on the pavement: clean, a way trodden along it, and the kerb's top and edge still to be seen. */
@@ -1534,8 +1524,6 @@ function paintRaisedSnow(ctx: Ctx, L: Look) {
     }
   }
   if (S.full) return;
-  // AT ITS BACK, the snow running on into the ground's: its tone, drifts lying over the line.
-  backDrift(ctx, L, S);
   // THE WAY WALKED, a little in from the kerb: trodden greyer, footprints in it.
   trodden(ctx, L, S);
   // THE KERB under it: a lit edge, its top, the shadow down its face.
@@ -1825,6 +1813,29 @@ export function createRoadPainter(renderer: Renderer): RoadPainter {
         c.globalAlpha = snow;
         c.globalCompositeOperation = "source-atop";
         c.drawImage(sc.canvas, x * RES, y * RES, w * RES, h * RES, x * RES, y * RES, w * RES, h * RES);
+        // THE PAVEMENT'S BACK given way to the ground's snow: the tile taken away there, so the ground's own shows —
+        // every cell's, at both heights, in one path a step, so where two sprites overlap they hold the same.
+        c.beginPath(); c.rect(x * RES, y * RES, w * RES, h * RES); c.clip();
+        c.globalCompositeOperation = "destination-out";
+        const shapes = cells.map((cell) => [cell, shapeOf(cell.look)] as const).filter(([, S]) => !S.full && S.bands.length);
+        BACK_FADE.forEach(([depth, cut], k) => {
+          c.globalAlpha = cut * snow;
+          c.fillStyle = "#000";
+          c.setTransform(1, 0, 0, 1, 0, 0);
+          c.beginPath();
+          for (const [cell, S] of shapes) for (const lift of [0, KERB_PX]) {
+            c.setTransform(
+              66 * RES, (33 - cell.zu * HEIGHT_UNIT) * RES,
+              -66 * RES, (33 - cell.zv * HEIGHT_UNIT) * RES,
+              (x + PAD + 66 + 66 * (cell.dx - cell.dy)) * RES,
+              (y + top + 33 * (cell.dx + cell.dy) - cell.z0 * HEIGHT_UNIT - lift) * RES,
+            );
+            const M = MARGIN + 0.01;
+            backFadePath(c, S, depth, k, { u0: -M - cell.dx, u1: 1 + M - cell.dx, v0: -M - cell.dy, v1: 1 + M - cell.dy });
+          }
+          c.setTransform(1, 0, 0, 1, 0, 0);
+          c.fill();
+        });
         c.restore();
       }
       DETAIL = 0;
