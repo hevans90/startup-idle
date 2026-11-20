@@ -1069,7 +1069,9 @@ function paintRaised(ctx: Ctx, L: Look) {
 // paved snowPaved): the pavements white, packed snow over the carriageway
 // worn through in the wheels' tracks, a bank along each kerb.
 
-const SNOW_TOP = 0xf2f5f9, SNOW_SHADE = 0xb4bdc8, SNOW_TROD = 0xc9d0d9;
+const SNOW_TOP = 0xeef3f9, SNOW_SHADE = 0xb4bdc8, SNOW_TROD = 0xc9d0d9;
+/** The ground's snow beside a road, as the ground shades it (@see ground-mesh snowAt): where the pavement meets it. */
+const SNOW_GROUND = 0xe4ebf4;
 
 /** Slots for clumps a tile along a kerb: their places repeat each tile, so a bank runs on into the next. */
 const CLUMPS = 22;
@@ -1360,10 +1362,145 @@ function paintGroundSnow(ctx: Ctx, L: Look) {
     }
     drawClumps(ctx, ring, () => { ctx.fillStyle = css(0xeef2f6); ctx.beginPath(); ctx.arc(u, v, r + 0.012, 0, Math.PI * 2); ctx.fill(); });
   }
-  // The kerb's face, snow on its edge.
-  ctx.fillStyle = css(SNOW_SHADE);
+  // Under the pavement, where the raised layer leaves it showing: at its back, the snow drifted up against it, as
+  // the ground's; at the kerb, its face in shade.
+  ctx.fillStyle = css(SNOW_GROUND);
   footprint(ctx, S);
   ctx.fill();
+  if (!S.full) alongKerb(ctx, S, WALK - 0.1, WALK, css(SNOW_SHADE));
+}
+
+/** Where along a kerb's run and how far into the pavement from it a walker's way runs: wandering, the same each tile. */
+const WALKERS = [{ n: 14, d: -0.15, key: 3.7 }, { n: 12, d: -0.105, key: 8.1 }];
+
+/** A walker's way along a run: the depth it is at `f` along it (into the pavement, negative), wandering a little. */
+function wayAt(R: KerbRun, w: (typeof WALKERS)[number], f: number) {
+  const k = R.key + w.key;
+  return w.d + 0.012 * Math.sin((f + k) * Math.PI * 2) + 0.007 * Math.sin((f * 3 + k * 0.7) * Math.PI * 2);
+}
+
+/**
+ * THE WAY WALKED: trodden snow, its edges ragged, along the line people keep to; in it each walker's prints, a left
+ * and a right, toe and heel, pressed in — darker in, a lit lip on the far side. Their places repeat each tile, so a
+ * way runs on into the next.
+ */
+type Step = { u: number; v: number; tu: number; tv: number; side: number; h: number };
+const TROD_OF = new Map<string, { trod: [number, number, number][]; steps: Step[]; drift: Clump[] }>();
+/** A shape's way walked and its drifts, all of them: worked out once a shape, by what makes it. */
+function walkedOf(L: Look, S: Shape) {
+  const key = `${L.open}.${L.diag}.${L.wx}.${L.bay}`;
+  let w = TROD_OF.get(key);
+  if (!w) { if (TROD_OF.size > 400) TROD_OF.clear(); TROD_OF.set(key, (w = { ...wayOf(S), drift: driftOf(S) })); }
+  return w;
+}
+/** Each walker's way along a shape's kerbs: the trodden patches, and the steps. */
+function wayOf(S: Shape) {
+  const runs = kerbRuns(S), trod: [number, number, number][] = [], steps: Step[] = [];
+  for (const R of runs) for (const w of WALKERS) {
+    // (A run's slots a tile, as its clumps; past its ends, the next tile's own.)
+    const n = R.wrap ? w.n : Math.max(2, Math.round((R.n / CLUMPS) * w.n));
+    const j0 = Math.floor(R.f0 * n - 1), j1 = Math.ceil(R.f1 * n + 1);
+    for (let j = j0; j <= j1; j++) {
+      const jm = R.wrap ? ((j % n) + n) % n : j;
+      const h = (x: number) => hash(jm * 5.13 + R.key * 1.7 + w.key * 31.1 + x * 11.9);
+      // The trodden snow: overlapping flattened patches, wider and narrower.
+      for (let q = 0; q < 3; q++) {
+        const f = (j + q / 3 + (h(q) - 0.5) * 0.2) / n;
+        if (f < R.f0 || f > R.f1) continue;
+        const [u, v] = R.at(f, Math.max(-R.dMax, wayAt(R, w, f) + (h(q + 3) - 0.5) * 0.012));
+        trod.push([u, v, 0.022 + 0.014 * h(q + 6)]);
+      }
+      // A step: left and right in turn, each a stride on.
+      for (let q = 0; q < 2; q++) {
+        if (h(10 + q) < 0.08) continue;
+        const f = (j + q * 0.5 + 0.25 + (h(12 + q) - 0.5) * 0.08) / n;
+        if (f < R.f0 || f > R.f1) continue;
+        const side = q ? 1 : -1, d = wayAt(R, w, f) + side * 0.011;
+        const [u, v] = R.at(f, Math.max(-R.dMax, d)), [u1, v1] = R.at(f + 0.01, Math.max(-R.dMax, d));
+        const len = Math.hypot(u1 - u, v1 - v) || 1;
+        steps.push({ u, v, tu: (u1 - u) / len, tv: (v1 - v) / len, side, h: h(14 + q) });
+      }
+    }
+  }
+  return { trod, steps };
+}
+
+function trodden(ctx: Ctx, L: Look, S: Shape) {
+  const V = SEEN, seen = (u: number, v: number) => u > V.u0 - 0.04 && u < V.u1 + 0.04 && v > V.v0 - 0.04 && v < V.v1 + 0.04;
+  const all = walkedOf(L, S), trod = all.trod.filter(([u, v]) => seen(u, v)), steps = DETAIL === 0 ? [] : all.steps.filter((p) => seen(p.u, p.v));
+  ctx.fillStyle = css(mix(SNOW_TOP, SNOW_TROD, 0.45));  ctx.beginPath();
+  for (const [u, v, r] of trod) { ctx.moveTo(u + r, v); ctx.ellipse(u, v, r, r * 0.8, 0, 0, Math.PI * 2); }
+  ctx.fill();
+  ctx.fillStyle = css(mix(SNOW_TOP, SNOW_TROD, 0.7));
+  ctx.beginPath();
+  for (const [u, v, r] of trod) { ctx.moveTo(u + r * 0.55, v); ctx.ellipse(u, v, r * 0.55, r * 0.42, 0, 0, Math.PI * 2); }
+  ctx.fill();
+  if (!steps.length) return;
+  // A print: a toe and, behind it, a heel; each turned a little off the way.
+  const print = (s: Step, grow: number, ou: number, ov: number) => {
+    const a = Math.atan2(s.tv, s.tu) + (s.h - 0.5) * 0.35 + s.side * 0.08;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    for (const [o, rx, ry] of [[0.004, 0.0085, 0.0042], [-0.0062, 0.0048, 0.0036]] as const) {
+      const x = s.u + ca * o + ou, y = s.v + sa * o + ov;
+      ctx.moveTo(x + ca * rx * grow, y + sa * rx * grow);
+      ctx.ellipse(x, y, rx * grow, ry * grow, a, 0, Math.PI * 2);
+    }
+  };
+  const layer = (style: string, grow: number, ou: number, ov: number) => {
+    ctx.fillStyle = style; ctx.beginPath();
+    for (const s of steps) print(s, grow, ou, ov);
+    ctx.fill();
+  };
+  // Lit on the lip it is pressed down from, up the screen; in, compressed and grey, its shade on the near wall.
+  layer(css(0xffffff, 0.5), 1.15, -0.002, -0.002);
+  layer(css(0xc3cbd5), 1, 0, 0);
+  layer(css(0xaeb8c4), 0.7, -0.001, -0.001);
+}
+
+/**
+ * The pavement's back, where it meets the ground's snow: shaded as the ground's is, and drifts lying over the line —
+ * so no straight edge shows between them. Along each band's side, the same each tile.
+ */
+function driftOf(S: Shape): Clump[] {
+  const cl: Clump[] = [];
+  for (const B of S.bands) {
+    const n = 18, j0 = Math.floor((B.a0 > 0 ? B.a0 : -0.08) * n), j1 = Math.ceil((B.a1 < 1 ? B.a1 : 1.08) * n);
+    for (let j = j0; j <= j1; j++) {
+      const jm = ((j % n) + n) % n;
+      for (let k = 0; k < 3; k++) {
+        const h = (x: number) => hash(jm * 3.71 + k * 47.3 + B.s * 19.9 + x * 7.77);
+        const a = (j + h(0)) / n;
+        if (a < B.a0 - 0.02 || a > B.a1 + 0.02) continue;
+        const d = 0.02 + Math.pow(h(1), 1.5) * 0.08, r = (k < 2 ? 0.02 : 0.009) * (0.6 + 0.6 * h(2)) * (1 - d * 4);
+        const [u, v] = bandPt(B.s, a, d);
+        if (r > 0.003) cl.push({ u, v, r, turn: h(3) * Math.PI, sq: 0.55 + 0.3 * h(4), white: h(5), grit: 1 });
+      }
+    }
+  }
+  return cl;
+}
+function backDrift(ctx: Ctx, L: Look, S: Shape) {
+  // The ground's tone over its back, fading into the pavement's.
+  for (const [d0, d1, t] of [[0, 0.05, 1], [0.05, 0.075, 0.6], [0.075, 0.095, 0.3]] as const) {
+    ctx.fillStyle = css(mix(SNOW_TOP, SNOW_GROUND, t));
+    ctx.beginPath();
+    for (const B of S.bands) { bandRect(ctx, B.s, B.a0 - 0.01, B.a1 + 0.01, d0 - 0.01, d1); ctx.fill(); }
+  }
+  const V = SEEN, cl = walkedOf(L, S).drift.filter((c) => c.u > V.u0 - 0.05 && c.u < V.u1 + 0.05 && c.v > V.v0 - 0.05 && c.v < V.v1 + 0.05);
+  if (!cl.length) return;
+  const layer = (style: string, s: number, off: number, list = cl) => {
+    ctx.fillStyle = style; ctx.beginPath();
+    for (const c of list) {
+      const x = c.u + off * c.r, y = c.v + off * c.r;
+      ctx.moveTo(x + Math.cos(c.turn) * c.r * s, y + Math.sin(c.turn) * c.r * s);
+      ctx.ellipse(x, y, c.r * s, c.r * s * c.sq, c.turn, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  };
+  // Soft: a faint blue shade down the screen, the drift, its top lit.
+  layer(css(0xb9c5d3, 0.35), 1.05, 0.3);
+  layer(css(mix(SNOW_GROUND, SNOW_TOP, 0.5)), 1, 0);
+  if (DETAIL > 0) layer(css(0xffffff, 0.5), 0.6, -0.25, cl.filter((c) => c.r > 0.008));
 }
 
 /** The snow on the pavement: clean, a way trodden along it, and the kerb's top and edge still to be seen. */
@@ -1397,9 +1534,10 @@ function paintRaisedSnow(ctx: Ctx, L: Look) {
     }
   }
   if (S.full) return;
-  // THE WAY WALKED, a little in from the kerb: greyer, and close up the prints in it.
-  alongKerb(ctx, S, 0.06, 0.15, css(mix(SNOW_TOP, SNOW_TROD, 0.55)));
-  alongKerb(ctx, S, 0.08, 0.13, css(mix(SNOW_TOP, SNOW_TROD, 0.75)));
+  // AT ITS BACK, the snow running on into the ground's: its tone, drifts lying over the line.
+  backDrift(ctx, L, S);
+  // THE WAY WALKED, a little in from the kerb: trodden greyer, footprints in it.
+  trodden(ctx, L, S);
   // THE KERB under it: a lit edge, its top, the shadow down its face.
   alongKerb(ctx, S, PAVE, WALK, css(0xe7ecf1));
   alongKerb(ctx, S, PAVE - 0.004, PAVE + 0.006, css(0xffffff));
