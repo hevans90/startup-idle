@@ -79,7 +79,7 @@ import { lookDirtyCells } from "./roads/looks";
 import {
   createWaterLayer, destroyWaterLayer, drawWater, type WaterLayer,
 } from "./render/water";
-import {
+import { setWaterNight,
   attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, deviceSinks,
   cullFor, destroyQuadGather, drawGpuWater, gatherQuads, setInstanceCap, showGpuWater, waterOnGpu,
   cheapGradient, zoomedOut,
@@ -3889,6 +3889,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const ascension = playing ? sequenceIntensity(now) : 0;
       const nightNow = on ? darkness(phase) / NIGHT_DARK : 0;
       nightNowRef.current = nightNow;
+      // (The sun's glints on the water go with the day. @see water-gpu waterLook)
+      setWaterNight(nightNow);
       if (g) {
         // THE SKY TURNS as the AI rises: a violet cast from the Manager on, and at the Ascension.
         // By the stage, so Hard Takeoff's early Overseer brings it with it. @see stagesNow

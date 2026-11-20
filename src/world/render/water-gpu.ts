@@ -527,11 +527,15 @@ struct Water {
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) vColor: vec4<f32>,
-  // Where on the ground (tiles, a tile covering x…x+1), the level of the water there, and whether to cut it to the shore.
+  // Where on the ground (tiles, a tile covering x…x+1), the level of the water there, and in w two things at once:
+  // AS ONE SMOOTH FIELD, how much of what is round this corner is water, 0 to 1 — the surface is cut along a line of
+  // it and not along the columns' sides (@see fieldCorner) — and on the mesh joined by rule 1, or 2 where it is to be
+  // cut to the shore. ONE SLOT FOR BOTH because every float a vertex hands on is written out and read back for
+  // every vertex of every band: a fourth vec4 here cost a third of a millisecond on a lake before it did anything.
   @location(1) vShore: vec4<f32>,
-  // AS ONE SMOOTH FIELD: how much of what is round this corner is water, 0 to 1. The surface is cut along a line
-  // of it and not along the columns' sides. 1 everywhere on the mesh joined by rule. @see fieldCorner, mainFragment
-  @location(2) vCover: f32,
+  // A SURFACE, shaded per pixel as water: its depth (x; below nought on anything that is not a surface) and its foam
+  // (y). vColor is then the fluid's own colour and how lit the corner is, not a finished colour. @see waterLook
+  @location(2) vLook: vec2<f32>,
 };
 
 /** How many STOREYS a column has. @see ColumnField.layers */
@@ -996,8 +1000,8 @@ fn mainVertex(
   var out: VSOutput;
   out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
   out.vColor = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-  out.vShore = vec4<f32>(0.0);
-  out.vCover = 1.0;
+  out.vShore = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+  out.vLook = vec2<f32>(-1.0, 0.0);
   let cpt = i32(water.uGrid.z);
   let per = cpt * cpt;
   // ONE INSTANCE PER QUAD, four vertices each. The band's instance count is
@@ -1114,8 +1118,7 @@ fn mainVertex(
     fx = fx0 + f32(ox * span) * step;
     fy = fy0 + f32(oy * span) * step;
     h = c.g + c.d;
-    out.vCover = c.cover;
-    out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, 0.0);
+    out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, c.cover);
     // LIT BY ITS OWN SLOPE, as the water always was: the fall of the surface across this corner, from the corners
     // either side of it, leans the shade light or dark — which is what a chop on it looks like.
     let vx = ccx + ox; let vy = ccy + oy;
@@ -1131,13 +1134,10 @@ fn mainVertex(
     let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
     let shown = max(rough, min(1.0, c.speed / ${STREAK_SPEED}));
     let lit = 0.5 + respond * 0.34 + c.wash * (0.2 + 0.8 * shown) * 0.3;
-    let base = clamp(lit, 0.0, 1.0) * ${TINTS - 1}.0;
-    let shade = base + c.foam * (${SHADES - 1}.0 - base);
-    let fade = min(1.0, c.d / ${SHOW_DEPTH});
-    let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, c.d / ${OPAQUE_DEPTH}.0)) * fade;
-    alpha = body + (1.0 - body) * c.foam * ${FOAM_COVER} * fade;
     let mat = i32(textureLoad(uMaterial, vec2<i32>(c.hx, slotRow(c.hy, a)), 0).r * 255.0 + 0.5);
-    rgb = fouled(textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb, c.hx, c.hy, a);
+    rgb = fouled(textureLoad(uTint, vec2<i32>(0, mat), 0).rgb, c.hx, c.hy, a);
+    alpha = clamp(lit, 0.0, 1.0);
+    out.vLook = vec2<f32>(c.d, c.foam);
   } else if (part == 2) {
     // THE SURFACE.
     if (d <= water.uBand.z) { return out; }
@@ -1184,7 +1184,7 @@ fn mainVertex(
       }
       if (shelf && wets > 0.0) { h = max(h, sum / wets); }
       if (groundKind(ccx / cpt, ccy / cpt, a) == 1) {
-        out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, 1.0);
+        out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, 2.0);
       }
     }
 
@@ -1217,13 +1217,11 @@ fn mainVertex(
     let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
     let shown = max(rough, min(1.0, speed / ${STREAK_SPEED}));
     let lit = 0.5 + respond * 0.34 + wash * (0.2 + 0.8 * shown) * 0.3;
-    let base = clamp(lit, 0.0, 1.0) * ${TINTS - 1}.0;
-    let shade = base + foam * (${SHADES - 1}.0 - base);
-    let fade = min(1.0, cd / ${SHOW_DEPTH});
-    let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
-    alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
     let mat = i32(textureLoad(uMaterial, vec2<i32>(ccx, slotRow(ccy, a)), 0).r * 255.0 + 0.5);
-    rgb = fouled(textureLoad(uTint, vec2<i32>(i32(shade + 0.5), mat), 0).rgb, ccx, ccy, a);
+    rgb = fouled(textureLoad(uTint, vec2<i32>(0, mat), 0).rgb, ccx, ccy, a);
+    alpha = clamp(lit, 0.0, 1.0);
+    out.vLook = vec2<f32>(cd, foam);
+    if (out.vShore.w < 1.5) { out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, 1.0); }
   } else {
     // A SIDE of this column. Hung from the very corners the surface quad
     // used, so the two share vertices and there is no seam between them.
@@ -1244,9 +1242,10 @@ fn mainVertex(
       fx = f32(tx) - 0.5 + f32(vx - tx * cpt) * step;
       fy = f32(ty) - 0.5 + f32(vy - ty * cpt) * step;
       h = c.g + select(c.d, 0.0, corner >= 2);
-      alpha = 0.72;
+      // (As dark as the body of deep water is: it is that water, cut through, not a pale veil. @see waterLook)
+      alpha = 0.86;
       let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
-      rgb = fouled(textureLoad(uTint, vec2<i32>(${Math.round((TINTS - 1) * 0.3)}, mat), 0).rgb, cx, cy, a);
+      rgb = fouled(textureLoad(uTint, vec2<i32>(0, mat), 0).rgb, cx, cy, a) * vec3<f32>(0.2, 0.3, 0.42);
     } else {
     let kind = groundKind(cx / cpt, cy / cpt, a);
     if (kind == 1) { return out; }
@@ -1266,22 +1265,144 @@ fn mainVertex(
           * localUniforms.uTransformMatrix;
   let clip = mvp * vec3<f32>(px, py, 1.0);
   out.position = vec4<f32>(clip.xy, 0.0, 1.0);
-  out.vColor = vec4<f32>(rgb * alpha, alpha)
-             * localUniforms.uColor
-             * globalUniforms.uWorldColorAlpha;
+  // (A surface's colour is finished per pixel. @see waterLook)
+  if (out.vLook.x >= 0.0) {
+    out.vColor = vec4<f32>(rgb, alpha);
+  } else {
+    out.vColor = vec4<f32>(rgb * alpha, alpha)
+               * localUniforms.uColor
+               * globalUniforms.uWorldColorAlpha;
+  }
   return out;
 }
 `;
 
+/**
+ * WATER AS WATER, not as a tinted veil: what a surface pixel looks like, from what the solver says is there.
+ *
+ * It was a colour lightened toward white the more lit it was, laid over the ground at a third to nine tenths opaque
+ * — which is a blue mist: pale, and as see-through over a deep lake as over a puddle. Real water does three things
+ * that did not: it SWALLOWS light with depth (the bed shows through the shallows, darkened and tinted, and deep water
+ * goes dark and closes up), it MIRRORS the sky (more of it the more it is looked across, Schlick's Fresnel), and it
+ * throws the SUN back in glints off the facets that face it. So:
+ *
+ *  - the body: the fluid's own colour toward a clear teal where it is shallow and a dark navy where deep, its cover
+ *    by Beer's law, `1 - e^-kd`, over a floor that keeps a thin sheet visible at all;
+ *  - the surface's normal: its slope across the corner as the solver has it (the chop, a river's standing waves), and
+ *    under that fine ripples, a few crossing trains of them drifting on the water's own clock;
+ *  - from the normal, the share of the sky it reflects and a tight highlight where a facet catches the sun — gone
+ *    with the day. Both go IN premultiplied, so a reflection lights the surface without closing it up any more than
+ *    a mirror does: cover is `a(1 - F) + F`.
+ *
+ * Foam on top as it always was: toward white, and closing the surface up. Nothing here makes water where the solver
+ * has none — it only says how the water it has looks. @see surfaceLook, water-is-the-sim
+ */
+function lookSource(lang: "wgsl" | "glsl"): string {
+  const w = lang === "wgsl";
+  const f = w ? "f32" : "float";
+  const v2 = w ? "vec2<f32>" : "vec2";
+  const v3 = w ? "vec3<f32>" : "vec3";
+  const v4 = w ? "vec4<f32>" : "vec4";
+  const L = (name: string, type: string) => (w ? `let ${name}` : `${type} ${name}`);
+  const V = (name: string, type: string) => (w ? `var ${name}` : `${type} ${name}`);
+  const fnDecl = (name: string, args: [string, string][], ret: string) => (w
+    ? `fn ${name}(${args.map(([n, t]) => `${n}: ${t}`).join(", ")}) -> ${ret}`
+    : `${ret} ${name}(${args.map(([n, t]) => `${t} ${n}`).join(", ")})`);
+  return `
+// A hash without a sine: a few multiply-adds, where sin() is a long call on many GPUs and this runs per pixel.
+${fnDecl("lookHash", [["p", v2]], f)} {
+  ${V("q", v3)} = fract(${v3}(p.x, p.y, p.x) * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+// RIPPLES, as the slope of a drifting noise: never a lattice. Trains of regular waves crossing each other made a
+// checkerboard over every lake; noise, turned off the grid's axes and moving, has no period for the eye to find.
+// Its slope worked out with it (four corners, once), not by asking the noise three times.
+${fnDecl("lookSlope", [["p", v2]], v2)} {
+  ${L("i", v2)} = floor(p); ${L("q", v2)} = fract(p);
+  ${L("u", v2)} = q * q * (3.0 - 2.0 * q);
+  ${L("du", v2)} = 6.0 * q * (1.0 - q);
+  ${L("a", f)} = lookHash(i);
+  ${L("b", f)} = lookHash(i + ${v2}(1.0, 0.0));
+  ${L("c", f)} = lookHash(i + ${v2}(0.0, 1.0));
+  ${L("e", f)} = lookHash(i + ${v2}(1.0, 1.0));
+  return du * ${v2}(b - a + (a - b - c + e) * u.y, c - a + (a - b - c + e) * u.x);
+}
+${fnDecl("waterLook", [["lit", v4], ["lk", v2], ["p", v2], ["u", v4]], v4)} {
+  ${L("d", f)} = lk.x;
+  ${L("fade", f)} = min(1.0, d / ${SHOW_DEPTH});
+  // THE BODY: clear and tinted in the shallows, dark and closed up where deep.
+  // (Depths as the solver has them: a pond or a river runs half a unit to one and a half, a lake's middle more.)
+  ${L("deep", f)} = smoothstep(0.1, 2.2, d);
+  ${V("a", f)} = (0.16 + 0.8 * (1.0 - exp(-d * 1.3))) * fade;
+  ${L("body", v3)} = mix(lit.rgb * ${v3}(0.62, 0.95, 0.85), lit.rgb * ${v3}(0.16, 0.27, 0.4), deep) * (0.72 + 0.56 * lit.a);
+  // THE NORMAL: the solver's slope, and fine ripples under it, stronger in patches.
+  ${L("t", f)} = u.x;
+  // (Stronger where the current's own pattern is lit, so the ripples come in patches.)
+  ${L("calm", f)} = 0.5 + 0.9 * lit.a;
+  // Two scales, each turned and drifting its own way. (Rotations, in tiles: the finer the faster.)
+  ${L("p1", v2)} = ${v2}(p.x * 0.8 - p.y * 0.6, p.x * 0.6 + p.y * 0.8) * 2.3 + ${v2}(t * 0.21, t * 0.13);
+  ${L("p2", v2)} = ${v2}(p.x * 0.28 + p.y * 0.96, p.y * 0.28 - p.x * 0.96) * 5.1 - ${v2}(t * 0.37, -t * 0.29);
+  ${L("g1", v2)} = lookSlope(p1);
+  ${L("g2", v2)} = lookSlope(p2);
+  // (Back from each turned frame to the ground's.)
+  ${L("r", v2)} = ${v2}(g1.x * 0.8 + g1.y * 0.6, g1.y * 0.8 - g1.x * 0.6) * 0.6
+    + ${v2}(g2.x * 0.28 - g2.y * 0.96, g2.x * 0.96 + g2.y * 0.28) * 0.4;
+  // (The solver's slope as the vertex has already shaded it — its lean toward the camera, which is the lean that
+  // decides how much sky a surface shows — rather than the slope again as two more numbers a vertex. @see VSOutput)
+  ${L("s", f)} = (lit.a - 0.5) * 0.6;
+  ${L("n", v3)} = normalize(${v3}(s + r.x * 0.06 * calm, s + r.y * 0.06 * calm, 1.0));
+  // THE SKY IT MIRRORS, from the camera's side: Schlick's Fresnel, for a view thirty degrees above the ground.
+  ${L("view", v3)} = ${v3}(0.6124, 0.6124, 0.5);
+  ${L("fres", f)} = 0.04 + 0.96 * pow(1.0 - max(dot(n, view), 0.0), 5.0);
+  ${L("refl", f)} = clamp(fres * 1.5, 0.0, 0.5) * fade;
+  ${L("rz", f)} = clamp(reflect(-view, n).z, 0.0, 1.0);
+  ${L("sky", v3)} = mix(${v3}(0.62, 0.74, 0.86), ${v3}(0.3, 0.5, 0.78), rz) * (1.0 - 0.55 * u.y);
+  // AND THE SUN, off the facets that face it, by day.
+  ${L("spec", f)} = pow(max(dot(n, normalize(${v3}(0.14, 0.24, 1.0))), 0.0), 1400.0) * 0.6 * (1.0 - u.y) * fade * (1.0 - lk.y);
+  ${V("rgb", v3)} = body * a * (1.0 - refl) + sky * refl + ${v3}(1.0, 0.97, 0.9) * spec;
+  a = clamp(a * (1.0 - refl) + refl + spec * 0.5, 0.0, 1.0);
+  // FOAM: toward white, and closing it up. @see surfaceLook
+  ${L("fa", f)} = a + (1.0 - a) * lk.y * ${FOAM_COVER} * fade;
+  rgb = mix(rgb, ${v3}(0.92, 0.95, 0.96) * fa, lk.y);
+  return ${v4}(rgb, fa);
+}
+`;
+}
+
 const FRAGMENT_WGSL = /* wgsl */ `
 @group(2) @binding(14) var uShore : texture_2d<f32>;
+// (The fragment is a module of its own, so it says again what it reads of the globals.)
+struct GlobalUniforms {
+  uProjectionMatrix: mat3x3<f32>,
+  uWorldTransformMatrix: mat3x3<f32>,
+  uWorldColorAlpha: vec4<f32>,
+  uResolution: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> globalUniforms : GlobalUniforms;
+struct LocalUniforms {
+  uTransformMatrix: mat3x3<f32>,
+  uColor: vec4<f32>,
+  uRound: f32,
+};
+@group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
+// HOW THE SURFACE IS LIT this frame, one group for every band: x the water's own clock (seconds of drawn time, for
+// the ripples), y how far into the night (the sun's glints go with the day). @see waterLook
+struct Look { uLook: vec4<f32>, };
+@group(2) @binding(15) var<uniform> look : Look;
 fn shoreHash(p: vec2<f32>) -> f32 { return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453); }
 fn shoreNoise(p: vec2<f32>) -> f32 {
   let i = floor(p); let f = fract(p); let u = f * f * (3.0 - 2.0 * f);
   return mix(mix(shoreHash(i), shoreHash(i + vec2<f32>(1.0, 0.0)), u.x), mix(shoreHash(i + vec2<f32>(0.0, 1.0)), shoreHash(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
 }
+${lookSource("wgsl")}
 @fragment
-fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vShore: vec4<f32>, @location(2) vCover: f32) -> @location(0) vec4<f32> {
+fn mainFragment(@location(0) vLit: vec4<f32>, @location(1) vShore: vec4<f32>, @location(2) vLook: vec2<f32>) -> @location(0) vec4<f32> {
+  let vCover = min(vShore.w, 1.0);
+  var vColor = vLit;
+  if (vLook.x >= 0.0) {
+    vColor = waterLook(vLit, vLook, vShore.xy, look.uLook) * localUniforms.uColor * globalUniforms.uWorldColorAlpha;
+  }
   // AS ONE SMOOTH FIELD, THE WATER'S EDGE: along a line of how much round each point is water, soft, with a faint
   // broken line of foam. @see fieldCorner
   if (vCover < 0.999) {
@@ -1293,7 +1414,7 @@ fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vShore: vec4<f32>, 
   }
   // THE SHORE: the drawn ground under this pixel — a fan from the tile's middle to its corners, as the ground's
   // mesh has it — and the water only where it is over that; clear at the very edge, with a line of foam.
-  if (vShore.w < 0.5) { return vColor; }
+  if (vShore.w < 1.5) { return vColor; }
   let cell = vec2<i32>(floor(vShore.xy));
   let c = textureLoad(uShore, vec2<i32>(cell.x * 2, cell.y), 0);
   let m = textureLoad(uShore, vec2<i32>(cell.x * 2 + 1, cell.y), 0).x;
@@ -1345,6 +1466,9 @@ precision highp sampler2D;
 
 in float aVertexId;
 out vec4 vColor;
+// A surface, shaded per pixel as water — see the WGSL twin's vLook — and where on the ground it is.
+out vec2 vLook;
+out vec2 vPos;
 
 // PLAIN uniforms, not a block. Pixi hands the globals to a WebGL program one
 // at a time — its own shaders are built that way, in globalUniformsBitGl — and
@@ -1612,6 +1736,8 @@ void main() {
   int corner = int(aVertexId);
   gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
   vColor = vec4(0.0);
+  vLook = vec2(-1.0, 0.0);
+  vPos = vec2(0.0);
   // Nought is an EMPTY slot and not quad nought. Identity here in practice:
   // WebGL has no compute to gather a list with.
   // THE LIST IS ALWAYS THE IDENTITY HERE, so this path does not read it.
@@ -1712,13 +1838,11 @@ void main() {
     float rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
     float shown = max(rough, min(1.0, speed / ${STREAK_SPEED}));
     float lit = 0.5 + respond * 0.34 + wash * (0.2 + 0.8 * shown) * 0.3;
-    float base = clamp(lit, 0.0, 1.0) * ${TINTS - 1}.0;
-    float shade = base + foam * (${SHADES - 1}.0 - base);
-    float fade = min(1.0, cd / ${SHOW_DEPTH});
-    float body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, cd / ${OPAQUE_DEPTH}.0)) * fade;
-    alpha = body + (1.0 - body) * foam * ${FOAM_COVER} * fade;
     int mat = int(texelFetch(uMaterial, ivec2(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
-    rgb = fouled(texelFetch(uTint, ivec2(int(shade + 0.5), mat), 0).rgb, cx, cy, a);
+    rgb = fouled(texelFetch(uTint, ivec2(0, mat), 0).rgb, cx, cy, a);
+    alpha = clamp(lit, 0.0, 1.0);
+    vLook = vec2(cd, foam);
+    vPos = vec2(fx + 0.5, fy + 0.5);
   } else {
     if (d <= uBand.z) { return; }
     if (!facesOn()) { return; }
@@ -1733,15 +1857,24 @@ void main() {
   float py = (fx + fy) * uIso.y - h * uIso.z;
   mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
   gl_Position = vec4((mvp * vec3(px, py, 1.0)).xy, 0.0, 1.0);
-  vColor = vec4(rgb * alpha, alpha) * uColor * uWorldColorAlpha;
+  // (A surface's colour is finished per pixel. See the WGSL twin.)
+  vColor = vLook.x >= 0.0 ? vec4(rgb, alpha) : vec4(rgb * alpha, alpha) * uColor * uWorldColorAlpha;
 }
 `;
 
 const FRAGMENT_GLSL = /* glsl */ `#version 300 es
 precision highp float;
 in vec4 vColor;
+in vec2 vLook;
+in vec2 vPos;
+uniform vec4 uColor;
+uniform vec4 uWorldColorAlpha;
+uniform vec4 uLook;
 out vec4 finalColor;
-void main() { finalColor = vColor; }
+${lookSource("glsl")}
+void main() {
+  finalColor = vLook.x >= 0.0 ? waterLook(vColor, vLook, vPos, uLook) * uColor * uWorldColorAlpha : vColor;
+}
 `;
 
 /**
@@ -1756,7 +1889,9 @@ void main() { finalColor = vColor; }
  */
 export const waterShaderSource = () => ({
   // (As one module: the shore texture is declared once, not once a stage.)
-  wgsl: WGSL + FRAGMENT_WGSL.replace("@group(2) @binding(14) var uShore : texture_2d<f32>;", ""),
+  wgsl: WGSL + FRAGMENT_WGSL.replace("@group(2) @binding(14) var uShore : texture_2d<f32>;", "")
+    .replace(/struct GlobalUniforms \{[^}]*\};\n@group\(0\)[^\n]*\n/, "")
+    .replace(/struct LocalUniforms \{[^}]*\};\n@group\(1\)[^\n]*\n/, ""),
   glsl: VERTEX_GLSL + FRAGMENT_GLSL,
 });
 
@@ -1793,6 +1928,9 @@ export type GpuWaterLayer = {
   most: number[];
   /** The shade ramp, shared with whatever else paints this water. */
   tint: TextureSource;
+  /** How the surface is lit, shared by every band, and the water's own clock it carries. @see waterLook */
+  look: UniformGroup;
+  lookT: number;
   /** The ground revision the texture holds, and of which field. @see ColumnField.groundRev */
   groundSent: number;
   groundOf: ColumnField | null;
@@ -1876,13 +2014,15 @@ function gpuLayout(): GPUBindGroupLayoutEntry[][] {
     binding: 1 + FLOAT_FIELDS.length + BYTE_FIELDS.length + UINT_FIELDS.length, visibility: VERTEX_STAGE | FRAGMENT_STAGE,
     texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false },
   });
+  // How the surface is lit this frame, one group shared by every band. @see waterLook
+  own.push({ binding: 2 + FLOAT_FIELDS.length + BYTE_FIELDS.length + UINT_FIELDS.length, visibility: FRAGMENT_STAGE, buffer: { type: "uniform" } });
   return [[uniform(0)], [uniform(0)], own];
 }
 
 /** Which group each named resource belongs to — the other half Pixi infers. */
 function nameLayout(): Record<string, number>[] {
   const own: Record<string, number> = { water: 0 };
-  [...FLOAT_FIELDS, ...BYTE_FIELDS, ...UINT_FIELDS, "uShore"]
+  [...FLOAT_FIELDS, ...BYTE_FIELDS, ...UINT_FIELDS, "uShore", "look"]
     .forEach((n, k) => { own[n] = 1 + k; });
   return [{ globalUniforms: 0 }, { localUniforms: 0 }, own];
 }
@@ -2022,6 +2162,8 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
 
   const meshes: Mesh<Geometry, Shader>[] = [];
   const under: Mesh<Geometry, Shader>[] = [];
+  // ONE for every band, so a frame's clock is one upload and not one a band. @see waterLook
+  const look = new UniformGroup({ uLook: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } });
   for (let b = 0; b < bands.bands.length; b++) {
     // The tiles on this diagonal, and where they start.
     const tx0 = Math.max(0, b - (bands.h - 1));
@@ -2064,7 +2206,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
         water,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
-        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex,
+        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex, look,
       },
     });
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
@@ -2100,7 +2242,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
         water: underWater,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
-        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex,
+        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex, look,
       },
     });
     const underMesh = new Mesh<Geometry, Shader>({ geometry: underGeom, shader: underShader });
@@ -2120,6 +2262,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     // a sheet and the surface it leaves are the same water, so they read the
     // same table. @see createSheet
     tint,
+    look, lookT: 0,
     quads,
     wash, foam, layers, gather: null, fed: new Set(),
     groundSent: -1,
@@ -2665,6 +2808,10 @@ export function fillBrinkOnHost(out: Float32Array, columns: ColumnField) {
  * write, because the vertex shader does both — so what is left on the CPU is
  * the simulation's own work and six calls to mark a texture dirty.
  */
+/** How far into the night it is, 0 by day and 1 at its darkest: the sun's glints on the water go with the day. */
+let waterNight = 0;
+export function setWaterNight(n: number) { waterNight = Math.max(0, Math.min(1, n)); }
+
 export function drawGpuWater(
   wl: GpuWaterLayer, columns: ColumnField, bands: BandLayer, dt: number,
   faces = true, carried = false,
@@ -2710,6 +2857,14 @@ export function drawGpuWater(
         grp.update();
       }
     }
+  }
+  // THE SURFACE'S CLOCK, by the frame's own step (so a bench or a comparison draws the same frame every time),
+  // and how far into the night it is. @see waterLook
+  wl.lookT = (wl.lookT + Math.max(0, dt)) % 3600;
+  const lk = wl.look.uniforms.uLook as Float32Array;
+  if (lk[0] !== wl.lookT || lk[1] !== waterNight) {
+    lk[0] = wl.lookT; lk[1] = waterNight;
+    wl.look.update();
   }
   const region = activeBox(columns);
   const tA = performance.now();
