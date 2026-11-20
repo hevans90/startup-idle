@@ -40,28 +40,10 @@ export type Plant = {
   lows?: { x: number; y: number; heading: number; t: number; to?: { x: number; y: number; heading: number }; go?: number; gone?: boolean }[];
   called?: number;
   back?: { x: number; y: number; heading: number; t: number }[];
-  /** HANDED ON: the job these machines came from, on site already — they drive over from its works, not from the yard. @see handOn */
-  from?: number;
+  /** SENT ON FROM ANOTHER JOB: how many of its machines are still to come by road from there. Not there till they have. @see fleet/crews */
+  inbound?: number;
 };
 
-/** Tiles from a job to the next one's start within which its machines are handed on to it rather than going home. */
-export const HAND_ON = 6;
-/** Whether `b` (by its first cell) is near enough to job `a`'s cells for `a`'s machines to go straight on to it. */
-export const nearJob = (a: readonly { x: number; y: number }[], b: readonly { x: number; y: number }[]) =>
-  !!b.length && a.some((c) => Math.abs(c.x - b[0].x) + Math.abs(c.y - b[0].y) <= HAND_ON);
-/** Whether a job's machines can still be handed on: coming or at work, or done but every one of them still on site. */
-export function canHandOn(p: false | Plant | undefined, kinds: readonly PlantKind[]): p is Plant {
-  if (!p) return false;
-  return p.leaving === undefined || (!p.to && !p.called && (p.home === undefined || p.home.length === kinds.length));
-}
-/**
- * A JOB'S MACHINES GO STRAIGHT ON TO THE NEXT NEARBY, rather than home to the yard and out again: the same machines,
- * there already — from where each stands now (the drawing drives them over: @see plant-kit follow) — and `head` the
- * road tile the next job's own come to.
- */
-export function handOn(p: Plant, from: number, head: { x: number; y: number }): Plant {
-  return { queue: [], t: 0, here: true, head: { x: head.x, y: head.y }, ...(p.at ? { at: p.at } : {}), from };
-}
 /** Each kind's paint on the road: its model, and how one that has come is told. @see cars/fleet */
 export const PLANT_COLOUR: Readonly<Record<PlantKind, number>> = {
   crane: PLANT_CRANE_COLOUR, mixer: PLANT_MIXER_COLOUR, loader: PLANT_LOADER_COLOUR, pickup: PLANT_PICKUP_COLOUR, tipper: FLEET_TIPPER_EMPTY_COLOUR, spoil: FLEET_TIPPER_EMPTY_COLOUR,
@@ -72,7 +54,7 @@ const homeColour = (kind: PlantKind) => HOME_COLOUR[kind] ?? PLANT_COLOUR[kind];
 /** Seconds between one machine setting off and the next; seconds a finished job's machines take to gather at the road before the first goes home. */
 export const PLANT_GAP = 1.8, PLANT_GATHER = 6;
 /** Which job a machine is for: a line's, a road's, a site's. Their numbers are their own, so the kind is told too. */
-export type PlantRole = "plant" | "road-plant" | "site-plant";
+export type PlantRole = "plant" | "road-plant" | "line-plant" | "site-plant";
 /** Seconds a low-loader that does not wait stands while its machine is driven off it; seconds a job's machines are given up on if the low-loaders sent for them never come. */
 export const PLANT_UNLOAD = 3, PLANT_GIVE_UP = 120;
 /** Seconds a machine waiting its turn through a busy yard looks again. */
@@ -95,6 +77,7 @@ const turning = new Map<string, Mover>();
 export function stepPlant(
   g: Grid, haul: { net: Network; town: Town }, host: { plant?: false | Plant }, key: { id: number; role: PlantRole },
   head: Place | null, kinds: readonly PlantKind[], started: boolean, dt: number, hold = false, shuttle = 0,
+  onward?: { key: number; head: Place; into: Plant },
 ): "none" | "wait" | "work" | "leaving" | "gone" {
   if (host.plant === false || !kinds.length) return "none";
   const from = head && yardOn(g, placesOf(g, haul.net), head);
@@ -112,6 +95,7 @@ export function stepPlant(
     if (m.gone) continue;
     if (m.colour === PLANT_LOADER_EMPTY_COLOUR) { (p.back ??= []).push({ x: m.x, y: m.y, heading: m.heading, t: 0 }); continue; }
     (p.at ??= []).push({ colour: m.colour, x: m.x, y: m.y, heading: m.heading });
+    if (p.inbound) p.inbound--;
     if (shuttle && m.colour === PLANT_LOADER_COLOUR) (p.lows ??= []).push({ x: m.x, y: m.y, heading: m.heading, t: PLANT_UNLOAD });
   }
   // A LOW-LOADER THAT DOES NOT WAIT: its machine off it, it turns round and goes home bare.
@@ -162,8 +146,9 @@ export function stepPlant(
         // (When the one before has got clear of where it sets off from: they go one behind another, not one through another.)
         p.t -= dt;
         if (p.t > 0) return "leaving";
-        const kind = p.home[0], next = ok ? setOff(haul.town, g, "truck", head!, from!) : null;
-        if (next && !roomOrWaited(haul.town, `${name}:from`, next, halfLength({ ...next, colour: homeColour(kind) }), 0.4)) { p.t = 0.4; return "leaving"; }
+        // (SENT ON to another job — its crew's next — rather than home: by road from here to there, as it came.)
+        const kind = p.home[0], next = ok ? setOff(haul.town, g, "truck", head!, onward ? onward.head : from!) : onward && head ? setOff(haul.town, g, "truck", head, onward.head) : null;
+        if (next && !roomOrWaited(haul.town, `${name}:from`, next, halfLength({ ...next, colour: onward ? PLANT_COLOUR[kind] : homeColour(kind) }), 0.4)) { p.t = 0.4; return "leaving"; }
         if (next) going.set(name, next); else going.delete(name);
         p.to = { kind, x: next?.x ?? p.head?.x ?? 0, y: next?.y ?? p.head?.y ?? 0, heading: next?.heading ?? 0 };
         p.t = PLANT_GAP;
@@ -172,7 +157,9 @@ export function stepPlant(
         const next = going.get(name);
         if (p.t <= 0 && (!next || roomOrWaited(haul.town, `${name}:on`, next, halfLength({ ...next, colour: homeColour(p.to.kind) }), dt))) {
           going.delete(name);
-          if (next) { next.colour = homeColour(p.to.kind); next.job = { site: key.id, role: "haul-back" }; haul.town.movers.push(next); }
+          if (next && onward) { next.colour = PLANT_COLOUR[p.to.kind]; next.job = { site: onward.key, role: key.role }; haul.town.movers.push(next); }
+          else if (next) { next.colour = homeColour(p.to.kind); next.job = { site: key.id, role: "haul-back" }; haul.town.movers.push(next); }
+          else if (onward?.into.inbound) onward.into.inbound--;
           p.home.shift();
           p.to = undefined;
         }
@@ -193,7 +180,9 @@ export function stepPlant(
     else { p.queue.shift(); p.t = PLANT_GAP * 1.3 + (shuttle && kind === "loader" ? PLANT_UNLOAD + PLANT_GAP : 0); }
   }
   const onRoad = haul.town.movers.some((m) => m.job?.role === key.role && m.job.site === key.id && !haul.town.arrived.includes(m)) || plantComing(haul.town, name);
-  if (!p.queue.length && !onRoad) p.here = true;
+  // (Those sent on from another job, given up on if they never come.)
+  if (p.inbound && p.t < -PLANT_GIVE_UP) p.inbound = 0;
+  if (!p.queue.length && !onRoad && !p.inbound) p.here = true;
   return p.here ? "work" : "wait";
 }
 

@@ -11,7 +11,7 @@ import { roadCost } from "../../game/build-cost";
 import { useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { strokeCells } from "../edit/tools";
-import { GANGS, freshIn, jobSeconds, loadPrice, loadsFor, orderRoad } from "../roads/jobs";
+import { freshIn, liveRoadJobs, jobSeconds, loadPrice, loadsFor, orderRoad } from "../roads/jobs";
 
 const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
 
@@ -39,11 +39,11 @@ export function RoadCard() {
     );
   }
   if (!g.roadJobs.length) return null;
-  const waiting = Math.max(0, g.roadJobs.length - GANGS), stopped = g.roadJobs.find((j) => j.stalled > 0);
+  const live = liveRoadJobs(g).length, waiting = g.roadJobs.length - live, stopped = g.roadJobs.find((j) => j.stalled > 0);
   return (
     <div className={CARD}>
       <p className="tabular-nums" title="Delete over one cancels what is not open of it">
-        <b>Road works · {Math.min(GANGS, g.roadJobs.length)}</b>{waiting ? <span className="text-fg-muted"> · {waiting} waiting</span> : null}
+        <b>Road works · {live}</b>{waiting ? <span className="text-fg-muted"> · {waiting} waiting</span> : null}
       </p>
       {stopped && <p className="text-warn tabular-nums" title="It goes on when there is money for the load">Stopped · next load {formatCurrency(loadPrice(stopped))}</p>}
     </div>

@@ -21,15 +21,15 @@ import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-s
 import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/people/people-sheet";
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
-import { LINE_GAPS, LINE_LAYS, LINE_PACE, LINE_PLANT, LINE_STAGES, MAIN, RAZE_PLANT, SEWER, alongLine, lineFront, type LineJob } from "../lines/jobs";
-import { PLANT_COLOUR, type PlantKind } from "../fleet/plant";
+import { LINE_CREWS, LINE_LAYS, LINE_STAGES, MAIN, RAZE_PLANT, SEWER, alongLine, lineFront, lineRaw, type LineCrew, type LineJob } from "../lines/jobs";
+import { PLANT_COLOUR, type Plant, type PlantKind } from "../fleet/plant";
 import { YARDS } from "../lines/line-loads";
 import { YARD_BAY, YARD_CRANE, YARD_STACKS, inYard } from "../landmarks/yard";
 import { getTown } from "../../state/world.store";
 import { PIPE_EMPTY_COLOUR } from "../agents/cars/fleet";
 import type { BandLayer } from "./bands";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, PARK_TURN, follow, handedOn, makeUnit, swing, mixerLook, poseUnit, shuttled, type Standing, type Unit } from "./plant-kit";
+import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, PARK_TURN, follow, makeUnit, swing, mixerLook, poseUnit, shuttled, type Standing, type Unit } from "./plant-kit";
 import { kerbSpot } from "./kerb-spots";
 import { RAZE, createRazeFx } from "./raze-fx";
 import { shownStructures } from "../structures/layer";
@@ -47,8 +47,13 @@ const TUBE_R = 0.09 / Math.SQRT2, STEEL = 0xa6a9aa;
 /** A job's machines by the mover that brings them: which of its units each is. @see LINE_PLANT */
 const PLANT_UNIT: Readonly<Record<string, PlantKind>> = { crane: "crane", mixer: "mixer", footer: "loader", digger: "loader", filler: "loader", roller: "loader", welder: "pickup", low0: "loader", low1: "loader", low2: "loader" };
 const PLANT_PAINT = PLANT_COLOUR;
-/** The tracked ones, in the order their low-loaders take them home: a main has the one digger; a sewer its two and a roller. */
-const LOADER_IDX: Readonly<Record<string, number>> = { footer: 0, digger: 0, filler: 1, roller: 2, low0: 0, low1: 1, low2: 2 };
+/** The tracked ones, in the order their crew's low-loaders take them home: the footings' digger, the trench's; the fill's digger and roller. */
+const LOADER_IDX: Readonly<Record<string, number>> = { footer: 0, digger: 0, filler: 0, roller: 1 };
+/** Each machine's crew, by the kind of line. @see lines/jobs LINE_CREWS */
+const UNIT_CREW: Readonly<Record<"main" | "sewer", Readonly<Record<string, LineCrew>>>> = {
+  main: { footer: "footing", mixer: "footing", crane: "laying", welder: "laying" },
+  sewer: { digger: "trench", crane: "laying", welder: "laying", filler: "fill", roller: "fill" },
+};
 /** Tiles a second a machine makes across a job. */
 const PLANT_SPEED = 1.8;
 const LENGTH = 0.46;
@@ -411,7 +416,7 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
     // slewed round over the crane's own front and lowered onto the saddles — then pulls on, turns, and drives back
     // down the far side of the track for more. Where each is, is worked out from how far the pipe has got: nothing
     // appears and nothing is taken away, and a job that stands, stands with them where they were.
-    const lengths = Math.max(0, 2 * (n - 1)), setRaw = j.t / LINE_PACE[j.kind] - LINE_LAYS[j.kind] * LINE_GAPS[j.kind];
+    const lengths = Math.max(0, 2 * (n - 1)), setRaw = lineRaw(j, LINE_LAYS[j.kind]);
     type Piece = { i: number; bd: ReturnType<typeof bendAt>; p: number; turns: number };
     const ease = (v: number) => { const q = Math.max(0, Math.min(1, v)); return q * q * (3 - 2 * q); };
     /** Pieces a lorry brings; how far a lorry's bed is behind its middle; the gap in a queue; when the hook lets go. */
@@ -745,8 +750,6 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
       const dt = last < 0 ? 0 : Math.min(0.1, Math.max(0, t - last));
       last = t;
       const jobs = g.lineJobs;
-      // (Machines handed on from a line just done: the same ones, under the next line's name.)
-      handedOn([poses, units], jobs);
       const k = `${rev}|${scale}|${jobs.map((j) => [0, 1, 2].map((q) => Math.floor(lineFront(j, q) * FINE)).join(".")).join("|")}`;
       if (k !== key) {
         key = k;
@@ -814,11 +817,22 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
         // ITS MACHINES COME AND GO BY ROAD (@see line-loads stepLinePlant): none of them on it till they have come from
         // the yard; then each DRIVES — from where it turned off the road to its work, from one place of work to the
         // next, back to the road when its trade is done and when the job is — never set down and never taken up.
-        // (Done with its machines gone on, or waiting for them to come from the line beside it: none of them here.)
-        const plant = j.plant || null, here = !j.handed && j.after === undefined && (!plant || plant.here), leaving = plant?.leaving !== undefined;
-        const sent = plant?.home ? LINE_PLANT[j.kind].filter((k) => k !== "loader" && !plant.home!.includes(k)) : [];
-        const loadersLeft = plant?.home ? plant.home.filter((k) => k === "loader").length : Infinity;
-        const loaders = LINE_PLANT[j.kind].filter((k) => k === "loader").length;
+        // (Each machine's crew's: `null`, no crews — no town to drive them; not there — not sent for, or gone — none of its machines.)
+        const crewOfUnit = (name: string): LineCrew | undefined => (name.startsWith("low:") ? (name.slice(4, -1) as LineCrew) : UNIT_CREW[j.kind === "sewer" ? "sewer" : "main"][name]);
+        const views = new Map<LineCrew, { plant: Plant | null; here: boolean; leaving: boolean; sent: PlantKind[]; loadersLeft: number; loaders: number } | null>();
+        const crewView = (crew: LineCrew | undefined) => {
+          if (!crew) return null;
+          if (views.has(crew)) return views.get(crew)!;
+          const gang = j.gangs?.[crew], kinds = LINE_CREWS[j.kind].find((c) => c.crew === crew)?.plant ?? [];
+          const plant = !j.gangs ? null : !gang || gang.gone ? undefined : gang.plant === false ? null : gang.plant ?? undefined;
+          const v = plant === undefined ? null : {
+            plant, here: !plant || plant.here, leaving: plant?.leaving !== undefined,
+            sent: plant?.home ? kinds.filter((k) => k !== "loader" && !plant.home!.includes(k)) : [],
+            loadersLeft: plant?.home ? plant.home.filter((k) => k === "loader").length : Infinity, loaders: kinds.filter((k) => k === "loader").length,
+          };
+          views.set(crew, v);
+          return v;
+        };
         const hd = j.head ?? j.cells[0], dl = Math.hypot(j.cells[0].x - hd.x, j.cells[0].y - hd.y) || 1;
         const dxh = dl > 0.5 ? (j.cells[0].x - hd.x) / dl : 1, dyh = dl > 0.5 ? (j.cells[0].y - hd.y) / dl : 0;
         /**
@@ -827,18 +841,20 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
          * row of them beside the haul track.
          */
         const park = (name: string, k: number): { x: number; y: number; heading: number } => {
-          const spot = name.startsWith("low") ? name : PLANT_UNIT[name] === "loader" ? `low${LOADER_IDX[name] ?? 0}` : name;
+          const spot = name.startsWith("low") ? name : PLANT_UNIT[name] === "loader" ? `low:${crewOfUnit(name)}${LOADER_IDX[name] ?? 0}` : name;
           return kerbSpot(g, `line:${j.id}:${spot}`, hd)
             ?? { x: hd.x + dxh * 1.0 - dyh * (0.75 + 0.62 * k) * -1, y: hd.y + dyh * 1.0 + dxh * (0.75 + 0.62 * k) * -1, heading: Math.atan2(dyh, dxh) };
         };
         /** (`pulled`: where it is sent is where it pulls over — it swings round to lie along the kerb there, not all at once.) */
         const drive = (name: string, id: string, x: number, y: number, heading: number, h: number, looks: { look: string; tint: number; heading?: number }[], pulled = false): Unit | null => {
-          if (!cars || !here) return null;
-          const kind = PLANT_UNIT[name];
+          const view = crewView(crewOfUnit(name));
+          if (!cars || !view || !view.here) return null;
+          const { plant, leaving, sent, loadersLeft, loaders } = view;
+          const kind = name.startsWith("low:") ? "loader" : PLANT_UNIT[name];
           let px = x, py = y, ph = heading, away = false;
           if (plant && kind) {
             // (Gone home already: the crane, the mixer, the pickup when theirs has set off; the diggers one to a low-loader.)
-            const li = LOADER_IDX[name] ?? 0, low = name.startsWith("low"), goes = loaders - Math.min(loaders, loadersLeft);
+            const low = name.startsWith("low"), li = low ? Number(name.slice(-1)) : LOADER_IDX[name] ?? 0, goes = loaders - Math.min(loaders, loadersLeft);
             if (kind === "loader" ? li < goes : sent.includes(kind)) { poses.delete(id); return null; }
             // ITS TURN TO GO HOME: to where its way on the road begins — a tracked one up onto its low-loader, which carries it there.
             const going = plant.to && plant.to.kind === kind && (kind !== "loader" || li === goes) ? plant.to : null;
@@ -885,7 +901,7 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
           place("digger", f0 + 0.62, [{ look: "exTracks", tint: YELLOW }, { look: j.stalled > 0 ? "exLift" : pose, tint: YELLOW, heading: house }]);
         }
         if (j.kind !== "dredge") layMain(g, j, w, dt, scale, P, place, seenM, placeAt);
-        if (plant && here) {
+        if (j.gangs) {
           // WHAT IS NOT AT WORK STANDS BY THE ROAD: a machine whose trade has not begun, or is over, drives there and waits.
           for (const [id, st] of poses) if (id.startsWith(`${j.id}:`) && !seen.has(id)) { const name = id.slice(id.indexOf(":") + 1), at = park(name, PLANT_UNIT[name] === "loader" ? 7 + (LOADER_IDX[name] ?? 0) : st.k); drive(name, id, at.x, at.y, at.heading, st.h, st.looks, true); }
           // (Every one of them from when they came — one whose trade has not begun yet stands and waits, as it will after.)
@@ -895,7 +911,11 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
             : [["footer", dig], ["mixer", [{ look: "mixer", tint: DRUM }]], ["crane", [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[0], tint: YELLOW, heading: 0 }]], ["welder", [{ look: "pickup", tint: YELLOW }]]];
           for (const [q, [name, looks]] of stood.entries()) if (!seen.has(`${j.id}:${name}`)) { const at = park(name, PLANT_UNIT[name] === "loader" ? 7 + (LOADER_IDX[name] ?? 0) : q); drive(name, `${j.id}:${name}`, at.x, at.y, at.heading, hz, looks, true); }
           // AND THE LOW-LOADERS that brought the tracked ones: bare by the road till they take them home.
-          for (let q = 0; q < loaders; q++) { const at = park(`low${q}`, 7 + q); drive(`low${q}`, `${j.id}:low${q}`, at.x, at.y, at.heading, drawnHeight(g, at.x + 0.5, at.y + 0.5), [{ look: "lowLoaderEmpty", tint: YELLOW }], true); }
+          for (const c of LINE_CREWS[j.kind]) c.plant.forEach((kind, q) => {
+            if (kind !== "loader") return;
+            const li = c.plant.slice(0, q).filter((k) => k === "loader").length, name = `low:${c.crew}${li}`, at = park(name, 7 + li);
+            drive(name, `${j.id}:${name}`, at.x, at.y, at.heading, drawnHeight(g, at.x + 0.5, at.y + 0.5), [{ look: "lowLoaderEmpty", tint: YELLOW }], true);
+          });
         }
         const sail = j.barge || null, voyage = !!sail && (sail.out || sail.s < sail.path.length - 1);
         if (j.kind === "dredge" && (f0 < n || voyage)) {

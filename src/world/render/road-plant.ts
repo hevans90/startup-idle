@@ -32,10 +32,10 @@ import { bakedPeople, peopleLoaded, peopleSprites, posePerson } from "../agents/
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
 import { PAVER_LOOKS, SPOIL_LOOKS, TIP_LOOKS } from "../agents/cars/models";
-import { ARRIVE, CONCRETE_LAG, GANGS, GAP, PACE, ROAD_PLANT, frontAt, setOutAt, setOutSeconds, type RoadJob } from "../roads/jobs";
+import { CONCRETE_LAG, CREW_PLANT, PACE, ROAD_CREWS, frontAt, liveRoadJobs, setOutAt, setOutSeconds, tradeBegun, type RoadCrew, type RoadJob } from "../roads/jobs";
 import { PLANT_COLOUR, type Plant, type PlantKind } from "../fleet/plant";
 import type { BandLayer } from "./bands";
-import { ARM, BLUE, CONCRETE, DIG, DIG_ALL, DRUM, EARTH, mixerLook, M, PPM, STONE, T, TAR, YELLOW, drawSpill, follow, handedOn, makeSpill, makeUnit, poseUnit, type Spill, type Standing, type Stuff, type Unit } from "./plant-kit";
+import { ARM, BLUE, CONCRETE, DIG, DIG_ALL, DRUM, EARTH, mixerLook, M, PPM, STONE, T, TAR, YELLOW, drawSpill, follow, makeSpill, makeUnit, poseUnit, type Spill, type Standing, type Stuff, type Unit } from "./plant-kit";
 import { COLUMN, carry, stepPour, type PourRun } from "./pour-sim";
 import { kerbSpot } from "./kerb-spots";
 
@@ -48,16 +48,28 @@ const FEET = [{ u: 0.05, v: 0.05 }];
 type Hand = { c: Container; parts: Sprite[]; key: string; band: number } & Walker;
 type At = { x: number; y: number; z: number; heading: number; pitch: number };
 /**
- * A road's machines by the mover that brings each (@see roads/jobs ROAD_PLANT): the surveyors' pickup and the liners';
- * the digger, the packing roller, the paver and its screed, and the finishing roller, each on a low-loader; the
- * spoil's tipper and the stone's; the mixer.
+ * A road's machines by its crew and the mover that brings each, the `li`th of its kind in that crew (@see roads/jobs
+ * CREW_PLANT): the surveyors' pickup; the earthworks' digger, on a low-loader, and the spoil's tipper; the base's
+ * packing roller, on a low-loader, the stone's tipper and the mixer; the tarring's paver and its screed, on one
+ * low-loader, and the finishing roller, on another; the liners' pickup.
  */
-const ROAD_UNITS: Readonly<Record<string, { kind: PlantKind; li: number; tracked?: boolean }>> = {
-  survey: { kind: "pickup", li: 0 }, liner: { kind: "pickup", li: 1 },
-  digger: { kind: "loader", li: 0, tracked: true }, packer: { kind: "loader", li: 1, tracked: true },
-  paver: { kind: "loader", li: 2, tracked: true }, screed: { kind: "loader", li: 2, tracked: true }, roller: { kind: "loader", li: 3, tracked: true },
-  spoil: { kind: "tipper", li: 0 }, stone: { kind: "tipper", li: 1 }, mixer: { kind: "mixer", li: 0 },
+const ROAD_UNITS: Readonly<Record<string, { crew: RoadCrew; kind: PlantKind; li: number; tracked?: boolean }>> = {
+  survey: { crew: "survey", kind: "pickup", li: 0 }, liner: { crew: "line", kind: "pickup", li: 0 },
+  digger: { crew: "earth", kind: "loader", li: 0, tracked: true }, spoil: { crew: "earth", kind: "tipper", li: 0 },
+  packer: { crew: "base", kind: "loader", li: 0, tracked: true }, stone: { crew: "base", kind: "tipper", li: 0 }, mixer: { crew: "base", kind: "mixer", li: 0 },
+  paver: { crew: "tar", kind: "loader", li: 0, tracked: true }, screed: { crew: "tar", kind: "loader", li: 0, tracked: true }, roller: { crew: "tar", kind: "loader", li: 1, tracked: true },
 };
+/**
+ * A crew's machines on a job as its drawing reads them: `null`, no crews (no town to drive them — every trade simply
+ * worked, its machines where the work is); `undefined`, not sent for yet, or gone; else the crew's machines.
+ */
+const crewPlant = (j: RoadJob, crew: RoadCrew): Plant | null | undefined => {
+  if (!j.gangs) return null;
+  const gang = j.gangs[crew];
+  return !gang || gang.gone ? undefined : gang.plant === false ? null : gang.plant;
+};
+/** Whether a crew is on a job at work: the people of it drawn there. */
+const crewHere = (j: RoadJob, crew: RoadCrew) => { const p = crewPlant(j, crew); return p === null || (!!p && p.here && p.leaving === undefined); };
 /** Each as it stands by the road before its trade has begun. */
 const ROAD_STOOD: Readonly<Record<string, { look: string; tint: number; heading?: number }[]>> = {
   survey: [{ look: "pickup", tint: YELLOW }], liner: [{ look: "pickup", tint: 0xf2f2f2 }],
@@ -165,18 +177,16 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
     sync(g, scale, t) {
       const dt = last < 0 ? 0 : Math.min(0.1, Math.max(0, t - last));
       last = t;
-      // (Machines handed on from a job just done: the same ones, under the next job's name.)
-      handedOn([poses, kept, units], g.roadJobs);
       const seenU = new Set<string>(), seenH = new Set<string>(), seenS = new Set<string>();
       if (g.roadJobs.length && bakedCars()) {
         if (!cars && !asked) { asked = true; void loadCarSprites().then((s) => { cars = s; }); }
         const P = bakedPeople() ? peopleLoaded() : null;
         if (bakedPeople() && !P) void peopleSprites();
-        g.roadJobs.slice(0, GANGS).forEach((j) => {
+        liveRoadJobs(g).forEach((j) => {
           if (!cars) return;
-          // ITS MACHINES, by the road: none of them on it till they have come from the yard. @see fleet/plant
-          const plant = j.plant || null;
-          const hd = plant?.head ?? j.cells[0], c0 = j.cells[Math.min(j.cells.length - 1, 1)] ?? j.cells[0], dl = Math.hypot(c0.x - hd.x, c0.y - hd.y) || 1;
+          // ITS CREWS' MACHINES, by the road: none of them on it till they have come — from the yard, or the crew's last job. @see fleet/crews
+          const plants = ROAD_CREWS.map((c) => crewPlant(j, c)).filter((p): p is Plant => !!p);
+          const hd = plants.find((p) => p.head)?.head ?? j.cells[0], c0 = j.cells[Math.min(j.cells.length - 1, 1)] ?? j.cells[0], dl = Math.hypot(c0.x - hd.x, c0.y - hd.y) || 1;
           const flat = Math.hypot(c0.x - hd.x, c0.y - hd.y) < 0.5, dxh = flat ? 1 : (c0.x - hd.x) / dl, dyh = flat ? 0 : (c0.y - hd.y) / dl;
           /**
            * Where a machine stands when its trade is not at work: PULLED OVER on the verge of the road it came by, a tile
@@ -185,20 +195,20 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
            */
           const rest = (k: number, id?: string) => {
             const name = id?.slice(id.indexOf(":") + 1), mine = name ? ROAD_UNITS[name] : undefined;
-            const spot = name && (name.startsWith("low") ? name : mine?.tracked && name !== "screed" ? `low${mine.li}` : name);
+            const spot = name && (name.startsWith("low") ? name : mine?.tracked && name !== "screed" ? `low:${mine.crew}${mine.li}` : name);
             const at = spot ? kerbSpot(g, `road:${j.id}:${spot}`, hd) : null;
             return at ?? { x: hd.x + dxh * (0.8 + 0.8 * Math.floor(k / 5)) + dyh * (1.05 + 0.6 * (k % 5)), y: hd.y + dyh * (0.8 + 0.8 * Math.floor(k / 5)) - dxh * (1.05 + 0.6 * (k % 5)) };
           };
-          // (None of them at work till the last has come: those that have stand by the road. @see plant-kit follow)
-          if (!plant || plant.here) work(j, plant, rest);
-          if (plant) {
+          // (A crew none of whose machines is at work till the last of them has come: those that have stand by the road. @see plant-kit follow)
+          work(j, rest);
+          {
             // WHAT IS NOT AT WORK STANDS BY THE ROAD; and the low-loaders that brought the tracked ones, bare, till they take them home.
             const z = drawnHeight(g, hd.x + 0.5, hd.y + 0.5);
-            const stand = (name: string, looks: { look: string; tint: number; heading?: number }[], li: number, low: boolean) => {
-              const id = `${j.id}:${name}`;
-              if (seenU.has(id)) return;
+            const stand = (name: string, looks: { look: string; tint: number; heading?: number }[], crew: RoadCrew, li: number, low: boolean) => {
+              const id = `${j.id}:${name}`, plant = crewPlant(j, crew);
+              if (seenU.has(id) || !plant) return;
               const mine = low ? { kind: "loader" as const, li, tracked: true, low: true } : ROAD_UNITS[name];
-              const fo = follow(poses, id, plant, ROAD_PLANT, mine.kind, mine.li, PLANT_COLOUR[mine.kind], mine, null, rest, dt);
+              const fo = follow(poses, id, plant, CREW_PLANT[crew], mine.kind, mine.li, PLANT_COLOUR[mine.kind], mine, null, rest, dt);
               if (!fo.at) return;
               let u = units.get(id);
               if (!u) { u = makeUnit(looks.length); units.set(id, u); }
@@ -208,12 +218,12 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               u.band = into(u.c, u.band, fo.at.x, fo.at.y, base);
             };
             // (Every one of them from when they came — one whose trade has not begun yet stands and waits, as it will after.)
-            for (const name of Object.keys(ROAD_UNITS)) stand(name, kept.get(`${j.id}:${name}`)?.looks ?? ROAD_STOOD[name], 0, false);
-            for (let q = 0; q < 4; q++) stand(`low${q}`, [{ look: "lowLoaderEmpty", tint: YELLOW }], q, true);
+            for (const name of Object.keys(ROAD_UNITS)) stand(name, kept.get(`${j.id}:${name}`)?.looks ?? ROAD_STOOD[name], ROAD_UNITS[name].crew, ROAD_UNITS[name].li, false);
+            for (const crew of ROAD_CREWS) CREW_PLANT[crew].forEach((kind, q) => { if (kind === "loader") stand(`low:${crew}${q}`, [{ look: "lowLoaderEmpty", tint: YELLOW }], crew, q, true); });
           }
         });
         // (A function, so that it is there for the jobs above it: declared, it is the block's from its top.)
-        function work(j: RoadJob, plant: Plant | null, rest: (k: number, id: string) => { x: number; y: number; heading?: number }) {
+        function work(j: RoadJob, rest: (k: number, id: string) => { x: number; y: number; heading?: number }) {
           if (!cars) return;
           const still = j.stalled > 0, n = j.cells.length, f = [0, 1, 2, 3].map((s) => frontAt(j, s));
           const w = (clocks.get(j.id) ?? j.id * 3.7) + (still ? 0 : dt);
@@ -225,11 +235,14 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
           };
           /** A machine at a place: its sprites — one, or tracks and a house — each a look at a heading. What is drawn under and over it is the caller's. */
           const place = (name: string, at: At, looks: { look: string; tint: number; heading?: number }[]): Unit | null => {
-            const id = `${j.id}:${name}`, mine = ROAD_UNITS[name];
-            // ONE OF ITS MACHINES, WHICH DRIVES (@see fleet/plant, plant-kit follow): not on the job till it has come from the
-            // yard; then from where it left the road to its work, between its places of work, and back to the road.
+            const id = `${j.id}:${name}`, mine = ROAD_UNITS[name], plant = mine ? crewPlant(j, mine.crew) : null;
+            // (Its crew not sent for, or gone: not drawn.)
+            if (plant === undefined) return null;
+            // ONE OF ITS MACHINES, WHICH DRIVES (@see fleet/plant, plant-kit follow): not on the job till it has come — from
+            // the yard or its crew's last job; then, the whole crew come, from where it left the road to its work, between
+            // its places of work, and back to the road.
             if (plant && mine) {
-              const fo = follow(poses, id, plant, ROAD_PLANT, mine.kind, mine.li, PLANT_COLOUR[mine.kind], mine, at, rest, dt);
+              const fo = follow(poses, id, plant, CREW_PLANT[mine.crew], mine.kind, mine.li, PLANT_COLOUR[mine.kind], mine, plant.here ? at : null, rest, dt);
               kept.set(id, { looks, at });
               if (!fo.at) return null;
               if (fo.away) { at = { ...at, ...fo.at, z: drawnHeight(g, fo.at.x + 0.5, fo.at.y + 0.5), pitch: 0 }; looks = looks.map((l) => (l.heading !== undefined ? { ...l, heading: fo.at!.heading } : l)); }
@@ -317,7 +330,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               { al: so[1] - 0.5, ac: -0.6, pose: so[1] > 0 && so[1] < n ? "walk" : "stand", face: 0 },
               { al: canAt - 0.5, ac: 0.06, pose: spraying ? "work" : so[2] > 0 && so[2] < n ? "walk" : "stand", face: 0 },
             ];
-            if (P) crew.forEach((r, k) => {
+            if (P && crewHere(j, "survey")) crew.forEach((r, k) => {
               const at = lineAt(r.al), id = `${j.id}:set${k}`;
               seenH.add(id);
               let hnd = hands.get(id);
@@ -336,13 +349,13 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
               hnd.band = into(hnd.c, hnd.band, px, py, FEET);
             });
             // THEIR PICKUP after them, with the pegs and the tape in the back of it.
-            if (so[2] > 1.6) { const u = place("survey", lineAt(Math.min(n - 1, so[2] - 1.9)), [{ look: "pickup", tint: YELLOW }]); if (u) u.c.alpha = plant ? 1 : shown * Math.min(1, (so[2] - 1.6) / 0.4); }
+            if (so[2] > 1.6) { const u = place("survey", lineAt(Math.min(n - 1, so[2] - 1.9)), [{ look: "pickup", tint: YELLOW }]); if (u) u.c.alpha = crewPlant(j, "survey") ? 1 : shown * Math.min(1, (so[2] - 1.6) / 0.4); }
           }
-          if (j.t <= ARRIVE) return;
+          if (!tradeBegun(j, 0)) return;
 
           // ── THE EXCAVATOR, and the lorry it loads ──────────────────────────────────────────
           const digAt = Math.max(0, f[0] - 0.62);
-          const digging = f[0] < n && !j.cells[Math.min(n - 1, Math.floor(f[0]))].deck && !j.cells[Math.max(0, Math.floor(digAt))].deck;
+          const digging = f[0] < n && crewHere(j, "earth") && !j.cells[Math.min(n - 1, Math.floor(f[0]))].deck && !j.cells[Math.max(0, Math.floor(digAt))].deck;
           if (digging) {
             const at = alongJob(g, j, digAt), q = ((w % DIG_ALL) + DIG_ALL) % DIG_ALL;
             // Where its turn has got to: what its arm is doing, and how far round its house has slewed.
@@ -382,7 +395,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
           }
 
           // ── STONE: a lorry tipping as it creeps, a roller over it behind ───────────────────
-          const basing = j.tm > ARRIVE + GAP * PACE && f[1] < n && f[1] > 0.05;
+          const basing = tradeBegun(j, 1) && f[1] < n && f[1] > 0.05;
           if (basing && f[1] + 0.75 < f[0] - 1.9) {
             const at = alongJob(g, j, f[1] + 0.42), up = tipping(4) && !still;
             const u = place("stone", at, [{ look: tipLook(4), tint: BLUE }]);
@@ -402,7 +415,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
           }
 
           // ── THE PAVER, the lorry at its hopper, the hot mat, the roller's passes ───────────
-          const paving = j.tm > ARRIVE + 2 * GAP * PACE && f[2] < n && f[2] > 0.02;
+          const paving = tradeBegun(j, 2) && f[2] < n && f[2] > 0.02;
           if (paving) {
             // (A front is told from the first cell's near edge, a place on the line from its middle: half a cell between them.
             // So stood that the mat comes out from under the screed's back edge.)
@@ -420,7 +433,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
             // Steam off the mat behind the screed, the width of it — not over the fall, which is to be seen. (The mat itself is the road's own, growing. @see road-grow)
             if (su && !still) { puffs(su.over, sc.heading, -2.2 * T, 0, 0.2, 0xffffff, 5, 0.5, 30, 0.2); }
           }
-          if (j.tm > ARRIVE + 2 * GAP * PACE && f[3] < n && f[2] > 1.4) {
+          if (tradeBegun(j, 2) && (crewPlant(j, "tar") === null ? f[3] < n : f[2] < n) && f[2] > 1.4) {
             // A PASS up the mat and back, then over a lane: a triangle of travel, a step of offset each time round.
             const period = 8, ph = ((w % period) + period) % period / period, tri = ph < 0.5 ? ph * 2 : 2 - ph * 2, lane = Math.floor(w / period) % 3 - 1;
             const at = alongJob(g, j, Math.min(n - 1, f[2]) - 1.05 - 0.95 * tri);
@@ -435,11 +448,11 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
 
           // ── THE GANG ──────────────────────────────────────────────────────────────────────
           if (P) {
-            const rounds = paving ? LAYING : DIGGING, by = paving ? f[2] + PAVER_AT : digAt;
+            const rounds = paving && crewHere(j, "tar") ? LAYING : digging ? DIGGING : null, by = rounds === LAYING ? f[2] + PAVER_AT : digAt;
             // NOBODY RIDES ALONG WITH A MACHINE. Each stands where they stopped, on the ground, and does their work there
             // while the machine creeps on; when it is done, or the machine has got away from them, they WALK to the next
             // place of their round — which is by the machine, wherever it has got to.
-            rounds.forEach((round, k) => {
+            rounds?.forEach((round, k) => {
               const id = `${j.id}:${k}`;
               seenH.add(id);
               let hnd = hands.get(id);

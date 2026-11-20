@@ -11,7 +11,7 @@ import { sendOnJob, type Town } from "../agents/town";
 import { find, type Network } from "./network";
 import { yardFor } from "../lines/line-loads";
 import { fleetFree, isYard, lorryLost, queueYardLoad, unloadAt, yardQueued } from "../fleet/fleet";
-import { GANGS, OVERLAND, loadPrice, materialTime, wantsLoad, type RoadJob } from "./jobs";
+import { OVERLAND, liveRoadJobs, loadPrice, starved, wantsLoad, type RoadJob } from "./jobs";
 
 /** The Garage and what it grows into: the yard a load comes from. @see works depotFor */
 const YARDS = ["garage", "hq", "boardroom", "ipo"];
@@ -82,7 +82,7 @@ export function stepRoadLoads(
   let places: Place[] | null = null;
   // THE FLEET: a load from the yard is a lorry of the company's, and with none standing free it waits for one.
   let lorries = haul ? fleetFree(g, haul.town) : 0;
-  for (const j of g.roadJobs.slice(0, GANGS)) {
+  for (const j of liveRoadJobs(g)) {
     const onWay = (out.get(j.id) ?? 0) + j.overland.length;
     if (!wantsLoad(j, onWay)) { if (j.stalled) { j.stalled = 0; changed = true; } continue; }
     const head = haul ? headOf(g, haul.net, j) : null;
@@ -92,7 +92,7 @@ export function stepRoadLoads(
     if (byFleet && lorries <= 0) continue;
     if (!spend(loadPrice(j))) {
       // STALLED only once the work has run out of what it has.
-      if ((j.tm ?? j.t) >= materialTime(j) - 1e-6 && onWay === 0) { if (!j.stalled) changed = true; j.stalled += dt; }
+      if (starved(j) && onWay === 0) { if (!j.stalled) changed = true; j.stalled += dt; }
       continue;
     }
     if (j.stalled) { j.stalled = 0; changed = true; }

@@ -409,8 +409,8 @@ export function deserializeWorld(
   }
   grid.structureAt.fill(-1);
   if (Array.isArray(f.razeJobs)) grid.razeJobs = f.razeJobs.map((j) => ({ ...j }));
-  if (Array.isArray(f.lineJobs)) { grid.lineJobs = f.lineJobs.map((j) => ({ ...j, cells: j.cells.map((c) => ({ ...c })), coming: [...(j.coming ?? [])] })); grid.nextLineJob = Math.max(1, ...grid.lineJobs.map((j) => j.id + 1)); }
-  if (Array.isArray(f.roadJobs)) { grid.roadJobs = f.roadJobs.map((j) => ({ ...j, cells: j.cells.map((c) => ({ ...c })), levelled: j.levelled.map((l) => ({ ...l })), lengths: [...j.lengths] })); for (const j of grid.roadJobs) grid.nextRoadJob = Math.max(grid.nextRoadJob, j.id + 1); }
+  if (Array.isArray(f.lineJobs)) { grid.lineJobs = f.lineJobs.map(({ gangs: _g, ...j }) => ({ ...withoutLegacyPlant(j), cells: j.cells.map((c) => ({ ...c })), coming: [...(j.coming ?? [])], ...(j.tc ? { tc: [...j.tc] } : {}) })); grid.nextLineJob = Math.max(1, ...grid.lineJobs.map((j) => j.id + 1)); }
+  if (Array.isArray(f.roadJobs)) { grid.roadJobs = f.roadJobs.map(({ gangs: _g, ...j }) => ({ ...withoutLegacyPlant(j), cells: j.cells.map((c) => ({ ...c })), levelled: j.levelled.map((l) => ({ ...l })), lengths: [...j.lengths], ...(j.work ? { work: [...j.work] } : {}) })); for (const j of grid.roadJobs) grid.nextRoadJob = Math.max(grid.nextRoadJob, j.id + 1); }
   for (const raw of Array.isArray(f.structures) ? f.structures : []) {
     const s = readStructure(raw);
     if (!s) continue;
@@ -453,3 +453,9 @@ export function deserializeWorld(
 
 export const toJSON = (f: WorldFile) => JSON.stringify(f);
 export const fromJSON = (s: string) => deserializeWorld(JSON.parse(s));
+
+/** A job as saved before its machines were its crews': the one set of machines, and the job it waited on, dropped — its crews are sent afresh. */
+function withoutLegacyPlant<T extends object>(j: T): T {
+  const { plant: _p, after: _a, handed: _h, ...rest } = j as T & { plant?: unknown; after?: unknown; handed?: unknown };
+  return rest as T;
+}

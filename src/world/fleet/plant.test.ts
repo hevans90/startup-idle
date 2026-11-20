@@ -4,7 +4,7 @@ import { PLANT_LOADER_COLOUR, PLANT_LOADER_EMPTY_COLOUR, halfLength } from "../a
 import { createTown, stepTown } from "../agents/town";
 import { commit, createHistory } from "../edit/commands";
 import { createGrid, fillTerrain, idx } from "../grid";
-import { LINE_PLANT, newLine } from "../lines/jobs";
+import { newLine } from "../lines/jobs";
 import { lineHead } from "../lines/line-loads";
 import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
@@ -76,7 +76,7 @@ describe("a job whose low-loaders do not wait", () => {
     let worked = 0, through = Infinity, at = "";
     for (let t = 0; t < 600 && at !== "gone"; t += 1 / 30) {
       stepYard(town, g, 1 / 30);
-      at = stepPlant(g, haul, host, { id: 9, role: "plant" }, head, LINE_PLANT.main, false, 1 / 30);
+      at = stepPlant(g, haul, host, { id: 9, role: "plant" }, head, ["pickup", "loader", "mixer", "crane"], false, 1 / 30);
       const p = host.plant as Plant;
       if (at === "work" && ++worked > 30 * 5 && p.leaving === undefined) { p.leaving = 0; p.t = 0; }
       const lorries = [...town.movers.filter((m) => m.kind === "truck"), ...town.legs.map((l) => l.m)];

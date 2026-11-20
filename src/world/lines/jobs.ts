@@ -13,6 +13,7 @@
  */
 
 import type { Plant, PlantKind } from "../fleet/plant";
+import type { Gang } from "../roads/jobs";
 
 /** A water main; a DRAIN — a sewer's pipe above the ground, a connection, laid as a main is; a SEWER's trunk, underground; a channel dredged. */
 export type LineKind = "main" | "drain" | "sewer" | "dredge";
@@ -29,8 +30,14 @@ export type LineJob = {
   delivered: number;
   /** Loads on their way, seconds each has left. */
   coming: number[];
-  /** Seconds it has been worked. */
+  /** Seconds it has been worked: any of it. (Saved before each crew had its own clock: the one clock of the whole train of trades.) */
   t: number;
+  /** SECONDS EACH OF ITS CREWS HAS WORKED (@see LINE_CREWS): each only while it is there, its first trade never nearer than a gap to the last of the crew ahead. @see stepLine */
+  tc?: number[];
+  /** ITS CREWS, each sent when its part is about to begin: one not worked till its crew is there. Not there with no town to drive them. @see fleet/crews */
+  gangs?: Partial<Record<LineCrew, Gang>>;
+  /** Laid, all of it: kept on the list only while its crews and lorries go. */
+  finished?: boolean;
   /**
    * A CHANNEL'S DREDGER COMES BY WATER (@see line-loads stepBarge): the river tiles it sails, how far along them it
    * is, and — the channel dug — that it is sailing away, back down them. False: no way to it by water; it is there.
@@ -58,21 +65,20 @@ export type LineJob = {
   /** The lorries that have come to it, in the order they came: the fleet's numbers. */
   ids?: number[];
   gone?: number;
-  /**
-   * ITS MACHINES, FROM THE YARD AND HOME (@see line-loads stepLinePlant): which are still to set off, and seconds till
-   * the next does; whether they are all there — the job is not worked till they are; and, the job done, seconds since
-   * and which are still to set off home. `false` with no yard or no road to bring them: they are simply there.
-   */
-  plant?: false | Plant;
-  /** WAITING FOR THE MACHINES OF THE LINE NEARBY (its id), to come straight on from it when it is done: not worked till then. @see fleet/plant handOn */
-  after?: number;
-  /** Done, its machines handed on to the next: kept on the list only while its lorries come back down its track. */
-  handed?: boolean;
 };
-/** What each kind of job sends for, in the order they set off. A dredger comes by water. */
-export const LINE_PLANT: Readonly<Record<LineKind, readonly PlantKind[]>> = {
-  main: ["pickup", "loader", "mixer", "crane"], drain: ["pickup", "loader", "mixer", "crane"],
-  sewer: ["pickup", "loader", "loader", "loader", "crane"], dredge: [],
+/**
+ * THE CREWS THAT LAY A LINE, in the order they go on it: which of its trades each works, first to last, and its
+ * machines. A main's or a drain's FOOTINGS crew digs and pours them (a digger, on a low-loader; a mixer); its
+ * LAYING crew strings, sets, welds and inspects the pipe (the welders' pickup; the crane). A sewer's TRENCH crew cuts
+ * and shores it (a digger); its laying crew sets the pipe and makes its joints; its FILL crew fills it back and
+ * rolls it (a digger and a roller). A dredger comes by water, and is no crew's. @see fleet/crews
+ */
+export type LineCrew = "footing" | "trench" | "laying" | "fill";
+export const LINE_CREWS: Readonly<Record<LineKind, readonly { crew: LineCrew; first: number; last: number; plant: readonly PlantKind[] }[]>> = {
+  main: [{ crew: "footing", first: 0, last: 1, plant: ["loader", "mixer"] }, { crew: "laying", first: 2, last: 5, plant: ["pickup", "crane"] }],
+  drain: [{ crew: "footing", first: 0, last: 1, plant: ["loader", "mixer"] }, { crew: "laying", first: 2, last: 5, plant: ["pickup", "crane"] }],
+  sewer: [{ crew: "trench", first: 0, last: 1, plant: ["loader"] }, { crew: "laying", first: 2, last: 4, plant: ["pickup", "crane"] }, { crew: "fill", first: 5, last: 6, plant: ["loader", "loader"] }],
+  dredge: [],
 };
 
 /**
@@ -111,13 +117,30 @@ export const lineLoads = (tiles: number) => Math.max(1, Math.ceil(tiles / LINE_L
 export const newLine = (id: number, kind: LineKind, cells: readonly { x: number; y: number }[], stroke: unknown, cost: number, now: number): LineJob =>
   ({ id, kind, cells: cells.map((c) => ({ x: c.x, y: c.y })), stroke, cost, deliveries: lineLoads(cells.length), delivered: 0, coming: [], t: 0, stalled: 0, at: now });
 
+/** Which of a job's crews works a trade. */
+const crewOf = (kind: LineKind, trade: number) => Math.max(0, LINE_CREWS[kind].findIndex((c) => trade <= c.last));
+/** Each crew's clock, there to be worked: brought on from the one clock of a job saved before they had their own. */
+export function ensureCrewClocks(j: LineJob): number[] {
+  j.tc ??= LINE_CREWS[j.kind].map((c) => Math.max(0, j.t - c.first * LINE_GAPS[j.kind] * LINE_PACE[j.kind]));
+  return j.tc;
+}
+/** Where a trade is along it, tiles from its first cell's near edge: before it begins, below nought; past the end, beyond it. */
+export function lineRaw(j: Pick<LineJob, "t" | "tc" | "kind" | "cells">, trade: number): number {
+  const cs = LINE_CREWS[j.kind];
+  if (!cs.length) return j.t / LINE_PACE[j.kind] - trade * LINE_GAPS[j.kind];
+  const c = crewOf(j.kind, trade), clock = j.tc ? j.tc[c] : j.t - cs[c].first * LINE_GAPS[j.kind] * LINE_PACE[j.kind];
+  return clock / LINE_PACE[j.kind] - (trade - cs[c].first) * LINE_GAPS[j.kind];
+}
 /** How far along it a trade has got, tiles from its first cell's near edge. Never past its end. @see LINE_STAGES */
-export const lineFront = (j: Pick<LineJob, "t" | "kind" | "cells">, trade: number) =>
-  Math.max(0, Math.min(j.cells.length, j.t / LINE_PACE[j.kind] - trade * LINE_GAPS[j.kind]));
+export const lineFront = (j: Pick<LineJob, "t" | "tc" | "kind" | "cells">, trade: number) => Math.max(0, Math.min(j.cells.length, lineRaw(j, trade)));
+/** Seconds of a crew's clock at which its part of a job is done. */
+const crewEnd = (j: Pick<LineJob, "kind" | "cells">, c: number) => { const cr = LINE_CREWS[j.kind][c]; return (j.cells.length + (cr.last - cr.first) * LINE_GAPS[j.kind]) * LINE_PACE[j.kind]; };
+/** Whether the `c`th crew's part of a job is done. */
+export const lineCrewDone = (j: LineJob, c: number) => c >= 0 && lineRaw(j, LINE_CREWS[j.kind][c].last) >= j.cells.length - 1e-9;
 /** Seconds it takes with every load to hand. */
 export const lineSeconds = (j: Pick<LineJob, "kind" | "cells">) => (j.cells.length + (LINE_STAGES[j.kind] - 1) * LINE_GAPS[j.kind]) * LINE_PACE[j.kind];
 /** Whether the last of it is done. */
-export const lineDone = (j: LineJob) => j.t >= lineSeconds(j) - 1e-9;
+export const lineDone = (j: LineJob) => lineRaw(j, LINE_STAGES[j.kind] - 1) >= j.cells.length - 1e-9;
 /** A load's price. */
 export const lineLoadPrice = (j: Pick<LineJob, "cost" | "deliveries">) => j.cost / j.deliveries;
 /** How long it may be worked on the loads it has had: until the pipe comes to the first tile there is none for. Without end once every load is in. */
@@ -126,9 +149,10 @@ export const lineAllowed = (j: LineJob) =>
 
 /**
  * A step of a job: loads sent for — `spend` pays for one and says whether it could — and arriving; the work as far
- * as the loads allow. Says whether anything that shows has changed.
+ * as the loads allow, each crew's part only while `on` says it is there (all of them, without). Says whether anything
+ * that shows has changed.
  */
-export function stepLine(j: LineJob, dt: number, spend: (amount: number) => boolean, road?: { out: number; send: () => boolean; free?: () => boolean }): boolean {
+export function stepLine(j: LineJob, dt: number, spend: (amount: number) => boolean, road?: { out: number; send: () => boolean; free?: () => boolean }, on?: (crew: LineCrew) => boolean): boolean {
   let changed = false;
   // (BY ROAD, where there is one: `road.out` lorries are on their way from the yard, and `road.send` sends another —
   // their loads are counted in when they get there, by whoever drives them. @see line-loads)
@@ -143,8 +167,33 @@ export function stepLine(j: LineJob, dt: number, spend: (amount: number) => bool
   if (j.delivered + onWay < j.deliveries && onWay < LINE_COMING && ahead < LINE_LOAD * LINE_AHEAD && (road?.free?.() ?? true)) {
     if (spend(lineLoadPrice(j))) { if (!road?.send()) j.coming.push(LINE_HAUL); j.stalled = 0; changed = true; }
   }
-  const allowed = lineAllowed(j);
-  if (j.t < allowed) { j.t = Math.min(allowed, j.t + dt, lineSeconds(j)); if (j.stalled) { j.stalled = 0; changed = true; } }
+  const cs = LINE_CREWS[j.kind];
+  let short = false;
+  if (!cs.length) {
+    const allowed = lineAllowed(j);
+    if (j.t < allowed) j.t = Math.min(allowed, j.t + dt, lineSeconds(j));
+    else short = true;
+  } else {
+    // EACH CREW'S PART, while it is there: its first trade never nearer than a gap to the last of the one ahead, till
+    // that one is done; the pipe no further than its loads.
+    const tc = ensureCrewClocks(j), n = j.cells.length, P = LINE_PACE[j.kind], G = LINE_GAPS[j.kind];
+    let worked = false;
+    cs.forEach((cr, c) => {
+      if (on && !on(cr.crew)) return;
+      let lim = crewEnd(j, c);
+      if (c > 0 && !lineCrewDone(j, c - 1)) lim = Math.min(lim, (lineFront(j, cs[c - 1].last) - G) * P);
+      if (cr.first <= LINE_LAYS[j.kind] && LINE_LAYS[j.kind] <= cr.last && j.delivered < j.deliveries) {
+        const mat = (Math.min(n, j.delivered * LINE_LOAD) + (LINE_LAYS[j.kind] - cr.first) * G) * P;
+        if (mat < lim && tc[c] >= mat - 1e-9) short = true;
+        lim = Math.min(lim, mat);
+      }
+      const was = tc[c];
+      tc[c] = Math.max(tc[c], Math.min(tc[c] + dt, lim));
+      if (tc[c] > was) worked = true;
+    });
+    if (worked) j.t += dt;
+  }
+  if (!short) { if (j.stalled) { j.stalled = 0; changed = true; } }
   // STOOD: the work has run out and nothing is coming, because nothing could be paid for.
   else if (!j.coming.length && !out && !lineDone(j) && (road?.free?.() ?? true)) { if (!j.stalled) changed = true; j.stalled += dt; }
   return changed;

@@ -12,8 +12,7 @@ import { FLEET_TIPPER_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PIPE_EMPTY_COLOUR, half
 import { roomOrWaited } from "../fleet/legs";
 import { channelTo, steadyRivers } from "../boats/quay";
 import { isYard, lorryFor, lorryLost, queueYardLoad, yardQueued } from "../fleet/fleet";
-import { stepPlant } from "../fleet/plant";
-import { LINE_LAYS, LINE_PLANT, TRACK_SPEED, lineFront, type LineJob } from "./jobs";
+import { LINE_LAYS, TRACK_SPEED, lineFront, type LineJob } from "./jobs";
 
 /** The Garage and what it grows into: the yard a load comes from. @see works depotFor */
 export const YARDS: readonly string[] = ["garage", "hq", "boardroom", "ipo"];
@@ -157,19 +156,6 @@ export function lineLorryFree(g: Grid, haul: { net: Network; town: Town }, j: Li
   const head = lineHead(g, haul.net, j);
   const from = head && yardFor(g, placesOf(g, haul.net), head);
   return !head || !isYard(g, from) || lorryFor(g, haul.town, { pipes: "main" });
-}
-
-/**
- * A FRAME OF A LINE'S MACHINES: from the yard before it is worked, and home when it is done — its lorries let off
- * its track first. @see fleet/plant stepPlant
- */
-export function stepLinePlant(g: Grid, haul: { net: Network; town: Town }, j: LineJob, dt: number): "none" | "wait" | "work" | "leaving" | "gone" {
-  if (j.plant === false || !LINE_PLANT[j.kind].length) return "none";
-  const head = lineHead(g, haul.net, j);
-  if (!j.plant && head) { j.head = { x: head.x, y: head.y }; const from = yardFor(g, placesOf(g, haul.net), head); if (isYard(g, from)) j.depot = from.structure; }
-  // (Whatever lorries are still on it are let off first: each back down the track and home.)
-  if (j.plant && j.plant.leaving !== undefined && j.head) { const places = placesOf(g, haul.net); while ((j.gone ?? 0) < j.delivered) lineLorryBack(g, haul, j, places); }
-  return stepPlant(g, haul, j, { id: j.id, role: "plant" }, head, LINE_PLANT[j.kind], j.t > 0, dt, !!(j.back?.length || j.drive?.length));
 }
 
 /** Tiles a second a dredger makes under way. */

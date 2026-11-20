@@ -76,13 +76,13 @@ import {
   type BrushId, type Stroke, type ToolId,
 } from "../world/edit/tools";
 import { heightDirtyCells, heightWrites } from "../world/edit/height-tools";
-import { GANGS, ROAD_PLANT, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadJob, type RoadWrites } from "../world/roads/jobs";
-import { headOf, stepRoadLoads } from "../world/roads/job-loads";
+import { liveRoadJobs, cancelRoadJobs, loadPrice, orderRoad, stepRoadJobs, takeOn, type RoadWrites } from "../world/roads/jobs";
+import { stepRoadLoads } from "../world/roads/job-loads";
+import { stepLineCrews, stepRoadCrews } from "../world/fleet/crews";
 import { placesOf, type Place } from "../world/agents/roads";
-import { canHandOn, handOn, nearJob, stepPlant } from "../world/fleet/plant";
-import { isYard } from "../world/fleet/fleet";
-import { bargeAway, lineHead, lineLorriesOut, lineLorryBack, lineLorryFree, sendLineLoad, stepBarge, stepLineHaul, stepLinePlant, yardFor } from "../world/lines/line-loads";
-import { LINE_LAYS, LINE_PLANT, RAZE_PLANT, lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
+import { stepPlant } from "../world/fleet/plant";
+import { bargeAway, lineLorriesOut, lineLorryFree, sendLineLoad, stepBarge, stepLineHaul } from "../world/lines/line-loads";
+import { LINE_CREWS, LINE_LAYS, RAZE_PLANT, lineDone, lineFront, lineLoadPrice, newLine, razeSeconds, stepLine, type LineKind } from "../world/lines/jobs";
 import { payForLoad } from "../world/projects/economy";
 import {
   FIXTURE_IDS, FIXTURE_SIZE, applyFixture as applyFixtureTo, type FixtureId,
@@ -899,28 +899,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     const g = get().grid;
     if (!g.roadJobs.length) return;
     const loads = stepRoadLoads(g, get().playing ? payForLoad : () => true, dt, haul);
-    // ITS MACHINES: from the yard before a job is worked, and home when it is done. @see fleet/plant
-    const plant = new Map<RoadJob, ReturnType<typeof stepPlant>>();
-    const live = g.roadJobs.slice(0, GANGS);
-    if (haul) live.forEach((j, n) => {
-      // A JOB BEGUN BESIDE ONE WHOSE MACHINES ARE ON IT waits for them to come straight on, rather than sending for its own:
-      // a road built a piece at a time is worked by the one gang, a piece after another. @see fleet/plant handOn
-      j.after = j.plant === undefined && j.t === 0
-        ? live.slice(0, n).find((a) => (a.after !== undefined || canHandOn(a.plant, ROAD_PLANT)) && nearJob(a.cells, j.cells))?.id
-        : undefined;
-      plant.set(j, j.after !== undefined ? "wait" : stepPlant(g, haul, j, { id: j.id, role: "road-plant" }, headOf(g, haul.net, j), ROAD_PLANT, j.t > 0, dt));
-    });
-    const { writes, changed } = stepRoadJobs(g, dt, haul && {
-      held: (j) => plant.get(j) === "wait" || plant.get(j) === "leaving",
-      over: (j) => {
-        // (Done, with the next job waiting for its machines: they go straight on to it, and this one is over.)
-        const next = canHandOn(j.plant, ROAD_PLANT) ? g.roadJobs.find((b) => b.after === j.id) : undefined;
-        if (next && j.plant) { next.plant = handOn(j.plant, j.id, headOf(g, haul.net, next) ?? j.cells[j.cells.length - 1]); next.after = undefined; return true; }
-        const at = plant.get(j);
-        if (at === "work" && j.plant) { j.plant.leaving ??= 0; j.plant.t = 0; return false; }
-        return at !== "leaving";
-      },
-    });
+    // ITS CREWS: each trade's sent when its phase is about to begin, and on to the next job or home when done. @see fleet/crews
+    const { writes, changed } = stepRoadJobs(g, dt, haul && stepRoadCrews(g, haul, dt));
     for (const j of g.roadJobs) {
       j.at = now;
       // A JOB THAT HAS STOPPED for want of a load it cannot pay for is said, once.
@@ -961,42 +941,25 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     // (Their loads by road, where there is a town to drive them through: those that have got there, counted in.)
     if (haul && stepLineHaul(g, haul, dt)) changed = true;
     const out = haul && lineLorriesOut(haul.town, g);
+    // ITS CREWS: each sent when its part is about to begin, and on to the next line or home when done. @see fleet/crews
+    const crews = haul && stepLineCrews(g, haul, dt);
     for (const j of [...g.lineJobs]) {
-      // DONE, ITS MACHINES GONE ON TO THE NEXT: kept only while its lorries come back down its track, and home.
-      if (j.handed) {
-        if (haul && j.head) { const places = placesOf(g, haul.net); while ((j.gone ?? 0) < j.delivered) lineLorryBack(g, haul, j, places); }
-        if (!haul || !(j.back?.length || j.drive?.length)) { g.lineJobs = g.lineJobs.filter((q) => q !== j); changed = true; }
+      const crewed = !!crews && LINE_CREWS[j.kind].length > 0;
+      // LAID, ALL OF IT: kept on the list only while its crews go, and its lorries back down its track.
+      if (j.finished) {
+        if (!crewed || (crews!.over(j) && !(j.back?.length || j.drive?.length))) { g.lineJobs = g.lineJobs.filter((q) => q !== j); changed = true; }
+        j.at = now;
         continue;
       }
-      // A LINE BEGUN BESIDE ONE OF THE SAME KIND WHOSE MACHINES ARE ON IT waits for them to come straight on, rather
-      // than sending for its own: a pipe laid a run at a time is laid by the one gang, a run after another. @see fleet/plant handOn
-      const crew = LINE_PLANT[j.kind].join();
-      j.after = haul && crew && j.plant === undefined && j.t === 0
-        ? g.lineJobs.slice(0, g.lineJobs.indexOf(j)).find((a) => !a.handed && LINE_PLANT[a.kind].join() === crew
-          && (a.after !== undefined || canHandOn(a.plant, LINE_PLANT[a.kind])) && nearJob(a.cells, j.cells))?.id
-        : undefined;
-      if (j.after !== undefined) { j.at = now; continue; }
-      /** Its machines straight on to the line waiting for them, if one is: whether they went. */
-      const handTo = (): boolean => {
-        const b = haul && canHandOn(j.plant, LINE_PLANT[j.kind]) ? g.lineJobs.find((q) => q.after === j.id) : undefined;
-        if (!b || !haul || !j.plant) return false;
-        const head = lineHead(g, haul.net, b);
-        if (head) { b.head = { x: head.x, y: head.y }; const from = yardFor(g, placesOf(g, haul.net), head); if (isYard(g, from)) b.depot = from.structure; }
-        b.plant = handOn(j.plant, j.id, head ?? j.head ?? b.cells[0]);
-        b.after = undefined;
-        j.plant = false; j.handed = true;
-        return true;
-      };
-      // ITS MACHINES: from the yard before it is worked, and home when it is done. @see stepLinePlant
-      // (Caught up on with nobody to drive them: one whose machines were going home, or whose dredger was sailing away, is done with.)
-      if (!haul && ((j.plant && j.plant.leaving !== undefined) || (j.barge && j.barge.out))) { g.lineJobs = g.lineJobs.filter((q) => q !== j); changed = true; continue; }
+      // (Caught up on with nobody to drive them: a dredger sailing away is done with.)
+      if (!haul && j.barge && j.barge.out) { g.lineJobs = g.lineJobs.filter((q) => q !== j); changed = true; continue; }
       // (A channel's dredger comes by water, and goes by it. @see stepBarge)
-      const plant = !haul ? "none" : j.kind === "dredge" ? stepBarge(g, j, dt) : stepLinePlant(g, haul, j, dt);
+      const plant = haul && j.kind === "dredge" ? stepBarge(g, j, dt) : "none";
       if (plant === "gone") { g.lineJobs = g.lineJobs.filter((q) => q !== j); changed = true; continue; }
-      if (plant === "wait" || plant === "leaving") { j.at = now; if (plant === "leaving" && handTo()) changed = true; continue; }
-      /** Done with: off the list — or, with machines to send home, kept on it till they have gone; or handed on, till its lorries have. */
-      const over = () => { if (handTo()) return; if (plant === "work" && j.plant) { j.plant.leaving = 0; j.plant.t = 0; } else g.lineJobs = g.lineJobs.filter((q) => q !== j); };
-      if (stepLine(j, dt, get().playing ? payForLoad : () => true, haul && { out: out?.get(j.id) ?? 0, send: () => sendLineLoad(g, haul, j), free: () => lineLorryFree(g, haul, j) })) changed = true;
+      if (plant === "wait" || plant === "leaving") { j.at = now; continue; }
+      /** Done with: off the list — or, with crews to see go, kept on it till they have. */
+      const over = () => { if (crewed) { j.finished = true; g.lineJobs.includes(j) || g.lineJobs.push(j); } else g.lineJobs = g.lineJobs.filter((q) => q !== j); };
+      if (stepLine(j, dt, get().playing ? payForLoad : () => true, haul && { out: out?.get(j.id) ?? 0, send: () => sendLineLoad(g, haul, j), free: () => lineLorryFree(g, haul, j) }, crewed ? (c) => crews!.on(j, c) : undefined)) changed = true;
       j.at = now;
       if (j.stalled > 0 && !j.told && get().playing) { j.told = true; report(`${LINE_NAME[j.kind]} has stopped: ${formatCurrency(lineLoadPrice(j))} for the next load.`, { title: "Works" }); }
       else if (!j.stalled && j.told) j.told = false;
@@ -1034,8 +997,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       // (Off the list while it is laid — it is laid as if ordered afresh — and, with machines to send home, back on it till they have gone.)
       g.lineJobs = g.lineJobs.filter((q) => q !== j);
       if (!relay(ordered)) { if (get().playing) useMoneyStore.getState().increaseMoney(lineLoadPrice(j) * j.delivered); }
-      else if (plant === "work" && handTo()) g.lineJobs.push(j);
-      else if (plant === "work" && j.plant) { j.plant.leaving = 0; j.plant.t = 0; g.lineJobs.push(j); }
+      else if (crewed) over();
       else if (plant === "work" && j.kind === "dredge" && bargeAway(g, j)) g.lineJobs.push(j);
       changed = true;
     }
@@ -1056,7 +1018,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     let away = Math.min(maxSeconds, Math.max(0, ...g.roadJobs.map((j) => (now - j.at) / 1000)));
     for (; away > 0 && g.roadJobs.length; away--) {
       get().stepRoadWorks(Math.min(1, away), undefined, now);
-      if (g.roadJobs.slice(0, GANGS).every((j) => j.stalled > 0)) break;
+      if (liveRoadJobs(g).every((j) => j.stalled > 0)) break;
     }
   },
   playing: false,

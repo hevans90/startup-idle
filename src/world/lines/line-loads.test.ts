@@ -8,7 +8,8 @@ import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import { stepYard } from "../fleet/fleet";
 import { lineDone, newLine, stepLine } from "./jobs";
-import { lineHead, lineLorriesOut, lineLorryFree, sendLineLoad, stepLineHaul, stepLinePlant } from "./line-loads";
+import { lineHead, lineLorriesOut, lineLorryFree, sendLineLoad, stepLineHaul } from "./line-loads";
+import { stepLineCrews } from "../fleet/crews";
 
 /** A road along row 5 edge to edge, the Garage on its north side; a line ordered south of it. */
 function yardAndLine(far = false) {
@@ -48,28 +49,28 @@ describe("a line's pipe, by road", () => {
     expect(lineDone(j)).toBe(true);
   });
 
-  test("its machines come from the yard before it is worked, and go home when it is done", () => {
+  test("its crews come from the yard before their parts are worked, and go home when they are done", () => {
     const { g, j, net, town } = yardAndLine();
     const haul = { net, town };
     const seen: string[] = [];
     let out = 0, home = 0;
-    for (let t = 0; t < 600; t += 1 / 30) {
+    for (let t = 0; t < 900; t += 1 / 30) {
       stepYard(town, g, 1 / 30);
       stepLineHaul(g, haul, 1 / 30);
-      const at = stepLinePlant(g, haul, j, 1 / 30);
+      const crews = stepLineCrews(g, haul, 1 / 30);
+      stepLine(j, 1 / 30, () => true, { out: lineLorriesOut(town, g).get(j.id) ?? 0, send: () => sendLineLoad(g, haul, j) }, (c) => crews.on(j, c));
+      // (The footings crew's: not sent, coming, there, going, gone.)
+      const f = j.gangs?.footing, p = f?.plant, at = !f ? "-" : f.gone ? "gone" : !p ? "?" : p.leaving !== undefined ? "leaving" : p.here ? "work" : "wait";
       if (seen[seen.length - 1] !== at) seen.push(at);
-      if (at === "gone") break;
-      if (at === "work") {
-        stepLine(j, 1 / 30, () => true, { out: lineLorriesOut(town, g).get(j.id) ?? 0, send: () => sendLineLoad(g, haul, j) });
-        if (lineDone(j) && j.plant) { j.plant.leaving = 0; j.plant.t = 0; }
-      }
-      out = Math.max(out, town.movers.filter((m) => m.job?.role === "plant" && m.job.site === j.id).length);
-      if (at === "leaving") home = Math.max(home, town.movers.filter((m) => m.job?.role === "haul-back" && !m.fleet).length);
+      if (lineDone(j) && crews.over(j)) break;
+      out = Math.max(out, town.movers.filter((m) => m.job?.role === "line-plant").length);
+      if (at === "leaving" || at === "gone") home = Math.max(home, town.movers.filter((m) => m.job?.role === "haul-back" && !m.fleet).length);
       town.arrived.length = 0;
       stepTown(town, g, net, 0, 1 / 30);
     }
-    // Not worked till they are there; worked; then gathered and sent home, and only then over.
+    // Not worked till they are there; worked; then gathered and sent home — and the whole line laid, its layers gone too.
     expect(seen).toEqual(["wait", "work", "leaving", "gone"]);
+    expect(lineDone(j)).toBe(true);
     expect(out).toBeGreaterThan(1);
     expect(home).toBeGreaterThan(0);
   });

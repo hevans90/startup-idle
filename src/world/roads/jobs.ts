@@ -21,11 +21,23 @@ import { gradeRoad, type Grade, type GradeCell } from "./grade";
 import { derivedRamp } from "./ramp-derive";
 
 /**
- * What a road's job sends for, in the order they set off: the surveyors' pickup and the liners'; low-loaders with
- * the digger, the packing roller, the paver and its screed, and the finishing roller; two tippers, for the spoil and
- * the stone; a mixer. @see fleet/plant, render/road-plant ROAD_UNITS
+ * THE COMPANY'S ROAD CREWS, each a trade and its machines, kept at the yard and sent to a job only when its phase is
+ * about to begin — and on to the next job that wants that trade when it is done, or home. Each works one job at a
+ * time. The SURVEYORS set the line out (their pickup); EARTHWORKS dig it (a digger on a low-loader, a tipper for the
+ * spoil); the BASE crew lays the stone and pours the concrete (a packing roller on a low-loader, the stone's tipper, a
+ * mixer); the TARRING crew surfaces it (the paver and its screed on a low-loader, the finishing roller on another);
+ * the LINERS mark it (their pickup). @see fleet/crews, render/road-plant ROAD_UNITS
  */
-export const ROAD_PLANT = ["pickup", "loader", "tipper", "loader", "tipper", "mixer", "loader", "loader", "pickup"] as const;
+export type RoadCrew = "survey" | "earth" | "base" | "tar" | "line";
+export const ROAD_CREWS: readonly RoadCrew[] = ["survey", "earth", "base", "tar", "line"];
+export const CREW_PLANT: Readonly<Record<RoadCrew, readonly import("../fleet/plant").PlantKind[]>> = {
+  survey: ["pickup"], earth: ["loader", "tipper"], base: ["loader", "tipper", "mixer"], tar: ["loader", "loader"], line: ["pickup"],
+};
+/** The trade each crew works: the surveyors none of the four — theirs is the setting out. */
+export const CREW_TRADE: Readonly<Record<RoadCrew, number>> = { survey: -1, earth: 0, base: 1, tar: 2, line: 3 };
+export const TRADE_CREW: readonly RoadCrew[] = ["earth", "base", "tar", "line"];
+/** A crew on a job: its machines (`false`: none come by road — no yard, no way — and the trade is simply worked), and that they have gone from it. @see fleet/crews */
+export type Gang = { plant?: false | import("../fleet/plant").Plant; gone?: boolean; /** Sent on from here to that job, not home, when done. */ onward?: number };
 
 /** A cell of a job: where, the level its road will stand at, whether that is a bridge's deck, the ground it was ordered on, and whether there is a road to build there at all. */
 export type JobCell = { x: number; y: number; z: number; deck: boolean; from: number; fresh: boolean };
@@ -33,16 +45,19 @@ export type JobCell = { x: number; y: number; z: number; deck: boolean; from: nu
 export type JobLevel = { x: number; y: number; to: number; from: number; at: number };
 export type RoadJob = {
   id: number;
-  /** ITS MACHINES, from the yard and home: not worked till they are there, not over till they have gone. `false` with no yard to send them. @see fleet/plant */
-  plant?: false | import("../fleet/plant").Plant;
-  /** WAITING FOR THE MACHINES OF THE JOB NEARBY (its id), to come straight on from it when it is done: not worked till then, and nothing sent from the yard for it. @see fleet/plant handOn */
-  after?: number;
+  /** ITS CREWS, each sent when its phase is about to begin: a trade is not worked till its crew is there, and the job not over till every crew has gone. Not there with no town to drive them (every trade then simply worked). @see fleet/crews */
+  gangs?: Partial<Record<RoadCrew, Gang>>;
   cells: JobCell[];
   levelled: JobLevel[];
-  /** Seconds it has been worked: the earthworks' clock, which needs nothing brought. */
+  /** Seconds the setting out has been worked: the surveyors' clock. */
   t: number;
-  /** Seconds the trades that lay something have worked: no further than the loads on site allow. @see materialTime */
-  tm: number;
+  /** (Saved before each trade had its own clock: what the trades that lay something had worked. Read only to bring an old job's trades on. @see workOf) */
+  tm?: number;
+  /**
+   * SECONDS EACH TRADE HAS WORKED, earthworks to lining: each on its own, only while its crew is there, never nearer
+   * than {@link GAP} tiles to the one ahead, the sub-base no further than its loads. −1: not begun. @see stepRoadJobs
+   */
+  work?: number[];
   /** How many of its cells the earthworks have passed, and how many are open road. */
   dug: number;
   opened: number;
@@ -74,7 +89,7 @@ export type RoadJob = {
  * step follows the one ahead by.
  */
 export const SET_IN = 2, SET_PACE = 3, SET_GAP = 2, SET_STEPS = 3;
-/** Seconds before the gang that digs is on a job it has been given: the setting out well ahead of it by then, and faster than it ever after. */
+/** Seconds of setting out before the earthworks may begin: the setting out well ahead of it by then, and faster than it ever after. */
 export const ARRIVE = SET_IN + ((SET_STEPS - 1) * SET_GAP + 2) * SET_PACE;
 /** How far along a job a step of its setting out has got, in cells from its first one's near edge: `step` 0 the pegs, 1 the tape, 2 the marks. */
 export const setOutAt = (j: Pick<RoadJob, "t" | "cells">, step: number) => Math.max(0, Math.min(j.cells.length, (j.t - SET_IN) / SET_PACE - step * SET_GAP));
@@ -108,22 +123,64 @@ const PAVED = 1;
 /** Seconds of work each cell takes one trade, by what is done there. */
 const cellTime = (c: JobCell) => (!c.fresh ? 0 : PACE * (c.deck ? DECK_PACE : 1 + DIG_PACE * Math.abs(c.z - c.from)));
 
-/** The clock a trade works by: the earthworks' own; the others', held to the materials, and never ahead of the earthworks. */
-const clockOf = (j: RoadJob, trade: number) => (trade === 0 ? j.t : Math.min(j.t, j.tm ?? j.t));
+/**
+ * Seconds a trade has worked on a job; −1 not begun. (A job saved before each trade had its own clock: worked out
+ * from the one clock it had, each trade a fixed time behind the one ahead, as it was then.)
+ */
+export function workOf(j: Pick<RoadJob, "t" | "tm" | "work">, trade: number): number {
+  if (j.work) return j.work[trade] ?? -1;
+  const clock = trade === 0 ? j.t : Math.min(j.t, j.tm ?? j.t), v = clock - ARRIVE - trade * GAP * PACE;
+  return v >= 0 ? v : -1;
+}
+/** Whether a trade has begun on a job. */
+export const tradeBegun = (j: Pick<RoadJob, "t" | "tm" | "work">, trade: number) => workOf(j, trade) >= 0;
 /** How many of a job's cells a trade has passed: `trade` 0 the earthworks … 3 the lining. */
 export function frontOf(j: RoadJob, trade: number): number {
-  // Each follows the one ahead by GAP tiles' worth of time.
-  let left = clockOf(j, trade) - ARRIVE - trade * GAP * PACE, k = 0;
-  for (; k < j.cells.length; k++) { left -= cellTime(j.cells[k]); if (left < 0) break; }
+  let left = workOf(j, trade), k = 0;
+  if (left < 0) return 0;
+  // (A hair under is there: a trade worked to the end exactly is summed in another order than it is taken off here.)
+  for (; k < j.cells.length; k++) { left -= cellTime(j.cells[k]); if (left < -1e-6) break; }
   return k;
 }
 /** Where a trade is along a job, to a part of a cell: for whatever is drawn working there. */
 export function frontAt(j: RoadJob, trade: number, behind = 0): number {
   // (`behind`, seconds after the trade itself: for what follows it at a set distance — the concrete poured over the stone.)
-  let left = clockOf(j, trade) - ARRIVE - trade * GAP * PACE - behind;
-  if (left <= 0) return 0;
-  for (let k = 0; k < j.cells.length; k++) { const need = cellTime(j.cells[k]); if (left < need) return k + (need ? left / need : 0); left -= need; }
+  let left = workOf(j, trade) - behind;
+  // (Not begun; begun, it passes at once what there is nothing to do on.)
+  if (left < 0) return 0;
+  for (let k = 0; k < j.cells.length; k++) { const need = cellTime(j.cells[k]); if (left < need - 1e-6) return k + (need ? left / need : 0); left -= need; }
   return j.cells.length;
+}
+/** Seconds of a trade's work to bring it to `p` cells along a job. */
+function workTo(j: RoadJob, p: number): number {
+  let w = 0;
+  for (let k = 0; k < j.cells.length && k < p; k++) w += cellTime(j.cells[k]) * Math.min(1, p - k);
+  return w;
+}
+/** The cell the sub-base may come to on the loads on site: the first new tile there is no load for; the end once every load is in. */
+export function materialCells(j: RoadJob): number {
+  if (j.delivered >= j.deliveries) return j.cells.length;
+  let have = j.delivered * TILES_PER_LOAD;
+  for (let k = 0; k < j.cells.length; k++) if (j.cells[k].fresh && have-- <= 0) return k;
+  return j.cells.length;
+}
+/** Whether the sub-base has come to the last tile its loads will lay. */
+export const starved = (j: RoadJob) => {
+  const m = materialCells(j);
+  // (Its own front at the last of its loads — or, not begun for want of the first, the earthworks far enough on for it.)
+  return m < j.cells.length && (tradeBegun(j, 1) ? frontAt(j, 1) >= m - 1e-6 : m === 0 && tradeBegun(j, 0) && frontAt(j, 0) >= Math.min(j.cells.length, GAP));
+};
+/**
+ * HOW FAR A TRADE MAY GO NOW, cells: the earthworks no further than the setting out (and not before it has had
+ * {@link ARRIVE} seconds' start); each after it no nearer than {@link GAP} tiles to the one ahead till that one is
+ * done; the sub-base no further than its loads.
+ */
+export function tradeLimit(j: RoadJob, trade: number): number {
+  const n = j.cells.length;
+  if (trade === 0) { if (j.t < ARRIVE) return 0; const so = setOutAt(j, SET_STEPS - 1); return so >= n ? n : Math.max(0, so - 1); }
+  const ahead = tradeBegun(j, trade - 1) ? frontAt(j, trade - 1) : 0;
+  const lim = ahead >= n ? n : Math.max(0, ahead - GAP);
+  return trade === 1 ? Math.min(lim, materialCells(j)) : lim;
 }
 /** How many trades have passed a cell of a job. */
 export const stageOf = (j: RoadJob, k: number) => { let s = 0; while (s < TRADES && frontOf(j, s) > k) s++; return s; };
@@ -133,17 +190,6 @@ export const freshIn = (j: Pick<RoadJob, "cells">, upTo = j.cells.length) => { l
 export const loadsFor = (tiles: number) => Math.ceil(tiles / TILES_PER_LOAD);
 /** What one of a job's loads costs. */
 export const loadPrice = (j: Pick<RoadJob, "cost" | "deliveries">) => (j.deliveries ? j.cost / j.deliveries : 0);
-/**
- * HOW LONG A JOB MAY BE WORKED on the materials it has: the moment the
- * sub-base — the first trade that lays anything — comes to the first tile
- * there is no load for. Without end once every load is in.
- */
-export function materialTime(j: RoadJob): number {
-  if (j.delivered >= j.deliveries) return Infinity;
-  let t = ARRIVE + GAP * PACE, have = j.delivered * TILES_PER_LOAD;
-  for (const c of j.cells) { if (c.fresh && have-- <= 0) break; t += cellTime(c); }
-  return t;
-}
 /** Tiles' worth of materials on site that the sub-base has not come to yet. */
 export const onHand = (j: RoadJob) => j.delivered * TILES_PER_LOAD - freshIn(j, frontOf(j, 1));
 /** How many loads a job keeps on their way at once, and how many loads' worth it keeps on hand and coming: a lorry takes longer to come than a load takes to lay. */
@@ -268,7 +314,7 @@ export function orderRoad(g: Grid, path: readonly GradeCell[]): Ordered {
     levelled.push({ x: m.x, y: m.y, to: m.to, from: g.height[i], at });
   }
   if (!cells.some((c) => c.fresh) && !levelled.length && !cells.some((c) => !c.deck && c.z !== g.height[idx(g, c.x, c.y)])) return { nothing: true };
-  const job: RoadJob = { id: g.nextRoadJob, cells, levelled, t: 0, tm: 0, dug: 0, opened: 0, lengths: lengthsOf(cells), delivered: 0, deliveries: 0, cost: 0, overland: [], stalled: 0, at: 0 };
+  const job: RoadJob = { id: g.nextRoadJob, cells, levelled, t: 0, work: [-1, -1, -1, -1], dug: 0, opened: 0, lengths: lengthsOf(cells), delivered: 0, deliveries: 0, cost: 0, overland: [], stalled: 0, at: 0 };
   job.deliveries = loadsFor(freshIn(job));
   return { job, retarget };
 }
@@ -283,23 +329,42 @@ export type RoadWrites = {
 };
 const noWrites = (): RoadWrites => ({ heights: [], paved: [], decks: [] });
 
+/** A job's trades' clocks, there to be worked: brought on from the one clock of a job saved before they had their own. */
+export function ensureWork(j: RoadJob): number[] {
+  if (!j.work) { j.work = [0, 1, 2, 3].map((k) => workOf(j, k)); delete j.tm; }
+  return j.work;
+}
+/** The jobs being worked: with crews, those any crew has been sent to; without (no town to drive them), the first {@link GANGS}. */
+export const liveRoadJobs = (g: Pick<Grid, "roadJobs">) => g.roadJobs.filter((j) => roadJobLive(g, j));
+/** Whether a job is being worked. @see liveRoadJobs */
+export const roadJobLive = (g: Pick<Grid, "roadJobs">, j: RoadJob) => (j.gangs ? Object.keys(j.gangs).length > 0 : g.roadJobs.indexOf(j) < GANGS);
+/** Whether a job has been begun: its setting out, or any trade. */
+export const begunRoadJob = (j: RoadJob) => j.t > 0 || [0, 1, 2, 3].some((k) => tradeBegun(j, k));
+
 /**
- * A FRAME OF EVERY JOB: the first {@link GANGS} of them worked, oldest
- * first. What it writes, and whether anything that shows has changed — a
- * trade passed a cell, a length opened, a job finished and came off the list.
+ * A FRAME OF EVERY JOB. `crews.on(j, crew)` says whether a crew is on a job, at work: a trade is worked only then.
+ * With no crews (no town to drive them — a map caught up on), the first {@link GANGS} jobs are worked, every trade
+ * of them, oldest first. What it writes, and whether anything that shows has changed — a trade passed a cell, a
+ * length opened, a job finished and came off the list (`crews.over`: once its crews have gone).
  */
-export function stepRoadJobs(g: Grid, dt: number, plant?: { held: (j: RoadJob) => boolean; over: (j: RoadJob) => boolean }): { writes: RoadWrites; changed: boolean } {
+export function stepRoadJobs(g: Grid, dt: number, crews?: { on: (j: RoadJob, crew: RoadCrew) => boolean; over: (j: RoadJob) => boolean }): { writes: RoadWrites; changed: boolean } {
   const writes = noWrites();
   let changed = false;
-  for (const j of g.roadJobs.slice(0, GANGS)) {
-    // (Not worked while its machines are still coming, nor once it is done and they are going. @see fleet/plant)
-    if (plant?.held(j)) continue;
+  for (const j of crews ? g.roadJobs : g.roadJobs.slice(0, GANGS)) {
+    const on = (c: RoadCrew) => !crews || crews.on(j, c);
     const before = [0, 1, 2, 3].map((s) => frontOf(j, s));
     // LOADS ACROSS COUNTRY, arriving.
     for (let k = j.overland.length - 1; k >= 0; k--) if ((j.overland[k] -= dt) <= 0) { j.overland.splice(k, 1); j.delivered = Math.min(j.deliveries, j.delivered + 1); changed = true; }
-    j.t += dt;
-    // What lays something works as far as the materials on site allow, and no further.
-    j.tm = Math.max(j.tm ?? j.t, Math.min((j.tm ?? j.t) + dt, materialTime(j)));
+    // THE SETTING OUT, while the surveyors are there (and on, once it is done: they walk off it).
+    if (on("survey") || j.t >= setOutSeconds(j)) j.t += dt;
+    // EACH TRADE, while its crew is there: begun when there is room for it, and on as far as it may go.
+    const work = ensureWork(j);
+    for (let k = 0; k < TRADES; k++) {
+      if (!on(TRADE_CREW[k])) continue;
+      const lim = tradeLimit(j, k);
+      if (work[k] < 0) { if (lim <= 0) continue; work[k] = 0; changed = true; }
+      work[k] = Math.max(work[k], Math.min(work[k] + dt, workTo(j, lim)));
+    }
     const after = [0, 1, 2, 3].map((s) => frontOf(j, s));
     if (after.some((v, s) => v !== before[s])) changed = true;
     // EARTHWORKS: the ground under a cell goes to its level as they pass it.
@@ -342,8 +407,8 @@ export function stepRoadJobs(g: Grid, dt: number, plant?: { held: (j: RoadJob) =
       changed = true;
     }
   }
-  // (Done, and off the list — once its machines have gone home, where it has any to send.)
-  const done = g.roadJobs.filter((j) => j.opened >= j.cells.length && (plant?.over(j) ?? true));
+  // (Done, and off the list — once its crews have gone from it, where it has any.)
+  const done = g.roadJobs.filter((j) => j.opened >= j.cells.length && (crews?.over(j) ?? true));
   if (done.length) { g.roadJobs = g.roadJobs.filter((j) => !done.includes(j)); changed = true; }
   return { writes, changed };
 }
