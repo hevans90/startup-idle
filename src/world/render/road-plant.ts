@@ -37,6 +37,7 @@ import { PLANT_COLOUR, type Plant, type PlantKind } from "../fleet/plant";
 import type { BandLayer } from "./bands";
 import { ARM, BLUE, CONCRETE, DIG, DIG_ALL, DRUM, EARTH, mixerLook, M, PPM, STONE, T, TAR, YELLOW, drawSpill, follow, handedOn, makeSpill, makeUnit, poseUnit, type Spill, type Standing, type Stuff, type Unit } from "./plant-kit";
 import { COLUMN, carry, stepPour, type PourRun } from "./pour-sim";
+import { kerbSpot } from "./kerb-spots";
 
 /** The lining truck's white. (The contractor's yellow and the lorries' blue are every site's. @see plant-kit) */
 const WHITE = 0xf1f1ee;
@@ -177,8 +178,17 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
           const plant = j.plant || null;
           const hd = plant?.head ?? j.cells[0], c0 = j.cells[Math.min(j.cells.length - 1, 1)] ?? j.cells[0], dl = Math.hypot(c0.x - hd.x, c0.y - hd.y) || 1;
           const flat = Math.hypot(c0.x - hd.x, c0.y - hd.y) < 0.5, dxh = flat ? 1 : (c0.x - hd.x) / dl, dyh = flat ? 0 : (c0.y - hd.y) / dl;
-          /** Where a machine stands by the road when its trade is not at work: off the line, in rows of five. */
-          const rest = (k: number) => ({ x: hd.x + dxh * (0.8 + 0.8 * Math.floor(k / 5)) + dyh * (1.05 + 0.6 * (k % 5)), y: hd.y + dyh * (0.8 + 0.8 * Math.floor(k / 5)) - dxh * (1.05 + 0.6 * (k % 5)) });
+          /**
+           * Where a machine stands when its trade is not at work: PULLED OVER on the verge of the road it came by, a tile
+           * of its own (@see kerb-spots) — a tracked one on the low-loader that brought it, the screed apart from its
+           * paver. With no verge free, off the line by the road, in rows of five.
+           */
+          const rest = (k: number, id?: string) => {
+            const name = id?.slice(id.indexOf(":") + 1), mine = name ? ROAD_UNITS[name] : undefined;
+            const spot = name && (name.startsWith("low") ? name : mine?.tracked && name !== "screed" ? `low${mine.li}` : name);
+            const at = spot ? kerbSpot(g, `road:${j.id}:${spot}`, hd) : null;
+            return at ?? { x: hd.x + dxh * (0.8 + 0.8 * Math.floor(k / 5)) + dyh * (1.05 + 0.6 * (k % 5)), y: hd.y + dyh * (0.8 + 0.8 * Math.floor(k / 5)) - dxh * (1.05 + 0.6 * (k % 5)) };
+          };
           // (None of them at work till the last has come: those that have stand by the road. @see plant-kit follow)
           if (!plant || plant.here) work(j, plant, rest);
           if (plant) {
@@ -203,7 +213,7 @@ export function createRoadPlant(bands: BandLayer): RoadPlant {
           }
         });
         // (A function, so that it is there for the jobs above it: declared, it is the block's from its top.)
-        function work(j: RoadJob, plant: Plant | null, rest: (k: number) => { x: number; y: number }) {
+        function work(j: RoadJob, plant: Plant | null, rest: (k: number, id: string) => { x: number; y: number; heading?: number }) {
           if (!cars) return;
           const still = j.stalled > 0, n = j.cells.length, f = [0, 1, 2, 3].map((s) => frontAt(j, s));
           const w = (clocks.get(j.id) ?? j.id * 3.7) + (still ? 0 : dt);

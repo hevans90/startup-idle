@@ -75,6 +75,8 @@ export const PLANT_GAP = 1.8, PLANT_GATHER = 6;
 export type PlantRole = "plant" | "road-plant" | "site-plant";
 /** Seconds a low-loader that does not wait stands while its machine is driven off it; seconds a job's machines are given up on if the low-loaders sent for them never come. */
 export const PLANT_UNLOAD = 3, PLANT_GIVE_UP = 120;
+/** Seconds a machine waiting its turn through a busy yard looks again. */
+const YARD_RETRY = 0.25;
 
 /** The machine waiting at the road to go home, its way found: held till it has driven to where that begins. By job. */
 const going = new Map<string, Mover>();
@@ -143,7 +145,7 @@ export function stepPlant(
     // (One at a time: the next when the one before has gone with its machine — they stand in the same place.)
     if (fetch && (p.called ?? 0) < loaders && (p.called ?? 0) <= loaders - p.home.filter((q) => q === "loader").length) {
       p.t -= dt;
-      if (p.t <= 0) { plantOut(g, haul.town, from!, head!, { site: key.id, role: key.role }, PLANT_LOADER_EMPTY_COLOUR); p.called = (p.called ?? 0) + 1; p.t = PLANT_GAP * 1.3; }
+      if (p.t <= 0) { if (plantOut(g, haul.town, from!, head!, { site: key.id, role: key.role }, PLANT_LOADER_EMPTY_COLOUR) === "wait") p.t = YARD_RETRY; else { p.called = (p.called ?? 0) + 1; p.t = PLANT_GAP * 1.3; } }
       if (!p.to) return "leaving";
     }
     // (A machine that goes by low-loader waits for one to have come back, and to be up on it: the others go first.)
@@ -184,7 +186,12 @@ export function stepPlant(
   p.t -= dt;
   // (Each out of the yard's shed and through its gate, and so onto the road. @see fleet plantOut)
   // (After a low-loader that does not wait, the next is given time for it to have set its machine down and gone.)
-  if (p.queue.length && p.t <= 0) { const kind = p.queue.shift()!; plantOut(g, haul.town, from!, head!, { site: key.id, role: key.role }, PLANT_COLOUR[kind]); p.t = PLANT_GAP * 1.3 + (shuttle && kind === "loader" ? PLANT_UNLOAD + PLANT_GAP : 0); }
+  // (Its turn through the yard: not while the yard is busy — it waits in the shed, still to set off.)
+  if (p.queue.length && p.t <= 0) {
+    const kind = p.queue[0];
+    if (plantOut(g, haul.town, from!, head!, { site: key.id, role: key.role }, PLANT_COLOUR[kind]) === "wait") p.t = YARD_RETRY;
+    else { p.queue.shift(); p.t = PLANT_GAP * 1.3 + (shuttle && kind === "loader" ? PLANT_UNLOAD + PLANT_GAP : 0); }
+  }
   const onRoad = haul.town.movers.some((m) => m.job?.role === key.role && m.job.site === key.id && !haul.town.arrived.includes(m)) || plantComing(haul.town, name);
   if (!p.queue.length && !onRoad) p.here = true;
   return p.here ? "work" : "wait";

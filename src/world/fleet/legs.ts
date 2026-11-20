@@ -21,7 +21,11 @@ export type LegPoint = {
   /** Done when it gets there. */
   on?: () => void;
 };
-export type Leg = { m: Mover; pts: LegPoint[]; k: number; wait: number; speed: number; up: number; done?: () => void; /** Seconds it has stood behind another. */ held?: number };
+export type Leg = {
+  m: Mover; pts: LegPoint[]; k: number; wait: number; speed: number; up: number; done?: () => void; /** Seconds it has stood behind another. */ held?: number;
+  /** THE ROAD IT JOINS at its end, as the mover it will be there: it waits at the end of its leg till there is room on the road for it. */
+  join?: Mover;
+};
 /** Half a vehicle's width and a little, tiles: nearer than this to its line, another is in its way. Seconds one stands behind another before it goes on regardless: a knot comes undone. */
 const IN_WAY = 0.3, PATIENCE = 6;
 
@@ -131,6 +135,8 @@ export function stepLegs(town: Town, g: Grid, dt: number): void {
       m.z = groundAt(g, m.x, m.y) + leg.up;
     }
     if (leg.k >= leg.pts.length && leg.wait <= 0) {
+      // (At the road: on to it when there is room — never down on top of what is driving there. Out of patience, it goes.)
+      if (leg.join && (leg.held ?? 0) < PATIENCE * 2 && !roomAt(town, leg.join, halfLength({ ...leg.join, colour: m.colour }), m)) { leg.held = (leg.held ?? 0) + dt; m.speed = 0; continue; }
       town.legs = town.legs.filter((q) => q !== leg);
       m.speed = 0;
       leg.done?.();

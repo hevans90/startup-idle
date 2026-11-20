@@ -269,6 +269,7 @@ import { SHOP_LOOK, createShopfronts, type Shopfronts } from "./render/shopfront
 import { createStreetProps, type StreetProps } from "./render/street-props";
 import { createBridgeProps, type BridgeKind, type BridgeProps } from "./render/bridge-props";
 import { createRoadWorks, type RoadWorks } from "./render/road-works";
+import { kerbFrame } from "./render/kerb-spots";
 import { createRoadPlant, type RoadPlant } from "./render/road-plant";
 import { createLineWorks, type LineWorks } from "./render/line-works";
 import { depthAt } from "./water/field";
@@ -3992,6 +3993,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       }
       // A BRIDGE'S PIERS AND SIDES, again when the map changes. @see bridge-props
       if (roadWorksRef.current) { const st = useWorldStore.getState(); roadWorksRef.current.sync(st.grid, st.revision, st.roadRev, scale, plRef.current); }
+      // (A frame of the verge's spots: those of machines no longer drawn are free again. @see kerb-spots)
+      kerbFrame();
       if (roadPlantRef.current) roadPlantRef.current.sync(useWorldStore.getState().grid, scale, worksClock());
       // MAINS, SEWERS AND CHANNELS being laid. @see line-works
       if (lineWorksRef.current) { const st = useWorldStore.getState(), field = st.getWaterField(); lineWorksRef.current.sync(st.grid, st.lineRev + st.revision, scale, worksClock(), field ? (x, y) => depthAt(field, x, y) : undefined); }

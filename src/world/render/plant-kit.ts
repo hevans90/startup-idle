@@ -161,8 +161,15 @@ export type Following = {
   /** Where to draw it and facing which way; whether it is on the move (its work — a pour, a rope — waits for it). Null: not on the job — not come yet, or gone home. */
   at: { x: number; y: number; heading: number } | null; away: boolean; loaded: boolean;
 };
-/** Tiles a second a machine makes across a job. */
-export const PLANT_SPEED = 1.8;
+/** Tiles a second a machine makes across a job; radians a second one pulled over swings round to lie along the kerb. */
+export const PLANT_SPEED = 1.8, PARK_TURN = 2.4;
+/** A heading turned toward `to` or `to` + π — either lies along the same line — whichever is nearer, by at most `by`. */
+export function swing(from: number, to: number, by: number): number {
+  let turn = to - from;
+  while (turn > Math.PI / 2) turn -= Math.PI;
+  while (turn < -Math.PI / 2) turn += Math.PI;
+  return from + Math.max(-by, Math.min(by, turn));
+}
 /**
  * Where a machine is this frame. `kind` and `li`: which of the job's travelling machines it is (the `li`th of its
  * kind); `tracked`, that it came on a low-loader (and `low`, that it IS the low-loader); `want`, where its work is
@@ -171,7 +178,7 @@ export const PLANT_SPEED = 1.8;
 export function follow(
   poses: Map<string, Standing>, id: string, plant: { here: boolean; leaving?: number; home?: readonly string[]; at?: readonly { colour: number; x: number; y: number; heading: number }[]; to?: { kind: string; x: number; y: number; heading: number } },
   kinds: readonly string[], kind: string, li: number, paint: number, o: { tracked?: boolean; low?: boolean },
-  want: { x: number; y: number; heading: number } | null, rest: (k: number) => { x: number; y: number }, dt: number,
+  want: { x: number; y: number; heading: number } | null, rest: (k: number, id: string) => { x: number; y: number; heading?: number }, dt: number,
 ): Following {
   // (Not come yet: one that has stands by the road where it turned off, while the rest of them come.)
   const came = (plant.at ?? []).filter((a) => a.colour === paint);
@@ -186,14 +193,22 @@ export function follow(
     let k = 0; const job = id.slice(0, id.indexOf(":") + 1);
     for (const key of poses.keys()) if (key.startsWith(job)) k++;
     const from = came[Math.min(came.length - 1, li)];
-    st = from ? { x: from.x, y: from.y, heading: from.heading, k } : { ...rest(k), heading: want?.heading ?? 0, k };
+    const r = rest(k, id);
+    st = from ? { x: from.x, y: from.y, heading: from.heading, k } : { x: r.x, y: r.y, heading: r.heading ?? want?.heading ?? 0, k };
     poses.set(id, st);
   }
-  const leaving = plant.leaving !== undefined, park = o.tracked ? rest(7 + li) : rest(st.k);
-  const to = going ?? (leaving || !want ? { ...park, heading: st.heading } : want);
+  const leaving = plant.leaving !== undefined, park = o.tracked ? rest(7 + li, id) : rest(st.k, id);
+  const parked = leaving || !want;
+  const to = going ?? (parked ? { x: park.x, y: park.y, heading: st.heading } : want);
   const dx = to.x - st.x, dy = to.y - st.y, d = Math.hypot(dx, dy), step = PLANT_SPEED * dt;
   let away = false;
-  if (d <= Math.max(step, 0.03)) { st.x = to.x; st.y = to.y; if (going) st.heading = going.heading; else if (want && !leaving) st.heading = want.heading; }
+  if (d <= Math.max(step, 0.03)) {
+    st.x = to.x; st.y = to.y;
+    if (going) st.heading = going.heading;
+    else if (!parked && want) st.heading = want.heading;
+    // (Pulled over: swung round to lie along the kerb — whichever way along it is the nearer.)
+    else if (park.heading !== undefined) st.heading = swing(st.heading, park.heading, PARK_TURN * dt);
+  }
   else { st.x += (dx / d) * step; st.y += (dy / d) * step; st.heading = Math.atan2(dy, dx); away = true; }
   return { at: { x: st.x, y: st.y, heading: st.heading }, away, loaded: !!going && !!o.low };
 }

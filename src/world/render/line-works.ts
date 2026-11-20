@@ -29,7 +29,8 @@ import { getTown } from "../../state/world.store";
 import { PIPE_EMPTY_COLOUR } from "../agents/cars/fleet";
 import type { BandLayer } from "./bands";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
-import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, follow, handedOn, makeUnit, mixerLook, poseUnit, shuttled, type Standing, type Unit } from "./plant-kit";
+import { BLUE, DIG, DIG_ALL, DRUM, M, T, YELLOW, PARK_TURN, follow, handedOn, makeUnit, swing, mixerLook, poseUnit, shuttled, type Standing, type Unit } from "./plant-kit";
+import { kerbSpot } from "./kerb-spots";
 import { RAZE, createRazeFx } from "./raze-fx";
 import { shownStructures } from "../structures/layer";
 import { walkRound, type Walker } from "./road-plant";
@@ -820,9 +821,18 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
         const loaders = LINE_PLANT[j.kind].filter((k) => k === "loader").length;
         const hd = j.head ?? j.cells[0], dl = Math.hypot(j.cells[0].x - hd.x, j.cells[0].y - hd.y) || 1;
         const dxh = dl > 0.5 ? (j.cells[0].x - hd.x) / dl : 1, dyh = dl > 0.5 ? (j.cells[0].y - hd.y) / dl : 0;
-        /** Where a machine stands by the road, off the haul track: the `k`th of a row of them. */
-        const parkAt = (k: number) => ({ x: hd.x + dxh * 1.0 - dyh * (0.75 + 0.62 * k) * -1, y: hd.y + dyh * 1.0 + dxh * (0.75 + 0.62 * k) * -1 });
-        const drive = (name: string, id: string, x: number, y: number, heading: number, h: number, looks: { look: string; tint: number; heading?: number }[]): Unit | null => {
+        /**
+         * Where a machine stands when it is not at work: PULLED OVER on the verge of the road it came by, a tile of its
+         * own (@see kerb-spots) — a tracked one on the low-loader that brought it. With no verge free, the `k`th of a
+         * row of them beside the haul track.
+         */
+        const park = (name: string, k: number): { x: number; y: number; heading: number } => {
+          const spot = name.startsWith("low") ? name : PLANT_UNIT[name] === "loader" ? `low${LOADER_IDX[name] ?? 0}` : name;
+          return kerbSpot(g, `line:${j.id}:${spot}`, hd)
+            ?? { x: hd.x + dxh * 1.0 - dyh * (0.75 + 0.62 * k) * -1, y: hd.y + dyh * 1.0 + dxh * (0.75 + 0.62 * k) * -1, heading: Math.atan2(dyh, dxh) };
+        };
+        /** (`pulled`: where it is sent is where it pulls over — it swings round to lie along the kerb there, not all at once.) */
+        const drive = (name: string, id: string, x: number, y: number, heading: number, h: number, looks: { look: string; tint: number; heading?: number }[], pulled = false): Unit | null => {
           if (!cars || !here) return null;
           const kind = PLANT_UNIT[name];
           let px = x, py = y, ph = heading, away = false;
@@ -837,14 +847,14 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
             if (!st) {
               // (Where it turned off the road is where it starts from: the very place its mover stopped.)
               let k = 0; for (const key of poses.keys()) if (key.startsWith(`${j.id}:`)) k++;
-              const came = (plant.at ?? []).filter((a) => a.colour === PLANT_PAINT[kind]), from = came[Math.min(came.length - 1, li)] ?? parkAt(k);
+              const came = (plant.at ?? []).filter((a) => a.colour === PLANT_PAINT[kind]), from = came[Math.min(came.length - 1, li)] ?? park(name, k);
               st = { x: from.x, y: from.y, heading: "heading" in from ? from.heading : heading, k, looks, h }; poses.set(id, st);
             }
             // (By the road a tracked one stands on its low-loader; the rest in a row beside the track.)
-            const rest = kind === "loader" ? parkAt(7 + li) : parkAt(st.k);
+            const rest = park(name, kind === "loader" ? 7 + li : st.k);
             if (going && low) looks = [{ look: "lowLoader", tint: YELLOW }];
             const tx = going ? going.x : leaving ? rest.x : x, ty = going ? going.y : leaving ? rest.y : y, ddx = tx - st.x, ddy = ty - st.y, d = Math.hypot(ddx, ddy), step = PLANT_SPEED * dt;
-            if (d <= Math.max(step, 0.03)) { st.x = tx; st.y = ty; if (going) st.heading = going.heading; else if (!leaving) st.heading = heading; }
+            if (d <= Math.max(step, 0.03)) { st.x = tx; st.y = ty; if (going) st.heading = going.heading; else if (leaving || pulled) st.heading = swing(st.heading, leaving ? rest.heading : heading, PARK_TURN * dt); else st.heading = heading; }
             else { st.x += (ddx / d) * step; st.y += (ddy / d) * step; st.heading = Math.atan2(ddy, ddx); away = true; }
             st.looks = looks; st.h = h;
             px = st.x; py = st.y; ph = st.heading;
@@ -877,15 +887,15 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
         if (j.kind !== "dredge") layMain(g, j, w, dt, scale, P, place, seenM, placeAt);
         if (plant && here) {
           // WHAT IS NOT AT WORK STANDS BY THE ROAD: a machine whose trade has not begun, or is over, drives there and waits.
-          for (const [id, st] of poses) if (id.startsWith(`${j.id}:`) && !seen.has(id)) { const name = id.slice(id.indexOf(":") + 1), at = PLANT_UNIT[name] === "loader" ? parkAt(7 + (LOADER_IDX[name] ?? 0)) : parkAt(st.k); drive(name, id, at.x, at.y, st.heading, st.h, st.looks); }
+          for (const [id, st] of poses) if (id.startsWith(`${j.id}:`) && !seen.has(id)) { const name = id.slice(id.indexOf(":") + 1), at = park(name, PLANT_UNIT[name] === "loader" ? 7 + (LOADER_IDX[name] ?? 0) : st.k); drive(name, id, at.x, at.y, at.heading, st.h, st.looks, true); }
           // (Every one of them from when they came — one whose trade has not begun yet stands and waits, as it will after.)
           const hz = drawnHeight(g, hd.x + 0.5, hd.y + 0.5), dig = [{ look: "exTracks", tint: YELLOW }, { look: "exLift", tint: YELLOW, heading: 0 }];
           const stood: [string, { look: string; tint: number; heading?: number }[]][] = j.kind === "sewer"
             ? [["digger", dig], ["filler", dig], ["roller", [{ look: "roller", tint: YELLOW }]], ["crane", [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[0], tint: YELLOW, heading: 0 }]], ["welder", [{ look: "pickup", tint: YELLOW }]]]
             : [["footer", dig], ["mixer", [{ look: "mixer", tint: DRUM }]], ["crane", [{ look: "craneCarrier", tint: YELLOW }, { look: CRANE_LOOKS[0], tint: YELLOW, heading: 0 }]], ["welder", [{ look: "pickup", tint: YELLOW }]]];
-          for (const [q, [name, looks]] of stood.entries()) if (!seen.has(`${j.id}:${name}`)) { const at = PLANT_UNIT[name] === "loader" ? parkAt(7 + (LOADER_IDX[name] ?? 0)) : parkAt(q); drive(name, `${j.id}:${name}`, at.x, at.y, Math.atan2(dyh, dxh), hz, looks); }
+          for (const [q, [name, looks]] of stood.entries()) if (!seen.has(`${j.id}:${name}`)) { const at = park(name, PLANT_UNIT[name] === "loader" ? 7 + (LOADER_IDX[name] ?? 0) : q); drive(name, `${j.id}:${name}`, at.x, at.y, at.heading, hz, looks, true); }
           // AND THE LOW-LOADERS that brought the tracked ones: bare by the road till they take them home.
-          for (let q = 0; q < loaders; q++) { const at = parkAt(7 + q); drive(`low${q}`, `${j.id}:low${q}`, at.x, at.y, Math.atan2(dyh, dxh), drawnHeight(g, at.x + 0.5, at.y + 0.5), [{ look: "lowLoaderEmpty", tint: YELLOW }]); }
+          for (let q = 0; q < loaders; q++) { const at = park(`low${q}`, 7 + q); drive(`low${q}`, `${j.id}:low${q}`, at.x, at.y, at.heading, drawnHeight(g, at.x + 0.5, at.y + 0.5), [{ look: "lowLoaderEmpty", tint: YELLOW }], true); }
         }
         const sail = j.barge || null, voyage = !!sail && (sail.out || sail.s < sail.path.length - 1);
         if (j.kind === "dredge" && (f0 < n || voyage)) {

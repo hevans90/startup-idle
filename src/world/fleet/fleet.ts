@@ -177,6 +177,8 @@ export function stepYard(town: Town, g: Grid, dt: number): void {
     if (q.phase === "queued") {
       // (One at a time under the crane, and none drawn up while another is still pulling out from under it.)
       if (town.yard.some((x) => x.yard === q.yard && x !== q && (x.phase === "toBay" || x.phase === "loading" || (x.phase === "out" && x.left > -1.2)))) continue;
+      // (Nor while a job's machine is on its way through the yard, under the crane and out at the gate.)
+      if ((plantInYard.get(q.yard) ?? 0) > 0) continue;
       q.phase = "toBay";
       f.waits = false;
       f.m.colour = colourOf(f.body, null);
@@ -201,7 +203,7 @@ export function stepYard(town: Town, g: Grid, dt: number): void {
         town.movers.push(next);
         f.away = true;
         town.yard = town.yard.filter((x) => x !== q);
-      }, up);
+      }, up).join = next;
     } else if (q.phase === "out") q.left -= dt;
   }
   stepLegs(town, g, dt);
@@ -218,22 +220,60 @@ const PLANT_PAINT: ReadonlySet<number> = new Set([PLANT_CRANE_COLOUR, PLANT_MIXE
 /** Machines on their way out of a yard to a job, by the job: not on the road yet. */
 const plantLegs = new Map<string, number>();
 export const plantComing = (_town: Town, job: string) => (plantLegs.get(job) ?? 0) > 0;
+/** Machines on their way through a yard, out or in, by the yard: its lorries are not drawn up under the crane meanwhile. */
+const plantInYard = new Map<number, number>();
+const inYardNow = (yard: number, by: number) => plantInYard.set(yard, Math.max(0, (plantInYard.get(yard) ?? 0) + by));
+/** Tiles round a place in a yard within which another vehicle on the move is in the way of one setting off there. */
+const YARD_CLEAR = 0.9;
+/**
+ * WHERE A JOB'S MACHINE IS KEPT, under a yard's shed: a bay of the fleet's that no lorry stands in now — and none
+ * driving to or from it — else the first. (The machines do not crowd the lorries: one comes out of an empty bay.)
+ */
+function plantBay(town: Town, s: Structure) {
+  const bays = YARD_PARKING[s.def] ?? [{ u: 4.3, v: 0.5 }];
+  for (let k = 0; k < bays.length; k++) {
+    const at = bayOf(s, k);
+    if (town.fleet.some((f) => f.yard === s.id && f.bay === k && (f.home || f.waits))) continue;
+    if (town.legs.some((l) => Math.hypot(l.m.x - at.x, l.m.y - at.y) < YARD_CLEAR)) continue;
+    return at;
+  }
+  return bayOf(s, 0);
+}
+/** Whether a yard is clear for one of its machines to set off: nothing under its crane, and nothing on the move where it sets off or at its gate. */
+function yardClear(town: Town, s: Structure, from: { x: number; y: number }): boolean {
+  if (town.yard.some((x) => x.yard === s.id && (x.phase === "toBay" || x.phase === "loading" || (x.phase === "out" && x.left > -1.2)))) return false;
+  if ((plantInYard.get(s.id) ?? 0) > 0) return false;
+  const gate = inYardAt(s, YARD_GATE.u, GATE_V);
+  return !town.legs.some((l) => Math.hypot(l.m.x - from.x, l.m.y - from.y) < YARD_CLEAR || Math.hypot(l.m.x - gate.x, l.m.y - gate.y) < YARD_CLEAR);
+}
 
 /**
  * A JOB'S MACHINE OUT OF THE YARD: from under the shed, where the company keeps them, round to the gate and onto
  * the road — and from there it is the town's traffic, to the job. With no way there it does not set out.
  */
-export function plantOut(g: Grid, town: Town, from: Place, to: Place, job: NonNullable<Mover["job"]>, colour: number): void {
-  const s = g.structures.get(from.structure!), next = setOff(town, g, "truck", from, to);
-  if (!s || !next) return;
-  const up = levelOf(s), at = bayOf(s, 0), m = ghost(town, g, at.x, at.y, outward(s), colour, up);
+export function plantOut(g: Grid, town: Town, from: Place, to: Place, job: NonNullable<Mover["job"]>, colour: number): "sent" | "wait" | "none" {
+  const s = g.structures.get(from.structure!);
+  if (!s) return "none";
+  // (ONE AT A TIME THROUGH THE YARD: not while a lorry is under its crane, nor on top of anything on the move there.)
+  const at = plantBay(town, s);
+  if (!yardClear(town, s, at)) return "wait";
+  const next = setOff(town, g, "truck", from, to);
+  if (!next) return "none";
+  const up = levelOf(s), m = ghost(town, g, at.x, at.y, outward(s), colour, up);
   const name = `${job.role}:${job.site}`;
   plantLegs.set(name, (plantLegs.get(name) ?? 0) + 1);
-  startLeg(town, m, [{ ...inYardAt(s, at.u, 1.3), up }, ...TO_BAY.map((p) => ({ ...inYardAt(s, p.u, p.v), up })), { ...inYardAt(s, YARD_GATE.u, GATE_V - 0.1), up }, { ...inYardAt(s, YARD_GATE.u, GATE_V + 0.2), up: 0 }, { x: next.x, y: next.y, up: 0 }], () => {
+  inYardNow(s.id, 1);
+  let out = false;
+  const pts: LegPoint[] = [{ ...inYardAt(s, at.u, 1.3), up }, ...TO_BAY.map((p) => ({ ...inYardAt(s, p.u, p.v), up })), { ...inYardAt(s, YARD_GATE.u, GATE_V - 0.1), up }];
+  // (Through the gate: the yard is free for the next.)
+  pts.push({ ...inYardAt(s, YARD_GATE.u, GATE_V + 0.2), up: 0, on: () => { if (!out) { out = true; inYardNow(s.id, -1); } } }, { x: next.x, y: next.y, up: 0 });
+  startLeg(town, m, pts, () => {
+    if (!out) { out = true; inYardNow(s.id, -1); }
     next.id = m.id; next.colour = colour; next.job = job; next.heading = m.heading;
     town.movers.push(next);
     plantLegs.set(name, Math.max(0, (plantLegs.get(name) ?? 1) - 1));
-  }, up);
+  }, up).join = next;
+  return "sent";
 }
 /** Whether a vehicle stands at a yard's gate. */
 const nearYard = (g: Grid, m: Mover) => { for (const s of g.structures.values()) if (!s.build && hasYard(s)) { const gate = inYardAt(s, YARD_GATE.u, GATE_V + 0.5); if (Math.hypot(gate.x - m.x, gate.y - m.y) < 1.3) return true; } return false; };
@@ -242,12 +282,16 @@ function plantHome(g: Grid, town: Town, m: Mover): void {
   let yard: Structure | null = null, best = Infinity;
   for (const s of g.structures.values()) if (!s.build && hasYard(s)) { const d = Math.hypot(s.x - m.x, s.y - m.y); if (d < best) { best = d; yard = s; } }
   if (!yard) return;
-  const up = levelOf(yard), at = bayOf(yard, 0);
-  startLeg(town, m, [{ ...inYardAt(yard, YARD_GATE.u, GATE_V + 0.25), up: 0 }, { ...inYardAt(yard, YARD_GATE.u, GATE_V - 0.1), up }, { ...inYardAt(yard, 4.42, 1.75), up }, { ...inYardAt(yard, at.u, 1.3), up }, { x: at.x, y: at.y, up }], undefined, 0);
+  // (Into a bay no lorry stands in, and the yard busy till it is under the shed.)
+  const up = levelOf(yard), at = plantBay(town, yard), id = yard.id;
+  inYardNow(id, 1);
+  startLeg(town, m, [{ ...inYardAt(yard, YARD_GATE.u, GATE_V + 0.25), up: 0 }, { ...inYardAt(yard, YARD_GATE.u, GATE_V - 0.1), up }, { ...inYardAt(yard, 4.42, 1.75), up }, { ...inYardAt(yard, at.u, 1.3), up }, { x: at.x, y: at.y, up }], () => inYardNow(id, -1), 0);
 }
 
 /** Seconds a lorry stands at a site or at a road's works while it is unloaded. */
 export const UNLOADING = 3.5;
+/** Tiles apart two lorries unloaded side by side stand. */
+const BESIDE = 0.3;
 
 /**
  * A LORRY THAT HAS COME WITH ITS LOAD PULLS IN, IS UNLOADED, AND GOES: off the road where it stopped, its nose in
@@ -258,12 +302,17 @@ export const UNLOADING = 3.5;
 export function unloadAt(g: Grid, town: Town, m: Mover, at: Place, spot: { x: number; y: number }, home: Place | null, site: number): void {
   const from = { x: m.x, y: m.y }, empty = m.fleet ? (m.colour === FLEET_TIPPER_COLOUR ? FLEET_TIPPER_EMPTY_COLOUR : PIPE_EMPTY_COLOUR) : m.colour;
   const next = home ? setOff(town, g, "truck", at, home) : null;
-  const pts: LegPoint[] = [{ x: spot.x, y: spot.y, stop: UNLOADING, colour: empty }, { x: from.x, y: from.y, rev: true }];
+  // (Pulled in BESIDE one unloading there already, not on top of it: across the way in by a lorry's width and a little.)
+  const dl = Math.hypot(spot.x - from.x, spot.y - from.y) || 1, ax = -(spot.y - from.y) / dl, ay = (spot.x - from.x) / dl;
+  const busy = (p: { x: number; y: number }) => town.legs.some((l) => Math.hypot(l.m.x - p.x, l.m.y - p.y) < BESIDE || l.pts.some((q, k) => k >= l.k && q.stop !== undefined && Math.hypot(q.x - p.x, q.y - p.y) < BESIDE));
+  const into = [0, BESIDE, -BESIDE].map((o) => ({ x: spot.x + ax * o, y: spot.y + ay * o })).find((p) => !busy(p)) ?? spot;
+  const pts: LegPoint[] = [{ x: into.x, y: into.y, stop: UNLOADING, colour: empty }, { x: from.x, y: from.y, rev: true }];
   if (next) pts.push({ x: next.x, y: next.y });
-  startLeg(town, m, pts, () => {
+  const leg = startLeg(town, m, pts, () => {
     if (!next) { if (m.fleet) lorryLost(g, town, m.id); return; }
     next.id = m.id; next.colour = m.colour; next.job = { site, role: "haul-back" }; next.heading = m.heading;
     if (m.fleet) next.fleet = true;
     town.movers.push(next);
   });
+  if (next) leg.join = next;
 }
