@@ -261,7 +261,7 @@ import {
 import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, MAX_SUBSTEPS, maxStep, substepsFor } from "../fluid/columns";
-import { busyness, darkness, dayPhase, drawRain, drawSnow, HEAT_GRADE, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
+import { busyness, darkness, dayPhase, drawRain, HEAT_GRADE, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
 import { inForce } from "../game/culture";
 import { cultureNow } from "../game/culture-now";
 import { createCultureProps, type CultureProps } from "./render/culture-props";
@@ -4068,11 +4068,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         r.clear();
         const st = useWorldStore.getState();
         const flood = st.playing && st.events.find((e) => e.kind === "river-flood" && e.phase !== "over");
-        // RAIN AND SNOW FALLING as the weather has it, on the continuous surface; and a flood's rain, coming or here.
-        const w = groundMode() === "smooth" ? weatherAt(useCalendarStore.getState().now()) : null;
-        const pour = Math.max(flood ? (flood.phase === "active" ? 1 : 0.5) : 0, w ? w.rain : 0);
-        if (pour > 0.01) drawRain(r, app.screen.width, app.screen.height, performance.now() / 1000, pour, w?.storm ?? 0);
-        if (w && w.snow > 0.01) drawSnow(r, app.screen.width, app.screen.height, performance.now() / 1000, w.snow);
+        if (flood) drawRain(r, app.screen.width, app.screen.height, performance.now() / 1000, flood.phase === "active" ? 1 : 0.5);
       }
     }
     perfAdd("fx", performance.now() - tFx);

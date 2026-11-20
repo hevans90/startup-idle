@@ -66,31 +66,14 @@ const FALL = 900;
  * a flood is coming at half strength, and in full once it is here — the
  * forecast on the map, not only on its card. @see stepFlood
  */
-export function drawRain(g: Graphics, w: number, h: number, t: number, strength: number, wind = 0): void {
-  // (A storm's rain thicker and driven aslant by its wind. @see world/weather)
-  const n = Math.round(DROPS * strength * (1 + wind)), lean = 0.25 + wind * 0.35;
+export function drawRain(g: Graphics, w: number, h: number, t: number, strength: number): void {
+  const n = Math.round(DROPS * strength);
   for (let k = 0; k < n; k++) {
     // A drop's own place and speed, the same each frame, so it falls rather than flickers.
     const sx = (k * 0.618034) % 1, sp = 0.7 + ((k * 0.414214) % 1) * 0.6;
     const y = ((t * FALL * sp + k * 97) % (h + 60)) - 30;
-    const x = (sx * (w + 80) - 40 + y * lean) % (w + 80);
-    g.moveTo(x, y).lineTo(x - 16 * lean, y + 16);
+    const x = (sx * (w + 80) - 40 + y * 0.25) % (w + 80);
+    g.moveTo(x, y).lineTo(x - 4, y + 16);
   }
   if (n) g.stroke({ color: 0xa9c4e0, alpha: 0.35, width: 1 });
-}
-
-/** Flakes over the whole screen as it snows hardest, and how fast they settle, px a second. */
-const FLAKES = 260;
-const SETTLE = 55;
-
-/** SNOW FALLING, over the map: flakes drifting down, each swaying its own way. @see world/weather */
-export function drawSnow(g: Graphics, w: number, h: number, t: number, strength: number): void {
-  const n = Math.round(FLAKES * strength);
-  for (let k = 0; k < n; k++) {
-    const sx = (k * 0.618034) % 1, sp = 0.6 + ((k * 0.414214) % 1) * 0.8, size = 1.2 + ((k * 0.732051) % 1) * 1.8;
-    const y = ((t * SETTLE * sp + k * 53) % (h + 20)) - 10;
-    const x = (((sx * (w + 40) - 20 + Math.sin(t * 0.9 * sp + k) * 14 + y * 0.08) % (w + 40)) + w + 40) % (w + 40) - 20;
-    g.rect(x, y, size, size);
-  }
-  if (n) g.fill({ color: 0xffffff, alpha: 0.8 });
 }

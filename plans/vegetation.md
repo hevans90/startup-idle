@@ -18,7 +18,7 @@ Status (2026-11-19): phases 1–10 built — the seasons' look, woods as forests
 | Harmed by | Pollution, drought and heatwave, flooding, fire that spreads |
 | Crops | **Player-built farms** |
 | Weather | A real seasonal system: rain and snow feed the water, growth and the ground |
-| Motion | Wind sway, falling leaves and petals, snowfall and rain |
+| Motion | Wind sway, falling leaves and petals |
 | Smart decals | Ground under canopy, wear and paths, weather marks, scatter props |
 | UI | A **season and date indicator** only (and the new tools) |
 | Budget | **+2 ms GPU** at the closest zoom on the bench; sim ≤ 0.5 ms CPU a frame |
@@ -105,7 +105,7 @@ Species are not saved. Each tree's species is hashed from its tile and chosen by
 
 ### Particles
 - Falling leaves in autumn and petals in spring, near the trees that drop them.
-- Snowfall and rain across the screen, by the weather.
+- ~~Snowfall and rain across the screen, by the weather.~~ Dropped (2026-11-20): not wanted.
 - All on the GPU, with batching (per-frame Graphics need `batchMode = "batch"`).
 
 ## Phases
