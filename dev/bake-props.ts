@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { bakeTris } from "../src/world/agents/cars/raster.ts";
 import { PROPS as STREET, PROP_LAYERS, propLayerOf } from "../src/world/props/models.ts";
 import { BRIDGE } from "../src/world/props/bridges.ts";
+import { snowOver } from "../src/world/houses/models.ts";
 import { ROADWORKS } from "../src/world/props/roadworks.ts";
 
 const PROPS = [...STREET, ...BRIDGE, ...ROADWORKS];
@@ -50,7 +51,7 @@ function crop(img: Image, ox: number, oy: number): { img: Image; ox: number; oy:
 
 type Baked = { id: string; k: number; layers: ReturnType<typeof crop>[] };
 const t0 = performance.now();
-const baked: Baked[] = [];
+const baked: Baked[] = [], sheetIds: string[] = [];
 for (const p of PROPS) {
   const tris = p.tris();
   for (let k = 0; k < PROP_TURNS; k++) {
@@ -58,8 +59,26 @@ for (const p of PROPS) {
     baked.push({ id: p.id, k, layers: b.layers.map((img) => crop(img, b.ox, b.oy)) });
   }
 }
+// SNOW ON THE BRIDGES: on each piece's copings, beams, chords and tops, a frame of its own (`id~snow`) holding only
+// the snow — baked with the piece, so the piece hides what it should — faded in over it by the snow lying.
+// @see render/bridge-props, render/snow-cover
+// (Not what stands under the deck — piers, shafts, feet, the frames and ribs between piers, abutments: out of sight
+// under it, and a pier's frame as tall as the pier. Nor a stay or a pylon's leg, which hold none to speak of.)
+const UNDER = /Pier|Shaft|Foot|Sunk|Seat|Cap|Head|^frame|^rib|^abut|^stay[AB]|^pylonLeg/;
+for (const p of BRIDGE) {
+  if (UNDER.test(p.id)) continue;
+  // (From the deck up: what lies under it is out of sight, and made each frame as tall as the pier.)
+  const tris = p.tris(), snow = snowOver(tris.filter((t) => Math.min(t.p[0][2], t.p[1][2], t.p[2][2]) > -0.6), 0.12, 0.5);
+  if (!snow.length) continue;
+  sheetIds.push(`${p.id}~snow`);
+  for (let k = 0; k < PROP_TURNS; k++) {
+    const b = bakeTris([...tris, ...snow], (k / PROP_TURNS) * Math.PI * 2, PROP_RES, { layers: PROP_LAYERS, layerOf: (m) => (m === "snow" ? 1 : 0), shadow: { ...p.shadow, strength: 0 }, flat: p.flat });
+    const empty = { img: { w: 0, h: 0, px: new Uint8Array(0) }, ox: 0, oy: 0 };
+    baked.push({ id: `${p.id}~snow`, k, layers: [empty, crop(b.layers[1], b.ox, b.oy)] });
+  }
+}
 const sheet: PropsSheet = { res: PROP_RES, turns: PROP_TURNS, layers: PROP_LAYERS, pages: [], props: {} };
-for (const p of PROPS) sheet.props[p.id] = [];
+for (const id of [...PROPS.map((p) => p.id), ...sheetIds]) sheet.props[id] = [];
 const tall = (b: Baked) => Math.max(...b.layers.map((l) => l.img.h));
 for (const b of baked.sort((p, q) => tall(q) - tall(p))) {
   const w = b.layers.reduce((s, l) => s + l.img.w, 0) + GAP * (b.layers.length - 1);
@@ -84,4 +103,4 @@ pages.forEach((p, k) => {
   sheet.pages.push(name);
 });
 writeFileSync(join(OUT_DIR, "props.json"), JSON.stringify(sheet));
-console.log(`${PROPS.length} props, ${baked.length} frames → ${pages.length} page(s) in ${Math.round(performance.now() - t0)} ms; last page to y=${used}`);
+console.log(`${PROPS.length} props (${sheetIds.length} snowed), ${baked.length} frames → ${pages.length} page(s) in ${Math.round(performance.now() - t0)} ms; last page to y=${used}`);

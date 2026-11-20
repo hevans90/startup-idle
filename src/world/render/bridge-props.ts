@@ -20,6 +20,7 @@ import { bandOf } from "../iso";
 import { bakedProps, propSprite, propSprites, propsLoaded } from "../props/props-sheet";
 import { ABUT_HEAD, ARCH_SPRING, BENT_MAX, BENT_UNDER, HS, FRAME_DEEP, FRAME_LOW, RIB_CROWN, RIB_FOOT } from "../props/bridges";
 import type { BandLayer } from "./bands";
+import { fadeWithSnow } from "./snow-cover";
 
 export type BridgeKind = "arch" | "trestle" | "girder" | "truss" | "stay";
 export type BridgePiece = { id: string; turn: number; x: number; y: number; z: number; tier: "under" | "back" | "front"; /** The cell it is drawn with, where that is not the one it stands on: a piece on the line between two tiles. */ cell?: { x: number; y: number }; /** Drawn this much taller than baked, from its foot: a pier made to the nearest half step, fitted to the room there is. */ stretch?: number };
@@ -285,6 +286,9 @@ export function createBridgeProps(bands: BandLayer): BridgeProps {
         // (A piece between two tiles is the higher one's: drawn with it.)
         const band = p.cell ? bandOf(p.cell.x, p.cell.y) : bandOf(Math.ceil(p.x), Math.ceil(p.y)), sp = propSprite(P, p.id, p.turn, p.x, p.y, p.z, scale);
         if (!sp) continue;
+        // SNOW on its copings, beams and tops: baked with it, over it, faded in by the snow lying. @see bake-props
+        const snow = P.props.has(`${p.id}~snow`) ? propSprite(P, `${p.id}~snow`, p.turn, 0, 0, 0, scale) : null;
+        if (snow) { fadeWithSnow(snow); sp.addChild(snow); }
         if (p.stretch) sp.scale.y = p.stretch;
         if (p.tier === "under") {
           // ON THE BAND'S GROUND, BEFORE ITS WATER AND ITS ROADS: the river is over a pier's foot and the deck over its head, and each is drawn over it.
