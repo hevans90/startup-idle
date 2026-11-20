@@ -58,6 +58,7 @@ struct Say {
   b: vec4<f32>,           // brink texture filled, fall latch fresh, the screen's tx - ty from, to
   c: vec4<i32>,           // where the roofed tier's list begins (0: one tier), bands, zoomed out, culled to the screen
   d: vec4<i32>,           // the bands to gather, first and last, when culled; cheap gradient; the water as one smooth field
+  e: vec4<i32>,           // the corner table's row, whether it is kept, the water as one smooth field, deck slots
 };
 @group(0) @binding(0) var<uniform> say : Say;
 @group(0) @binding(1) var uDepth : texture_2d<f32>;
@@ -82,6 +83,26 @@ struct Say {
 // a thread writing its entries down the band would land on slots a thread
 // before it had not read yet. @see compact
 @group(0) @binding(10) var<storage, read_write> marks : array<u32>;
+// WHICH CORNERS OF THE SMOOTH FIELD A QUAD KEPT HERE WILL READ, for the corner table to work out and no others.
+// @see water-gpu's cornerTableSource
+@group(0) @binding(11) var<storage, read_write> need : array<atomic<u32>>;
+fn needCorner(vx: i32, vy: i32) { atomicStore(&need[vy * say.e.x + vx], 1u); }
+// AND THE DECK TABLE'S QUADS: each surface quad off the deck rule a slot, its list entry pointing there.
+// @see water-gpu's deckCorner
+@group(0) @binding(12) var<storage, read_write> deckAt : array<u32>;
+// [0] how many, from [4] each slot's band
+@group(0) @binding(13) var<storage, read_write> deckMeta : array<atomic<u32>>;
+fn listEntry(id: u32, band: i32) -> u32 {
+  if (say.e.w <= 0) { return id; }
+  let q = i32(id & 0x1fffffffu) - 1;
+  let L = slots();
+  if ((q / L) % ${PARTS} != 2 || (q % L == 0 && say.e.z > 0)) { return id; }
+  let s = atomicAdd(&deckMeta[0], 1u);
+  if (s >= u32(say.e.w)) { return id; }
+  deckAt[s] = id;
+  atomicStore(&deckMeta[4u + s], u32(band));
+  return s | 0x80000000u;
+}
 
 // NO BACKTICKS IN HERE — a backtick in a comment ends the template literal.
 
@@ -211,6 +232,13 @@ fn main(
     }
   }
   if (!quadDraws(cx, cy, part, cpt, say.a.z > 0.5, a)) { return; }
+  // (The corners of the column the quad belongs to — the one behind, for a face filed forward — or of its whole tile.)
+  if (say.e.y > 0 && a == 0 && skirtOn()) {
+    var ox = cx; var oy = cy;
+    if (part <= 1) { ox = cx - select(0, 1, part == 0); oy = cy - select(1, 0, part == 0); }
+    let span = select(1, cpt, whole == 1u);
+    needCorner(ox, oy); needCorner(ox + span, oy); needCorner(ox, oy + span); needCorner(ox + span, oy + span);
+  }
   // WHICH TIER DRAWS IT, asked exactly as the vertex shader's gate asks it:
   // of the column the quad HANGS OFF, which for a far-edge face is the column
   // behind. Marked in the top bit, and sorted into the roofed tier's own list
@@ -377,10 +405,10 @@ fn compact(
     if (v == 0u) { continue; }
     let id = v & 0x7fffffffu;
     if ((v >> 31u) == 1u) {
-      list[second + here.x + rr] = id;
+      list[second + here.x + rr] = listEntry(id, band);
       rr = rr + 1u;
     } else {
-      list[here.x + w] = id;
+      list[here.x + w] = listEntry(id, band);
       w = w + 1u;
     }
   }
@@ -398,6 +426,8 @@ export type QuadsPass = {
   bind: (
     depth: GPUTextureView, ground: GPUTextureView, roof: GPUTextureView,
     brink: GPUTextureView, falling: GPUTextureView,
+    need?: GPUBuffer | null, needRow?: number,
+    decks?: { at: GPUBuffer; meta: GPUBuffer; slots: number; field: boolean } | null,
   ) => void;
   /** Where the ids go, for the copy into the shader's texture. */
   list: GPUBuffer;
@@ -462,6 +492,13 @@ export function createQuadsPass(
         binding: 10, visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "storage" },
       },
+      {
+        binding: 11, visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "storage" },
+      },
+      ...[12, 13].map((binding) => ({
+        binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" as const },
+      })),
     ],
   });
   const module = shaderModule(device, QUADS_WGSL(drawdown), "quads");
@@ -491,7 +528,7 @@ export function createQuadsPass(
     compute: { module, entryPoint: "compact" },
   });
   const uniform = device.createBuffer({
-    size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     label: "quads say",
   });
   const list = device.createBuffer({
@@ -544,6 +581,14 @@ export function createQuadsPass(
   }
 
   let group: GPUBindGroup | null = null;
+  // (Something to bind where there is no corner table to mark for.)
+  const noNeed = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE, label: "quad corners (none)" });
+  const noDeckAt = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE, label: "quad decks (none)" });
+  const noDeckMeta = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE, label: "quad decks count (none)" });
+  let needRow = 0;
+  let needOn = false;
+  let deckSlots = 0;
+  let deckField = false;
   /**
    * Frames still to be checked for validation errors.
    *
@@ -558,7 +603,11 @@ export function createQuadsPass(
   return {
     layout, list, counts,
 
-    bind: (depth, ground, roof, brink, falling) => {
+    bind: (depth, ground, roof, brink, falling, need = null, row = 0, decks = null) => {
+      needOn = need !== null;
+      needRow = row;
+      deckSlots = decks?.slots ?? 0;
+      deckField = decks?.field ?? false;
       // ONCE PER TEXTURE PAIR, not once per dispatch. The pair only changes
       // when the scene is rebuilt.
       group = device.createBindGroup({
@@ -575,11 +624,14 @@ export function createQuadsPass(
           { binding: 8, resource: falling },
           { binding: 9, resource: { buffer: tileFlat } },
           { binding: 10, resource: { buffer: marks } },
+          { binding: 11, resource: { buffer: need ?? noNeed } },
+          { binding: 12, resource: { buffer: decks?.at ?? noDeckAt } },
+          { binding: 13, resource: { buffer: decks?.meta ?? noDeckMeta } },
         ],
       });
     },
     say: (nx, ny, cpt, tilesHigh, dryDepth, fallMin, faces, slots, brinkOn, latchOn, zoomedOut, cull, cheap = false) => {
-      const buf = new ArrayBuffer(80);
+      const buf = new ArrayBuffer(96);
       new Int32Array(buf, 0, 4).set([nx, ny, cpt, tilesHigh]);
       // The fourth was the cap, which is per band now and comes from `slice`.
       new Float32Array(buf, 16, 4).set([dryDepth, fallMin, faces ? 1 : 0, slots]);
@@ -591,6 +643,7 @@ export function createQuadsPass(
       new Int32Array(buf, 64, 4).set([
         (cull?.lo ?? 0) - BAND_MARGIN, (cull?.hi ?? bands) + BAND_MARGIN, cheap ? 1 : 0, groundMode() === "smooth" ? 2 : fieldWater() ? 1 : 0,
       ]);
+      new Int32Array(buf, 80, 4).set([needRow, needOn ? 1 : 0, deckField ? 1 : 0, deckSlots]);
       device.queue.writeBuffer(uniform, 0, buf);
     },
     encode: (enc, cells) => {
@@ -630,7 +683,7 @@ export function createQuadsPass(
     },
     destroy: () => {
       uniform.destroy(); list.destroy(); counts.destroy(); slice.destroy(); tileFlat.destroy();
-      marks.destroy();
+      marks.destroy(); noNeed.destroy(); noDeckAt.destroy(); noDeckMeta.destroy();
     },
   };
 }

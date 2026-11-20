@@ -66,6 +66,7 @@ import {
 } from "../../fluid/columns";
 import { RIM, atBrink as brinkOnHost, brinkRuleSource, cornerRuleSource } from "./corner-rule";
 import { OPEN_SKY } from "../../fluid/slots";
+import { stampsNow } from "../debug/gpu-stamps";
 import { quadRuleSource } from "./quad-rule";
 import { sheetGroupSource } from "./sheet-group";
 import { BAND_MARGIN, createQuadsPass, type QuadsPass } from "./quads-gpu";
@@ -160,6 +161,17 @@ const FOUL_MOST = 0.85;
  * mistake one level up. @see quadRuleSource, mainVertex
  */
 const PARTS = 5;
+
+/** How many corners the spare table has room for — four entries each. @see cornerTableSource */
+export const SPARE_CORNERS = 16384;
+/** How many deck quads the deck table has room for. @see deckCorner */
+export const DECK_SLOTS = 4096;
+/**
+ * Workgroups for the spare table's work and for the deck table's, striding over however much there is: enough that
+ * a busy frame's (some 800 spare corners, 150 deck quads) is done in one stride. @see cornerRest
+ */
+const SPARE_WG = 512;
+const DECK_WG = 128;
 
 /**
  * WHICH QUADS A BAND ACTUALLY DRAWS, as a list it looks up by draw index.
@@ -529,6 +541,7 @@ struct Water {
   uBand: vec4<f32>,       // band, first tile x, dry depth, tiles in this band
   uList: vec4<f32>,       // this band's offset into the quad list, list width
   uSlots: vec4<f32>,      // storeys, which band tier, brink filled, latch fresh
+  uTable: vec4<f32>,      // the corner table filled, its row width @see cornerTableSource
 };
 @group(2) @binding(0) var<uniform> water : Water;
 @group(2) @binding(1) var uDepth : texture_2d<f32>;
@@ -562,6 +575,16 @@ struct Water {
 // of standing water at a shore, where the drawn ground comes up through the surface and the water is cut to it.
 // @see render/drawn.ts, ground-mesh.ts surfaceOf
 @group(2) @binding(14) var uShore : texture_2d<f32>;
+// EACH CORNER OF THE SMOOTH FIELD, WORKED OUT ONCE where it can be: by a pass of its own, a texel a corner, for
+// the quads that meet there to read rather than each work out again. After the look, as it is in the resources.
+// @see cornerTableSource
+@group(2) @binding(16) var<storage, read> uCorner : array<vec4<u32>>;
+// AND WHERE A CORNER IS NOT THE SAME FOR ALL FOUR COLUMNS, each one's, four texels a corner. @see cornerTableSource
+@group(2) @binding(17) var<storage, read> uCornerX : array<vec4<u32>>;
+// AND THE DECK TABLE: each deck quad's corners, two entries a corner, four corners a slot; and which quad each slot
+// is. @see deckCorner
+@group(2) @binding(18) var<storage, read> uDeck : array<vec4<u32>>;
+@group(2) @binding(19) var<storage, read> uDeckAt : array<u32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -923,7 +946,11 @@ fn tileGround(tx: i32, ty: i32, vx: i32, vy: i32) -> f32 {
   let cpt = i32(water.uGrid.z);
   return groundFan(tx, ty, clamp(f32(vx - tx * cpt) / f32(cpt), 0.0, 1.0), clamp(f32(vy - ty * cpt) / f32(cpt), 0.0, 1.0));
 }
+// (Set by the corner table's pass where it has found every column round a corner one piece with every other: then
+// it needs no asking. Never in the vertex shader. @see cornerTableSource)
+var<private> allOnePiece: bool = false;
 fn pieceOf(cx: i32, cy: i32, qx: i32, qy: i32, vx: i32, vy: i32) -> bool {
+  if (allOnePiece) { return true; }
   let cpt = i32(water.uGrid.z);
   let ax = cx / cpt; let ay = cy / cpt; let bx = qx / cpt; let by = qy / cpt;
   if (ax == bx && ay == by) { return true; }
@@ -1104,6 +1131,148 @@ fn fieldCorner(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> FieldCorner {
   return o;
 }
 
+// HOW LIT A CORNER OF THE FIELD IS, BY ITS OWN SLOPE, as the water always was: the fall of the surface across the
+// corner, from the corners either side of it, leans the shade light or dark — which is what a chop on it looks like.
+// (Of its DEPTH where it is thin — it lies on the ground, whose own slope is no chop — and of its surface where it is
+// deep and stands level over a bed that is not.)
+fn fieldLit(c: FieldCorner, vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> f32 {
+  return fieldLitOf(c,
+    fieldHeight(vx - 1, vy, cx, cy, a) - fieldHeight(vx + 1, vy, cx, cy, a),
+    fieldHeight(vx, vy - 1, cx, cy, a) - fieldHeight(vx, vy + 1, cx, cy, a));
+}
+// …given the falls across it, in x and in y.
+fn fieldLitOf(c: FieldCorner, g2x: vec2<f32>, g2y: vec2<f32>) -> f32 {
+  let deepness = smoothstep(0.75, 2.0, c.d);
+  let gx = mix(g2x.y, g2x.x, deepness);
+  let gy = mix(g2y.y, g2y.x, deepness);
+  let lean = (gx + gy) * 0.5;
+  let respond = lean / (abs(lean) + ${SLOPE_REF});
+  let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
+  let shown = max(rough, min(1.0, c.speed / ${STREAK_SPEED}));
+  return 0.5 + respond * 0.34 + c.wash * (0.2 + 0.8 * shown) * 0.3;
+}
+
+// A CORNER OF A SURFACE OFF THE DECK RULE — over a storey above the ground, or wherever the water is not one smooth
+// field — for column (ccx, ccy) at its corner (vcx, vcy), shaded off the columns (flat) or off the sheet: its height,
+// the height the shore cuts it at and whether it is a shelf, how lit it is, and its look. @see mainVertex
+struct DeckCorner { h: f32, hs: f32, lit: f32, shelf: bool, look: vec2<f32> };
+fn deckCorner(ccx: i32, ccy: i32, vcx: i32, vcy: i32, flat: bool, a: i32) -> DeckCorner {
+  // THIS COLUMN'S COMPONENT AT THIS CORNER, worked out ONCE. A column is
+  // always one of its own corners' four, so what comes back is always the
+  // component it is in and always the one it helped make — and everything
+  // this vertex asks of this corner is asked with it. @see render/sheet-group
+  let mine = cornerMask(vcx, vcy, contribOf(vcx, vcy, ccx, ccy, a));
+  let c = cornerOf(vcx, vcy, mine);
+  let g = vec4<f32>(
+    deckSlope(vcx, vcy, -1, 0, flat, a, mine, c.x), deckSlope(vcx, vcy, 1, 0, flat, a, mine, c.x),
+    deckSlope(vcx, vcy, 0, -1, flat, a, mine, c.x), deckSlope(vcx, vcy, 0, 1, flat, a, mine, c.x),
+  );
+  return deckCornerOf(ccx, ccy, vcx, vcy, a, mine, c, g);
+}
+// ZOOMED OUT AND WHOLE, the gradient off the columns; otherwise off the
+// sheet, as the column-by-column mesh and the host builder have it — one way of four.
+// @see nearbyFlat
+fn deckSlope(vcx: i32, vcy: i32, dx: i32, dy: i32, flat: bool, a: i32, mine: i32, here: f32) -> f32 {
+  if (flat) { return nearbyFlat(vcx, vcy, dx, dy, a, here); }
+  return nearby(vcx, vcy, dx, dy, mine, here);
+}
+// …and the rest of it, given its component, its corner and the four ways' surfaces (-x, +x, -y, +y).
+fn deckCornerOf(ccx: i32, ccy: i32, vcx: i32, vcy: i32, a: i32, mine: i32, c: vec4<f32>, n: vec4<f32>) -> DeckCorner {
+  var o: DeckCorner;
+  o.shelf = false;
+  let cpt = i32(water.uGrid.z);
+  let bed = groundAt(ccx, ccy, a);
+  var h = max(c.x, bed);
+  // AT A SHORE the surface stays level to the tile's edge — not drawn down to the bed there — and the fragment
+  // cuts it where the drawn ground comes up through it. @see mainFragment
+  // ASKED OF THE CORNER, NOT THE COLUMN: every column that shares this vertex must put it at one height, or the
+  // mesh tears between them. So: whether any tile round the corner is a shelf, and the mean surface of the wet
+  // columns round it — which is what the corner already is wherever all four are wet.
+  var sloped = false;
+  if (a == 0) {
+    var shelf = false;
+    var sum = 0.0;
+    var wets = 0.0;
+    for (var k = 0; k < 4; k++) {
+      let qx = vcx - (k % 2);
+      let qy = vcy - (k / 2);
+      if (!inside(qx, qy)) { continue; }
+      let qk = groundKind(qx / cpt, qy / cpt, a);
+      if (qk == 1) { shelf = true; }
+      if (qk == 2) { sloped = true; }
+      let qd = depthAt(qx, qy, a);
+      if (wet(qd)) { sum += groundAt(qx, qy, a) + qd; wets += 1.0; }
+    }
+    if (shelf && wets > 0.0) { h = max(h, sum / wets); }
+    if (groundKind(ccx / cpt, ccy / cpt, a) == 1) {
+      o.shelf = true;
+      o.hs = h;
+    }
+  }
+
+  let e = cornerExtras(vcx, vcy, mine);
+  let cd = e.x; let wash = e.y; let foam = e.z; let speed = e.w;
+  // THIN WATER LIES ON THE GROUND AS IT IS DRAWN. The solver's floor is the tile's, flat; the ground drawn under
+  // it may be a bank. So where any tile round this corner is sloped, the corner is put at the DRAWN ground there
+  // plus the depth of the water at it — and the deeper the water the less, till standing water is level as it
+  // was. Asked of the corner, with the drawn ground the same from every tile that meets there, so every column
+  // that shares the vertex agrees. @see render/drawn.ts
+  if (sloped) {
+    let tx0 = ccx / cpt; let ty0 = ccy / cpt;
+    let lie = 1.0 - smoothstep(${THIN_ON_SLOPE}, ${THIN_ON_SLOPE * 3}, cd);
+    h = mix(h, groundFan(tx0, ty0, f32(vcx - tx0 * cpt) / f32(cpt), f32(vcy - ty0 * cpt) / f32(cpt)) + cd, lie);
+  }
+  let gx = n.x - n.y;
+  let gy = n.z - n.w;
+  let lean = (gx + gy) * 0.5;
+  let respond = lean / (abs(lean) + ${SLOPE_REF});
+  let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
+  let shown = max(rough, min(1.0, speed / ${STREAK_SPEED}));
+  let lit = 0.5 + respond * 0.34 + wash * (0.2 + 0.8 * shown) * 0.3;
+  o.h = h;
+  o.lit = lit;
+  o.look = vec2<f32>(cd, foam);
+  return o;
+}
+
+// A CORNER OF THE FIELD FROM THE TABLE, as column (cx, cy) — one of the four there — has it: ok where the table has
+// it, and then its light too. @see cornerTableSource
+struct TableCorner { ok: bool, c: FieldCorner, lit: f32 };
+fn tableCorner(vx: i32, vy: i32, cx: i32, cy: i32) -> TableCorner {
+  var o: TableCorner;
+  o.ok = false;
+  if (water.uTable.x < 0.5) { return o; }
+  var t = uCorner[u32(vy) * u32(water.uTable.y) + u32(vx)];
+  if ((t.w & 17u) == 16u) {
+    // (Each column's own, in the spare table.)
+    let i = i32(t.w >> 8u) * 4 + (cx - vx + 1) + 2 * (cy - vy + 1);
+    t = uCornerX[u32(i)];
+  }
+  if ((t.w & 1u) == 0u) { return o; }
+  o.ok = true;
+  o.c.g = bitcast<f32>(t.x);
+  o.c.d = bitcast<f32>(t.y);
+  o.c.cover = unpack2x16unorm(t.z).x * 2.0;
+  o.c.foam = unpack2x16float(t.z).y;
+  o.c.brink = f32((t.w >> 5u) & 0x7ffu) / 2047.0;
+  o.c.hx = cx; o.c.hy = cy;
+  if ((t.w & 2u) != 0u) {
+    let k = i32((t.w >> 2u) & 3u);
+    o.c.hx = vx - 1 + k % 2;
+    o.c.hy = vy - 1 + k / 2;
+  }
+  o.lit = unpack2x16float(t.w).y;
+  return o;
+}
+// Either way: from the table where it has it, worked out here where it has not.
+fn fieldCornerAt(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> FieldCorner {
+  if (a == 0) {
+    let t = tableCorner(vx, vy, cx, cy);
+    if (t.ok) { return t.c; }
+  }
+  return fieldCorner(vx, vy, cx, cy, a);
+}
+
 // AS ONE SMOOTH FIELD, A FACE DOWN A STEP THE FIELD PARTS AT — a kerb, a quay, a road's edge: the field has no
 // sides, and where the ground parts the water the high side's surface stopped at the step with nothing under it.
 // One end of the far edge (axis) of column (cx, cy), at its top (corners 0, 1: this column's water as its own
@@ -1127,9 +1296,9 @@ fn fieldFace(cx: i32, cy: i32, axis: i32, corner: i32, a: i32) -> FieldFace {
   let far = corner == 1 || corner == 2;
   let vx = cx + select(select(0, 1, far), 1, axis == 0);
   let vy = cy + select(1, select(0, 1, far), axis == 0);
-  let c = fieldCorner(vx, vy, cx, cy, a);
+  let c = fieldCornerAt(vx, vy, cx, cy, a);
   let top = c.g + c.d;
-  let q = fieldCorner(vx, vy, jx, jy, a);
+  let q = fieldCornerAt(vx, vy, jx, jy, a);
   let step = 1.0 / f32(cpt);
   o.fx = f32(vx) * step - 0.5;
   o.fy = f32(vy) * step - 0.5;
@@ -1204,7 +1373,13 @@ fn mainVertex(
   // the list's width. @see quadList
   let at = i32(water.uList.x) + i32(inst);
   let lw = i32(water.uList.y);
-  let raw = textureLoad(uQuads, vec2<i32>(at % lw, at / lw), 0).r;
+  var raw = textureLoad(uQuads, vec2<i32>(at % lw, at / lw), 0).r;
+  // A DECK QUAD'S ENTRY points at its slot in the deck table, which says which quad it is. @see deckCorner
+  var deckSlot = -1;
+  if ((raw >> 31u) == 1u) {
+    deckSlot = i32(raw & 0x7fffffffu);
+    raw = uDeckAt[u32(deckSlot)];
+  }
   // A WHOLE TILE: zoomed out, a flat tile's surface is one quad from its
   // first column to its far corner, marked by the gathering. Only ever set in
   // a gathered list, so the identity draws as it always did. @see LOD_TILE_PX
@@ -1269,7 +1444,6 @@ fn mainVertex(
   var fx = 0.0;
   var fy = 0.0;
   var h = 0.0;
-  var sloped = false;
   var rgb = vec3<f32>(0.0);
   var alpha = 0.0;
 
@@ -1310,30 +1484,29 @@ fn mainVertex(
     let span = select(1, cpt, whole);
     let ccx = cx + ox * (span - 1);
     let ccy = cy + oy * (span - 1);
-    let c = fieldCorner(ccx + ox, ccy + oy, ccx, ccy, a);
     fx = fx0 + f32(ox * span) * step;
     fy = fy0 + f32(oy * span) * step;
-    h = c.g + c.d;
-    out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, c.cover);
-    // LIT BY ITS OWN SLOPE, as the water always was: the fall of the surface across this corner, from the corners
-    // either side of it, leans the shade light or dark — which is what a chop on it looks like.
-    let vx = ccx + ox; let vy = ccy + oy;
-    // (Of its DEPTH where it is thin — it lies on the ground, whose own slope is no chop — and of its surface
-    // where it is deep and stands level over a bed that is not.)
-    let g2x = fieldHeight(vx - 1, vy, ccx, ccy, a) - fieldHeight(vx + 1, vy, ccx, ccy, a);
-    let g2y = fieldHeight(vx, vy - 1, ccx, ccy, a) - fieldHeight(vx, vy + 1, ccx, ccy, a);
-    let deepness = smoothstep(0.75, 2.0, c.d);
-    let gx = mix(g2x.y, g2x.x, deepness);
-    let gy = mix(g2y.y, g2y.x, deepness);
-    let lean = (gx + gy) * 0.5;
-    let respond = lean / (abs(lean) + ${SLOPE_REF});
-    let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
-    let shown = max(rough, min(1.0, c.speed / ${STREAK_SPEED}));
-    let lit = 0.5 + respond * 0.34 + c.wash * (0.2 + 0.8 * shown) * 0.3;
-    let mat = i32(textureLoad(uMaterial, vec2<i32>(c.hx, slotRow(c.hy, a)), 0).r * 255.0 + 0.5);
-    rgb = fouled(textureLoad(uTint, vec2<i32>(0, mat), 0).rgb, c.hx, c.hy, a);
-    alpha = clamp(lit, 0.0, 1.0);
-    out.vLook = vec2<f32>(c.d, c.foam);
+    // FROM THE CORNER TABLE where it has this corner — the same corner, worked out once and not by each quad that
+    // meets there — and where it has not, worked out here as it always was. @see cornerTableSource
+    var hx = ccx;
+    var hy = ccy;
+    let t = tableCorner(ccx + ox, ccy + oy, ccx, ccy);
+    if (t.ok) {
+      h = t.c.g + t.c.d;
+      out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, t.c.cover);
+      alpha = clamp(t.lit, 0.0, 1.0);
+      hx = t.c.hx; hy = t.c.hy;
+      out.vLook = vec2<f32>(t.c.d, t.c.foam);
+    } else {
+      let c = fieldCorner(ccx + ox, ccy + oy, ccx, ccy, a);
+      h = c.g + c.d;
+      out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, c.cover);
+      alpha = clamp(fieldLit(c, ccx + ox, ccy + oy, ccx, ccy, a), 0.0, 1.0);
+      hx = c.hx; hy = c.hy;
+      out.vLook = vec2<f32>(c.d, c.foam);
+    }
+    let mat = i32(textureLoad(uMaterial, vec2<i32>(hx, slotRow(hy, a)), 0).r * 255.0 + 0.5);
+    rgb = fouled(textureLoad(uTint, vec2<i32>(0, mat), 0).rgb, hx, hy, a);
   } else if (part == 2) {
     // THE SURFACE.
     if (d <= water.uBand.z) { return out; }
@@ -1346,78 +1519,26 @@ fn mainVertex(
     let span = select(1, cpt, whole);
     let ccx = cx + ox * (span - 1);
     let ccy = cy + oy * (span - 1);
-    // THIS COLUMN'S COMPONENT AT THIS CORNER, worked out ONCE. A column is
-    // always one of its own corners' four, so what comes back is always the
-    // component it is in and always the one it helped make — and everything
-    // this vertex asks of this corner is asked with it. @see render/sheet-group
-    let vcx = ccx + ox;
-    let vcy = ccy + oy;
-    let mine = cornerMask(vcx, vcy, contribOf(vcx, vcy, ccx, ccy, a));
-    let c = cornerOf(vcx, vcy, mine);
-    let bed = groundAt(ccx, ccy, a);
-    h = max(c.x, bed);
     fx = fx0 + f32(ox * span) * step;
     fy = fy0 + f32(oy * span) * step;
-    // AT A SHORE the surface stays level to the tile's edge — not drawn down to the bed there — and the fragment
-    // cuts it where the drawn ground comes up through it. @see mainFragment
-    // ASKED OF THE CORNER, NOT THE COLUMN: every column that shares this vertex must put it at one height, or the
-    // mesh tears between them. So: whether any tile round the corner is a shelf, and the mean surface of the wet
-    // columns round it — which is what the corner already is wherever all four are wet.
-    if (a == 0) {
-      var shelf = false;
-      var sum = 0.0;
-      sloped = false;
-      var wets = 0.0;
-      for (var k = 0; k < 4; k++) {
-        let qx = vcx - (k % 2);
-        let qy = vcy - (k / 2);
-        if (!inside(qx, qy)) { continue; }
-        let qk = groundKind(qx / cpt, qy / cpt, a);
-        if (qk == 1) { shelf = true; }
-        if (qk == 2) { sloped = true; }
-        let qd = depthAt(qx, qy, a);
-        if (wet(qd)) { sum += groundAt(qx, qy, a) + qd; wets += 1.0; }
-      }
-      if (shelf && wets > 0.0) { h = max(h, sum / wets); }
-      if (groundKind(ccx / cpt, ccy / cpt, a) == 1) {
-        out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, 2.0);
-      }
-    }
-
-    let e = cornerExtras(vcx, vcy, mine);
-    let cd = e.x; let wash = e.y; let foam = e.z; let speed = e.w;
-    // THIN WATER LIES ON THE GROUND AS IT IS DRAWN. The solver's floor is the tile's, flat; the ground drawn under
-    // it may be a bank. So where any tile round this corner is sloped, the corner is put at the DRAWN ground there
-    // plus the depth of the water at it — and the deeper the water the less, till standing water is level as it
-    // was. Asked of the corner, with the drawn ground the same from every tile that meets there, so every column
-    // that shares the vertex agrees. @see render/drawn.ts
-    if (sloped) {
-      let tx0 = ccx / cpt; let ty0 = ccy / cpt;
-      let lie = 1.0 - smoothstep(${THIN_ON_SLOPE}, ${THIN_ON_SLOPE * 3}, cd);
-      h = mix(h, groundFan(tx0, ty0, f32(vcx - tx0 * cpt) / f32(cpt), f32(vcy - ty0 * cpt) / f32(cpt)) + cd, lie);
-    }
-    // ZOOMED OUT AND WHOLE, the gradient off the columns; otherwise off the
-    // sheet, as the column-by-column mesh and the host builder have it.
-    // @see nearbyFlat
-    var gx = 0.0;
-    var gy = 0.0;
-    if (whole || cheap) {
-      gx = nearbyFlat(vcx, vcy, -1, 0, a, c.x) - nearbyFlat(vcx, vcy, 1, 0, a, c.x);
-      gy = nearbyFlat(vcx, vcy, 0, -1, a, c.x) - nearbyFlat(vcx, vcy, 0, 1, a, c.x);
+    // FROM THE DECK TABLE where this quad was given a slot in it — the same corner, worked out once by a thread of
+    // its own rather than in the band's draw — and where it was not, worked out here. @see deckCorner
+    var dc: DeckCorner;
+    if (deckSlot >= 0 && water.uTable.x > 0.5) {
+      let e0 = uDeck[u32(deckSlot * 8 + corner * 2)];
+      let e1 = uDeck[u32(deckSlot * 8 + corner * 2 + 1)];
+      dc.h = bitcast<f32>(e0.x); dc.hs = bitcast<f32>(e0.y); dc.lit = bitcast<f32>(e0.z); dc.shelf = e0.w == 1u;
+      dc.look = vec2<f32>(bitcast<f32>(e1.x), bitcast<f32>(e1.y));
     } else {
-      gx = nearby(vcx, vcy, -1, 0, mine, c.x) - nearby(vcx, vcy, 1, 0, mine, c.x);
-      gy = nearby(vcx, vcy, 0, -1, mine, c.x) - nearby(vcx, vcy, 0, 1, mine, c.x);
+      dc = deckCorner(ccx, ccy, ccx + ox, ccy + oy, whole || cheap, a);
     }
-    let lean = (gx + gy) * 0.5;
-    let respond = lean / (abs(lean) + ${SLOPE_REF});
-    let rough = min(1.0, (abs(gx) + abs(gy)) / ${SLOPE_REF * 2});
-    let shown = max(rough, min(1.0, speed / ${STREAK_SPEED}));
-    let lit = 0.5 + respond * 0.34 + wash * (0.2 + 0.8 * shown) * 0.3;
+    h = dc.h;
     let mat = i32(textureLoad(uMaterial, vec2<i32>(ccx, slotRow(ccy, a)), 0).r * 255.0 + 0.5);
     rgb = fouled(textureLoad(uTint, vec2<i32>(0, mat), 0).rgb, ccx, ccy, a);
-    alpha = clamp(lit, 0.0, 1.0);
-    out.vLook = vec2<f32>(cd, foam);
-    if (out.vShore.w < 1.5) { out.vShore = vec4<f32>(fx + 0.5, fy + 0.5, h, 1.0); }
+    alpha = clamp(dc.lit, 0.0, 1.0);
+    out.vLook = dc.look;
+    // (At a shelf, the surface as it stood before it was laid on a slope: the fragment cuts it to the shore.)
+    out.vShore = select(vec4<f32>(fx + 0.5, fy + 0.5, h, 1.0), vec4<f32>(fx + 0.5, fy + 0.5, dc.hs, 2.0), dc.shelf);
   } else {
     // A SIDE of this column. Hung from the very corners the surface quad
     // used, so the two share vertices and there is no seam between them.
@@ -1442,7 +1563,7 @@ fn mainVertex(
       let far = corner == 1 || corner == 2;
       let vx = cx + select(select(0, 1, far), 1, axis == 0);
       let vy = cy + select(1, select(0, 1, far), axis == 0);
-      let c = fieldCorner(vx, vy, cx, cy, a);
+      let c = fieldCornerAt(vx, vy, cx, cy, a);
       fx = f32(tx) - 0.5 + f32(vx - tx * cpt) * step;
       fy = f32(ty) - 0.5 + f32(vy - ty * cpt) * step;
       h = c.g + select(c.d, 0.0, corner >= 2);
@@ -1479,6 +1600,228 @@ fn mainVertex(
                * globalUniforms.uWorldColorAlpha;
   }
   return out;
+}
+`;
+
+/**
+ * EACH CORNER OF THE SMOOTH FIELD, WORKED OUT ONCE A FRAME, as a texel the vertex shader reads.
+ *
+ * A corner of the field is shared by the four columns round it, and every quad that meets there worked it out for
+ * itself: the four columns, their pieces of ground, the sixteen round it for where the edge is cut, and the four
+ * corners either side for the slope it is lit by — some hundred and seventy texture reads, four times over, for one
+ * point. It was most of the water's cost on the GPU.
+ *
+ * WHERE ALL FOUR WOULD COME TO THE SAME ANSWER, this pass gives it them: on ground drawn as one smooth surface, with
+ * nothing built anywhere in the sixteen columns round the corner — or the ground under all sixteen within a step of
+ * itself — and no roof over the four at it, every column is
+ * one piece with every other there, and the corner — its height, depth, cover, foam, how lit it is — is the same
+ * whichever of the four asks; even the column it is coloured by, unless none of them is wet and each is its own.
+ * Anywhere else the texel says so and the quads work it out as they always have. The same functions, the same text:
+ * the vertex shader's own, with an entry point added. @see fieldCorner, fieldLit
+ *
+ * Packed into one texel: the ground and the depth exactly; the cover to a sixteen-bit fraction of two (as a half it
+ * moved the cut a hair, and edge pixels flipped); foam and the light as halves; and a flag that
+ * it is filled, whether a column there is wet, and which. @see the surface branch of mainVertex
+ */
+export const CORNER_WG = 8;
+export const cornerTableSource = () => WGSL + /* wgsl */ `
+@group(2) @binding(20) var<storage, read_write> cornerOut : array<vec4<u32>>;
+@group(2) @binding(21) var<storage, read_write> spareOut : array<vec4<u32>>;
+@group(2) @binding(22) var<storage, read_write> spareN : atomic<u32>;
+@group(2) @binding(23) var<storage, read_write> spareAt : array<u32>;
+// WHICH CORNERS A QUAD THIS FRAME WILL READ, marked by the gathering: no other is worked out. @see quads-gpu
+@group(2) @binding(24) var<storage, read_write> need : array<u32>;
+// THE DECK TABLE'S QUADS, given their slots by the gathering, and where it writes their corners. @see deckCorner
+@group(2) @binding(25) var<storage, read_write> deckAt : array<u32>;
+// [0] how many, from [4] each slot's band
+@group(2) @binding(26) var<storage, read_write> deckMeta : array<atomic<u32>>;
+@group(2) @binding(28) var<storage, read_write> deckOut : array<vec4<u32>>;
+fn tileBuilt(tx: i32, ty: i32) -> bool {
+  return (i32(textureLoad(uShore, vec2<i32>(tx * 2 + 1, ty), 0).w + 0.5) & 16) != 0;
+}
+// The corner as column (sx, sy) has it, packed. @see the surface branch of mainVertex
+fn entryFor(vx: i32, vy: i32, sx: i32, sy: i32) -> vec4<u32> {
+  let c = fieldCorner(vx, vy, sx, sy, 0);
+  return entryOf(vx, vy, c, fieldLit(c, vx, vy, sx, sy, 0));
+}
+fn entryOf(vx: i32, vy: i32, c: FieldCorner, lit: f32) -> vec4<u32> {
+  // (The brink in the bits between the flags and the light, rounded up: a corner going over a lip, however little,
+  // still is. @see fieldFace)
+  var flags = 1u | (u32(ceil(clamp(c.brink, 0.0, 1.0) * 2047.0)) << 5u);
+  if (wet(depthAt(c.hx, c.hy, 0))) {
+    flags = flags | 2u | (u32((c.hx - vx + 1) + 2 * (c.hy - vy + 1)) << 2u);
+  }
+  return vec4<u32>(
+    bitcast<u32>(c.g), bitcast<u32>(c.d),
+    (pack2x16unorm(vec2<f32>(c.cover * 0.5, 0.0)) & 0xffffu) | (pack2x16float(vec2<f32>(0.0, c.foam)) & 0xffff0000u),
+    (pack2x16float(vec2<f32>(0.0, lit)) & 0xffff0000u) | flags,
+  );
+}
+fn cornerEntry(vx: i32, vy: i32) -> vec4<u32> {
+  if (!fieldOn() || water.uList.w < 0.5) { return vec4<u32>(0u); }
+  let cpt = i32(water.uGrid.z);
+  let nx = i32(water.uGrid.x);
+  let ny = i32(water.uGrid.y);
+  // (Nothing wet round it, nothing to work out: a quad that draws there anyway — a dry face water pours down — asks
+  // for itself.)
+  var seen = false;
+  for (var j = 0; j < 16; j++) {
+    let qx = vx - 2 + (j % 4);
+    let qy = vy - 2 + (j / 4);
+    if (inside(qx, qy) && wet(depthAt(qx, qy, 0))) { seen = true; }
+  }
+  if (!seen) { return vec4<u32>(0u); }
+  // ONE ANSWER FOR ALL FOUR where nothing is built in the sixteen, or the ground across them all is within a step of
+  // itself — then every column there is one piece with every other (@see pieceOf) — and nothing is roofed at the
+  // corner, where it is the deck rule's (@see fieldCorner).
+  var one = true;
+  let tx0 = max(vx - 2, 0) / cpt; let tx1 = min(vx + 1, nx - 1) / cpt;
+  let ty0 = max(vy - 2, 0) / cpt; let ty1 = min(vy + 1, ny - 1) / cpt;
+  var built = false;
+  for (var ty = ty0; ty <= ty1; ty++) {
+    for (var tx = tx0; tx <= tx1; tx++) {
+      if (tileBuilt(tx, ty)) { built = true; }
+    }
+  }
+  if (built) {
+    var lo = 1e9; var hi = -1e9;
+    for (var j = 0; j < 16; j++) {
+      let qx = vx - 2 + (j % 4);
+      let qy = vy - 2 + (j / 4);
+      if (!inside(qx, qy)) { continue; }
+      let gq = groundAt(qx, qy, 0);
+      lo = min(lo, gq); hi = max(hi, gq);
+    }
+    if (hi - lo >= ${PIECE_STEP}) { one = false; }
+  }
+  var sx = -1; var sy = -1;
+  for (var k = 3; k >= 0; k--) {
+    let qx = vx - 1 + (k % 2);
+    let qy = vy - 1 + (k / 2);
+    if (!inside(qx, qy)) { continue; }
+    if (roofAt(qx, qy, 0) < ${OPEN_SKY}) { one = false; }
+    sx = qx; sy = qy;
+  }
+  if (sx < 0) { return vec4<u32>(0u); }
+  if (one) {
+    allOnePiece = true;
+    return entryFor(vx, vy, sx, sy);
+  }
+  // ELSE AN ANSWER FOR EACH OF THE FOUR, in the spare table, four texels a corner, this texel saying where — worked
+  // out by cornerSpare, a thread a column, and not here one after another: a frame waits on its slowest thread.
+  let i = atomicAdd(&spareN, 1u);
+  if (i >= ${SPARE_CORNERS}u) { return vec4<u32>(0u); }
+  spareAt[i] = u32(vx) | (u32(vy) << 16u);
+  return vec4<u32>(0u, 0u, 0u, (i << 8u) | 16u);
+}
+// THE REST, IN ONE DISPATCH, side by side as neither waits on the other: the spare table's entries, eight threads
+// each — the corner and the heights either side of it at once, not one after another (a frame waits on its slowest
+// thread) — and the deck table's corners, four threads each, one way each for the slope. Each half strides over
+// however many there are this frame. @see cornerEntry, deckCorner
+var<workgroup> restN : u32;
+var<workgroup> restH : array<vec2<f32>, 64>;
+var<workgroup> deckWays : array<f32, 64>;
+@compute @workgroup_size(64)
+fn cornerRest(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) li: u32) {
+  if (wid.x < ${SPARE_WG}u) { spareRest(wid.x, li); } else { deckRest(wid.x - ${SPARE_WG}u, li); }
+}
+fn spareRest(w: u32, li: u32) {
+  if (li == 0u) { restN = min(atomicLoad(&spareN), ${SPARE_CORNERS}u) * 4u; }
+  let total = workgroupUniformLoad(&restN);
+  for (var base = w * 8u; base < total; base += ${SPARE_WG}u * 8u) {
+    let n = base + li / 8u;
+    let part = li % 8u;
+    let live = n < total;
+    var vx = 0; var vy = 0; var qx = 0; var qy = 0;
+    var ok = false;
+    if (live) {
+      let at = spareAt[n / 4u];
+      vx = i32(at & 0xffffu);
+      vy = i32(at >> 16u);
+      let k = i32(n % 4u);
+      qx = vx - 1 + (k % 2);
+      qy = vy - 1 + (k / 2);
+      ok = inside(qx, qy);
+    }
+    var c: FieldCorner;
+    if (ok && part < 4u) {
+      let ox = select(select(1, -1, part == 0u), 0, part >= 2u);
+      let oy = select(0, select(1, -1, part == 2u), part >= 2u);
+      restH[li] = fieldHeight(vx + ox, vy + oy, qx, qy, 0);
+    }
+    if (ok && part == 4u) { c = fieldCorner(vx, vy, qx, qy, 0); }
+    workgroupBarrier();
+    if (live && part == 4u) {
+      var e = vec4<u32>(0u);
+      if (ok) {
+        let h = li - 4u;
+        e = entryOf(vx, vy, c, fieldLitOf(c, restH[h] - restH[h + 1u], restH[h + 2u] - restH[h + 3u]));
+      }
+      spareOut[n] = e;
+    }
+    workgroupBarrier();
+  }
+}
+fn deckRest(w: u32, li: u32) {
+  if (li == 0u) { restN = min(atomicLoad(&deckMeta[0]), ${DECK_SLOTS}u) * 4u; }
+  let total = workgroupUniformLoad(&restN);
+  for (var base = w * 16u; base < total; base += ${DECK_WG}u * 16u) {
+  let n = base + li / 4u;
+  let way = li % 4u;
+  let slot = n / 4u;
+  let live = n < total;
+  var ccx = 0; var ccy = 0; var vcx = 0; var vcy = 0; var a = 0;
+  var mine = 0;
+  var c = vec4<f32>(0.0);
+  if (live) {
+  let corner = i32(n % 4u);
+  let raw = deckAt[slot];
+  let b = i32(atomicLoad(&deckMeta[4u + slot]));
+  let whole = ((raw >> 30u) & 1u) == 1u;
+  let cheap = ((raw >> 29u) & 1u) == 1u;
+  let quad = i32(raw & 0x1fffffffu) - 1;
+  let cpt = i32(water.uGrid.z);
+  let per = cpt * cpt;
+  let L = slots();
+  let qa = quad % L;
+  let at = (quad / L) / ${PARTS};
+  let tileIdx = at / per;
+  let sub = at % per;
+  let tx = max(0, b - (i32(water.uGrid.y) / cpt - 1)) + tileIdx;
+  let ty = b - tx;
+  let cx = tx * cpt + sub % cpt;
+  let cy = ty * cpt + sub / cpt;
+  let ox = ((corner + 1) >> 1) & 1;
+  let oy = corner >> 1;
+  let span = select(1, cpt, whole);
+  ccx = cx + ox * (span - 1);
+  ccy = cy + oy * (span - 1);
+  vcx = ccx + ox;
+  vcy = ccy + oy;
+  a = qa;
+  mine = cornerMask(vcx, vcy, contribOf(vcx, vcy, ccx, ccy, a));
+  c = cornerOf(vcx, vcy, mine);
+  let d = vec2<i32>(select(select(1, -1, way == 0u), 0, way >= 2u), select(0, select(1, -1, way == 2u), way >= 2u));
+  deckWays[li] = deckSlope(vcx, vcy, d.x, d.y, whole || cheap, a, mine, c.x);
+  }
+  workgroupBarrier();
+  if (live && way == 0u) {
+    let dc = deckCornerOf(ccx, ccy, vcx, vcy, a, mine, c,
+      vec4<f32>(deckWays[li], deckWays[li + 1u], deckWays[li + 2u], deckWays[li + 3u]));
+    deckOut[n * 2u] = vec4<u32>(bitcast<u32>(dc.h), bitcast<u32>(dc.hs), bitcast<u32>(dc.lit), select(0u, 1u, dc.shelf));
+    deckOut[n * 2u + 1u] = vec4<u32>(bitcast<u32>(dc.look.x), bitcast<u32>(dc.look.y), 0u, 0u);
+  }
+  workgroupBarrier();
+  }
+}
+@compute @workgroup_size(${CORNER_WG}, ${CORNER_WG})
+fn cornerTable(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let vx = i32(gid.x);
+  let vy = i32(gid.y);
+  if (vx > i32(water.uGrid.x) || vy > i32(water.uGrid.y)) { return; }
+  let at = u32(vy) * u32(water.uTable.y) + u32(vx);
+  if (need[at] == 0u) { return; }
+  cornerOut[at] = cornerEntry(vx, vy);
 }
 `;
 
@@ -2125,6 +2468,17 @@ export type GpuWaterLayer = {
   sources: TextureSource[];
   /** Which quads each band draws, by draw index. @see quadCap */
   quads: TextureSource;
+  /** Each corner of the smooth field, worked out once, and how wide and how many its rows are. @see cornerTableSource */
+  corner: Buffer;
+  cornerRow: number;
+  cornerRows: number;
+  /** And where a corner is each column's own, four entries a corner. @see SPARE_CORNERS */
+  cornerSpare: Buffer;
+  /** The deck table, and which quad each of its slots is. @see deckCorner */
+  deck: Buffer;
+  deckAt: Buffer;
+  /** Whether the meshes are told to read it. @see drawGpuWater */
+  tableOn: number;
   /** The gathering that fills it, where there is a device to do it. */
   gather: QuadGather | null;
   /**
@@ -2229,13 +2583,21 @@ function gpuLayout(): GPUBindGroupLayoutEntry[][] {
   });
   // How the surface is lit this frame, one group shared by every band. @see waterLook
   own.push({ binding: 2 + FLOAT_FIELDS.length + BYTE_FIELDS.length + UINT_FIELDS.length, visibility: FRAGMENT_STAGE, buffer: { type: "uniform" } });
+  // The corner table and its spare, after the look: the corner pass's own buffers, read where it wrote them.
+  // @see cornerTableSource
+  for (const k of [3, 4, 5, 6]) {
+    own.push({
+      binding: k + FLOAT_FIELDS.length + BYTE_FIELDS.length + UINT_FIELDS.length, visibility: VERTEX_STAGE,
+      buffer: { type: "read-only-storage" },
+    });
+  }
   return [[uniform(0)], [uniform(0)], own];
 }
 
 /** Which group each named resource belongs to — the other half Pixi infers. */
 function nameLayout(): Record<string, number>[] {
   const own: Record<string, number> = { water: 0 };
-  [...FLOAT_FIELDS, ...BYTE_FIELDS, ...UINT_FIELDS, "uShore", "look"]
+  [...FLOAT_FIELDS, ...BYTE_FIELDS, ...UINT_FIELDS, "uShore", "look", "uCorner", "uCornerX", "uDeck", "uDeckAt"]
     .forEach((n, k) => { own[n] = 1 + k; });
   return [{ globalUniforms: 0 }, { localUniforms: 0 }, own];
 }
@@ -2372,6 +2734,21 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
   // @see quadList
   const list = quadList(bands.w, bands.h, layers);
   const quads = quadListSource(list);
+  // An entry a corner of the columns.
+  const cornerRow = nx + 1;
+  // (Buffers the corner pass writes and the meshes read, as they are: storage on the device, nothing on the host.)
+  const cornerTex = new Buffer({
+    data: new Uint32Array(cornerRow * (ny + 1) * 4), usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
+  });
+  const spareTex = new Buffer({
+    data: new Uint32Array(SPARE_CORNERS * 4 * 4), usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
+  });
+  const deckTex = new Buffer({
+    data: new Uint32Array(DECK_SLOTS * 8 * 4), usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
+  });
+  const deckAtTex = new Buffer({
+    data: new Uint32Array(DECK_SLOTS), usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
+  });
 
   const meshes: Mesh<Geometry, Shader>[] = [];
   const under: Mesh<Geometry, Shader>[] = [];
@@ -2407,6 +2784,8 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       // What that looked like was a storey count of 66 — the scaled half-width
       // out of uIso — and a map with no water drawn on it at all.
       uSlots: { value: new Float32Array([layers, 0, 0, 0]), type: "vec4<f32>" },
+      // AND THE CORNER TABLE: whether to read it, and its row width. Last, after uSlots, as the struct has it.
+      uTable: { value: new Float32Array([0, cornerRow, 0, 0]), type: "vec4<f32>" },
     });
 
     // Its own index buffer, exactly as long as the band is: the vertex buffer
@@ -2425,7 +2804,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
         water,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
-        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex, look,
+        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex, look, uCorner: cornerTex, uCornerX: spareTex, uDeck: deckTex, uDeckAt: deckAtTex,
       },
     });
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
@@ -2449,6 +2828,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       // ITS OWN SLICE, in the roofed tier's copy of the list. @see QuadList.second
       uList: { value: new Float32Array([list.second + list.offsets[b], LIST_W, fieldWater() ? 1 : 0, groundMode() === "smooth" ? 1 : 0]), type: "vec4<f32>" },
       uSlots: { value: new Float32Array([layers, 1, 0, 0]), type: "vec4<f32>" },
+      uTable: { value: new Float32Array([0, cornerRow, 0, 0]), type: "vec4<f32>" },
     });
     const underGeom = new Geometry({
       attributes: { aVertexId: { buffer: idBuffer, format: "float32", stride: 4, offset: 0 } },
@@ -2461,7 +2841,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
         water: underWater,
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
-        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex, look,
+        uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex, look, uCorner: cornerTex, uCornerX: spareTex, uDeck: deckTex, uDeckAt: deckAtTex,
       },
     });
     const underMesh = new Mesh<Geometry, Shader>({ geometry: underGeom, shader: underShader });
@@ -2483,6 +2863,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
     tint,
     look, lookT: 0,
     quads,
+    corner: cornerTex, cornerRow, cornerRows: ny + 1, cornerSpare: spareTex, deck: deckTex, deckAt: deckAtTex, tableOn: 0,
     wash, foam, layers, gather: null, fed: new Set(),
     groundSent: -1,
     groundOf: null,
@@ -2670,7 +3051,130 @@ export type QuadGather = {
   brink: { pass: BrinkPass; into: GPUTexture; slots: number } | null;
   /** Where each band's quads live. @see quadList */
   list: QuadList;
+  /** The pass that works each corner of the smooth field out once. @see cornerTableSource */
+  corners: CornerPass | null;
 };
+
+/**
+ * THE CORNER TABLE'S PASS: the vertex shader's own text with an entry point added, bound to the very textures the
+ * meshes read, writing a texel a corner into a buffer that is copied into the meshes' table. @see cornerTableSource
+ */
+type CornerPass = {
+  encode: (enc: GPUCommandEncoder, columns: ColumnField) => void;
+  destroy: () => void;
+  out: GPUBuffer;
+  /** Which corners to work out, marked by the gathering. Cleared before it. */
+  need: GPUBuffer;
+  /** The deck quads the gathering gives slots, and how many. Its count cleared before it. @see deckCorner */
+  decks: { at: GPUBuffer; meta: GPUBuffer };
+};
+
+let cornerModule: {
+  device: GPUDevice; pipeline: GPUComputePipeline; rest: GPUComputePipeline;
+  layout: GPUBindGroupLayout;
+} | null = null;
+
+function createCornerPass(
+  device: GPUDevice, wl: GpuWaterLayer, get: (s: TextureSource) => GPUTexture, gpuBuffer: (b: Buffer) => GPUBuffer,
+): CornerPass {
+  if (!cornerModule || cornerModule.device !== device) {
+    const entries: GPUBindGroupLayoutEntry[] = [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    ];
+    const tex = (binding: number, sampleType: GPUTextureSampleType) => entries.push({
+      binding, visibility: GPUShaderStage.COMPUTE, texture: { sampleType, viewDimension: "2d" },
+    });
+    FLOAT_FIELDS.forEach((_, k) => tex(1 + k, "unfilterable-float"));
+    BYTE_FIELDS.forEach((_, k) => tex(1 + FLOAT_FIELDS.length + k, "float"));
+    UINT_FIELDS.forEach((_, k) => tex(1 + FLOAT_FIELDS.length + BYTE_FIELDS.length + k, "uint"));
+    tex(1 + FLOAT_FIELDS.length + BYTE_FIELDS.length + UINT_FIELDS.length, "unfilterable-float");
+    for (const b of [20, 21, 22, 23, 24, 25, 26, 28]) entries.push({ binding: b, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } });
+    const layout = device.createBindGroupLayout({ entries, label: "water corners" });
+    const empty = device.createBindGroupLayout({ entries: [], label: "water corners (none)" });
+    const module = device.createShaderModule({ code: cornerTableSource(), label: "water corners" });
+    void module.getCompilationInfo?.().then((info) => {
+      for (const m of info.messages) {
+        if (m.type === "info") continue;
+        console.error(`WATER: the corner table shader, line ${m.lineNum}: ${m.message}`);
+      }
+    }).catch(() => { /* older implementations have no compilation info */ });
+    const pipeline = device.createComputePipeline({
+      label: "water corners",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [empty, empty, layout] }),
+      compute: { module, entryPoint: "cornerTable" },
+    });
+    const rest = device.createComputePipeline({
+      label: "water corners rest",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [empty, empty, layout] }),
+      compute: { module, entryPoint: "cornerRest" },
+    });
+    cornerModule = { device, pipeline, rest, layout };
+  }
+  const { pipeline, rest, layout } = cornerModule;
+  const nx = (wl.sources[0] as unknown as { width: number }).width;
+  const ny = wl.cornerRows - 1;
+  const uniform = device.createBuffer({
+    size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, label: "water corners say",
+  });
+  const out = gpuBuffer(wl.corner);
+  const spare = gpuBuffer(wl.cornerSpare);
+  const need = device.createBuffer({
+    size: wl.cornerRow * (ny + 1) * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    label: "water corners needed",
+  });
+  const spareN = device.createBuffer({
+    size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: "water corners spare count",
+  });
+  const spareAt = device.createBuffer({
+    size: SPARE_CORNERS * 4, usage: GPUBufferUsage.STORAGE, label: "water corners spare at",
+  });
+  const deckOut = gpuBuffer(wl.deck);
+  const deckAt = gpuBuffer(wl.deckAt);
+  const deckMeta = device.createBuffer({
+    size: 16 + DECK_SLOTS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: "water decks",
+  });
+  const say = new Float32Array(24);
+  const names = [...FLOAT_FIELDS, ...BYTE_FIELDS, ...UINT_FIELDS, "uShore"];
+  return {
+    encode: (enc) => {
+      const m = wl.meshes[0];
+      if (!m) return;
+      const res = m.shader!.resources as Record<string, unknown>;
+      const u = (res.water as UniformGroup).uniforms as Record<string, Float32Array>;
+      say.set(u.uGrid, 0); say.set(u.uIso, 4); say.set(u.uBand, 8); say.set(u.uList, 12); say.set(u.uSlots, 16);
+      say.set([1, wl.cornerRow, 0, 0], 20);
+      device.queue.writeBuffer(uniform, 0, say);
+      // (Bound afresh each frame: a texture Pixi re-creates — the ground's, when the map is edited — would leave a
+      // group made once reading the old one.)
+      const group = device.createBindGroup({
+        layout,
+        entries: [
+          { binding: 0, resource: { buffer: uniform } },
+          ...names.map((n, k) => ({ binding: 1 + k, resource: get(res[n] as TextureSource).createView() })),
+          { binding: 20, resource: { buffer: out } },
+          { binding: 21, resource: { buffer: spare } },
+          { binding: 22, resource: { buffer: spareN } },
+          { binding: 23, resource: { buffer: spareAt } },
+          { binding: 24, resource: { buffer: need } },
+          { binding: 25, resource: { buffer: deckAt } },
+          { binding: 26, resource: { buffer: deckMeta } },
+          { binding: 28, resource: { buffer: deckOut } },
+        ],
+      });
+      enc.clearBuffer(spareN);
+      const writes = stampsNow()?.take("corners");
+      const pass = enc.beginComputePass(writes ? { label: "corners", timestampWrites: writes } : { label: "corners" });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(2, group);
+      pass.dispatchWorkgroups(Math.ceil((nx + 1) / CORNER_WG), Math.ceil((ny + 1) / CORNER_WG));
+      pass.setPipeline(rest);
+      pass.dispatchWorkgroups(SPARE_WG + DECK_WG);
+      pass.end();
+    },
+    destroy: () => { uniform.destroy(); need.destroy(); spareN.destroy(); spareAt.destroy(); deckMeta.destroy(); },
+    out, need, decks: { at: deckAt, meta: deckMeta },
+  };
+}
 
 /** Just enough of the renderer to ask what stands behind a texture source. */
 type GetGpu = { texture: { getGpuSource: (s: TextureSource) => GPUTexture } };
@@ -2775,7 +3279,14 @@ export function attachQuadGather(
   const roofView = get(wl.sources[ROOF_AT]).createView();
   const brinkView = get(wl.sources[BRINK_AT]).createView();
   const fallingView = get(wl.sources[FALLING_AT]).createView();
-  pass.bind(depthView, groundView, roofView, brinkView, fallingView);
+  // THE CORNER TABLE'S PASS, where the renderer can hand over the buffers it reads. @see cornerTableSource
+  const bufs = (renderer as { buffer?: { getGPUBuffer?: (b: Buffer) => GPUBuffer } }).buffer;
+  const corners = typeof bufs?.getGPUBuffer === "function"
+    ? createCornerPass(device, wl, get, bufs.getGPUBuffer.bind(bufs)) : null;
+  pass.bind(
+    depthView, groundView, roofView, brinkView, fallingView, corners?.need ?? null, wl.cornerRow,
+    corners ? { ...corners.decks, slots: DECK_SLOTS, field: fieldWater() } : null,
+  );
   // AND THE BRINK, which both this pass and the vertex shader read. On every
   // map now: the pass writes its rows padded to whole 256 bytes, which is
   // what the copy into the texture asks. @see brinkRow
@@ -2813,6 +3324,7 @@ export function attachQuadGather(
     watch: 4,
     brink,
     list,
+    corners,
   };
 }
 
@@ -2876,7 +3388,9 @@ export function gatherQuads(
     );
   }
   // A THREAD PER QUAD, and a column has a storey's worth of them.
+  if (g.corners) { enc.clearBuffer(g.corners.need); enc.clearBuffer(g.corners.decks.meta, 0, 16); }
   g.pass.encode(enc, columns.nx * columns.ny * columns.layers);
+  g.corners?.encode(enc, columns);
   enc.copyBufferToTexture(
     { buffer: g.pass.list, bytesPerRow: LIST_W * 4, rowsPerImage: g.list.rows },
     { texture: g.into },
@@ -2985,6 +3499,7 @@ export function destroyQuadGather(g: QuadGather | null) {
   if (!g) return;
   g.pass.destroy();
   g.staging.destroy();
+  g.corners?.destroy();
 }
 
 export function destroyGpuWaterLayer(wl: GpuWaterLayer) {
@@ -3054,6 +3569,19 @@ export function drawGpuWater(
   // is the solver's and goes up with the rest; fresh when the device is
   // solving and copying it out; not otherwise, and then the grouping asks
   // FALL_MIN alone rather than read a latch nobody is keeping. @see latchAt
+  // AND WHETHER THE CORNER TABLE IS FILLED, which it is when the gathering's pass made it this frame from the
+  // textures the device has filled — not on the host's path, where they go up after it and it would be a frame
+  // behind the rest of the mesh. @see cornerTableSource
+  const table = carried && wl.gather?.corners && wl.gather.gathered ? 1 : 0;
+  if (wl.tableOn !== table) {
+    wl.tableOn = table;
+    for (const m of [...wl.meshes, ...wl.under]) {
+      const grp = m.shader?.resources.water as UniformGroup | undefined;
+      if (!grp) continue;
+      (grp.uniforms.uTable as Float32Array)[0] = table;
+      grp.update();
+    }
+  }
   const latch = !carried || wl.fed.has(FALLING_AT) ? 1 : 0;
   if (wl.latchOn !== latch) {
     wl.latchOn = latch;
