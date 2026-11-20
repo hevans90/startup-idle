@@ -1392,19 +1392,10 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
     // SNOW where it lies: patchy as it comes and as it goes, more the higher, none on a slope too steep to hold it.
     // (None on a bed under standing water: it would show through.)
     let wetHere = i32(textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).w + 0.5) % 4 == 2;
-    // AFTER RAIN (uMode.z how wet): the ground darker, mud and then puddles in the level hollows, more the wetter;
-    // FROST (uMode.w) whitening it on a cold still morning. @see world/weather groundAt
+    // AFTER RAIN (uMode.z how wet): the ground darker, the wetter. (No water of its own: standing water is the
+    // water simulation's.) FROST (uMode.w) whitening it on a cold still morning. @see world/weather groundAt
     let soaked = ground.uMode.z;
-    if (soaked > 0.01 && !wetHere) {
-      col = col * (1.0 - 0.16 * soaked);
-      let level = 1.0 - smoothstep(0.3, 1.2, steep);
-      let pud = vnoise(vGround * 2.2 + 31.0) * 0.6 + fbm(vGround * 0.7 + 3.0) * 0.4 + (vnoise(vGround * 7.0 + 2.0) - 0.5) * 0.05;
-      let edge = 0.82 - 0.14 * soaked;
-      col = mix(col, vec3<f32>(0.29, 0.23, 0.16), smoothstep(edge - 0.05, edge, pud) * level * 0.6 * soaked);
-      // (Frozen over in a frost.)
-      let sky = mix(vec3<f32>(0.52, 0.6, 0.68), vec3<f32>(0.8, 0.86, 0.91), ground.uMode.w) * (0.85 + 0.3 * vnoise(vGround * 5.0 + 7.0));
-      col = mix(col, sky, smoothstep(edge + 0.015, edge + 0.04, pud) * level * smoothstep(0.3, 0.6, soaked) * 0.85);
-    }
+    if (soaked > 0.01 && !wetHere) { col = col * (1.0 - 0.16 * soaked); }
     if (ground.uMode.w > 0.01 && !wetHere) {
       col = mix(col, vec3<f32>(0.84, 0.88, 0.93), ground.uMode.w * 0.5 * (0.6 + 0.4 * vnoise(vGround * 9.0)) * (1.0 - smoothstep(2.2, 4.8, steep)));
     }
@@ -2012,15 +2003,7 @@ void main() {
     }
     bool wetHere = int(texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).w + 0.5) % 4 == 2;
     float soaked = uMode.z;
-    if (soaked > 0.01 && !wetHere) {
-      col *= 1.0 - 0.16 * soaked;
-      float level = 1.0 - smoothstep(0.3, 1.2, steep);
-      float pud = vnoise(vGround * 2.2 + 31.0) * 0.6 + fbm(vGround * 0.7 + 3.0) * 0.4 + (vnoise(vGround * 7.0 + 2.0) - 0.5) * 0.05;
-      float edge = 0.82 - 0.14 * soaked;
-      col = mix(col, vec3(0.29, 0.23, 0.16), smoothstep(edge - 0.05, edge, pud) * level * 0.6 * soaked);
-      vec3 sky = mix(vec3(0.52, 0.6, 0.68), vec3(0.8, 0.86, 0.91), uMode.w) * (0.85 + 0.3 * vnoise(vGround * 5.0 + 7.0));
-      col = mix(col, sky, smoothstep(edge + 0.015, edge + 0.04, pud) * level * smoothstep(0.3, 0.6, soaked) * 0.85);
-    }
+    if (soaked > 0.01 && !wetHere) col *= 1.0 - 0.16 * soaked;
     if (uMode.w > 0.01 && !wetHere) {
       col = mix(col, vec3(0.84, 0.88, 0.93), uMode.w * 0.5 * (0.6 + 0.4 * vnoise(vGround * 9.0)) * (1.0 - smoothstep(2.2, 4.8, steep)));
     }

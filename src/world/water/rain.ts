@@ -5,7 +5,7 @@
  *
  * Not rain over every column: that is the whole map each frame, on the device too. Each tile drains downhill, by
  * the steepest way, to the first standing water it reaches (its SINK); a sink takes the rain of every tile that
- * drains to it, less what its cover soaks up. A tile that drains to a hollow with no water in it soaks it up there (the ground shader puddles
+ * drains to it, less what its cover soaks up. A tile that drains to a hollow with no water in it soaks it up there (the ground darkens
  * it). So the pouring is onto a few hundred tiles, every half second. @see world/weather runoffAt
  */
 import { YEAR_SECONDS } from "../calendar";
