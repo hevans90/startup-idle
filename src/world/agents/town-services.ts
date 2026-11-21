@@ -13,7 +13,7 @@ import type { Grid, Structure } from "../grid";
 import { connects } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { streetsOf, type Streets } from "../roads/streets";
-import { NEED_KIND, NEEDS, SERVICES_FOR, serviceDef, type NeedId, type ServiceId } from "./needs";
+import { NEED_KIND, NEEDS, SERVICES_FOR, serviceDef, serviceOf, type NeedId, type ServiceId } from "./needs";
 import { placesOf } from "./roads";
 import { RANGE, serviceIn, townChanged, type Coverage } from "./services";
 import { serviceOpen } from "./unlocks";
@@ -22,6 +22,11 @@ import { serviceOpen } from "./unlocks";
 export const CHECK_EVERY = 5;
 /** Seconds a neighbourhood waits after opening something before the next. */
 export const OPEN_GAP = 60;
+/**
+ * Seconds between any two openings in the whole town: the most-wanted first, one at a time, so a town of twenty
+ * neighbourhoods — or one just loaded, every neighbourhood ready — is not twenty new services in a minute.
+ */
+export const OPEN_EVERY = 20;
 /** People wanting the same thing before a neighbourhood opens something for it. */
 export const MIN_DEMAND = 6;
 /** Homes a neighbourhood holds, at most. */
@@ -35,8 +40,8 @@ const DIRS = ["N", "E", "S", "W"] as const;
 export type Neighbourhood = { id: number; streets: number[]; homes: number[] };
 
 /** Live state; not saved. A reload starts every neighbourhood ready, and every idle service's clock afresh. */
-export type TownServices = { since: number; wait: Map<number, number>; idle: Map<number, number> };
-export const createTownServices = (): TownServices => ({ since: 0, wait: new Map(), idle: new Map() });
+export type TownServices = { since: number; wait: Map<number, number>; idle: Map<number, number>; /** Seconds until the town opens anything again. @see OPEN_EVERY */ pace: number };
+export const createTownServices = (): TownServices => ({ since: 0, wait: new Map(), idle: new Map(), pace: 0 });
 
 /** What changed, for whatever shows it. */
 export type TownEvent = { kind: "open" | "close"; service: ServiceId; structure: number };
@@ -144,13 +149,15 @@ function pickService(g: Grid, need: NeedId, here: ReadonlySet<ServiceId>, rand: 
 }
 
 /**
- * One step of the town seeing to itself: every `CHECK_EVERY` seconds, each
- * neighbourhood not waiting opens one thing for its most-wanted need — the
- * need the most of its people lack, if `MIN_DEMAND` of them do — and
- * services with nobody of their kind near for `CLOSE_AFTER` close.
+ * One step of the town seeing to itself: every `CHECK_EVERY` seconds, the
+ * neighbourhood not waiting that wants something most opens one thing for it —
+ * the need the most of its people lack, if `MIN_DEMAND` of them do, a site
+ * being built counted as met — no sooner than `OPEN_EVERY` after the town's
+ * last; and services with nobody of their kind near for `CLOSE_AFTER` close.
  */
 export function stepTown(t: TownServices, g: Grid, net: Network, cover: Coverage, dt: number, hands: TownHands): TownEvent[] {
   for (const [k, w] of t.wait) { if (w - dt <= 0) t.wait.delete(k); else t.wait.set(k, w - dt); }
+  t.pace = Math.max(0, (t.pace ?? 0) - dt);
   t.since += dt;
   if (t.since < CHECK_EVERY) return [];
   const step = t.since;
@@ -176,19 +183,36 @@ export function stepTown(t: TownServices, g: Grid, net: Network, cover: Coverage
     events.push({ kind: "close", service: sv, structure: s.id });
   }
 
-  // OPENING, a neighbourhood at a time.
+  // OPENING: one thing at a time in the whole town, for the neighbourhood that wants something most.
+  if (t.pace > 0) return events;
+  // What is being built already counts: a site meets its need for the homes it will reach, so nobody opens it twice.
+  const coming = new Map<number, Set<NeedId>>();
+  for (const s of g.structures.values()) {
+    const sv = s.build ? serviceOf(s.def) : null;
+    if (!sv) continue;
+    const need = serviceDef(sv)!.need;
+    for (const h of homes) {
+      if (Math.abs(h.x - s.x) + Math.abs(h.y - s.y) > RANGE + s.w + s.h) continue;
+      if (!coming.has(h.id)) coming.set(h.id, new Set());
+      coming.get(h.id)!.add(need);
+    }
+  }
+  const lacks = (s: Structure, need: NeedId) => !cover.get(s.id)?.has(need) && !coming.get(s.id)?.has(need);
+  const asks: { n: Neighbourhood; need: NeedId; demand: number; people: Structure[] }[] = [];
   for (const n of neighbourhoodsOf(g, streetsOf(g), doors)) {
     if (t.wait.has(n.id)) continue;
     const people = n.homes.map((id) => g.structures.get(id)!).filter((s) => s && residentsIn(s) > 0);
     const want = new Map<NeedId, number>();
     for (const s of people) {
-      const have = cover.get(s.id);
       // Only what the town knows how to open yet.
-      for (const need of NEEDS[housedBy(s.def)!.id]) if (!have?.has(need) && openFor(g, need).length) want.set(need, (want.get(need) ?? 0) + residentsIn(s));
+      for (const need of NEEDS[housedBy(s.def)!.id]) if (lacks(s, need) && openFor(g, need).length) want.set(need, (want.get(need) ?? 0) + residentsIn(s));
     }
     const [need, demand] = [...want].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] ?? [];
-    if (!need || demand < MIN_DEMAND) continue;
-    const lacking = people.filter((s) => NEEDS[housedBy(s.def)!.id].includes(need) && !cover.get(s.id)?.has(need) && doors.has(s.id));
+    if (need && demand >= MIN_DEMAND) asks.push({ n, need, demand, people });
+  }
+  asks.sort((a, b) => b.demand - a.demand || a.n.id - b.n.id);
+  for (const { n, need, people } of asks) {
+    const lacking = people.filter((s) => NEEDS[housedBy(s.def)!.id].includes(need) && lacks(s, need) && doors.has(s.id));
     if (!lacking.length) continue;
     const here = new Set<ServiceId>();
     for (const id of n.homes) { const sv = g.structures.get(id)?.shop; if (sv) here.add(sv as ServiceId); }
@@ -196,7 +220,10 @@ export function stepTown(t: TownServices, g: Grid, net: Network, cover: Coverage
     const at = serviceDef(sv)!.shop ? openShop(g, n, lacking, doors, sv) : openBuilding(g, lacking, doors, sv, hands);
     // Tried and failed: not again straight away.
     t.wait.set(n.id, at === null ? OPEN_GAP / 2 : OPEN_GAP);
-    if (at !== null) events.push({ kind: "open", service: sv, structure: at });
+    if (at === null) continue;
+    events.push({ kind: "open", service: sv, structure: at });
+    t.pace = OPEN_EVERY;
+    break;
   }
   return events;
 }

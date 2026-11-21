@@ -9,7 +9,7 @@ import { placeCommand, validatePlacement } from "../structures/place";
 import { placesOf } from "./roads";
 import { coverageOf } from "./services";
 import {
-  CHECK_EVERY, CLOSE_AFTER, MIN_DEMAND, OPEN_GAP, createTownServices, neighbourhoodsOf, stepTown, type TownHands,
+  CHECK_EVERY, CLOSE_AFTER, MIN_DEMAND, OPEN_EVERY, OPEN_GAP, createTownServices, neighbourhoodsOf, stepTown, type TownHands,
 } from "./town-services";
 
 /** A road along row 5, 40 long; things on its north side; each house two people. */
@@ -92,6 +92,38 @@ describe("the town's own services", () => {
     expect(closed.map((e) => e.service).sort()).toEqual(["cafe", "vape"]);
     expect(h.cleared).toEqual([ids[0]]);
     expect(house.shop).toBeUndefined();
+  });
+
+  test("the town opens one thing at a time: neighbourhoods ready together take turns, OPEN_EVERY apart, the most wanting first", () => {
+    const { g } = street([...lots("intern", [8, 10, 12, 14]), ...lots("intern", [26, 28, 30])], [5, 10]);
+    // Two streets, not joined: two neighbourhoods, both ready at once.
+    for (let x = 0; x < g.w; x++) g.paved[idx(g, x, 10)] = 0;
+    for (let x = 22; x < g.w; x++) g.paved[idx(g, x, 5)] = 0;
+    for (let x = 22; x < g.w; x++) g.paved[idx(g, x, 10)] = 1;
+    for (const s of g.structures.values()) if (s.x >= 22) s.y = 9;
+    g.rev++;
+    const t = createTownServices(), h = hands(g);
+    const first = step(t, g, CHECK_EVERY, h);
+    expect(first).toHaveLength(1);
+    expect(g.structures.get(first[0].structure)!.x).toBeLessThan(20);
+    for (let s = CHECK_EVERY; s < OPEN_EVERY; s += CHECK_EVERY) expect(step(t, g, CHECK_EVERY, h)).toEqual([]);
+    const next = step(t, g, CHECK_EVERY, h);
+    expect(next).toHaveLength(1);
+    expect(g.structures.get(next[0].structure)!.x).toBeGreaterThan(20);
+  });
+
+  test("a service still being built counts: nobody near it opens the same need again while it goes up", () => {
+    const { g, ids } = street(lots("intern", [8, 10, 12]));
+    g.structures.get(ids[0])!.shop = "bakery";
+    const t = createTownServices(), h = hands(g, () => 0.4);
+    const [open] = step(t, g, CHECK_EVERY, h);
+    expect(open.service).toBe("club");
+    const club = g.structures.get(open.structure)!;
+    club.build = { done: 0, need: 1, delivered: 0, deliveries: 1, cost: 0, priority: 2, updatedAt: 0 };
+    // Long past the neighbourhood's wait, the club still a site: nothing more for nightlife.
+    const later: string[] = [];
+    for (let s = 0; s < OPEN_GAP * 3; s += CHECK_EVERY) for (const e of step(t, g, CHECK_EVERY, h)) later.push(e.service);
+    expect(later.filter((sv) => ["bar", "club", "arcade"].includes(sv))).toEqual([]);
   });
 
   test("streets apart are neighbourhoods apart", () => {
