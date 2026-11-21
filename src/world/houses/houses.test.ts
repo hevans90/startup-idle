@@ -52,6 +52,8 @@ describe("the baked sheet", () => {
       expect(k).toBeDefined();
       expect(k.mids.length).toBe(h.parts().mids.length);
       for (const f of [k.ground, ...k.mids, k.roof]) expect(f.length).toBe(3 + 4 * sheet.layers);
+      // And its ground floor with a shop in it, on each face, the door at each end.
+      expect(Object.keys(k.shop ?? {}).sort()).toEqual(["u0", "u1", "v0", "v1"]);
     }
   });
 });
@@ -67,6 +69,18 @@ describe("a house in the game", () => {
     expect(lifts(3).map((l) => Math.round(l * 1000) / 1000)).toEqual([0, 0, 1, 2]);
     // The walls first in each part, the rest over them.
     expect(housePieces(look, "intern.t2", 2, 0).map((p) => p.walls)).toEqual([true, false, true, false, true, false]);
+  });
+
+  test("with a shop in it, its ground floor is the shop's, and the shop's paint is tinted apart from its walls", () => {
+    const paint = (): HousePart => ({ tex: [Texture.WHITE, Texture.WHITE, Texture.WHITE], anchor: [{ x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 }] });
+    const shop = paint();
+    const withShop: HouseLook = { ...look, shop: { v0: shop } };
+    const ps = housePieces(withShop, "intern.t2", 2, 0, "v0");
+    expect(ps.slice(0, 3).map((p) => [!!p.walls, !!p.paint])).toEqual([[true, false], [false, true], [false, false]]);
+    expect(ps[1].tex).toBe(shop.tex[1]);
+    // No shop, or none baked for that face: the plain ground floor.
+    expect(housePieces(withShop, "intern.t2", 2, 0, null)[0].tex).toBe(look.ground.tex[0]);
+    expect(housePieces(withShop, "intern.t2", 2, 0, "u1")[0].tex).toBe(look.ground.tex[0]);
   });
 
   test("its roof's snow last of all, lifted with the roof", () => {

@@ -14,7 +14,7 @@
  */
 import { Graphics } from "pixi.js";
 
-import { idx, inBounds, type Grid } from "../grid";
+import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { isPaved } from "../roads/mask";
 import { bandOf } from "../iso";
 import type { BandLayer } from "./bands";
@@ -22,7 +22,7 @@ import { RIGHT, makePen, mix, tone, type Pen } from "../structures/projects/pen"
 import { CLUB_TOP, MARQUEE } from "../structures/projects/looks";
 import { serviceDef, serviceOf, type ServiceId } from "../agents/needs";
 import { HALF_STEPS_PER_M, TILES_PER_M } from "../agents/cars/models";
-import { houseOf } from "../houses/models";
+import { SHOP_PLAN, houseOf, type ShopKey } from "../houses/models";
 import { structureDef } from "../structures/def";
 
 /** A service's colours: its awning (and its sign's board), the stripe, and its light at night. */
@@ -61,7 +61,11 @@ export const SHOP_LOOK: Record<ServiceId, ShopLook> = {
 };
 
 /** Where a shop's front is: the house's front tile, the face it is on, and that face's wall. */
-export type Front = { id: number; sv: ServiceId; x: number; y: number; face: "u" | "v"; wall: Wall };
+export type Front = {
+  id: number; sv: ServiceId; x: number; y: number; face: "u" | "v"; wall: Wall;
+  /** Its house is a kit, whose ground floor has the front baked in: only the trade's own parts are drawn. @see houses/models shopGround */
+  baked?: boolean;
+};
 
 /** A building of its own that moves: its service and its footprint. */
 export type Moving = { id: number; sv: ServiceId; x: number; y: number; w: number; h: number; front?: Front };
@@ -76,14 +80,23 @@ const MOVES = new Set<ServiceId>(["cafe", "bakery", "kombucha", "club", "cinema"
  */
 export function shopfrontsOf(g: Grid): Front[] {
   const out: Front[] = [];
-  for (const s of g.structures.values()) {
-    if (!s.shop || s.build || !serviceDef(s.shop)?.shop) continue;
-    const x = s.x + s.w - 1, y = s.y + s.h - 1;
-    const face = !isPaved(g, x, y + 1) && isPaved(g, x + 1, y) ? "u" : "v";
-    out.push({ id: s.id, sv: s.shop as ServiceId, x, y, face, wall: wallOf(s.def, face) });
-  }
+  for (const s of g.structures.values()) { const f = frontOf(g, s); if (f) out.push(f); }
   return out;
 }
+
+/** A building's shop's front, if it has a shop. @see shopfrontsOf */
+export function frontOf(g: Grid, s: Structure): Front | null {
+  if (!s.shop || s.build || !serviceDef(s.shop)?.shop) return null;
+  const x = s.x + s.w - 1, y = s.y + s.h - 1;
+  const face = !isPaved(g, x, y + 1) && isPaved(g, x + 1, y) ? "u" : "v";
+  return { id: s.id, sv: s.shop as ServiceId, x, y, face, wall: wallOf(s.def, face), baked: !!kitOf(s.def) };
+}
+
+/** Which of its kit's shop ground floors a front's house is drawn with: its face, and its door's end. @see houses/models shopGround */
+export const shopKeyOf = (fr: Front): ShopKey => `${fr.face}${fr.id % 2 ? 1 : 0}` as ShopKey;
+
+/** A shop's own paint, its front's joinery: what the baked front's paint is tinted. */
+export const shopPaint = (sv: ServiceId) => SHOP_LOOK[sv].paint ?? tone(SHOP_LOOK[sv].awning, 0.78);
 
 /** What moves on the map: the shops that do, and the buildings of their own. Pure, for tests. */
 export function movingOf(g: Grid, fronts: readonly Front[] = shopfrontsOf(g)): Moving[] {
@@ -112,8 +125,10 @@ const ANY_WALL: Wall = { at: 0.87, lo: 0.13, hi: 0.87, zk: 1 };
  * THE WALL ON THIS FACE of a building of this kind, as its kit is modelled: the face's plane, its length, and its
  * ground floor's height — so a front stands ON the wall and under the first floor. @see houses/models House.hx
  */
+const kitOf = (def: string) => { const d = structureDef(def); return d?.render.kind === "tiles" ? houseOf(d.render.kit.kit) : undefined; };
+
 export function wallOf(def: string, face: "u" | "v"): Wall {
-  const d = structureDef(def), kit = d?.render.kind === "tiles" ? houseOf(d.render.kit.kit) : undefined;
+  const kit = kitOf(def);
   if (!kit) return ANY_WALL;
   const out = face === "v" ? kit.hy : kit.hx, along = face === "v" ? kit.hx : kit.hy;
   return { at: 0.5 + out * TILES_PER_M, lo: 0.5 - along * TILES_PER_M, hi: 0.5 + along * TILES_PER_M, zk: (kit.ground * HALF_STEPS_PER_M) / FRONT_TALL };
@@ -232,7 +247,7 @@ const KIND_OF: Partial<Record<ServiceId, FrontKind>> = {
 
 /** The spans of a front: the door's and the window's, the door to one end by the shop's id. */
 export function spansOf(fr: Front): { door: [number, number]; win: [number, number] } {
-  return fr.id % 2 ? { door: [0.08, 0.3], win: [0.36, 0.92] } : { door: [0.7, 0.92], win: [0.08, 0.64] };
+  return SHOP_PLAN.spans(fr.id % 2 === 1);
 }
 
 /** The awning's depth off the wall, and its heights at the wall and at its edge. */
@@ -240,29 +255,37 @@ const AWNING = { out: 0.24, z0: 1.6, z1: 1.36, drop: 0.09 };
 /** The fascia, where the name is, and the cornice over it. */
 const FASCIA = { z0: 1.62, z1: 1.98 };
 
-/** A house's ground floor, made a shop. */
+/**
+ * A house's ground floor, made a shop. On a kit's house the front itself — its paint, pilasters, riser, glazing,
+ * door and cornice — is baked into the ground floor, its paint tinted the trade's (@see houses/models shopGround):
+ * only the trade's own is drawn, the fascia and its name, the window's display, the awning, the blade, what is put
+ * out on the pavement. Anywhere else, the whole front.
+ */
 export function drawShopfront(p: Pen, fr: Front) {
   const L = SHOP_LOOK[fr.sv];
   const f = faceOf(p, fr.face, fr.wall);
   // (What stands on the pavement is as tall as it is, whatever the house.)
   const pf = faceOf(p, fr.face, { ...fr.wall, zk: 1 });
   const kind = KIND_OF[fr.sv] ?? "awning";
-  const paint = L.paint ?? tone(L.awning, 0.78);
+  const paint = shopPaint(fr.sv);
   const { door: [d0, d1], win: [w0, w1] } = spansOf(fr);
-  // THE FRONT, painted, the joinery round the door and the window.
-  f.on(0, 1, 0, FASCIA.z0, f.wall(paint));
-  // A stall riser under the window, in two panels, and its sill.
-  f.on(w0, w1, 0.03, 0.34, f.wall(tone(paint, 0.82)));
-  for (const [x0, x1] of [[w0, (w0 + w1) / 2], [(w0 + w1) / 2, w1]]) {
-    f.on(x0 + 0.03, x1 - 0.03, 0.08, 0.29, f.wall(tone(paint, 1.14)));
-    f.on(x0 + 0.04, x1 - 0.04, 0.09, 0.28, f.wall(tone(paint, 0.94)));
+  if (!fr.baked) {
+    // THE FRONT, painted, the joinery round the door and the window.
+    f.on(0, 1, 0, FASCIA.z0, f.wall(paint));
+    // A stall riser under the window, in two panels, and its sill.
+    f.on(w0, w1, 0.03, 0.34, f.wall(tone(paint, 0.82)));
+    for (const [x0, x1] of [[w0, (w0 + w1) / 2], [(w0 + w1) / 2, w1]]) {
+      f.on(x0 + 0.03, x1 - 0.03, 0.08, 0.29, f.wall(tone(paint, 1.14)));
+      f.on(x0 + 0.04, x1 - 0.04, 0.09, 0.28, f.wall(tone(paint, 0.94)));
+    }
+    f.on(w0, w1, 0.38, 1.5, f.wall(GLASS_IN));
   }
-  // THE WINDOW: dark in its depth, warm low down where the display is lit.
-  f.on(w0, w1, 0.38, 1.5, f.wall(GLASS_IN));
-  f.on(w0, w1, 0.38, 0.95, f.wall(mix(GLASS_IN, L.glow, 0.22)));
+  // THE WINDOW: warm low down where the display is lit, what is in it.
+  if (fr.baked) f.on(w0, w1, 0.38, 0.95, f.wall(L.glow), 0.14);
+  else f.on(w0, w1, 0.38, 0.95, f.wall(mix(GLASS_IN, L.glow, 0.22)));
   DISPLAY[fr.sv]?.(f, w0, w1, L, fr);
-  // Its bars: a transom across, mullions down; the lights over the transom paler.
-  f.on(w0, w1, 1.21, 1.5, f.wall(mix(GLASS_IN, 0xbfd8e0, 0.28)));
+  // Its bars, over what is in it: a transom across, mullions down; the lights over the transom paler.
+  if (!fr.baked) f.on(w0, w1, 1.21, 1.5, f.wall(mix(GLASS_IN, 0xbfd8e0, 0.28)));
   f.on(w0, w1, 1.17, 1.21, f.wall(paint));
   for (const m of [1, 2]) {
     const a = w0 + ((w1 - w0) * m) / 3;
@@ -270,24 +293,29 @@ export function drawShopfront(p: Pen, fr: Front) {
   }
   // Light off the glass, a slanted streak.
   f.poly([[w0 + 0.06, 0.006, 0.42], [w0 + 0.13, 0.006, 0.42], [w0 + 0.3, 0.006, 1.14], [w0 + 0.23, 0.006, 1.14]], 0xffffff, 0.1);
-  // THE DOOR, in its reveal: the leaf, its glass, a kick plate and handle, a fanlight over it.
-  f.on(d0, d1, 0, 1.5, f.wall(0x15171b));
-  f.on(d0 + 0.025, d1 - 0.025, 0.03, 1.26, f.wall(tone(paint, 0.9)));
-  f.on(d0 + 0.05, d1 - 0.05, 0.6, 1.18, f.wall(mix(GLASS_IN, L.glow, 0.32)));
-  f.on(d0 + 0.035, d1 - 0.035, 0.05, 0.15, f.wall(BRASS));
-  const hd = fr.id % 2 ? d1 - 0.055 : d0 + 0.04;
-  f.on(hd, hd + 0.015, 0.5, 0.62, f.wall(BRASS));
-  f.on(d0 + 0.025, d1 - 0.025, 1.3, 1.46, f.wall(mix(GLASS_IN, 0xffffff, 0.3)));
-  f.box(d0 - 0.02, d1 + 0.02, 0, 0.07, 0, 0.05, STONE, tone(STONE, 1.08));
-  // PILASTERS at either end, their consoles carrying the fascia.
-  for (const a of [0, 0.955]) {
-    f.box(a, a + 0.045, 0, 0.03, 0, FASCIA.z0, tone(paint, 1.25));
-    f.box(a - 0.008, a + 0.053, 0, 0.055, FASCIA.z0 - 0.08, FASCIA.z1 + 0.02, tone(paint, 1.1));
+  if (fr.baked) {
+    // The shop's light through its door's glass, and its handle.
+    f.on(d0 + 0.05, d1 - 0.05, 0.6, 1.18, f.wall(L.glow), 0.16);
+  } else {
+    // THE DOOR, in its reveal: the leaf, its glass, a kick plate and handle, a fanlight over it.
+    f.on(d0, d1, 0, 1.5, f.wall(0x15171b));
+    f.on(d0 + 0.025, d1 - 0.025, 0.03, 1.26, f.wall(tone(paint, 0.9)));
+    f.on(d0 + 0.05, d1 - 0.05, 0.6, 1.18, f.wall(mix(GLASS_IN, L.glow, 0.32)));
+    f.on(d0 + 0.035, d1 - 0.035, 0.05, 0.15, f.wall(BRASS));
+    f.on(d0 + 0.025, d1 - 0.025, 1.3, 1.46, f.wall(mix(GLASS_IN, 0xffffff, 0.3)));
+    f.box(d0 - 0.02, d1 + 0.02, 0, 0.07, 0, 0.05, STONE, tone(STONE, 1.08));
+    // PILASTERS at either end, their consoles carrying the fascia.
+    for (const a of [0, 0.955]) {
+      f.box(a, a + 0.045, 0, 0.03, 0, FASCIA.z0, tone(paint, 1.25));
+      f.box(a - 0.008, a + 0.053, 0, 0.055, FASCIA.z0 - 0.08, FASCIA.z1 + 0.02, tone(paint, 1.1));
+    }
   }
+  const hd = fr.id % 2 ? d1 - 0.055 : d0 + 0.04;
+  f.on(hd, hd + 0.015, 0.5, 0.62, f.wall(BRASS), 1);
   // THE FASCIA, the name on it, a cornice over it.
   const board = kind === "neon" ? 0x16171d : kind === "painted" ? paint : tone(L.awning, 0.82);
   f.box(0.05, 0.95, 0, 0.035, FASCIA.z0, FASCIA.z1, board);
-  f.box(-0.015, 1.015, 0, 0.075, FASCIA.z1, FASCIA.z1 + 0.07, CREAM, tone(CREAM, 1.04));
+  if (!fr.baked) f.box(-0.015, 1.015, 0, 0.075, FASCIA.z1, FASCIA.z1 + 0.07, CREAM, tone(CREAM, 1.04));
   if (kind === "painted") {
     // Gold leaf, lined round, shadowed.
     f.on(0.08, 0.92, FASCIA.z0 + 0.04, FASCIA.z0 + 0.055, f.wall(BRASS));

@@ -9,13 +9,13 @@ import { Assets, Rectangle, Texture } from "pixi.js";
 import { HALF_STEPS_PER_M } from "../agents/cars/models";
 import { HEIGHT_UNIT } from "../iso";
 import { HOUSE_GAP, type HouseFrame, type HousesSheet } from "./houses-format";
-import { houseOf } from "./models";
+import { houseOf, type ShopKey } from "./models";
 
 const BASE = "/isometric_assets/derived";
 
 /** A part's layers: each a texture and its anchor, the middle of the plot at the ground. */
 export type HousePart = { tex: Texture[]; anchor: { x: number; y: number }[] };
-export type HouseLook = { ground: HousePart; mids: HousePart[]; roof: HousePart; snow?: HousePart };
+export type HouseLook = { ground: HousePart; mids: HousePart[]; roof: HousePart; snow?: HousePart; /** Its ground floor with a shop in it, by {@link ShopKey}. */ shop?: Record<string, HousePart> };
 export type HouseSprites = { res: number; kits: Map<string, HouseLook> };
 
 export async function loadHouseSprites(): Promise<HouseSprites> {
@@ -34,7 +34,12 @@ export async function loadHouseSprites(): Promise<HouseSprites> {
     return { tex, anchor };
   };
   const kits: HouseSprites["kits"] = new Map();
-  for (const [id, k] of Object.entries(sheet.kits)) kits.set(id, { ground: cut(k.ground), mids: k.mids.map(cut), roof: cut(k.roof), ...(k.snow ? { snow: cut(k.snow) } : {}) });
+  for (const [id, k] of Object.entries(sheet.kits)) {
+    kits.set(id, {
+      ground: cut(k.ground), mids: k.mids.map(cut), roof: cut(k.roof), ...(k.snow ? { snow: cut(k.snow) } : {}),
+      ...(k.shop ? { shop: Object.fromEntries(Object.entries(k.shop).map(([s, f]) => [s, cut(f)])) } : {}),
+    });
+  }
   return { res: sheet.res, kits };
 }
 
@@ -48,19 +53,22 @@ export const housesLoaded = () => loaded;
 /** A sheet put in by hand: for tests, which have no page to load one from. */
 export const setHouseSprites = (h: HouseSprites | null) => { loaded = h; };
 
-/** One sprite to draw: its texture, its anchor, how far up the stack it is lifted (px at scale 1), and whether it is the tinted walls. */
-export type HousePiece = { tex: Texture; anchor: { x: number; y: number }; lift: number; walls: boolean; snow?: boolean };
+/** One sprite to draw: its texture, its anchor, how far up the stack it is lifted (px at scale 1), and whether it is the tinted walls, or a shop's paint, tinted its trade's. */
+export type HousePiece = { tex: Texture; anchor: { x: number; y: number }; lift: number; walls: boolean; paint?: boolean; snow?: boolean };
 
 /**
  * A house of `floors` storeys as the sprites to draw, lowest first: the
  * ground floor, a floor for each storey over it (which of the kit's, by
- * `seed`, so a street of one kit is not a street of one house), the roof, and the snow that lies on it.
+ * `seed`, so a street of one kit is not a street of one house), the roof, and the snow that lies on it. With a
+ * `shop`, its ground floor is the one with the shop in it, on that face.
  */
-export function housePieces(look: HouseLook, kit: string, floors: number, seed: number): HousePiece[] {
+export function housePieces(look: HouseLook, kit: string, floors: number, seed: number, shop?: ShopKey | null): HousePiece[] {
   const storey = (houseOf(kit)?.storey ?? 0) * HALF_STEPS_PER_M * HEIGHT_UNIT;
   const out: HousePiece[] = [];
-  const add = (p: HousePart, lift: number) => p.tex.forEach((tex, k) => { if (tex !== Texture.EMPTY) out.push({ tex, anchor: p.anchor[k], lift, walls: k === 0 }); });
-  add(look.ground, 0);
+  const add = (p: HousePart, lift: number) => p.tex.forEach((tex, k) => {
+    if (tex !== Texture.EMPTY) out.push({ tex, anchor: p.anchor[k], lift, walls: k === 0, ...(k === 1 ? { paint: true } : {}) });
+  });
+  add((shop && look.shop?.[shop]) || look.ground, 0);
   const n = look.mids.length ? Math.max(1, floors) : 1;
   for (let f = 1; f < n; f++) add(look.mids[(seed + f) % look.mids.length], (f - 1) * storey);
   add(look.roof, (n - 1) * storey);

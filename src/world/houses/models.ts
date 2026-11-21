@@ -49,8 +49,8 @@ export type House = {
   tints: readonly number[];
 };
 
-/** The tinted layer: the walls, in all their shades. */
-export const houseLayerOf = (m: Mat) => (m === "wall" || m === "wallLo" || m === "wallDk" ? 0 : 1);
+/** The layers: the walls in all their shades, tinted the building's; a shop's paint, tinted its trade's; everything else, and the shadow. */
+export const houseLayerOf = (m: Mat) => (m === "wall" || m === "wallLo" || m === "wallDk" ? 0 : m === "paint" ? 1 : 2);
 
 /**
  * SNOW LYING on what `tris` holds up: a coat over every face turned to the sky (a slope, a deck, a coping, a
@@ -888,6 +888,76 @@ const tenLandmark = kit({
     };
   },
 });
+
+// ─── A SHOP IN THE GROUND FLOOR ──────────────────────────────────────────────
+
+/** Which shop ground floor: the face its front is on (`v` the lit, `u` the shaded) and its door's end (`1` the near end). */
+export const SHOP_KEYS = ["v0", "v1", "u0", "u1"] as const;
+export type ShopKey = (typeof SHOP_KEYS)[number];
+
+/**
+ * How a shop's front is laid out along its wall, nought to one from the end away from the light, and its heights
+ * as fractions of the ground floor: the same numbers the trade's own parts are drawn to over it. @see render/shopfronts
+ */
+export const SHOP_PLAN = {
+  /** The door's span and the window's, by its door's end. */
+  spans: (flip: boolean) => (flip ? { door: [0.08, 0.3], win: [0.36, 0.92] } : { door: [0.7, 0.92], win: [0.08, 0.64] }) as { door: [number, number]; win: [number, number] },
+  /** Of its ground floor's height: the window's foot and head, the transom, the door's head, the fanlight, the fascia and the cornice. */
+  riser: 0.158, head: 0.698, transom: 0.544, fan: [0.605, 0.679] as const, fascia: [0.753, 0.921] as const, cornice: 0.953,
+};
+
+/**
+ * A HOUSE WITH A SHOP IN ITS GROUND FLOOR: the ground floor as it is, but on the shop's face nothing of the house's —
+ * no windows, door, bays or porch, only the wall and the bands across it — and the front put on in their place:
+ * the painted front, pilasters at either end on consoles, a panelled stall riser, the window glazed in three with a
+ * transom, the door in its reveal with its glass, kick plate and fanlight, a step, and a cornice over the fascia. The
+ * paint is a layer of its own, tinted the trade's; the fascia, the name, the awning and what is in the window are
+ * the trade's, drawn over it.
+ */
+export function shopGround(h: House, key: ShopKey): Tri[] {
+  const s = key[0] === "v" ? lit(h.hy) : shade(h.hx), half = key[0] === "v" ? h.hx : h.hy;
+  const n = s.ax === "y" ? 1 : 0, a = 1 - n, g = h.ground;
+  const o: Out = h.parts().ground.filter((t) => {
+    if (!t.p.every((v) => v[n] >= s.at - 1e-6)) return true;
+    // On or off the face: kept only if it runs its whole length — the wall itself, a plinth, a band.
+    return Math.min(...t.p.map((v) => v[a])) <= -half + 1e-6 && Math.max(...t.p.map((v) => v[a])) >= half - 1e-6;
+  });
+  const P = SHOP_PLAN, { door: [d0, d1], win: [w0, w1] } = P.spans(key[1] === "1");
+  const A = (f: number) => -half + f * 2 * half, Z = (f: number) => f * g, T = (tiles: number) => tiles / 0.09;
+  const at = (f0: number, f1: number, o0: number, o1: number, z0: number, z1: number, mat: Mat) => fbox(o, s, A(f0), A(f1), o0, o1, z0, z1, mat);
+  // THE FRONT, painted, up to the fascia.
+  at(0, 1, 0, 0.03, 0, Z(P.fascia[0]), "paint");
+  // THE STALL RISER under the window: two panels, their mouldings' shadow round them.
+  at(w0, w1, 0.03, 0.08, Z(0.014), Z(P.riser), "paint");
+  for (const [p0, p1] of [[w0, (w0 + w1) / 2], [(w0 + w1) / 2, w1]]) at(p0 + 0.02, p1 - 0.02, 0.08, 0.11, Z(0.04), Z(P.riser - 0.025), "paint");
+  at(w0 - 0.01, w1 + 0.01, 0.03, 0.2, Z(P.riser), Z(P.riser) + 0.08, "paint");
+  // THE WINDOW: the reveal dark, the glass in three under a transom, the lights over it.
+  at(w0, w1, 0.03, 0.06, Z(P.riser) + 0.08, Z(P.head), "trim");
+  const k = o.length;
+  at(w0 + 0.006, w1 - 0.006, 0.03, 0.1, Z(P.riser) + 0.08, Z(P.head) - 0.08, "glass");
+  for (let i = k; i < o.length; i++) {
+    o[i].paint = (p) => {
+      const f = ((s.ax === "y" ? p[0] : p[1]) + half) / (2 * half), u = (f - w0) / (w1 - w0), z = p[2] / g;
+      if (Math.abs(z - P.transom) < 0.012 || Math.abs(u - 1 / 3) < 0.012 || Math.abs(u - 2 / 3) < 0.012) return "paint";
+      return z > P.transom ? "pane" : "glass";
+    };
+  }
+  // THE DOOR, in its reveal: the leaf with its glass and kick plate, a fanlight over it, a step.
+  at(d0, d1, 0.03, 0.05, 0, Z(P.head), "trim");
+  at(d0 + 0.02, d1 - 0.02, 0.0, 0.035, Z(0.01), Z(P.fan[0] - 0.02), "paint");
+  at(d0 + 0.045, d1 - 0.045, 0.0, 0.045, Z(0.28), Z(P.fan[0] - 0.06), "pane");
+  at(d0 + 0.03, d1 - 0.03, 0.0, 0.045, Z(0.02), Z(0.07), "livery");
+  at(d0 + 0.02, d1 - 0.02, 0.03, 0.08, Z(P.fan[0]), Z(P.fan[1]), "pane");
+  at(d0 - 0.02, d1 + 0.02, 0, 0.35, 0, 0.14, "stone");
+  // PILASTERS at either end, their consoles carrying the fascia.
+  for (const f of [0, 0.955]) {
+    at(f, f + 0.045, 0.03, T(0.03), 0, Z(P.fascia[0]), "paint");
+    at(f - 0.008, f + 0.053, 0.03, T(0.055), Z(P.fascia[0]) - 0.15, Z(P.fascia[1]) + 0.05, "paint");
+  }
+  // THE CORNICE over the fascia, cream.
+  at(-0.015, 1.015, 0, T(0.075), Z(P.fascia[1]), Z(P.cornice), "linen");
+  return o;
+}
 
 const ALL: readonly House[] = [
   internT0, internT1, internT2, internLandmark,

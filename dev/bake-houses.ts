@@ -5,7 +5,7 @@
  *
  * Every kit in `src/world/houses/models.ts`: its ground floor, each kind of
  * upper floor and its roof, rendered by the vehicles' rasteriser into two
- * layers (the walls to tint, the rest as it is), each cropped to what it
+ * layers (the walls to tint, a shop's paint to tint, the rest as it is), each cropped to what it
  * covers, packed into 2048² pages with an index the game reads. Only the
  * ground floor casts the shadow. @see bake-props.ts
  */
@@ -13,7 +13,7 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { bakeTris, type Tri } from "../src/world/agents/cars/raster.ts";
-import { HOUSES, houseLayerOf, snowOver } from "../src/world/houses/models.ts";
+import { HOUSES, SHOP_KEYS, houseLayerOf, shopGround, snowOver } from "../src/world/houses/models.ts";
 import { HOUSE_GAP, HOUSE_LAYERS, HOUSE_RES, type HouseFrame, type HousesSheet } from "../src/world/houses/houses-format.ts";
 import { encodePng, type Image } from "./png-min.ts";
 
@@ -62,10 +62,15 @@ for (const h of HOUSES) {
   const snowed = (): HouseFrame => {
     const b = bakeTris([...parts.roof, ...snowOver(parts.roof)], 0, HOUSE_RES, { layers: HOUSE_LAYERS, layerOf: (m) => (m === "snow" ? 1 : 0), shadow: { ...h.shadow, strength: 0 } });
     const frame: HouseFrame = [];
-    all.push({ layers: [{ img: { w: 0, h: 0, px: new Uint8Array(0) }, ox: 0, oy: 0 }, crop(b.layers[1], b.ox, b.oy)], frame });
+    const none = { img: { w: 0, h: 0, px: new Uint8Array(0) }, ox: 0, oy: 0 };
+    all.push({ layers: [none, crop(b.layers[1], b.ox, b.oy), ...b.layers.slice(2).map(() => none)], frame });
     return frame;
   };
-  sheet.kits[h.id] = { ground: bake(parts.ground, true), mids: parts.mids.map((m) => bake(m, false)), roof: bake(parts.roof, false), snow: snowed() };
+  sheet.kits[h.id] = {
+    ground: bake(parts.ground, true), mids: parts.mids.map((m) => bake(m, false)), roof: bake(parts.roof, false), snow: snowed(),
+    // Its ground floor again with a shop in it: on either face, the door at either end.
+    shop: Object.fromEntries(SHOP_KEYS.map((k) => [k, bake(shopGround(h, k), true)])),
+  };
 }
 const tall = (b: Baked) => Math.max(...b.layers.map((l) => l.img.h));
 for (const b of [...all].sort((p, q) => tall(q) - tall(p))) {

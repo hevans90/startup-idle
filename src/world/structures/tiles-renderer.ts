@@ -16,6 +16,7 @@ import { footprintCells, idx, inBounds, type Grid, type Structure } from "../gri
 import { bandOf, cellToWorld } from "../iso";
 import { housePieces, housesLoaded, houseTint } from "../houses/houses-sheet";
 import { fadeWithSnow } from "../render/snow-cover";
+import { frontOf, shopKeyOf, shopPaint } from "../render/shopfronts";
 import { kitFloors, type StructureDef } from "./def";
 import { PIECE_TILE, registerRenderer, type RenderCtx, type StructureHandle, type StructureRenderer } from "./render";
 
@@ -131,7 +132,10 @@ function buildSprites(
   if (!H || !look || !kitId) return [];
   const h = groundHeight(ctx.grid, s);
   const out: Container[] = [];
-  const pieces = housePieces(look, kitId, floorsFor(def, s), seedOf(s)), tint = houseTint(kitId, seedOf(s));
+  // A SHOP in its ground floor: that ground floor, its front on the shop's face, painted the trade's. @see shopfronts
+  const front = frontOf(ctx.grid, s);
+  const pieces = housePieces(look, kitId, floorsFor(def, s), seedOf(s), front && shopKeyOf(front)), tint = houseTint(kitId, seedOf(s));
+  const paint = front ? shopPaint(front.sv) : 0xffffff;
   // Lowest first, so insertion order alone stacks the column.
   for (const cell of footprintCells(s.x, s.y, s.w, s.h)) {
     if (!inBounds(ctx.grid, cell.x, cell.y)) continue;
@@ -143,6 +147,7 @@ function buildSprites(
       sp.position.set(wx, wy - p.lift * ctx.scale);
       sp.scale.set(ctx.scale / H.res);
       if (p.walls) sp.tint = tint;
+      else if (p.paint) sp.tint = paint;
       if (p.snow) fadeWithSnow(sp);
       sp.eventMode = "none";
       parent.addChild(sp);
@@ -162,20 +167,23 @@ const destroyAll = (sprites: Container[]) => {
 };
 
 /** What a structure is drawn as now: a change of it is a redraw. */
-const keyOf = (s: Structure, def: StructureDef) =>
-  `${def.id}|${(s.residents === 0 || s.build) && housedBy(def.id) ? "lot" : floorsFor(def, s)}`;
+const keyOf = (s: Structure, def: StructureDef, g: Grid) => {
+  if ((s.residents === 0 || s.build) && housedBy(def.id)) return `${def.id}|lot`;
+  const f = frontOf(g, s);
+  return `${def.id}|${floorsFor(def, s)}|${f ? `${f.sv}:${shopKeyOf(f)}` : ""}`;
+};
 
 /** Draw it again as it is now. */
 function redraw(h: TilesHandle, s: Structure, def: StructureDef, ctx: RenderCtx) {
   destroyAll(h.sprites);
   h.sprites.push(...buildSprites(s, def, ctx));
-  h.key = keyOf(s, def);
+  h.key = keyOf(s, def, ctx.grid);
 }
 
 export const tilesRenderer: StructureRenderer = {
   mount(s, def, ctx) {
     const sprites = buildSprites(s, def, ctx);
-    const handle: TilesHandle = { sprites, key: keyOf(s, def), due: 0, destroy: () => destroyAll(sprites) };
+    const handle: TilesHandle = { sprites, key: keyOf(s, def, ctx.grid), due: 0, destroy: () => destroyAll(sprites) };
     return handle;
   },
 
@@ -193,7 +201,7 @@ export const tilesRenderer: StructureRenderer = {
     handle.due += dt;
     if (handle.due < 0.5) return;
     handle.due = 0;
-    if (keyOf(s, def) !== handle.key) tilesRenderer.update(handle, s, def, ctx);
+    if (keyOf(s, def, ctx.grid) !== handle.key) tilesRenderer.update(handle, s, def, ctx);
   },
 
   unmount(h) {

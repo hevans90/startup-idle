@@ -4,9 +4,9 @@ import { createGrid, fillTerrain, idx } from "../grid";
 import { SERVICE_IDS } from "../agents/needs";
 import { SHOP_NAMES, shopName } from "../agents/shop-names";
 import { lightsOf } from "./lights";
-import { FRONT_TALL, SHOP_LOOK, movingOf, shopfrontsOf } from "./shopfronts";
+import { FRONT_TALL, SHOP_LOOK, movingOf, shopKeyOf, shopfrontsOf, spansOf } from "./shopfronts";
 import { HALF_STEPS_PER_M, TILES_PER_M } from "../agents/cars/models";
-import { HOUSES } from "../houses/models";
+import { HOUSES, SHOP_PLAN, shopGround } from "../houses/models";
 
 /** A house at (5, 5), a shop in it, and the street where it is asked for. */
 function house(street: "front" | "side" | "behind", shop = "bar") {
@@ -49,6 +49,41 @@ describe("the shops' fronts", () => {
       expect(fr.wall.hi - fr.wall.lo, h.id).toBeCloseTo(2 * along * TILES_PER_M, 9);
       // The front, cornice and all, fits under the first floor.
       expect(FRONT_TALL * fr.wall.zk, h.id).toBeCloseTo(h.ground * HALF_STEPS_PER_M, 9);
+    }
+  });
+
+  test("on a kit's house, its front is baked into the ground floor it is drawn with: that face, the door at the same end", () => {
+    for (const street of ["front", "side"] as const) for (const id of [1, 2]) {
+      const g = house(street);
+      const s = g.structures.get(1)!;
+      g.structures.delete(1); s.id = id; g.structures.set(id, s);
+      const fr = shopfrontsOf(g)[0];
+      expect(fr.baked).toBe(true);
+      expect(shopKeyOf(fr)).toBe(`${fr.face}${id % 2}`);
+      // The drawn door's span is the baked one's.
+      expect(spansOf(fr).door).toEqual(SHOP_PLAN.spans(shopKeyOf(fr)[1] === "1").door);
+    }
+    // A building that is no kit has its whole front drawn.
+    const g = house("front");
+    g.structures.get(1)!.def = "cinema";
+    expect(shopfrontsOf(g)[0]?.baked ?? false).toBe(false);
+  });
+
+  test("the baked front stands on its kit's wall, in its ground floor, the door where the plan says", () => {
+    for (const h of HOUSES) for (const key of ["v0", "v1", "u0", "u1"] as const) {
+      const tris = shopGround(h, key), ax = key[0] === "v" ? 1 : 0, along = 1 - ax, at = key[0] === "v" ? h.hy : h.hx, half = key[0] === "v" ? h.hx : h.hy;
+      const paint = tris.filter((t) => t.mat === "paint");
+      expect(paint.length, h.id).toBeGreaterThan(0);
+      for (const t of paint) for (const v of t.p) {
+        expect(v[2], h.id).toBeLessThanOrEqual(h.ground + 1e-6);
+        expect(v[ax], h.id).toBeGreaterThanOrEqual(at - 1e-6);
+        expect(v[ax], h.id).toBeLessThanOrEqual(at + 0.7);
+      }
+      // No window or door of the house's own left on that face.
+      expect(tris.some((t) => (t.mat === "pane" || t.mat === "glass") && t.p.every((v) => v[ax] >= at - 1e-6) && Math.max(...t.p.map((v) => v[2])) > 0.2 && t.p.some((v) => {
+        const f = (v[along] + half) / (2 * half), { door, win } = SHOP_PLAN.spans(key[1] === "1");
+        return !(f >= door[0] - 0.05 && f <= door[1] + 0.05) && !(f >= win[0] - 0.05 && f <= win[1] + 0.05);
+      })), `${h.id} ${key}`).toBe(false);
     }
   });
 

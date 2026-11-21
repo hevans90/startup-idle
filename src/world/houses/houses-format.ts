@@ -7,8 +7,8 @@
 export const HOUSE_RES = 2.5;
 /** Texels between one layer of a frame and the next. */
 export const HOUSE_GAP = 3;
-/** Layers: the walls, white and tinted in the game; then everything else. */
-export const HOUSE_LAYERS = 2;
+/** Layers: the walls, white and tinted in the game; a shop's paint, white and tinted its trade's; then everything else, the shadow with it. */
+export const HOUSE_LAYERS = 3;
 
 /**
  * A frame: its page and where it starts, then each layer cropped to what it
@@ -21,6 +21,8 @@ export type HouseFrames = {
   ground: HouseFrame; mids: HouseFrame[]; roof: HouseFrame;
   /** The snow lying on its roof, alone, as the roof hides it: its second layer. @see houses/models snowOver */
   snow?: HouseFrame;
+  /** Its ground floor with a shop in it, by which face and which end the door is: @see houses/models shopGround, SHOP_KEYS */
+  shop?: Record<string, HouseFrame>;
 };
 
 export type HousesSheet = {
