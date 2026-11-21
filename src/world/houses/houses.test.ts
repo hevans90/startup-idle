@@ -27,6 +27,21 @@ describe("the houses, as models", () => {
       for (const t of [...p.ground, ...p.mids.flat(), ...p.roof]) for (const v of t.p) { expect(Math.abs(v[0])).toBeLessThanOrEqual(5.55); expect(Math.abs(v[1])).toBeLessThanOrEqual(5.55); }
     }
   });
+
+  test("each says where its walls are, as it is modelled: the faces a shop's front and a mural are drawn on", () => {
+    for (const h of HOUSES) {
+      // The ground floor's own walls, up to the first floor: the faces at ±hx and ±hy, and none out past them.
+      // (A storey's height of it: not a planter or a step that happens to stand in the same plane.)
+      const tall = (t: { p: readonly (readonly number[])[] }) => Math.max(...t.p.map((v) => v[2])) - Math.min(...t.p.map((v) => v[2])) > 1.5;
+      const walls = h.parts().ground.filter((t) => (t.mat === "wall" || t.mat === "stone") && tall(t) && t.p.every((v) => v[2] <= h.ground + 1e-6));
+      const at = (k: 0 | 1, d: number) => walls.some((t) => t.p.every((v) => Math.abs(v[k] - d) < 1e-6));
+      expect(at(0, h.hx), `${h.id} +x`).toBe(true);
+      expect(at(1, h.hy), `${h.id} +y`).toBe(true);
+      const faces = walls.filter((t) => t.p.every((v) => Math.abs(v[0] - h.hx) < 1e-6));
+      // (A pier may stand a little proud of the face; no more.)
+      expect(Math.max(...faces.flatMap((t) => t.p.map((v) => v[1]))), h.id).toBeLessThanOrEqual(h.hy + 0.2);
+    }
+  });
 });
 
 describe("the baked sheet", () => {

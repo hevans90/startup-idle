@@ -1,7 +1,7 @@
 /**
  * World v2 — WHAT A CONTRACTOR BUILDS: everything the player puts up that is
  * not one of the company's own projects. An office, the lab, a rack, a slop
- * processor, a length of flood wall, a lot for a house is a SITE as a project is — set out, dug,
+ * processor, a length of flood wall is a SITE as a project is — set out, dug,
  * piled, poured, framed and clad, its materials brought a lorry-load at a
  * time and paid for as each is sent — but quick, and by a gang that is the
  * contractor's: nobody leaves a desk for it. @see works stepWorks,
@@ -26,9 +26,6 @@ export const CONTRACTS: Readonly<Record<string, Contract>> = {
   seaport: { seconds: 80, loads: 5, gang: 6 },
 };
 
-/** A LOT is set out and serviced before anybody can move onto it: pegged, a trench in from the road, its pipes capped at the plot. Quick. */
-export const LOT: Contract = { seconds: 12, loads: 1, gang: 2, carried: true };
-const isLot = (def: string) => /^kit:.+\.t0$/.test(def);
 /**
  * WHAT IS NOBODY'S TO PAY FOR and goes up all the same: a service the town opens for itself, a building the Machine
  * puts up for itself. Sites as any other, their loads free.
@@ -38,7 +35,7 @@ export const MACHINES: Contract = { seconds: 40, loads: 3, gang: 4 };
 
 /** What builds a structure of this kind, if a contractor does. */
 export const contractFor = (def: string): Contract | null =>
-  CONTRACTS[def] ?? (isLot(def) ? LOT : serviceOf(def) ? TOWNS : isAiBuilding(def) ? MACHINES : null);
+  CONTRACTS[def] ?? (serviceOf(def) ? TOWNS : isAiBuilding(def) ? MACHINES : null);
 
 /** A fresh build record for a contract costing `cost` in all: paid a load at a time, none of it now. */
 export const contractBuild = (def: string, cost: number, now: number): Build | null => {

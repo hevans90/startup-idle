@@ -4,7 +4,9 @@ import { createGrid, fillTerrain, idx } from "../grid";
 import { SERVICE_IDS } from "../agents/needs";
 import { SHOP_NAMES, shopName } from "../agents/shop-names";
 import { lightsOf } from "./lights";
-import { SHOP_LOOK, movingOf, shopfrontsOf } from "./shopfronts";
+import { FRONT_TALL, SHOP_LOOK, movingOf, shopfrontsOf } from "./shopfronts";
+import { HALF_STEPS_PER_M, TILES_PER_M } from "../agents/cars/models";
+import { HOUSES } from "../houses/models";
 
 /** A house at (5, 5), a shop in it, and the street where it is asked for. */
 function house(street: "front" | "side" | "behind", shop = "bar") {
@@ -36,6 +38,18 @@ describe("the shops' fronts", () => {
     expect(shopfrontsOf(house("front"))[0].face).toBe("v");
     expect(shopfrontsOf(house("side"))[0].face).toBe("u");
     expect(shopfrontsOf(house("behind"))[0].face).toBe("v");
+  });
+
+  test("on its own house's wall, whatever the kit: the face's plane and length, its height its ground floor's", () => {
+    for (const h of HOUSES) for (const street of ["front", "side"] as const) {
+      const g = house(street);
+      g.structures.get(1)!.def = `kit:${h.id}`;
+      const fr = shopfrontsOf(g)[0], [out, along] = fr.face === "v" ? [h.hy, h.hx] : [h.hx, h.hy];
+      expect(fr.wall.at, h.id).toBeCloseTo(0.5 + out * TILES_PER_M, 9);
+      expect(fr.wall.hi - fr.wall.lo, h.id).toBeCloseTo(2 * along * TILES_PER_M, 9);
+      // The front, cornice and all, fits under the first floor.
+      expect(FRONT_TALL * fr.wall.zk, h.id).toBeCloseTo(h.ground * HALF_STEPS_PER_M, 9);
+    }
   });
 
   test("only a finished house with a shop has one; a café's steam and a cinema's marquee move", () => {

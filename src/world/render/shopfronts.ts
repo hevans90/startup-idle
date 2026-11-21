@@ -21,6 +21,9 @@ import type { BandLayer } from "./bands";
 import { RIGHT, makePen, mix, tone, type Pen } from "../structures/projects/pen";
 import { CLUB_TOP, MARQUEE } from "../structures/projects/looks";
 import { serviceDef, serviceOf, type ServiceId } from "../agents/needs";
+import { HALF_STEPS_PER_M, TILES_PER_M } from "../agents/cars/models";
+import { houseOf } from "../houses/models";
+import { structureDef } from "../structures/def";
 
 /** A service's colours: its awning (and its sign's board), the stripe, and its light at night. */
 export type ShopLook = {
@@ -57,8 +60,8 @@ export const SHOP_LOOK: Record<ServiceId, ShopLook> = {
   park: { awning: 0x5c9a46, stripe: 0x5c9a46, letters: 0xffffff, glow: 0xffe2a0 },
 };
 
-/** Where a shop's front is: the house's front tile, and the face it is on. */
-export type Front = { id: number; sv: ServiceId; x: number; y: number; face: "u" | "v" };
+/** Where a shop's front is: the house's front tile, the face it is on, and that face's wall. */
+export type Front = { id: number; sv: ServiceId; x: number; y: number; face: "u" | "v"; wall: Wall };
 
 /** A building of its own that moves: its service and its footprint. */
 export type Moving = { id: number; sv: ServiceId; x: number; y: number; w: number; h: number; front?: Front };
@@ -77,7 +80,7 @@ export function shopfrontsOf(g: Grid): Front[] {
     if (!s.shop || s.build || !serviceDef(s.shop)?.shop) continue;
     const x = s.x + s.w - 1, y = s.y + s.h - 1;
     const face = !isPaved(g, x, y + 1) && isPaved(g, x + 1, y) ? "u" : "v";
-    out.push({ id: s.id, sv: s.shop as ServiceId, x, y, face });
+    out.push({ id: s.id, sv: s.shop as ServiceId, x, y, face, wall: wallOf(s.def, face) });
   }
   return out;
 }
@@ -94,11 +97,27 @@ export function movingOf(g: Grid, fronts: readonly Front[] = shopfrontsOf(g)): M
 }
 
 /**
- * How far into its tile a house's front walls stand, its back walls as far in
- * from the back: measured off the kits' ground frames, a block 97 px across
- * a 132 px tile, standing in its middle.
+ * A WALL to draw on: how far into its tile it stands (`at`, from the tile's back edge, toward the face), where it
+ * runs from and to along the tile (`lo`, `hi`), and `zk`, what a front's heights are scaled by to fit its ground
+ * floor. @see wallOf
  */
-const WALL = 0.87;
+export type Wall = { at: number; lo: number; hi: number; zk: number };
+
+/** How tall a shop's front is drawn, half steps, to the top of its cornice and a little over: fitted to a ground floor by {@link Wall.zk}. */
+export const FRONT_TALL = 2.15;
+/** Where a building that is no house kit is taken to have its walls: the old tile stacks', 97 px of a 132 px tile. */
+const ANY_WALL: Wall = { at: 0.87, lo: 0.13, hi: 0.87, zk: 1 };
+
+/**
+ * THE WALL ON THIS FACE of a building of this kind, as its kit is modelled: the face's plane, its length, and its
+ * ground floor's height — so a front stands ON the wall and under the first floor. @see houses/models House.hx
+ */
+export function wallOf(def: string, face: "u" | "v"): Wall {
+  const d = structureDef(def), kit = d?.render.kind === "tiles" ? houseOf(d.render.kit.kit) : undefined;
+  if (!kit) return ANY_WALL;
+  const out = face === "v" ? kit.hy : kit.hx, along = face === "v" ? kit.hx : kit.hy;
+  return { at: 0.5 + out * TILES_PER_M, lo: 0.5 - along * TILES_PER_M, hi: 0.5 + along * TILES_PER_M, zk: (kit.ground * HALF_STEPS_PER_M) / FRONT_TALL };
+}
 
 const DARK = 0x262b31;
 const GLASS_IN = 0x34302c;
@@ -134,8 +153,24 @@ export type Face = {
   across: (c: number) => number;
 };
 
-export function faceOf(p: Pen, face: "u" | "v", lo = 1 - WALL, hi = WALL): Face {
+export function faceOf(p: Pen, face: "u" | "v", wall: Wall = ANY_WALL): Face {
+  const { at: WALL, lo, hi, zk: k } = wall;
   const A = (a: number) => lo + (hi - lo) * a;
+  const f = faceAt(p, face, A, WALL);
+  if (k === 1) return f;
+  // Every height scaled to the wall's own ground floor.
+  return {
+    ...f,
+    on: (a0, a1, z0, z1, c, al) => f.on(a0, a1, z0 * k, z1 * k, c, al),
+    box: (a0, a1, o0, o1, z0, z1, c, top) => f.box(a0, a1, o0, o1, z0 * k, z1 * k, c, top),
+    dot: (a, out, z, r, c, al) => f.dot(a, out, z * k, r, c, al),
+    poly: (pts, c, al) => f.poly(pts.map(([a, o, z]) => [a, o, z * k] as const), c, al),
+    side: (a, o0, o1, z0, z1, c, al) => f.side(a, o0, o1, z0 * k, z1 * k, c, al),
+    pt3: (a, o, z) => f.pt3(a, o, z * k),
+  };
+}
+
+function faceAt(p: Pen, face: "u" | "v", A: (a: number) => number, WALL: number): Face {
   if (face === "v") {
     const pt = (a: number, o: number, z: number) => p.P(A(a), WALL + o, z);
     return {
@@ -208,7 +243,9 @@ const FASCIA = { z0: 1.62, z1: 1.98 };
 /** A house's ground floor, made a shop. */
 export function drawShopfront(p: Pen, fr: Front) {
   const L = SHOP_LOOK[fr.sv];
-  const f = faceOf(p, fr.face);
+  const f = faceOf(p, fr.face, fr.wall);
+  // (What stands on the pavement is as tall as it is, whatever the house.)
+  const pf = faceOf(p, fr.face, { ...fr.wall, zk: 1 });
   const kind = KIND_OF[fr.sv] ?? "awning";
   const paint = L.paint ?? tone(L.awning, 0.78);
   const { door: [d0, d1], win: [w0, w1] } = spansOf(fr);
@@ -272,7 +309,7 @@ export function drawShopfront(p: Pen, fr: Front) {
     }
   }
   // What it puts out on the pavement, under the awning.
-  PAVEMENT[fr.sv]?.(f, L, fr, p);
+  PAVEMENT[fr.sv]?.(pf, L, fr, p);
   if (kind === "awning") awning(f, L, fr);
   if (kind === "painted") baskets(f, p);
   // THE BLADE: a sign hung square off the wall at the end away from the door.
@@ -537,7 +574,7 @@ function steam(p: Pen, u: number, v: number, z: number, t: number) {
 export function drawMoving(p: Pen, m: Moving, t: number) {
   const L = SHOP_LOOK[m.sv];
   if (m.front) {
-    const fr = m.front, f = faceOf(p, fr.face);
+    const fr = m.front, f = faceOf(p, fr.face, fr.wall);
     if (fr.sv === "arcade") {
       // The cabinets' screens, flickering through their colours, out of step.
       const { win: [w0, w1] } = spansOf(fr);
@@ -553,7 +590,7 @@ export function drawMoving(p: Pen, m: Moving, t: number) {
     // Steam off the cup on the table, the bread, the brew.
     const at = steamOf(fr);
     if (!at) return;
-    const [u, v, z] = f.pt3(at[0], at[1], at[2]);
+    const [u, v, z] = faceOf(p, fr.face, { ...fr.wall, zk: 1 }).pt3(at[0], at[1], at[2]);
     steam(p, u, v, z, t);
     return;
   }

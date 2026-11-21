@@ -111,7 +111,7 @@ export function housingCapacity(grid: Grid): Record<GeneratorId, number> {
   const out = { ...NO_HOUSING };
   for (const s of grid.structures.values()) {
     const h = housedBy(s.def);
-    // A site is no beds yet: a Campus going up, a lot still being serviced.
+    // A site is no beds yet: a Campus going up.
     if (h && !s.build) out[h.id] += h.slots;
   }
   return out;

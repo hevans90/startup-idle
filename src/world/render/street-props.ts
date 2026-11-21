@@ -31,7 +31,7 @@ import { TILES_PER_M } from "../agents/cars/models";
 import { SEATS_M } from "../props/models";
 import { PROP_TINT } from "../props/props-format";
 import { bakedProps, propSprite, propSprites, propsLoaded, turnOf, type PropSprites } from "../props/props-sheet";
-import { faceOf } from "./shopfronts";
+import { faceOf, wallOf, type Wall } from "./shopfronts";
 import { plantsTrees, setPlanted, type PlantedTree } from "./planted";
 
 /** A prop on a road tile: which, its tile, and the kerb it stands by. */
@@ -46,7 +46,7 @@ export type StreetProp = {
   side: "N" | "E" | "S" | "W";
 };
 /** A house's mural: on the face away from its street. */
-export type Mural = { id: number; x: number; y: number; face: "u" | "v" };
+export type Mural = { id: number; x: number; y: number; face: "u" | "v"; wall: Wall };
 
 /** Tiles from one lamp to the next along a kerb: the length of a run of bunting. */
 const SPAN = 4;
@@ -152,7 +152,8 @@ export function streetPropsOf(g: Grid, streets: Streets, b: Beauty, crossings: r
       const s = g.structures.get(id);
       if (!s || s.shop || id % 2 || !housedBy(s.def)) continue;
       const x = s.x + s.w - 1, y = s.y + s.h - 1;
-      murals.push({ id, x, y, face: isPaved(g, x, y + 1) ? "u" : "v" });
+      const face = isPaved(g, x, y + 1) ? "u" : "v";
+      murals.push({ id, x, y, face, wall: wallOf(s.def, face) });
     }
   }
   return { props, murals };
@@ -328,7 +329,7 @@ const DRAW: Record<StreetProp["kind"], (p: Pen, pr: StreetProp) => void> = {
 
 /** A mural on a house's ground floor and up: one of four pictures, by its id. */
 function drawMural(p: Pen, m: Mural) {
-  const f = faceOf(p, m.face);
+  const f = faceOf(p, m.face, m.wall);
   const [a, b, c] = MURAL[m.id % MURAL.length];
   const w = f.wall;
   const kind = (m.id >> 1) % 4;

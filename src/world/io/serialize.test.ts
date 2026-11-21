@@ -36,6 +36,18 @@ function sample(w = 12, h = 9) {
 }
 
 describe("round trip", () => {
+  test("a lot saved half set out — when a lot was a site — opens finished; a site of anything else stays one", () => {
+    const g = sample();
+    commit(g, createHistory(), placeCommand(g, structureDef("kit:intern.t0")!, 8, 2)!);
+    commit(g, createHistory(), placeCommand(g, structureDef("office-intern")!, 8, 5)!);
+    const build = { done: 3, need: 24, delivered: 1, deliveries: 1, cost: 10, priority: 2, updatedAt: 0 };
+    for (const s of g.structures.values()) s.build = { ...build };
+    const { grid } = deserializeWorld(serializeWorld(g, PAL));
+    const back = [...grid.structures.values()];
+    expect(back.find((s) => s.def === "kit:intern.t0")!.build).toBeUndefined();
+    expect(back.find((s) => s.def === "office-intern")!.build).toMatchObject({ done: 3, need: 24 });
+  });
+
   test("the sewers under the ground survive, and a map without any saves none", () => {
     const g = sample();
     expect(serializeWorld(g, PAL)).not.toHaveProperty("sewer");

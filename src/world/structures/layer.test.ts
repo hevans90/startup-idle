@@ -21,7 +21,7 @@ import {
   syncStructures,
 } from "./layer";
 import { rendererFor, type RenderCtx } from "./render";
-import { tileSpriteCount } from "./tiles-renderer";
+import { setCollapsed, tileSpriteCount } from "./tiles-renderer";
 import { placeCommand, demolishCommand } from "./place";
 
 const KIT = structureDef("kit:intern.t0")!;
@@ -113,6 +113,25 @@ describe("the tiles strategy", () => {
     setHouseSprites(SHEET);
     expect(mountedCount(sl)).toBe(1);
     expect(tileSpriteCount([...sl.mounted.values()][0].handle)).toBe(0);
+  });
+
+  test("lowered by the cutaway and raised again, a house is only its own sprites — nothing put up round it", () => {
+    const { grid, bands, sl, ctx, hist } = setup();
+    const house = structureDef("kit:intern.t1")!;
+    commit(grid, hist, placeCommand(grid, house, 4, 4)!);
+    syncStructures(sl, ctx);
+    const m = [...sl.mounted.values()][0];
+    const drawn = () => bands.structureOf.reduce((n, t) => n + t.children.length, 0);
+    const before = drawn(), parts = m.renderer.pieces!(m.handle).length;
+    setCollapsed(m.s.id, true);
+    m.renderer.update(m.handle, m.s, house, ctx);
+    expect(m.renderer.pieces!(m.handle).length).toBeLessThan(parts);
+    setCollapsed(m.s.id, false);
+    m.renderer.update(m.handle, m.s, house, ctx);
+    for (let t = 0; t < 40; t++) m.renderer.tick?.(m.handle, m.s, house, ctx, 0.5);
+    expect(m.renderer.pieces!(m.handle).length).toBe(parts);
+    expect(drawn()).toBe(before);
+    expect(m.renderer.pieces!(m.handle).every((p) => p.constructor.name === "Sprite")).toBe(true);
   });
 
   test("a multi-cell footprint draws a column PER CELL, each in its own band", () => {

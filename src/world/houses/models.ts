@@ -25,6 +25,12 @@ export type House = {
   id: string;
   /** How tall its ground floor is, and each floor over it, metres. */
   ground: number;
+  /**
+   * Half its walls' length along `x` (its +x face, in shade, stands at `hx`) and along `y` (its lit +y face at
+   * `hy`), metres: where what is drawn on its walls — a shop's front, a mural — stands. @see render/shopfronts wallOf
+   */
+  hx: number;
+  hy: number;
   storey: number;
   /** As many floors as it grows to, the ground floor one of them. */
   floors: number;
@@ -196,7 +202,7 @@ const STONE = [0xdcd8cf, 0xc9cdd1, 0xb8c0c7, 0xe3ddcf, 0x8f99a3] as const;
 
 const internT0: House = {
   // A cottage: a door between two windows, a tiled gable, a chimney, a hedge to the street.
-  id: "intern.t0", ground: 2.9, storey: 2.9, floors: HOUSE_FLOORS["intern.t0"], tints: BRICK, shadow: shadowOf(3.3, 2.7),
+  id: "intern.t0", ground: 2.9, hx: 3.3, hy: 2.7, storey: 2.9, floors: HOUSE_FLOORS["intern.t0"], tints: BRICK, shadow: shadowOf(3.3, 2.7),
   parts: () => {
     const hx = 3.3, hy = 2.7, g = 2.9;
     return {
@@ -216,7 +222,7 @@ const internT0: House = {
 
 const internT1: House = {
   // A pair of houses under one slate roof: two doors, bays of windows over them.
-  id: "intern.t1", ground: 2.9, storey: 2.8, floors: HOUSE_FLOORS["intern.t1"], tints: BRICK, shadow: shadowOf(3.8, 2.9),
+  id: "intern.t1", ground: 2.9, hx: 3.8, hy: 2.9, storey: 2.8, floors: HOUSE_FLOORS["intern.t1"], tints: BRICK, shadow: shadowOf(3.8, 2.9),
   parts: () => {
     const hx = 3.8, hy = 2.9, g = 2.9, f = 2.8;
     return {
@@ -238,7 +244,7 @@ const internT1: House = {
 
 const internT2: House = {
   // A walk-up block of flats: a stone doorway, balconies up the front, a flat roof with its tank.
-  id: "intern.t2", ground: 3.2, storey: 3.0, floors: HOUSE_FLOORS["intern.t2"], tints: BRICK, shadow: shadowOf(4.2, 3.5),
+  id: "intern.t2", ground: 3.2, hx: 4.2, hy: 3.5, storey: 3.0, floors: HOUSE_FLOORS["intern.t2"], tints: BRICK, shadow: shadowOf(4.2, 3.5),
   parts: () => {
     const hx = 4.2, hy = 3.5, g = 3.2, f = 3.0;
     return {
@@ -264,7 +270,7 @@ const internT2: House = {
 
 const internLandmark: House = {
   // A brick tower: a stone base, balconies turn and turn about, plant and a mast on the roof.
-  id: "intern.landmark", ground: 4.0, storey: 3.1, floors: HOUSE_FLOORS["intern.landmark"], tints: BRICK, shadow: shadowOf(4.0, 4.0, 0.34),
+  id: "intern.landmark", ground: 4.0, hx: 4.0, hy: 4.0, storey: 3.1, floors: HOUSE_FLOORS["intern.landmark"], tints: BRICK, shadow: shadowOf(4.0, 4.0, 0.34),
   parts: () => {
     const hx = 4.0, hy = 4.0, g = 4.0, f = 3.1;
     const floor = (o: Out) => {
@@ -303,7 +309,7 @@ const internLandmark: House = {
 
 const vibeT0: House = {
   // A studio: one big window to the street, an awning, a deck on the roof.
-  id: "vibe_coder.t0", ground: 3.4, storey: 3.2, floors: HOUSE_FLOORS["vibe_coder.t0"], tints: RENDER, shadow: shadowOf(3.4, 3.0),
+  id: "vibe_coder.t0", ground: 3.4, hx: 3.4, hy: 3.0, storey: 3.2, floors: HOUSE_FLOORS["vibe_coder.t0"], tints: RENDER, shadow: shadowOf(3.4, 3.0),
   parts: () => {
     const hx = 3.4, hy = 3.0, g = 3.4;
     return {
@@ -332,7 +338,7 @@ const vibeT0: House = {
 
 const vibeT1: House = {
   // A townhouse: a tall ground floor, a glass-fronted balcony over, a pergola on the roof.
-  id: "vibe_coder.t1", ground: 3.4, storey: 3.1, floors: HOUSE_FLOORS["vibe_coder.t1"], tints: RENDER, shadow: shadowOf(3.5, 3.2),
+  id: "vibe_coder.t1", ground: 3.4, hx: 3.5, hy: 3.2, storey: 3.1, floors: HOUSE_FLOORS["vibe_coder.t1"], tints: RENDER, shadow: shadowOf(3.5, 3.2),
   parts: () => {
     const hx = 3.5, hy = 3.2, g = 3.4, f = 3.1;
     return {
@@ -364,7 +370,7 @@ const vibeT1: House = {
 
 const vibeT2: House = {
   // Lofts: a workshop's tall steel windows floor on floor, north lights on the roof.
-  id: "vibe_coder.t2", ground: 3.8, storey: 3.5, floors: HOUSE_FLOORS["vibe_coder.t2"], tints: RENDER, shadow: shadowOf(4.1, 3.6),
+  id: "vibe_coder.t2", ground: 3.8, hx: 4.1, hy: 3.6, storey: 3.5, floors: HOUSE_FLOORS["vibe_coder.t2"], tints: RENDER, shadow: shadowOf(4.1, 3.6),
   parts: () => {
     const hx = 4.1, hy = 3.6, g = 3.8, f = 3.5;
     const bays = (o: Out, z0: number, z1: number, skip = -1) => {
@@ -401,7 +407,7 @@ const vibeT2: House = {
 
 const vibeLandmark: House = {
   // A painted tower: balconies stepping round it, a garden on the roof.
-  id: "vibe_coder.landmark", ground: 4.2, storey: 3.2, floors: HOUSE_FLOORS["vibe_coder.landmark"], tints: RENDER, shadow: shadowOf(3.9, 3.9, 0.34),
+  id: "vibe_coder.landmark", ground: 4.2, hx: 3.9, hy: 3.9, storey: 3.2, floors: HOUSE_FLOORS["vibe_coder.landmark"], tints: RENDER, shadow: shadowOf(3.9, 3.9, 0.34),
   parts: () => {
     const hx = 3.9, hy = 3.9, g = 4.2, f = 3.2;
     const floor = (o: Out, by: number, bx: number) => {
@@ -445,7 +451,7 @@ const vibeLandmark: House = {
 
 const tenT0: House = {
   // A glass block of four floors: a lobby, bands of glass, a penthouse set back.
-  id: "10x_dev.t0", ground: 4.2, storey: 3.6, floors: HOUSE_FLOORS["10x_dev.t0"], tints: STONE, shadow: shadowOf(3.8, 3.4),
+  id: "10x_dev.t0", ground: 4.2, hx: 3.8, hy: 3.4, storey: 3.6, floors: HOUSE_FLOORS["10x_dev.t0"], tints: STONE, shadow: shadowOf(3.8, 3.4),
   parts: () => {
     const hx = 3.8, hy = 3.4, g = 4.2, f = 3.6;
     return {
@@ -470,7 +476,7 @@ const tenT0: House = {
 
 const tenT1: House = {
   // Six floors of glass between stone piers, a glass box and plant on top.
-  id: "10x_dev.t1", ground: 4.4, storey: 3.6, floors: HOUSE_FLOORS["10x_dev.t1"], tints: STONE, shadow: shadowOf(3.8, 3.8, 0.34),
+  id: "10x_dev.t1", ground: 4.4, hx: 3.8, hy: 3.8, storey: 3.6, floors: HOUSE_FLOORS["10x_dev.t1"], tints: STONE, shadow: shadowOf(3.8, 3.8, 0.34),
   parts: () => {
     const hx = 3.8, hy = 3.8, g = 4.4, f = 3.6;
     const piers = (o: Out, z0: number, z1: number) => {
@@ -499,7 +505,7 @@ const tenT1: House = {
 
 const tenT2: House = {
   // A dark-framed tower of eight: solar panels and a mast on the roof.
-  id: "10x_dev.t2", ground: 4.8, storey: 3.6, floors: HOUSE_FLOORS["10x_dev.t2"], tints: STONE, shadow: shadowOf(3.6, 3.6, 0.36),
+  id: "10x_dev.t2", ground: 4.8, hx: 3.6, hy: 3.6, storey: 3.6, floors: HOUSE_FLOORS["10x_dev.t2"], tints: STONE, shadow: shadowOf(3.6, 3.6, 0.36),
   parts: () => {
     const hx = 3.6, hy = 3.6, g = 4.8, f = 3.6;
     const fins = (o: Out, z0: number, z1: number) => {
@@ -529,7 +535,7 @@ const tenT2: House = {
 
 const tenLandmark: House = {
   // A tower of ten, stepping in to a crown and a spire.
-  id: "10x_dev.landmark", ground: 5.2, storey: 3.6, floors: HOUSE_FLOORS["10x_dev.landmark"], tints: STONE, shadow: shadowOf(4.0, 4.0, 0.38),
+  id: "10x_dev.landmark", ground: 5.2, hx: 4.0, hy: 4.0, storey: 3.6, floors: HOUSE_FLOORS["10x_dev.landmark"], tints: STONE, shadow: shadowOf(4.0, 4.0, 0.38),
   parts: () => {
     const hx = 4.0, hy = 4.0, g = 5.2, f = 3.6;
     const ribs = (o: Out, z0: number, z1: number, r = hx) => {

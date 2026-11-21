@@ -326,7 +326,8 @@ function readStructure(raw: unknown): Structure | null {
   // NOR THE TOWN HALL'S SITE: services open by themselves now; one finished stands. @see world/agents/town-services
   if (s.def === "townhall" && s.build) return null;
   if ((s.w as number) <= 0 || (s.h as number) <= 0 || (s.id as number) < 0) return null;
-  const build = readBuild(s.build);
+  // A HOUSE'S LOT is never a site now: one saved half set out stands finished. @see projects/contracts
+  const build = s.def.startsWith("kit:") ? null : readBuild(s.build);
   const residents = Number.isInteger(s.residents) && s.residents! >= 0 ? s.residents : undefined;
   const grown = Number.isInteger(s.grown) && s.grown! > 0 ? s.grown : undefined;
   const shop = typeof s.shop === "string" && serviceDef(s.shop)?.shop ? s.shop : undefined;

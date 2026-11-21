@@ -11,7 +11,9 @@ import { useMoneyStore } from "../../state/money.store";
 import { useWorldStore } from "../../state/world.store";
 import { idx } from "../grid";
 import { placeStructure } from "../play/build-actions";
-import { CONTRACTS } from "./contracts";
+import { housingCapacity } from "../../game/housing";
+import { HOUSE_KITS } from "../houses/kits";
+import { CONTRACTS, contractFor } from "./contracts";
 
 const s = () => useWorldStore.getState();
 /** A map with a road along row 10, money for anything. */
@@ -51,5 +53,14 @@ describe("what the player puts up in the game", () => {
     const office = [...g.structures.values()].find((q) => q.def === "office-intern")!;
     expect(office.build).toBeUndefined();
     expect(before.minus(useMoneyStore.getState().money).toNumber()).toBeCloseTo(buildCost("office-intern")!.toNumber(), 6);
+  });
+
+  test("a LOT is put down whole, its beds there at once: no gang sets it out", () => {
+    const g = game(true);
+    for (const k of HOUSE_KITS.filter((k) => k.endsWith(".t0"))) expect(contractFor(`kit:${k}`), k).toBeNull();
+    expect(placeStructure("kit:intern.t0", { x: 4, y: 11 })).toBe(true);
+    const lot = [...g.structures.values()].find((q) => q.def === "kit:intern.t0")!;
+    expect(lot.build).toBeUndefined();
+    expect(housingCapacity(g).intern).toBeGreaterThan(0);
   });
 });
