@@ -95,7 +95,7 @@ import { FARM, claimFields, fell, fellingOf, plant, plantable, type Planting } f
 import { dredgeCells } from "../world/boats/quay";
 import { fitsTier, fitting } from "../world/boats/fittings";
 import { agentsOpen } from "../game/agents";
-import { planNode, planStormDrain } from "../world/sewers/lay";
+import { planNode, planStormDrain, type LateralPlan } from "../world/sewers/lay";
 import { deleteStretch, sameStretch, stretchAt } from "../world/pipes/stretch";
 import { sewersUnderground } from "../world/sewers/convert";
 import { solveSewers } from "../world/sewers/solve";
@@ -1618,6 +1618,16 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       // A LATERAL: an above-ground sewer from a slop port into a manhole, priced as pipe. @see planLateral
       const g = st.grid;
       const refuse = (text: string) => set({ stroke: null, notice: { text, at: Date.now() } });
+      /** A connection's tiles, as the plan has them. */
+      const layConnection = (cells: LateralPlan["cells"]) => {
+        const mark = (aiActing() ? MAIN_AI : 0) | MAIN_SEWER;
+        for (const c of cells) {
+          const i = idx(g, c.x, c.y);
+          b.set("main", c.x, c.y, g.main[i] | c.join | (hasMain(g, i) ? 0 : mark));
+          if (c.end) b.set("mainEnd", c.x, c.y, c.end);
+          else if (c.join && g.mainEnd[i] === MAIN_END.cap) b.set("mainEnd", c.x, c.y, 0);
+        }
+      };
       if (s0.lateral) {
         const lat = lateralStrokePlan(g, s0, mainWet(g))?.plan ?? { refused: "Drag from a workplace's slop port to a manhole" };
         if ("refused" in lat) { refuse(lat.refused); return; }
@@ -1627,13 +1637,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
           refuse(`Not enough money for ${lat.fresh} tiles of connection: ${formatCurrency(price.toNumber())}`);
           return;
         }
-        const mark = (aiActing() ? MAIN_AI : 0) | MAIN_SEWER;
-        for (const c of lat.cells) {
-          const i = idx(g, c.x, c.y);
-          b.set("main", c.x, c.y, g.main[i] | c.join | (hasMain(g, i) ? 0 : mark));
-          if (c.end) b.set("mainEnd", c.x, c.y, c.end);
-          else if (c.join && g.mainEnd[i] === MAIN_END.cap) b.set("mainEnd", c.x, c.y, 0);
-        }
+        layConnection(lat.cells);
       }
       const plan = s0.lateral ? undefined : sewerStrokePlan(g, s0, mainWet(g), aiActing());
       if (s0.lateral) {
@@ -1669,6 +1673,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
           if (plan.staged.sewer[i] !== g.sewer[i]) b.set("sewer", c.x, c.y, plan.staged.sewer[i]);
           if (plan.staged.sewerFit[i] !== g.sewerFit[i]) b.set("sewerFit", c.x, c.y, plan.staged.sewerFit[i]);
         }
+        // Dragged to a workplace: its connection into the trunk's end, with it. @see sewerStrokePlan
+        if (plan.connect) layConnection(plan.connect.cells);
       }
     } else if (isPipeTool(s0.tool)) {
       // THE PIPE TOOL, in the game and in the editor alike — there it costs nothing: a WATER MAIN, routed from where the drag

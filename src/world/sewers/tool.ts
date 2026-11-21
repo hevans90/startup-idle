@@ -48,7 +48,8 @@ export function trunkOffPorts(g: Grid, route: Cell[]): Cell[] {
   return r;
 }
 
-export type SewerStrokePlan = SewerPlan | { refused: string };
+/** A trunk's plan, and the connection laid with it where it was dragged to a workplace: from the slop port into the trunk's end. */
+export type SewerStrokePlan = (SewerPlan & { connect?: LateralPlan }) | { refused: string };
 
 let last: { g: Grid; rev: number; key: string; plan: SewerStrokePlan } | null = null;
 
@@ -60,9 +61,21 @@ export function sewerStrokePlan(g: Grid, s: Stroke, wet: (x: number, y: number) 
   if (last && last.g === g && last.rev === g.rev && last.key === key && !s.path) return last.plan;
   // Through its pins, if it is being laid by clicks. @see strokeRoute
   const routed = strokeRoute(g, s, wet, "trunk"), route = routed && trunkOffPorts(g, routed);
-  const plan: SewerStrokePlan = route
+  let plan: SewerStrokePlan = route
     ? planSewer(g, route, wet, { unit, liftPrice, ai })
     : { refused: "No way through for a sewer: round buildings" };
+  // DRAGGED TO A WORKPLACE: its connection too, from the port into the manhole at the trunk's end, laid with it and paid with it.
+  if (routed && route && !("refused" in plan) && route.length < routed.length) {
+    const staged = plan.staged;
+    const connect = [routed[0], routed[routed.length - 1]].flatMap((port) => {
+      // (Connected already: not twice.)
+      if (!slopPortAt(g, port) || (g.main[idx(g, port.x, port.y)] & MAIN_SEWER) !== 0) return [];
+      const end = Math.abs(port.x - route[0].x) + Math.abs(port.y - route[0].y) === 1 ? route[0] : route[route.length - 1];
+      const lat = planLateral(staged, [port, end], wet);
+      return "refused" in lat ? [] : [lat];
+    })[0];
+    if (connect) plan = { ...plan, connect, price: plan.price + pipeCost(connect.fresh).toNumber() };
+  }
   last = { g, rev: g.rev, key, plan };
   return plan;
 }

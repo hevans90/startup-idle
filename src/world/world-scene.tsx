@@ -304,6 +304,11 @@ function mainPreview(): [readonly { x: number; y: number }[] | null, boolean] {
     const l = lateralStrokePlan(st.grid, s0, mainWet(st.grid));
     return l?.route ? [l.route, !("refused" in l.plan)] : [null, true];
   }
+  // A TRUNK dragged to a workplace: the connection laid with it, drawn as a main is beside the trunk's ghost. @see sewerStrokePlan
+  if (s0?.tool === "sewer") {
+    const p = sewerStrokePlan(st.grid, s0, mainWet(st.grid));
+    return p && !("refused" in p) && p.connect ? [p.connect.cells.map((c) => ({ x: c.x, y: c.y })), !p.problem] : [null, true];
+  }
   // In the editor too: its Pipe tool lays the same main, for nothing.
   if (!s0 || s0.tool !== "pipe") return [null, true];
   const wet = mainWet(st.grid);

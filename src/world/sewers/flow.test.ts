@@ -185,29 +185,40 @@ describe("the Sewer tool works out what it is laying", () => {
     expect(laysConnection(g, { x: 12, y: 5 }, manhole)).toBe(true);
   });
 
-  test("a trunk dragged from the water to a workplace with no sewer yet: laid, stopping beside it at a manhole it connects to", () => {
+  test("a trunk dragged from the water to a workplace with no sewer yet: laid to a manhole beside it, and its connection in the same drag", () => {
     const { g, a } = street();
     const wet = wetOf(g);
     for (const [anchor, head] of [[{ x: 3, y: 4 }, { x: 12, y: 4 }], [{ x: 12, y: 4 }, { x: 3, y: 4 }]]) {
       const plan = sewerStrokePlan(g, { tool: "sewer", brush: "line", anchor, head }, wet);
       expect(plan && !("refused" in plan) && !plan.problem, JSON.stringify(plan && "refused" in plan ? plan.refused : plan?.problem)).toBe(true);
       if (!plan || "refused" in plan) return;
-      // Not on the port: a tile short of it, a manhole there.
+      // The trunk not on the port: a tile short of it, a manhole there.
       expect(plan.cells.some((c) => c.x === 12 && c.y === 4)).toBe(false);
       const end = plan.cells.find((c) => Math.abs(c.x - 12) + Math.abs(c.y - 4) === 1)!;
       expect(plan.staged.sewerFit[idx(g, end.x, end.y)]).toBe(SEWER_FIT.node);
+      // The connection from the port into it, paid for with it.
+      expect(plan.connect?.cells.map((c) => [c.x, c.y])).toEqual([[12, 4], [end.x, end.y]]);
+      expect(plan.connect?.sources).toEqual([a.id]);
     }
-    // Laid, the workplace connects to it with a tile of pipe, and drains.
-    const plan = sewerStrokePlan(g, { tool: "sewer", brush: "line", anchor: { x: 3, y: 4 }, head: { x: 12, y: 4 } }, wet)!;
-    if ("refused" in plan) throw new Error(plan.refused);
-    for (const c of plan.cells) { const i = idx(g, c.x, c.y); g.sewer[i] = plan.staged.sewer[i]; g.sewerFit[i] = plan.staged.sewerFit[i]; }
-    g.rev++;
-    const end = plan.cells[plan.cells.length - 1];
-    expect(laysConnection(g, { x: 12, y: 4 }, end)).toBe(true);
-    const lat = planLateral(g, [{ x: 12, y: 4 }, end], wet);
-    if ("refused" in lat) throw new Error(lat.refused);
-    layMain(g, lat.cells, true);
-    expect(lateralsOf(g).some((l) => l.sources.includes(a.id))).toBe(true);
+    // Laid by the one stroke: the trunk, and the workplace draining into it.
+    const s = () => useWorldStore.getState();
+    s().loadGrid(g);
+    s().setTool("sewer");
+    s().beginStroke({ x: 3, y: 4 });
+    s().updateStroke({ x: 12, y: 4 });
+    expect(s().stroke!.lateral).toBeUndefined();
+    s().endStroke();
+    const laid = s().grid;
+    expect(lateralsOf(laid).some((l) => l.sources.includes(a.id) && l.node !== null)).toBe(true);
+    expect(solveSewers(laid).nets.some((n) => n.exits.length > 0)).toBe(true);
+  });
+
+  test("a trunk dragged to a workplace that has a sewer by it already: just the trunk, no second connection", () => {
+    const { g } = street();
+    trunk(g);
+    lateral(g);
+    const plan = sewerStrokePlan(g, { tool: "sewer", brush: "line", anchor: { x: 16, y: 10 }, head: { x: 12, y: 4 } }, wetOf(g));
+    expect(plan && !("refused" in plan) ? plan.connect : undefined).toBeUndefined();
   });
 
   test("the stroke says so as it moves: begun at a manhole it is a trunk, until it reaches a slop port", () => {
