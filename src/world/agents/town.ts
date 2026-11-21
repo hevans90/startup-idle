@@ -858,11 +858,10 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
       if (front < CROSS_STOP || front > FOLLOW) continue;
       // (One who has waited, only if it can stop for them gently: too near, it goes on, and they after it.)
       const patient = now.foot.patient.has(x.c) && front - CROSS_STOP > (v * v) / (2 * IDM_B) + 0.05;
-      // (Stood at it a while for them, with the way on clear: its turn — no more step out, and it goes once they are over.)
-      // (Just out of a junction, its tail still in it and the junction stopped behind it: its turn comes sooner.)
-      const leaving = G.lanes[d.lanes[j]].kind === "street" && x.s < G.lanes[d.lanes[j]].len / 2;
-      const turn = m.stuck > (leaving ? CARS_TURN_OUT : CARS_TURN) && front - CROSS_STOP < 0.3 && clearPast(now, d, j, m, x.s) && !T.signals.has(G.crossings[x.c].junction);
-      if (turn) heldOf(T).set(x.c, t.t);
+      // THE CARS' TURN, the crossing's: once one has stood at its line a while for those on foot, nobody more steps
+      // out, and everyone coming goes once those out on it are over — not one car a wait, but the queue, for a time.
+      // (Just out of a junction, its tail still in it and the junction stopped behind it: their turn comes sooner.)
+      const turn = !T.signals.has(G.crossings[x.c].junction) && carsTurn(t, T, x.c, front, v, G.lanes[d.lanes[j]].kind === "street" && x.s < G.lanes[d.lanes[j]].len / 2, () => clearPast(now, d, j, m, x.s));
       if (now.foot.on.has(x.c) || (!turn && (patient || (now.foot.waiting.has(x.c) && zebraAt(t, T, x.c))))) follow(A, v, front - CROSS_STOP, 0, 0.02);
     }
     // NOT ABREAST OF A LONG ONE THROUGH A JOG: a bus swings as it turns, into the lane beside. Whichever of the
@@ -1146,15 +1145,52 @@ const CROSS_GAP = 2.5;
 const WALK_PATIENT = 4;
 /** Half a crossing's width, tiles. */
 const CROSS_HALF = 0.3;
-/** How long a vehicle stands at a crossing for those on foot before its turn, seconds. */
-const CARS_TURN = 10;
+/** How long the traffic stands at a crossing for those on foot before it is the cars' turn, seconds. */
+export const CARS_TURN = 4;
 /** And at the crossing on its way out of a junction, where it stands across the junction's mouth. */
-const CARS_TURN_OUT = 3;
+const CARS_TURN_OUT = 2;
+/** The cars' turn at the longest, seconds: then those waiting on foot have theirs, at least `CARS_TURN` before the next. */
+export const CARS_FOR = 8;
+/** The cars' turn ends sooner when nothing more comes to it for this long, seconds. */
+const CARS_GAP = 1.2;
 
-/** THE CROSSINGS A VEHICLE HAS WAITED ITS TURN AT, each with when it last asked: nobody more steps out on them till it is over. */
-const helds = new WeakMap<Traffic, Map<number, number>>();
-const heldOf = (T: Traffic) => { let h = helds.get(T); if (!h) helds.set(T, (h = new Map())); return h; };
-const heldNow = (t: Town, T: Traffic, c: number) => (helds.get(T)?.get(c) ?? -1) > t.t - 0.15;
+/**
+ * EACH CROSSING'S TURNS, cars' and walkers': since when a vehicle has stood at its line (`ask`, and when last seen
+ * there), and the cars' turn if it is theirs — since when, and when a vehicle last came to it.
+ */
+type Turns = { ask: number; asked: number; from: number; came: number };
+const turnsOf = new WeakMap<Traffic, Map<number, Turns>>();
+const turnsAt = (T: Traffic, c: number) => {
+  let m = turnsOf.get(T);
+  if (!m) turnsOf.set(T, (m = new Map()));
+  let s = m.get(c);
+  if (!s) m.set(c, (s = { ask: -1, asked: -Infinity, from: -Infinity, came: -Infinity }));
+  return s;
+};
+const turnOn = (s: Turns, now: number) => now - s.from < CARS_FOR && now - s.came < CARS_GAP;
+/** Whether it is the cars' turn at a crossing now: nobody more steps out on it. */
+const heldNow = (t: Town, T: Traffic, c: number) => { const s = turnsOf.get(T)?.get(c); return !!s && turnOn(s, t.t); };
+
+/**
+ * A vehicle `front` short of a crossing's stop, going `v`: whether it is the cars' turn there — asking for it when
+ * it has stood at the line long enough, with room past the crossing (`clear`) not to stop on it.
+ */
+function carsTurn(t: Town, T: Traffic, c: number, front: number, v: number, leaving: boolean, clear: () => boolean): boolean {
+  const s = turnsAt(T, c), now = t.t;
+  if (turnOn(s, now)) {
+    // Coming on to it, near enough to count: the turn goes on for it.
+    if (front - CROSS_STOP < 1.5) s.came = now;
+    return true;
+  }
+  if (front - CROSS_STOP >= 0.3 || v > 0.05) return false;
+  // Standing at the line: since when, while somebody does without a break.
+  if (now - s.asked > 0.3) s.ask = now;
+  s.asked = now;
+  // (Their turn just over: the walkers have theirs before the next.)
+  if (now - s.ask < (leaving ? CARS_TURN_OUT : CARS_TURN) || now - Math.min(s.came, s.from + CARS_FOR) < CARS_TURN || !clear()) return false;
+  s.from = s.came = now;
+  return true;
+}
 
 /** Whether nothing stands on a vehicle's way within its length past a crossing at `s` along lane `j` of it: over it, it would not stop on it. */
 function clearPast(now: ReturnType<typeof trafficNow>, d: Drive, j: number, m: Mover, s: number): boolean {

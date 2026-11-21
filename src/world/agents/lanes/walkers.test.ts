@@ -13,16 +13,17 @@ import { crossroads } from "./traffic.test-kit";
 import type { Grid } from "../../grid";
 
 /** A busy town of walkers and cars for `secs`: what the walkers did at the crossings. */
-function walkers(g: Grid, secs: number, zebras = false) {
+function walkers(g: Grid, secs: number, zebras = false, people = 40) {
   const caps = { ...townCaps };
-  setTownCaps({ cars: 40, people: 40, every: 1 });
+  setTownCaps({ cars: 40, people, every: 1 });
   const net = createNetwork(g), t = createTown();
   const T = trafficOf(t, g);
   if (zebras) {
     t.dress = new Uint8Array(g.w * g.h);
     for (const c of T.G.crossings) for (const i of c.cells) t.dress[i] = 4;
   }
-  const out = { crossed: 0, offKerb: 0, under: 0, steppedOnRed: 0, waited: 0, arrived: 0 };
+  const out = { crossed: 0, offKerb: 0, under: 0, steppedOnRed: 0, waited: 0, arrived: 0, drove: 0, longestStand: 0 };
+  const standing = new Map<number, number>();
   const lines = new Map<number, Mover>();
   const dt = 1 / 20;
   for (let k = 0; k < secs / dt; k++) {
@@ -30,8 +31,20 @@ function walkers(g: Grid, secs: number, zebras = false) {
     const before = new Set(t.movers.map((m) => m.id));
     stepTown(t, g, net, 0, dt);
     const after = new Set(t.movers.map((m) => m.id));
-    for (const id of before) if (!after.has(id) && lines.get(id)?.kind === "person") out.arrived++;
+    for (const id of before) if (!after.has(id)) { if (lines.get(id)?.kind === "person") out.arrived++; else out.drove++; }
     const cars = t.movers.filter((m) => m.kind !== "person");
+    // STOOD AT A CROSSING'S LINE, the first in its queue: for how long, without a break.
+    for (const c of cars) {
+      const d = c.drive;
+      let atLine = false;
+      for (let j = d?.k ?? 0; d && j < Math.min(d.lanes.length, d.k + 2); j++) for (const x of T.over.get(d.lanes[j]) ?? []) {
+        const front = d.start[j] + x.s - c.s - halfLength(c);
+        if (front > 0.1 && front < 0.55) atLine = true;
+      }
+      const s = atLine && c.speed < 0.05 ? (standing.get(c.id) ?? 0) + dt : 0;
+      standing.set(c.id, s);
+      out.longestStand = Math.max(out.longestStand, s);
+    }
     for (const m of t.movers) {
       lines.set(m.id, m);
       const w = m.walk;
@@ -79,6 +92,15 @@ describe("walkers at the crossings", () => {
     expect(zebra.crossed).toBeGreaterThan(10);
     expect(zebra.under).toBe(0);
     expect(zebra.waited / zebra.crossed).toBeLessThan(plain.waited / plain.crossed);
+  });
+
+  test("crowds at the zebras: the traffic gets its turn, the queue goes together, and nobody stands there for ever", () => {
+    const r = walkers(crossroads(1, 1), 150, true, 120);
+    expect(r.crossed).toBeGreaterThan(100);
+    expect(r.under).toBe(0);
+    // (It once stood 45 s, one car a ten-second turn, the crowd back out between each.)
+    expect(r.longestStand).toBeLessThan(25);
+    expect(r.drove).toBeGreaterThan(60);
   });
 
   test("lights: over on the walk, and never on the red", () => {
