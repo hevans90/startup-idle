@@ -348,7 +348,7 @@ export function createLandings(device: GPUDevice): LandingsPass {
       size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: "landings:at",
     });
-    device.queue.writeBuffer(at, 0, new Int32Array([s.cells * s.layers * 4, 0, 0, 0]));
+    device.queue.writeBuffer(at, 0, new Int32Array([s.cells * s.layers * 5, 0, 0, 0]));
     ats.set(s, at);
     return at;
   };
