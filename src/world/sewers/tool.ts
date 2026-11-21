@@ -5,7 +5,8 @@
  */
 import { buildCost, pipeCost } from "../../game/build-cost";
 import type { Stroke } from "../edit/tools";
-import { MAIN_SEWER, VOID, idx, inBounds, type Grid } from "../grid";
+import { MAIN_SEWER, SEWER_FIT, VOID, idx, inBounds, type Grid } from "../grid";
+import { hasSewer } from "./solve";
 import { portsAt } from "../water/ports";
 import { routeMain } from "../water/mains";
 import { strokeKey, strokeRoute } from "../pipes/stroke-route";
@@ -16,17 +17,35 @@ type Cell = { x: number; y: number };
 /**
  * WHAT THE SEWER TOOL IS LAYING, worked out from where the stroke starts and
  * where it is: a CONNECTION — the tube above ground from a workplace to a
- * manhole — if either end is a workplace's slop port or a connection already
- * laid; else a TRUNK underground. There is no switch to set first.
- * @see planLateral, planSewer
+ * manhole — if it runs between a workplace's slop port (or a connection
+ * already laid) and a MANHOLE; else a TRUNK underground, even one dragged to
+ * a workplace: it stops beside it, a manhole there to connect to. Begun on a
+ * port, it is a connection until it has gone somewhere. There is no switch to
+ * set first. @see planLateral, planSewer, slopPortAt
  */
 export function laysConnection(g: Grid, a: Cell, b: Cell): boolean {
-  const at = (c: Cell) => {
+  const link = (c: Cell) => {
     if (!inBounds(g, c.x, c.y)) return false;
     const i = idx(g, c.x, c.y);
-    return (g.main[i] & MAIN_SEWER) !== 0 || portsAt(g, i, "slop", "out").length > 0;
+    return (g.main[i] & MAIN_SEWER) !== 0 || slopPortAt(g, c);
   };
-  return at(a) || at(b);
+  const node = (c: Cell) => inBounds(g, c.x, c.y) && g.sewerFit[idx(g, c.x, c.y)] === SEWER_FIT.node;
+  if (a.x === b.x && a.y === b.y) return link(a);
+  return (link(a) && (node(b) || link(b))) || (link(b) && node(a));
+}
+
+/** Whether a workplace's slop comes out at a tile. */
+export const slopPortAt = (g: Grid, c: Cell) => inBounds(g, c.x, c.y) && portsAt(g, idx(g, c.x, c.y), "slop", "out").length > 0;
+
+/**
+ * A TRUNK'S ROUTE, its ends off any workplace's slop port: a trunk dragged to a workplace stops a tile short of
+ * it, where its end's manhole is what the workplace connects to — a manhole on the port itself drains nothing.
+ */
+export function trunkOffPorts(g: Grid, route: Cell[]): Cell[] {
+  let r = route;
+  if (r.length > 2 && slopPortAt(g, r[r.length - 1]) && !hasSewer(g, idx(g, r[r.length - 1].x, r[r.length - 1].y))) r = r.slice(0, -1);
+  if (r.length > 2 && slopPortAt(g, r[0]) && !hasSewer(g, idx(g, r[0].x, r[0].y))) r = r.slice(1);
+  return r;
 }
 
 export type SewerStrokePlan = SewerPlan | { refused: string };
@@ -40,7 +59,7 @@ export function sewerStrokePlan(g: Grid, s: Stroke, wet: (x: number, y: number) 
   const key = `${strokeKey(s)},${unit},${liftPrice},${ai}`;
   if (last && last.g === g && last.rev === g.rev && last.key === key && !s.path) return last.plan;
   // Through its pins, if it is being laid by clicks. @see strokeRoute
-  const route = strokeRoute(g, s, wet, "trunk");
+  const routed = strokeRoute(g, s, wet, "trunk"), route = routed && trunkOffPorts(g, routed);
   const plan: SewerStrokePlan = route
     ? planSewer(g, route, wet, { unit, liftPrice, ai })
     : { refused: "No way through for a sewer: round buildings" };
