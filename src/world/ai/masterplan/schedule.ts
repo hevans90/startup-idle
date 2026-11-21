@@ -119,7 +119,10 @@ export function liftStep(g: Grid, plan: Masterplan, skip: (s: PlanStep) => boole
   return null;
 }
 
-/** A kind short of desks: who lives on the map with no desk to go to `now`, and — `ahead` — what its lots will sleep grown. */
+/**
+ * A kind short of desks: who lives on the map with no desk to go to `now`, and — `ahead` — what its lots will sleep
+ * grown, past the desks it has and those on their way; `need`, the more of the two once what is being built is in.
+ */
 export type Short = { who: GeneratorId; now: number; ahead: number; need: number };
 
 /** The kinds short of desks, the shortest first. */
@@ -129,15 +132,16 @@ export function desksShort(g: Grid, given: Wants): Short[] {
   return (Object.keys(OFFICE_FOR) as GeneratorId[])
     .filter((who) => w.kinds.includes(who))
     .map((who) => {
-      let residents = 0, grown = 0, have = 0;
+      let residents = 0, grown = 0, have = 0, coming = 0;
       for (const s of structures) {
+        // AN OFFICE GOING UP is desks on their way: counted, or every look orders another while the first is built.
+        if ((WORKPLACES[who] as readonly string[]).includes(s.def)) { if (s.build) coming += DESKS[s.def] ?? 0; else have += DESKS[s.def] ?? 0; }
         if (s.build) continue;
         const h = housedBy(s.def);
         if (h?.id === who) { residents += s.residents ?? 0; grown += style.compact ? TALL_BEDS : GROWN_BEDS; }
-        if ((WORKPLACES[who] as readonly string[]).includes(s.def)) have += DESKS[s.def] ?? 0;
       }
-      const now = residents - have, ahead = grown - have - style.spareDesks;
-      return { who, now, ahead, need: Math.max(now, ahead) };
+      const now = residents - have, ahead = grown - have - coming - style.spareDesks;
+      return { who, now, ahead, need: Math.max(now - coming, ahead) };
     })
     .filter((k) => k.need > 0)
     .sort((a, b) => b.need - a.need);
