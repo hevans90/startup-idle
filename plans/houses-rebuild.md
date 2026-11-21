@@ -1,6 +1,6 @@
 # Employee plots and their houses: a rebuild
 
-Status (2026-11-21): phases 1–3 built — lots are put down whole, the scaffold is gone (and the cutaway's raise is no change to a house), and shopfronts and murals stand on each kit's own wall, fitted under its ground floor. Phase 3 took the walls from the models (`House.hx`/`hy`/`ground`, which ship with the game), not from the bake, with a test holding them to the modelled walls. Phase 4 (new houses) waits on the look.
+Status (2026-11-21): phases 1–4 built. Lots are put down whole, the scaffold is gone, shopfronts and murals stand on each kit's own wall (taken from the models, `House.hx`/`hy`/`ground`, not the bake). The twelve kits are remodelled (asked: "all of it"): to a street's scale (2–6 floors, the 10x tower 8; walls 4.2–5.0 m from the plot's middle), walls painted in their stuff a sample at a time (brick bond, render and rustication, ashlar, boards; tiles and slates), windows with reveals, bars and what is behind them, no hedges or paving of their own, the vibe t0's baked awning gone. Render cost level (+0.03–0.07 ms on `?fixture=shops`, none on `bigtown`). Not done: a shop ground floor baked into each kit — the drawn fronts fit as they are.
 
 ## What is there now
 

@@ -33,7 +33,7 @@ describe("the houses, as models", () => {
       // The ground floor's own walls, up to the first floor: the faces at ±hx and ±hy, and none out past them.
       // (A storey's height of it: not a planter or a step that happens to stand in the same plane.)
       const tall = (t: { p: readonly (readonly number[])[] }) => Math.max(...t.p.map((v) => v[2])) - Math.min(...t.p.map((v) => v[2])) > 1.5;
-      const walls = h.parts().ground.filter((t) => (t.mat === "wall" || t.mat === "stone") && tall(t) && t.p.every((v) => v[2] <= h.ground + 1e-6));
+      const walls = h.parts().ground.filter((t) => ["wall", "stone", "ashlar", "interior"].includes(t.mat) && tall(t) && t.p.every((v) => v[2] <= h.ground + 1e-6));
       const at = (k: 0 | 1, d: number) => walls.some((t) => t.p.every((v) => Math.abs(v[k] - d) < 1e-6));
       expect(at(0, h.hx), `${h.id} +x`).toBe(true);
       expect(at(1, h.hy), `${h.id} +y`).toBe(true);

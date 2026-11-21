@@ -24,6 +24,8 @@ export type Mat =
   | "skin" | "top" | "bottom" | "hair" | "shoe" | "bag" | "hivis" | "hardhat"
   | "leaf" | "canvas" | "snow" | "bark" | "birchBark" | "wood" | "iron" | "stone" | "water" | "linen" | "spray"
   | "wall" | "rooftile" | "slate" | "roofing" | "pane" | "hedge" | "pave"
+  // A house's walls a shade and two down, all tinted (brick by brick, a groove, a joint); its roof's courses' shade.
+  | "wallLo" | "wallDk" | "tileDk" | "slateDk"
   // A bridge's: dressed stone in three tones, its mortar and its lighter dressings; concrete and its joints; painted
   // steel, two colours, each with its shade; timber, three; a stay's cable; a pylon's white.
   | "stoneA" | "stoneB" | "stoneC" | "mortar" | "ashlar" | "concrete" | "joint"

@@ -4,18 +4,18 @@
  * so what a structure IS can read it without the models. @see houses/models
  */
 export const HOUSE_FLOORS: Readonly<Record<string, number>> = {
-  "intern.t0": 1,
-  "intern.t1": 2,
-  "intern.t2": 3,
-  "vibe_coder.t0": 1,
-  "10x_dev.t0": 4,
-  "10x_dev.t1": 6,
-  "vibe_coder.t2": 3,
-  "intern.landmark": 8,
-  "vibe_coder.t1": 2,
-  "vibe_coder.landmark": 8,
-  "10x_dev.t2": 8,
-  "10x_dev.landmark": 10,
+  "intern.t0": 2,
+  "intern.t1": 3,
+  "intern.t2": 4,
+  "vibe_coder.t0": 2,
+  "10x_dev.t0": 3,
+  "10x_dev.t1": 4,
+  "vibe_coder.t2": 4,
+  "intern.landmark": 6,
+  "vibe_coder.t1": 3,
+  "vibe_coder.landmark": 6,
+  "10x_dev.t2": 5,
+  "10x_dev.landmark": 8,
 };
 
 /** Every kit, in the order they are registered. */

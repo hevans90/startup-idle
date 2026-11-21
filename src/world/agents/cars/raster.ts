@@ -60,6 +60,7 @@ const COLOUR: Record<Mat, [number, number, number]> = {
   // The houses': walls white to tint, roofs, window panes, hedges, paving. @see houses/models
   wall: [1, 1, 1], rooftile: [0.7, 0.36, 0.27], slate: [0.38, 0.42, 0.48], roofing: [0.6, 0.6, 0.58],
   pane: [0.42, 0.6, 0.74], hedge: [0.3, 0.48, 0.24], pave: [0.8, 0.78, 0.73],
+  wallLo: [0.9, 0.9, 0.9], wallDk: [0.8, 0.8, 0.8], tileDk: [0.56, 0.28, 0.21], slateDk: [0.29, 0.32, 0.37],
   stoneA: [0.71, 0.66, 0.57], stoneB: [0.63, 0.58, 0.5], stoneC: [0.78, 0.73, 0.63], mortar: [0.47, 0.44, 0.39], ashlar: [0.85, 0.81, 0.72],
   concrete: [0.74, 0.73, 0.7], joint: [0.56, 0.55, 0.53],
   steelBlue: [0.33, 0.43, 0.53], steelBlueDark: [0.22, 0.3, 0.38], steelRed: [0.62, 0.22, 0.17], steelRedDark: [0.42, 0.14, 0.11],
