@@ -7,6 +7,8 @@
  * this plays on the grid: it is how AI mode is held to "plays a whole run".
  * @see stepPeople, stepGrowth, stepSites, plans/ai-mode-rebuild.md phase 0
  *
+ * BUILT AS IN THE GAME: roads, pipes and buildings ordered and put up by crews over time (`instant` for the editor's way).
+ *
  * NOT STEPPED YET, each the scene's still: the events and what they do to
  * the map, repairs, cleanup. No flood comes and nothing breaks.
  */
@@ -63,6 +65,12 @@ export type PilotRunOptions = {
   untilSale?: boolean;
   /** Stop once this is so, looked at each game second. */
   until?: (g: Grid) => boolean;
+  /**
+   * Everything put up as the game puts it up — roads and pipes ordered and laid by crews, buildings standing as sites
+   * till they are built — not placed at once as in the editor. On unless said otherwise: a driver that only works
+   * with everything instant does not work in the game. @see world-canvas setRoadWorks
+   */
+  instant?: boolean;
 };
 
 export type PilotRunReport = {
@@ -119,6 +127,7 @@ export function playCompany(advanceTimersByTime: (ms: number) => void, o: PilotR
     setTermReader(termReading),
   ];
   useWorldStore.getState().setPlaying(true);
+  useWorldStore.getState().setRoadWorks(!o.instant);
   foundPlayedProjects();
   unwire.push(setProjectReader(projectReader()));
   markWorldReady();
@@ -200,6 +209,7 @@ export function playCompany(advanceTimersByTime: (ms: number) => void, o: PilotR
     markWorldGone();
     for (const off of unwire.reverse()) off();
     useWorldStore.getState().setPlaying(false);
+    useWorldStore.getState().setRoadWorks(false);
   }
   return report;
 }
