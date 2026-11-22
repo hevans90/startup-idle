@@ -19,7 +19,7 @@ import type { TreeFrame, TreesSheet } from "../props/trees-format";
 import { useCalendarStore } from "../../state/calendar.store";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
 import type { BandLayer } from "./bands";
-import { SURFACE_FINE, cornersRev, drawnCorner, drawnHeight, withCorners } from "./drawn";
+import { SURFACE_FINE, cornersRev, cornersSince, drawnCorner, drawnHeight, withCorners } from "./drawn";
 import { canopyOf, forestTrees, scattered } from "./forest";
 import { ageStep } from "../vegetation/step";
 import { sickness } from "../vegetation/stress";
@@ -102,6 +102,7 @@ function shadeBand(S: TreesSheet, kind: string, turn: number, size: number, u: n
 /** The numbers a cell's trees are made from: the canopy on it and the eight round it, a hedge's joins, what is built and what it is made of, what grows, its four corners. */
 const KEY = 24;
 const HEDGE_SIDES = [[1, 0], [0, 1], [-1, 0], [0, -1]] as const;
+const NO_CELLS: ReadonlySet<number> = new Set();
 
 /**
  * Write one band's part of its trees for the year `t` — their BODIES, top to foot, swaying; or the SHADOWS that
@@ -162,7 +163,8 @@ function writePart(S: Sheet, trees: readonly Tree[], t: number, scale: number, s
 
 export type TreeMesh = {
   /** `snow`: how much lies, 0–1, from the weather. @see world/weather groundAt */
-  sync: (g: Grid, palette: readonly (string | null)[], rev: number, scale: number, snow?: number) => void;
+  /** `grown`: every cell whose vegetation has changed since the last call — given, only those and the cells round them are gone over when nothing else has changed. */
+  sync: (g: Grid, palette: readonly (string | null)[], rev: number, scale: number, snow?: number, grown?: ReadonlySet<number>) => void;
   destroy: () => void;
 };
 
@@ -175,6 +177,10 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
   /** What each cell's trees were last made from, `KEY` numbers a cell: compared as numbers — spelt as text, a map's worth of them was most of going over it. */
   let keys = new Float32Array(0);
   const kk = new Float32Array(KEY);
+  /** Every cell's canopy, as last worked out; and the vegetation's count it was worked out at. */
+  let can = new Float32Array(0), vegSeen = -1;
+  /** The map the ground's readings were last taken of for these, and their count then. @see cornersSince */
+  let groundOf: Grid | null = null, groundSeen = -1;
   /** Each part with trees: its mesh, and the year at which it must be written again. */
   const meshes = new Map<number, { mesh: Mesh<Geometry, Shader>; next: number }>();
   /** The trees of each part, back to front: made again when the map changes. */
@@ -232,7 +238,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
   };
 
   return {
-    sync(g, palette, rev, scale, snow = 0) {
+    sync(g, palette, rev, scale, snow = 0, grown) {
       const S = sheetNow();
       if (!S) return;
       const t = useCalendarStore.getState().now();
@@ -248,26 +254,54 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
       // (Not the store's count of edits, which water poured moves too: what a cell's trees are read from — the
       // ground and what is built on it, what the cell is made of and whether water stands on it, what grows.)
       void rev;
-      const mk = withCorners(g, SURFACE_FINE, () => {
+      const now = withCorners(g, SURFACE_FINE, () => {
         let soil = 0;
         for (let i = 0; i < g.terrain.length; i++) soil = (Math.imul(soil, 31) + g.terrain[i] * 2 + (g.pool[i] > 0 ? 1 : 0)) | 0;
-        return `${cornersRev()}|${soil}|${g.veg.rev}|${scale}|${palette.length}`;
+        // (Where the ground has changed since these were last gone over, if it can be said. @see cornersSince)
+        return { mk: `${soil}|${scale}|${palette.length}`, ground: cornersRev(), moved: groundOf === g ? cornersSince(g, groundSeen) : null };
       });
-      if (mk !== key || sown.rev !== plantedSeen) {
+      const mk = now.mk;
+      if (mk !== key || now.moved !== undefined || g.veg.rev !== vegSeen || sown.rev !== plantedSeen) {
         // (What something else planted changes without the map: the map's cells are not gone over again for it.)
-        const scan = mk !== key;
-        key = mk;
+        const scan = mk !== key || now.moved !== undefined || g.veg.rev !== vegSeen;
+        // ONLY WHAT CHANGED, where that can be said: the cells within reach of ground that moved or was built on,
+        // and the cells whose growth changed with those within two of them — a cell's canopy is its own wood and
+        // its neighbours', and its trees are by the canopy round it. Water spreading over a big map was the whole
+        // map gone over every two seconds, and one tile raised the whole map too.
+        const part = mk === key && now.moved !== null && (g.veg.rev === vegSeen || grown !== undefined) && keys.length === g.w * g.h * KEY && can.length === g.w * g.h;
+        const some = part ? grown ?? NO_CELLS : null, moved = part ? now.moved : undefined;
+        key = mk; vegSeen = g.veg.rev; groundSeen = now.ground; groundOf = g;
         const touch = (trees: readonly Tree[]) => { for (const tr of trees) { dirty.add(tr.band * 2 + BODY); dirty.add(tr.shade * 2 + SHADE); } };
         let changed = false;
         // (Every cell's corners and every tree's foot are readings of the ground: a build's worth. @see withCorners)
         if (scan) withCorners(g, SURFACE_FINE, () => {
-        const W = g.w, can = new Float32Array(W * g.h);
-        for (let y = 0; y < g.h; y++) for (let x = 0; x < W; x++) can[y * W + x] = canopyOf(g, palette, x, y);
+        const W = g.w;
+        let region: Uint8Array | null = null;
+        if (some) {
+          region = new Uint8Array(W * g.h);
+          if (moved) {
+            const x0 = Math.max(0, moved[0]), y0 = Math.max(0, moved[1]), x1 = Math.min(W - 1, moved[2]), y1 = Math.min(g.h - 1, moved[3]);
+            for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { region[y * W + x] = 1; can[y * W + x] = canopyOf(g, palette, x, y); }
+          }
+          for (const c of some) {
+            const cx = c % W, cy = (c / W) | 0;
+            for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+              const x = cx + dx, y = cy + dy;
+              if (x < 0 || y < 0 || x >= W || y >= g.h) continue;
+              region[y * W + x] = 1;
+              if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) can[y * W + x] = canopyOf(g, palette, x, y);
+            }
+          }
+        } else {
+          if (can.length !== W * g.h) can = new Float32Array(W * g.h);
+          for (let y = 0; y < g.h; y++) for (let x = 0; x < W; x++) can[y * W + x] = canopyOf(g, palette, x, y);
+        }
         const at = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= g.h ? 0 : can[y * W + x]);
         if (scale !== scaleNow) { scaleNow = scale; for (const c of cells.values()) touch(c.trees); touch(plantedTrees); cells.clear(); }
         if (keys.length !== W * g.h * KEY) { keys = new Float32Array(W * g.h * KEY); if (cells.size) changed = true; for (const c of cells.values()) touch(c.trees); cells.clear(); }
         const seen = new Uint8Array(W * g.h);
         for (let y = 0; y < g.h; y++) for (let x = 0; x < W; x++) {
+          if (region !== null && !region[y * W + x]) continue;
           let any = 0;
           for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) any += at(x + dx, y + dy);
           const i = idx(g, x, y), cv = g.veg.cover[i];
@@ -312,7 +346,24 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
           cells.set(i, { trees });
           touch(trees);
         }
-        for (const [i, c] of cells) if (!seen[i]) { changed = true; touch(c.trees); cells.delete(i); }
+        for (const [i, c] of cells) if (!seen[i] && (region === null || region[i])) { changed = true; touch(c.trees); cells.delete(i); }
+        // (In development, asked for from the console: that a part gone over left nothing outside it out of date —
+        // every cell's canopy as it would be worked out now, and each standing cell's key by it and by what grows.)
+        const check = import.meta.env?.DEV ? (globalThis as { __treeCheck?: { parts: number; bad: number } }).__treeCheck : undefined;
+        if (check && region !== null) {
+          check.parts++;
+          for (let y = 0; y < g.h; y++) for (let x = 0; x < W; x++) {
+            const i = y * W + x, o = i * KEY;
+            if (can[i] !== Math.fround(canopyOf(g, palette, x, y))) check.bad++;
+            if (!cells.has(i)) continue;
+            let q = 0, ok = true;
+            for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) ok &&= keys[o + q++] === Math.round(at(x + dx, y + dy) * 72);
+            ok &&= keys[o + 16] === g.veg.cover[i] && keys[o + 17] === g.veg.density[i] && keys[o + 18] === ageStep(g.veg.age[i]) && keys[o + 19] === g.veg.health[i] >> 5;
+            ok &&= keys[o + 10] === g.paved[i] && keys[o + 12] === (g.structureAt[i] >= 0 ? 1 : 0) && keys[o + 13] === g.deck[i] && keys[o + 14] === g.main[i];
+            ok &&= keys[o + 20] === Math.fround(drawnCorner(g, x, y, 0, 0)) && keys[o + 21] === Math.fround(drawnCorner(g, x, y, 1, 0)) && keys[o + 22] === Math.fround(drawnCorner(g, x, y, 1, 1)) && keys[o + 23] === Math.fround(drawnCorner(g, x, y, 0, 1));
+            if (!ok) check.bad++;
+          }
+        }
         });
         // WHAT SOMETHING ELSE PLANTED: a street's trees, a park's. Each its own tint and sway, by where it stands.
         if (sown.rev !== plantedSeen) {
@@ -330,12 +381,12 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
           plantedSeen = sown.rev; changed = true;
         }
         if (changed) {
-          const next = new Map<number, Tree[]>();
-          for (const c of [...cells.values(), { trees: plantedTrees }]) for (const tr of c.trees) {
-            for (const p of [tr.band * 2 + BODY, tr.shade * 2 + SHADE]) { let l = next.get(p); if (!l) next.set(p, (l = [])); l.push(tr); }
-          }
-          for (const l of next.values()) l.sort((p, q) => p.u + p.v - (q.u + q.v));
-          parts = next;
+          // (Only the parts a changed tree is or was in: every one of them was listed and sorted again for one.)
+          for (const p of dirty) parts.delete(p);
+          const put = (p: number, tr: Tree) => { if (!dirty.has(p)) return; let l = parts.get(p); if (!l) parts.set(p, (l = [])); l.push(tr); };
+          for (const c of cells.values()) for (const tr of c.trees) { put(tr.band * 2 + BODY, tr); put(tr.shade * 2 + SHADE, tr); }
+          for (const tr of plantedTrees) { put(tr.band * 2 + BODY, tr); put(tr.shade * 2 + SHADE, tr); }
+          for (const p of dirty) parts.get(p)?.sort((q, r) => q.u + q.v - (r.u + r.v));
         }
       }
 
@@ -348,7 +399,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
     },
     destroy() {
       for (const p of [...meshes.keys()]) drop(p);
-      cells.clear(); parts.clear(); key = "";
+      cells.clear(); parts.clear(); key = ""; vegSeen = -1; groundOf = null;
     },
   };
 }

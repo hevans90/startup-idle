@@ -190,6 +190,25 @@ let keptRev = 0;
  * same number as last time says nothing the surface is read from has changed on this map since.
  */
 export const cornersRev = () => keptRev;
+/** The last few times the readings changed: at which count, and the cells within reach of what changed (none: all of them). */
+const changes: { rev: number; box: readonly [number, number, number, number] | null }[] = [];
+/**
+ * WHERE THE GROUND HAS CHANGED since the count `rev` (@see cornersRev), asked inside {@link withCorners} for the
+ * same map: a box of cells (x0, y0, x1, y1, not kept to the map) holding every cell a reading could differ on;
+ * undefined where nothing has; null where it cannot be said — another map since, or too long ago — and so anywhere.
+ */
+export function cornersSince(grid: Grid, rev: number): readonly [number, number, number, number] | null | undefined {
+  if (kept === null || kept.grid !== grid || rev > keptRev) return null;
+  if (rev === keptRev) return undefined;
+  if (!changes.length || changes[0].rev > rev + 1) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const c of changes) {
+    if (c.rev <= rev) continue;
+    if (c.box === null) return null;
+    x0 = Math.min(x0, c.box[0]); y0 = Math.min(y0, c.box[1]); x1 = Math.max(x1, c.box[2]); y1 = Math.max(y1, c.box[3]);
+  }
+  return [x0, y0, x1, y1];
+}
 let lattice: Kept | null = null;
 export function withCorners<T>(grid: Grid, fine: number, make: () => T): T {
   const was = lattice;
@@ -214,6 +233,8 @@ export function withCorners<T>(grid: Grid, fine: number, make: () => T): T {
   if (same && x1 >= 0 && !part) same = false;
   if (!same || part) {
     keptRev++;
+    changes.push({ rev: keptRev, box: part ? [x0 - REACH, y0 - REACH, x1 + REACH, y1 + REACH] : null });
+    if (changes.length > 16) changes.shift();
     const W = grid.w + 4, mid = new Float64Array(W * (grid.h + 4));
     for (let y = -2; y < grid.h + 2; y++) for (let x = -2; x < grid.w + 2; x++) mid[(y + 2) * W + x + 2] = midOf(grid, x, y);
     const C = grid.w + 1, meet = new Uint8Array(C * (grid.h + 1));

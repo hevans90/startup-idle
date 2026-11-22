@@ -3048,6 +3048,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   }, [app]);
   /** Why there is no GPU solver just now, and how many CPU frames that has cost. @see sayWaterSolver */
   const noSolver = useRef<string | null>("not built yet");
+  /** The cells whose vegetation changed since the woods were last gone over. @see TreeMesh.sync */
+  const grownRef = useRef(new Set<number>());
   const cpuFrames = useRef(0);
   /** The frames in a row the water was left unstepped, waiting for the device's solver. @see solverDue */
   const solverWaits = useRef(0);
@@ -3981,7 +3983,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           fouled: pol?.any ? (x, y) => x < pol.w && y < pol.h && pol.level[y * pol.w + x] > foul : undefined,
           dry: evDry,
         });
-        if (V.changed.size) { if (tlRef.current?.ground) canopyGround(tlRef.current.ground, st.grid, st.palette, V.changed); V.changed.clear(); }
+        if (V.changed.size) { if (tlRef.current?.ground) canopyGround(tlRef.current.ground, st.grid, st.palette, V.changed); for (const i of V.changed) grownRef.current.add(i); V.changed.clear(); }
         // THE HARVEST, paid as the fields are cut: rising off each farm, its share. @see game/vegetation-cost
         if (V.harvest > 0) {
           const pay = harvestPay(V.harvest), farms = farmsOf(st.grid);
@@ -3992,7 +3994,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           }
         }
       }
-      if (woodsRef.current) { const st = useWorldStore.getState(); woodsRef.current.sync(st.grid, st.palette, st.revision, scale, groundMode() === "smooth" ? rainRef.current.lying.snow : 0); }
+      if (woodsRef.current) { const st = useWorldStore.getState(); woodsRef.current.sync(st.grid, st.palette, st.revision, scale, groundMode() === "smooth" ? rainRef.current.lying.snow : 0, grownRef.current); grownRef.current.clear(); }
       // THE YEAR on the ground, where the ground is one surface. @see world/calendar
       if (tlRef.current?.ground) {
         const tCal = useCalendarStore.getState().now(), smooth = groundMode() === "smooth", L = rainRef.current.lying;

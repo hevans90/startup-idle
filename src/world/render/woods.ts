@@ -63,7 +63,8 @@ export function treesOf(x: number, y: number, n: number): WoodTree[] {
 export type Woods = {
   /** Stand up the trees of whatever cells have changed. Cheap when nothing has. */
   /** `snow`, 0–1, lies on the continuous surface's trees. @see tree-mesh */
-  sync: (g: Grid, palette: readonly (string | null)[], rev: number, scale: number, snow?: number) => void;
+  /** `grown`: the cells whose vegetation changed since the last call. @see tree-mesh */
+  sync: (g: Grid, palette: readonly (string | null)[], rev: number, scale: number, snow?: number, grown?: ReadonlySet<number>) => void;
   destroy: () => void;
 };
 
