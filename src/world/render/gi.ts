@@ -249,8 +249,22 @@ fn mainVertex(@location(0) aPosition: vec2<f32>, @location(1) aGround: vec2<f32>
 fn sceneAt(q: vec2<f32>) -> vec2<f32> {
   let uv = q / sheet.uScene.xy;
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { return vec2<f32>(sheet.uScene.z, 0.0); }
-  let s = textureSampleLevel(uSceneTex, uLightSampler, uv, 0.0);
-  return vec2<f32>(s.g * ${HEIGHT_SPAN}.0 + sheet.uScene.z, s.r * ${HEIGHT_SPAN}.0);
+  // WHAT IS BUILT, AS FAR AS ALL FOUR QUARTER-TILES ROUND THE POINT ARE: the least of them. Blended, every
+  // building stood in a skirt sloping from its roof to the ground; taken as the nearest, it stood a part of a
+  // quarter-tile wider than it is drawn, and the ground at its foot was lit as its wall, in teeth. Taken as the
+  // least it is a little narrower than drawn — and what is drawn covers the difference.
+  let size = vec2<f32>(textureDimensions(uSceneTex));
+  let q0 = uv * size - vec2<f32>(0.5);
+  let c = vec2<i32>(floor(q0));
+  let hi = vec2<i32>(size) - vec2<i32>(1);
+  let s00 = textureLoad(uSceneTex, clamp(c, vec2<i32>(0), hi), 0);
+  let s10 = textureLoad(uSceneTex, clamp(c + vec2<i32>(1, 0), vec2<i32>(0), hi), 0);
+  let s01 = textureLoad(uSceneTex, clamp(c + vec2<i32>(0, 1), vec2<i32>(0), hi), 0);
+  let s11 = textureLoad(uSceneTex, clamp(c + vec2<i32>(1, 1), vec2<i32>(0), hi), 0);
+  let f = q0 - floor(q0);
+  let ground = mix(mix(s00.g, s10.g, f.x), mix(s01.g, s11.g, f.x), f.y);
+  let built = min(min(s00.r, s10.r), min(s01.r, s11.r));
+  return vec2<f32>(ground * ${HEIGHT_SPAN}.0 + sheet.uScene.z, built * ${HEIGHT_SPAN}.0);
 }
 // One height's light at a point of the map, tiles: its own stretch of the texture, side by side with the others'.
 fn layerAt(q: vec2<f32>, l: f32) -> vec3<f32> {
@@ -323,7 +337,7 @@ export type GiFrame = {
 };
 /** A window as a light, into `out` at `o`: where, how big, its colour, how high, its number and its odds. @see GiFrame.windows */
 export function windowLight(out: Float32Array, o: number, x: number, y: number, hx: number, hy: number, r: number, g: number, b: number, z: number, seed: number, bias: number): void {
-  out[o] = x; out[o + 1] = y; out[o + 2] = hx; out[o + 3] = hy; out[o + 4] = r; out[o + 5] = g; out[o + 6] = b; out[o + 7] = 1; out[o + 8] = z; out[o + 9] = seed; out[o + 10] = bias; out[o + 11] = 0;
+  out[o] = x; out[o + 1] = y; out[o + 2] = hx; out[o + 3] = hy; out[o + 4] = r; out[o + 5] = g; out[o + 6] = b; out[o + 7] = 0; out[o + 8] = z; out[o + 9] = seed; out[o + 10] = bias; out[o + 11] = 0;
 }
 export const WINDOW_FLOATS = FLOATS;
 

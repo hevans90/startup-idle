@@ -64,7 +64,7 @@ import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } fro
 import { canopyGround, castGround, destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
 import { casterOf } from "./render/casters";
 import { createRoadShade, type RoadShade } from "./render/road-shade";
-import { createLitWindows, litShare, type LitWindows } from "./render/lit-windows";
+import { createLitWindows, hiddenAt, litShare, type LitWindows } from "./render/lit-windows";
 import { createGroundCache, setGroundCache, type GroundCache } from "./render/ground-cache";
 import { stepVegetation, wetFrom } from "./vegetation/step";
 import { wearFrom } from "./vegetation/wear";
@@ -167,7 +167,7 @@ const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a
 import { createBuildCursor, type BuildCursor, type Tilt, type Validator } from "./edit/cursor";
 import { gradeStroke } from "./roads/grade";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
-import { createTownLayer, type TownLayer } from "./agents/town-render";
+import { createTownLayer, type LampsOver, type TownLayer } from "./agents/town-render";
 import { seatsByCell, trafficOf, type Seat } from "./agents/town";
 import { moveOut } from "./agents/arrivals";
 import { liveBeauty } from "./agents/beauty";
@@ -645,6 +645,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   /** The lit buildings' own windows, a floor at a time. @see render/lit-windows */
   const litRef = useRef<LitWindows | null>(null);
   const gradeRef = useRef(0xffffff);
+  /** Where the vehicles' lamps are lit over the night, while the map's own light is laid; and the container they are in. @see town-render LampsOver */
+  const lampsOverRef = useRef<LampsOver | null>(null), lampsRoot = useRef<Container | null>(null);
+  /** The lamp posts' lanterns as last listed, and a count of the lists there have been. @see street-props lanternsOf */
+  const giPosts = useRef<readonly unknown[]>([]), giPostsRev = useRef(0);
   const lightsAt = useRef<{ grid: unknown; rev: number; crunch: boolean }>({ grid: null, rev: -1, crunch: false });
   // AND RAIN over it while a flood is coming or here. @see drawRain
   const rain = useRef<Graphics | null>(null);
@@ -677,6 +681,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       giRef.current = null;
       litRef.current?.destroy();
       litRef.current = null;
+      // (Its children are the town layer's to destroy: each vehicle's own.)
+      if (lampsRoot.current) { lampsRoot.current.removeChildren(); lampsRoot.current.parent?.removeChild(lampsRoot.current); lampsRoot.current.destroy(); }
+      lampsRoot.current = null; lampsOverRef.current = null;
       rain.current = null;
     };
   }, [app]);
@@ -3818,7 +3825,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (bay >= 0 && a > bay - RTG_REACH && a < bay + 1 + RTG_REACH) lorry.wait = LORRY_LOADS;
         });
         sWorks();
-        { const e = section("tick: town draw"); townRef.current?.draw(getTown(), scale, nightNowRef.current, useWorldStore.getState().viewport?.scale.x ?? 1); e(); }
+        { const e = section("tick: town draw"); townRef.current?.draw(getTown(), scale, nightNowRef.current, useWorldStore.getState().viewport?.scale.x ?? 1, lampsOverRef.current); e(); }
       }
       const t2 = performance.now();
       // THE DEVICE'S OWN TALLY when it is the one holding the water, and the
@@ -4138,13 +4145,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (giRef.current) {
             const rgb = (hex: number, k: number) => ({ r: (((hex >> 16) & 255) / 255) * k, g: (((hex >> 8) & 255) / 255) * k, b: ((hex & 255) / 255) * k });
             // What stands still, listed again when the map or the options change.
-            const key = `${st.revision}|${giVersion()}`;
+            // (And the lamp posts' lanterns, which the streets' props put up: a new list of them, a new key.)
+            const posts = streetPropsRef.current?.lanterns() ?? [];
+            if (posts !== giPosts.current) { giPosts.current = posts; giPostsRev.current++; }
+            const key = `${st.revision}|${giVersion()}|${giPostsRev.current}`;
             if (giStill.current.key !== key) {
               const list: GiLight[] = [], lit = new Map<number, { colour: number; bias: number }>();
+              // THE STREETS' LAMPS: from the lanterns of their lamp posts, where a street has them — a light that
+              // hangs where it is seen to — and elsewhere from over the road, as it was.
+              if (o.lamps) for (const q of posts) list.push({ x: (q.x + 0.5) * 4, y: (q.y + 0.5) * 4, hx: 1.2, hy: 1.2, ...rgb(0xffe2a0, GI_LAMP * 1.5), solid: 0, z: q.z });
+              const posted = (x: number, y: number) => posts.some((q) => Math.abs(q.x - x) < 2.5 && Math.abs(q.y - y) < 2.5);
               for (const l of lightsOf(st.grid)) {
                 const x = (l.x + l.w / 2) * 4, y = (l.y + l.h / 2) * 4;
                 // (A lamp is a point: small and hard, not a soft pool laid on the road.)
-                if (l.kind === "lamp") { if (o.lamps) list.push({ x, y, hx: 0.7, hy: 0.7, ...rgb(0xffe2a0, GI_LAMP), solid: 1, z: 2.5 }); }
+                if (l.kind === "lamp") { if (o.lamps && !posted(l.x, l.y)) list.push({ x, y, hx: 1.2, hy: 1.2, ...rgb(0xffe2a0, GI_LAMP * 1.5), solid: 0, z: 2.5 }); }
                 else if (l.kind === "window") { const tone = l.violet ? 0xb44aff : l.crunch ? 0xd8ecff : 0xffc46b; // (An office at work has more of its windows lit than a street of houses has.)
                   if (o.windows && l.id !== undefined) lit.set(l.id, { colour: tone, bias: l.violet || l.crunch ? 0.3 : 0 });
                   // (Its windows' own light falls outside, where they are shown; a glow the size of it, where they are not.)
@@ -4175,6 +4189,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           }
         } else if (giRef.current) giRef.current.gi.rest();
         if (night.current) night.current.visible = !laid;
+        // THE VEHICLES' LAMPS over the night's sheet, in the map's own container: their own pieces of their pictures, and
+        // not shown through what stands in front. (For the next frame's drawing of them.)
+        if (laid && gm) {
+          const world = overlayRoot.current?.parent;
+          if (!lampsRoot.current && world) { const c = new Container(); c.eventMode = "none"; c.zIndex = 22; world.addChild(c); lampsRoot.current = c; }
+          if (lampsRoot.current) { lampsRoot.current.visible = true; lampsOverRef.current = { root: lampsRoot.current, hidden: (x, y, z) => hiddenAt(gm, x, y, z, 0, 0.3) }; }
+        } else { lampsOverRef.current = null; if (lampsRoot.current) lampsRoot.current.visible = false; }
         if (litRef.current) litRef.current.tick(laid && o.floors ? nightNow : 0, litClock, litNow, collapsedNow());
         if (laid && !o.glows) glowNight = 0;
       }
@@ -4193,7 +4214,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         lightsRef.current.tick(glowNight, blNow.root.worldTransform, now / 1000);
       }
       // (A car's lamps are lit either way; the pool they throw on the road is the map's own light's, where that is laid.)
-      if (carGlowRef.current && blNow) carGlowRef.current.tick(getTown(), nightNow, blNow.root.worldTransform, scale, glowNight > 0);
+      // (Its glows and its pool of light are the old night's: put by where the map's own light is laid.)
+      if (carGlowRef.current && blNow) carGlowRef.current.tick(getTown(), glowNight, blNow.root.worldTransform, scale);
       // THE AI ON THE MAP. @see createAiLayer
       const ai = aiLayerRef.current;
       // In development, `__aiPreview` shows it in the editor at any stage.

@@ -17,6 +17,7 @@
  * two cars side by side overlap the right way round. @see BandLayer.dynamicOf
  */
 import { braking, lampsOf, signalOf } from "./lamps";
+import { halfLength } from "./cars/fleet";
 import { Container, Graphics, Matrix, Rectangle, RenderTexture, Sprite, Texture, type Renderer } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
@@ -83,7 +84,14 @@ const shade = (c: number, k: number) =>
   (Math.round(((c >> 16) & 255) * k) << 16) | (Math.round(((c >> 8) & 255) * k) << 8) | Math.round((c & 255) * k);
 
 /** `night`, how dark it is, 0–1: the vehicles' head and tail lamps on. */
-export type TownLayer = { draw: (town: Town, scale: number, night?: number, zoom?: number) => void; destroy: () => void };
+/**
+ * WHERE A VEHICLE'S LAMPS ARE LIT OVER THE NIGHT: a container over the night's own sheet, in the map's space, and
+ * whether a point of the map (tiles, half steps up) is hidden behind what stands nearer. Its lamps are drawn there
+ * again — the same pieces of its own picture, so they sit on its bulbs — and not where a building hides them.
+ * @see render/gi, render/lit-windows hiddenAt
+ */
+export type LampsOver = { root: Container; hidden: (x: number, y: number, z: number) => boolean };
+export type TownLayer = { draw: (town: Town, scale: number, night?: number, zoom?: number, over?: LampsOver | null) => void; destroy: () => void };
 /** How large the map is on the screen — its scale by the view's zoom — before anybody is drawn in a vehicle: below it a head is a pixel or two, and not worth its sprites. */
 export const RIDERS_FROM = 0.75;
 
@@ -248,12 +256,16 @@ type Shown = {
   c: Container; parts: Sprite[]; band: number; key: string; baked: boolean; tilted: boolean; flash?: Sprite[]; lead?: Graphics;
   /** A baked vehicle's lamps, in `LAMPS` order; and its speed when last drawn, for its brake lights. */
   lamps?: Sprite[]; was?: { speed: number; t: number; brakes: boolean };
+  /** Its lamps drawn again over the night. @see LampsOver */
+  over?: { c: Container; lamps: Sprite[] };
   /** A baked vehicle's people, once there is a sheet to draw them from; null, one nobody is seen in. @see cars/occupants */
   riders?: Riders | null;
 };
 
 /** The lamps lit: headlamps warm white, tail lamps and brake lights red, indicators amber. @see raster LAMPS */
 const LAMP_TINT = [0xfff1cc, 0xff2414, 0xffa015, 0xffa015] as const;
+/** How strongly a lit lamp is drawn again over the night. @see LampsOver */
+const LAMPS_OVER = 0.9;
 
 /** A walker's pose: stood still, running, hand in hand, or walking. @see posePerson */
 export function walkerPose(m: Mover): PoseSet {
@@ -381,7 +393,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
   };
 
   let live = new Set<number>();
-  const draw = (town: Town, scale: number, night = 0, zoom = 1) => {
+  const draw = (town: Town, scale: number, night = 0, zoom = 1, over: LampsOver | null = null) => {
     const riding = !!people && scale * zoom >= RIDERS_FROM;
     // A new scale is every look baked again.
     if (scale !== atScale) {
@@ -434,6 +446,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         drawn.set(m.id, d);
       }
       let front: readonly { u: number; v: number }[];
+      let litNow: readonly number[] | null = null;
       const x = (m.x - m.y) * HW * scale, y = (m.x + m.y) * HH * scale - m.z * HEIGHT_UNIT * scale;
       if (car) {
         // FROM THE SHEET: the paint tinted, the trim over it, the frame for its heading.
@@ -475,6 +488,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
           if (!w || dt > 0) d.was = { speed: m.speed, t: town.t, brakes };
           const lit = lampsOf(m, signalOf(town.traffic?.G ?? null, m), brakes, night, town.t);
           d.lamps.forEach((sp, k) => { if (sp.alpha !== lit[k]) sp.alpha = lit[k]; });
+          litNow = lit;
         }
         // What is left of its pitch, sheared; set straight again where there is none.
         const tilt = pitchMatrix(pose.heading, pose.shear);
@@ -483,6 +497,29 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
           if (d.tilted) { d.c.scale.set(1); d.c.skew.set(0, 0); d.c.rotation = 0; d.tilted = false; }
           d.c.position.set(x, y);
         }
+        // ITS LAMPS AGAIN, OVER THE NIGHT: the same pieces, where the vehicle is, as bright as each is lit — its
+        // head lamps not where its nose is behind a building, nor its tail lamps where its tail is.
+        if (over && d.lamps && litNow && night > 0.02) {
+          if (!d.over) {
+            const oc = new Container();
+            const sprites = LAMP_TINT.map((t) => { const sp = new Sprite(); sp.tint = t; sp.blendMode = "add"; sp.alpha = 0; oc.addChild(sp); return sp; });
+            over.root.addChild(oc);
+            d.over = { c: oc, lamps: sprites };
+          }
+          // (Its container put back, if the one it was in has gone.)
+          if (d.over.c.parent !== over.root) over.root.addChild(d.over.c);
+          const o = d.over, half = halfLength(m), ch = Math.cos(pose.heading), sh = Math.sin(pose.heading);
+          if (tilt) o.c.setFromMatrix(tilt); else { o.c.scale.set(1); o.c.skew.set(0, 0); o.c.rotation = 0; o.c.position.set(x, y); }
+          const noseHid = over.hidden(m.x + ch * half, m.y + sh * half, m.z + 0.4), tailHid = over.hidden(m.x - ch * half, m.y - sh * half, m.z + 0.4);
+          o.lamps.forEach((sp, k) => {
+            const src = d!.lamps![k];
+            if (sp.texture !== src.texture) sp.texture = src.texture;
+            sp.anchor.copyFrom(src.anchor); sp.scale.copyFrom(src.scale);
+            // (Head first, then tail, then the indicators, right and left: one at each end of it.)
+            sp.alpha = (k === 0 ? noseHid : k === 1 ? tailHid : noseHid && tailHid) ? 0 : litNow![k] * LAMPS_OVER;
+          });
+          o.c.visible = true;
+        } else if (d.over) d.over.c.visible = false;
         front = baseCorners(car, pose.heading);
         if (d.flash) {
           const b = beaconsOf(car.id), on = flashing(m);
@@ -526,6 +563,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
     for (const [id, d] of drawn) {
       if (live.has(id)) continue;
       d.c.destroy({ children: true });
+      d.over?.c.destroy({ children: true });
       drawn.delete(id);
     }
   };

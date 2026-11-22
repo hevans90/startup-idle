@@ -382,6 +382,8 @@ export type StreetProps = {
   dress: () => Uint8Array | null;
   /** The benches' seats, as last laid out. @see seatsOf */
   seats: () => Seat[];
+  /** Where the lamp posts' lanterns hang, as of the last sync that changed anything: tiles (a cell's middle at its whole number) and half steps up. @see lanternsOf */
+  lanterns: () => readonly Lantern[];
   destroy: () => void;
 };
 
@@ -428,6 +430,20 @@ function treePit(p: Pen, pr: StreetProp) {
   for (const k of [-0.025, 0, 0.025]) p.flat(u + k - 0.004, v - 0.045, u + k + 0.004, v + 0.045, 0.009, 0x4a5058);
 }
 
+/** A lamp post's lantern: where it hangs over the road, tiles (a cell's middle at its whole number), and how high, half steps. */
+export type Lantern = { x: number; y: number; z: number };
+/** The lanterns of the streets' lamp posts: each at the end of its post's arm, out over the road. @see lampPost */
+export function lanternsOf(props: readonly StreetProp[]): Lantern[] {
+  const out: Lantern[] = [];
+  for (const pr of props) {
+    if (pr.kind !== "lamp") continue;
+    const [u, v] = onKerb(pr.side, 0.5, IN);
+    const [du, dv] = pr.side === "N" ? [0, 1] : pr.side === "S" ? [0, -1] : pr.side === "W" ? [1, 0] : [-1, 0];
+    out.push({ x: pr.x - 0.5 + u + du * 0.16, y: pr.y - 0.5 + v + dv * 0.16, z: 2.1 });
+  }
+  return out;
+}
+
 /** A bench's seats: its two places, where a walker sits and which way they face. @see Town.seats */
 export function seatsOf(props: readonly StreetProp[]): Seat[] {
   const seats: Seat[] = [];
@@ -448,6 +464,7 @@ export function createStreetProps(bands: BandLayer): StreetProps {
   let key = "";
   let dress: Uint8Array | null = null;
   let seats: Seat[] = [];
+  let lanterns: Lantern[] = [];
   const clear = () => {
     for (const gr of drawn) { gr.parent?.removeChild(gr); gr.destroy({ children: true }); }
     drawn = [];
@@ -482,6 +499,7 @@ export function createStreetProps(bands: BandLayer): StreetProps {
       dress = roadDressOf(g, streets, b, crossings);
       const { props, murals } = streetPropsOf(g, streets, b, crossings, bays);
       seats = seatsOf(props);
+      lanterns = lanternsOf(props);
       // ON THE CONTINUOUS SURFACE a street's trees are the woods' mesh's: through the year with everything that grows.
       const sown = plantsTrees(), trees: PlantedTree[] = [];
       for (const pr of props) {
@@ -508,6 +526,7 @@ export function createStreetProps(bands: BandLayer): StreetProps {
     },
     dress: () => dress,
     seats: () => seats,
+    lanterns: () => lanterns,
     destroy: () => { clear(); setPlanted("streets", []); },
   };
 }

@@ -150,14 +150,16 @@ export const litShare = (through: number) => 0.62 - 0.5 * Math.min(1, Math.max(0
  * and most of a storey taller than its box: a window lit through a roof is seen at once, and one put out a little
  * early behind an eave is not.
  */
-export function hiddenAt(gm: Pick<GroundMesh, "heights" | "casts" | "w" | "h">, u: number, v: number, z: number): boolean {
+export function hiddenAt(gm: Pick<GroundMesh, "heights" | "casts" | "w" | "h">, u: number, v: number, z: number, grow = 1, slack = 1.1): boolean {
   const S = SHADE_PER_TILE, W = gm.w * S, H = gm.h * S;
   // (From past the wall it is on and that wall's own quarter-tile of grace; as far as the tallest thing could reach.)
   for (let t = 0.55; t < 9; t += 1 / S) {
     const i = Math.floor((u + 0.5 + t) * S), j = Math.floor((v + 0.5 + t) * S);
     if (i < 1 || j < 1 || i >= W - 1 || j >= H - 1) return false;
-    const line = z + 4 * t - 1.1;
-    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+    // (`grow` and `slack`: how many quarter-tiles wider, and how much taller, a building counts for. A window's are
+    // the generous ones above; a thing out in the street, far from any wall, is asked more exactly.)
+    const line = z + 4 * t - slack;
+    for (let dj = -grow; dj <= grow; dj++) for (let di = -grow; di <= grow; di++) {
       const o = (j + dj) * W + i + di;
       if (gm.casts[o] > 0 && gm.heights[o] + gm.casts[o] > line) return true;
     }
@@ -343,9 +345,11 @@ export function createLitWindows(world: Container, zIndex: number): LitWindows {
           // ITS LIGHT, whether the eye sees it or not: just outside the wall it is in, as long as it is wide, at
           // its own height over the building's ground. Quarter-tiles, a cell's corner at its whole number.
           {
-            const out = (w.at + 0.5 + 0.28) * S, mid = (am + 0.5) * S, half = Math.max(0.4, ((w.a1 - w.a0) / 2) * S);
-            if (w.face === 0) lights.push(out, mid, 0.5, half, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
-            else lights.push(mid, out, half, 0.5, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
+            // (No smaller than the light's own grid can see: a light finer than that is found by some of its probes
+            // and missed by the rest, and a row of windows was a row of scallops on the pavement.)
+            const out = (w.at + 0.5 + 0.3) * S, mid = (am + 0.5) * S, half = Math.max(1.1, ((w.a1 - w.a0) / 2) * S * 1.4);
+            if (w.face === 0) lights.push(out, mid, 1.1, half, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
+            else lights.push(mid, out, half, 1.1, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
           }
           if (windowHidden(gm, w, ground)) { hidden++; continue; }
           shown++;
