@@ -15,7 +15,7 @@
  * surface somewhere to vary within a tile, which is what stops a lake reading
  * as a row of flat plates, and it gives the flow room to turn.
  */
-import { drawnFan, drawnHeight, fanHeight, withCorners } from "../render/drawn";
+import { cornersRev, cornersSince, drawnFan, drawnHeight, fanHeight, withCorners } from "../render/drawn";
 import { groundMode } from "../render/ground-mode";
 import { fieldWater } from "../render/water-mode";
 import {
@@ -28,6 +28,9 @@ import { waterInDrips } from "../../fluid/drips";
 import { idx, inBounds, structureAt, type Grid } from "../grid";
 import { fluidChoices } from "./materials";
 import { structureDef } from "../structures/def";
+
+/** What each field's columns were last given their floors from: the map, the count of its ground's readings then, and what stood on each tile. @see slotsOf */
+const floors = new WeakMap<object, { grid: Grid; rev: number; who: Float32Array }>();
 
 /** How deep a structure's hole is, half steps, or nought for one that is not a hole. @see StructureDef.basin */
 const basinOf = (g: Grid, id: number): number => {
@@ -360,9 +363,33 @@ function slotsOf(field: WaterField, grid: Grid) {
   const byMaterial = new Map<number, number>();
   const smooth = fieldWater(), continuous = groundMode() === "smooth";
   const fans = smooth ? new Float32Array(grid.w * grid.h * 6) : EMPTY, shaped = smooth ? new Uint8Array(grid.w * grid.h) : NONE;
-  for (let cy = 0; cy < ny; cy++) {
+  // ONLY THE TILES WHOSE FLOOR CAN HAVE CHANGED, on the continuous surface, where that can be said: those within
+  // reach of ground that moved or was built on since these columns were last given their floors (@see
+  // cornersSince), and those a building came to, left, or changed its hole on, with the tiles beside them. One
+  // tile raised was every column of the map asked its floor again. Anything else — other columns, another map,
+  // too long ago — and every tile, as ever.
+  let tx0 = 0, ty0 = 0, tx1 = grid.w - 1, ty1 = grid.h - 1;
+  if (smooth && continuous) {
+    const n = grid.w * grid.h, who = new Float32Array(n);
+    for (let t = 0; t < n; t++) { const sid = grid.structureAt[t]; who[t] = sid < 0 ? -1 : sid * 64 + Math.min(63, basinOf(grid, sid) * 4); }
+    const seen = floors.get(columns);
+    const moved = seen && seen.grid === grid && seen.who.length === n ? cornersSince(grid, seen.rev) : null;
+    if (seen && moved !== null) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      if (moved) { x0 = moved[0]; y0 = moved[1]; x1 = moved[2]; y1 = moved[3]; }
+      for (let t = 0; t < n; t++) if (who[t] !== seen.who[t]) {
+        const x = t % grid.w, y = (t / grid.w) | 0;
+        x0 = Math.min(x0, x - 1); y0 = Math.min(y0, y - 1); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1);
+      }
+      tx0 = Math.max(0, x0); ty0 = Math.max(0, y0); tx1 = Math.min(grid.w - 1, x1); ty1 = Math.min(grid.h - 1, y1);
+    }
+    floors.set(columns, { grid, rev: cornersRev(), who });
+  } else floors.delete(columns);
+  const cy1 = Math.min(ny, (ty1 + 1) * COLUMNS_PER_TILE), cx1 = Math.min(nx, (tx1 + 1) * COLUMNS_PER_TILE);
+  const whole = tx0 === 0 && ty0 === 0 && tx1 === grid.w - 1 && ty1 === grid.h - 1;
+  for (let cy = whole ? 0 : ty0 * COLUMNS_PER_TILE; cy < (whole ? ny : cy1); cy++) {
     const ty = tileOf(cy);
-    for (let cx = 0; cx < nx; cx++) {
+    for (let cx = whole ? 0 : tx0 * COLUMNS_PER_TILE; cx < (whole ? nx : cx1); cx++) {
       const tx = tileOf(cx);
       const i = cy * nx + cx;
       if (!inBounds(grid, tx, ty)) {

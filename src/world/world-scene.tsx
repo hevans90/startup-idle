@@ -2385,7 +2385,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // behind — and its texture its neighbours' looks: wider again.
     const pavedDirty = new Set<number>();
     const dirtyOf = pl.painter ? lookDirtyCells : maskDirtyCells;
-    if (pl.painter && touched.length) {
+    // AN EDIT NOWHERE NEAR A ROAD leaves every road's look as it was: the looks are the whole map's — its streets,
+    // its junctions, its lanes' markings, its lay-bys — and were worked out again for a tile of grass raised in a
+    // field. Near: within three cells of paving, of a road's sprite, or with a road being built anywhere.
+    const nearRoad = grid.roadJobs.length > 0 || touched.some((c) => {
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+        if (!inBounds(grid, c.x + dx, c.y + dy)) continue;
+        const j = idx(grid, c.x + dx, c.y + dy);
+        if (grid.paved[j] !== 0 || pl.sprites[j]) return true;
+      }
+      return false;
+    });
+    if (pl.painter && touched.length && nearRoad) {
       // (And wherever the parking bays moved, with the neighbours that paint them in their margins.)
       for (const i of refreshLooks(pl, grid)) {
         const x = i % grid.w, y = (i / grid.w) | 0;

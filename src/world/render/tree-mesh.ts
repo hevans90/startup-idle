@@ -181,6 +181,8 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
   let can = new Float32Array(0), vegSeen = -1;
   /** The map the ground's readings were last taken of for these, and their count then. @see cornersSince */
   let groundOf: Grid | null = null, groundSeen = -1;
+  /** What each cell was made of, and whether water stood on it, when these were last gone over. */
+  let soilSeen = new Int16Array(0);
   /** Each part with trees: its mesh, and the year at which it must be written again. */
   const meshes = new Map<number, { mesh: Mesh<Geometry, Shader>; next: number }>();
   /** The trees of each part, back to front: made again when the map changes. */
@@ -255,21 +257,28 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
       // ground and what is built on it, what the cell is made of and whether water stands on it, what grows.)
       void rev;
       const now = withCorners(g, SURFACE_FINE, () => {
-        let soil = 0;
-        for (let i = 0; i < g.terrain.length; i++) soil = (Math.imul(soil, 31) + g.terrain[i] * 2 + (g.pool[i] > 0 ? 1 : 0)) | 0;
+        // (What each cell is made of and whether water stands on it: the cells where that changed, or null for all.)
+        const n = g.terrain.length;
+        let soil: number[] | null = soilSeen.length === n && groundOf === g ? [] : null;
+        if (soil === null) soilSeen = new Int16Array(n);
+        for (let i = 0; i < n; i++) {
+          const v = g.terrain[i] * 2 + (g.pool[i] > 0 ? 1 : 0);
+          if (soilSeen[i] !== v) { soilSeen[i] = v; soil?.push(i); }
+        }
         // (Where the ground has changed since these were last gone over, if it can be said. @see cornersSince)
-        return { mk: `${soil}|${scale}|${palette.length}`, ground: cornersRev(), moved: groundOf === g ? cornersSince(g, groundSeen) : null };
+        return { mk: `${scale}|${palette.length}`, soil, ground: cornersRev(), moved: groundOf === g ? cornersSince(g, groundSeen) : null };
       });
       const mk = now.mk;
-      if (mk !== key || now.moved !== undefined || g.veg.rev !== vegSeen || sown.rev !== plantedSeen) {
+      if (mk !== key || now.moved !== undefined || now.soil === null || now.soil.length > 0 || g.veg.rev !== vegSeen || sown.rev !== plantedSeen) {
         // (What something else planted changes without the map: the map's cells are not gone over again for it.)
-        const scan = mk !== key || now.moved !== undefined || g.veg.rev !== vegSeen;
+        const scan = mk !== key || now.moved !== undefined || now.soil === null || now.soil.length > 0 || g.veg.rev !== vegSeen;
         // ONLY WHAT CHANGED, where that can be said: the cells within reach of ground that moved or was built on,
         // and the cells whose growth changed with those within two of them — a cell's canopy is its own wood and
         // its neighbours', and its trees are by the canopy round it. Water spreading over a big map was the whole
         // map gone over every two seconds, and one tile raised the whole map too.
-        const part = mk === key && now.moved !== null && (g.veg.rev === vegSeen || grown !== undefined) && keys.length === g.w * g.h * KEY && can.length === g.w * g.h;
-        const some = part ? grown ?? NO_CELLS : null, moved = part ? now.moved : undefined;
+        const part = mk === key && now.moved !== null && now.soil !== null && (g.veg.rev === vegSeen || grown !== undefined) && keys.length === g.w * g.h * KEY && can.length === g.w * g.h;
+        // (What a cell is made of changing is its growth changing: a cell takes its fields from its ground afresh.)
+        const some = part ? [...(grown ?? NO_CELLS), ...now.soil!] : null, moved = part ? now.moved : undefined;
         key = mk; vegSeen = g.veg.rev; groundSeen = now.ground; groundOf = g;
         const touch = (trees: readonly Tree[]) => { for (const tr of trees) { dirty.add(tr.band * 2 + BODY); dirty.add(tr.shade * 2 + SHADE); } };
         let changed = false;

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 
-import { createGrid, fillTerrain, setHeight, setPaved, type Grid } from "../grid";
+import { createGrid, fillTerrain, setHeight, setPaved, stampFootprint, type Grid, type Structure } from "../grid";
 import { createBandLayer } from "./bands";
 import { forgetCorners } from "./drawn";
 import { createGroundMesh, destroyGroundMesh, flushGround, markGround, type GroundMesh } from "./ground-mesh";
@@ -71,6 +71,14 @@ describe("the ground after an edit", () => {
       syncGround(field, grid);
     }
     setPaved(grid, 12, 12, 1);
+    syncGround(field, grid);
+    // (And a building put down, and one taken away again.)
+    for (const [id, x, y] of [[1, 20, 5], [2, 4, 18]] as const) {
+      const b = { id, def: "none", x, y, w: 2, h: 2 } as unknown as Structure;
+      grid.structures.set(id, b); stampFootprint(grid, b);
+      syncGround(field, grid);
+    }
+    stampFootprint(grid, grid.structures.get(2)!, -1); grid.structures.delete(2);
     syncGround(field, grid);
     const after = Array.from(field.columns.ground);
     forgetCorners();

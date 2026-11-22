@@ -8,6 +8,7 @@
  * A street has no name of its own: it is known by the biggest earner on it,
  * "the street by the Vibe Coder Studio". @see streetEarnings
  */
+import { groundMode } from "../render/ground-mode";
 import { NEIGHBOUR } from "../../iso/dir";
 import { idx, type Grid } from "../grid";
 import { connects } from "./mask";
@@ -50,12 +51,21 @@ function runs(g: Grid, along: "x" | "y"): Int32Array {
  * services each asked for them after every edit, and each was a walk of the whole map. Kept by the map's own count
  * of its edits (@see Grid.rev); a map made as a copy is its own map. Read only.
  */
-const found = new WeakMap<Grid, { rev: number; streets: Streets }>();
+const found = new WeakMap<Grid, { rev: number; mode: string; roads: number; roads2: number; streets: Streets }>();
 export function streetsOf(g: Grid): Streets {
-  const was = found.get(g);
+  const mode = groundMode(), kept = found.get(g), was = kept && kept.mode === mode ? kept : undefined;
   if (was && was.rev === g.rev) return was.streets;
+  // AN EDIT OFF THE ROADS leaves the streets as they were: they are read from the paved cells alone — where they
+  // are, their heights, ramps and decks. Two sums of those, each cell by where it is.
+  let a = 0, b = 0;
+  for (let i = 0; i < g.paved.length; i++) {
+    if (!g.paved[i]) continue;
+    const v = Math.imul(i + 1, 0x9e3779b1) ^ Math.imul(g.paved[i] | (g.ramp[i] << 8) | ((g.height[i] & 255) << 16) | (g.deck[i] << 24), 0x85ebca6b) ^ Math.imul(g.deckZ[i] + 129, 0xc2b2ae35);
+    a = (a + v) | 0; b = (Math.imul(b ^ v, 0x27d4eb2d) + i) | 0;
+  }
+  if (was && was.roads === a && was.roads2 === b) { was.rev = g.rev; return was.streets; }
   const streets = findStreets(g);
-  found.set(g, { rev: g.rev, streets });
+  found.set(g, { rev: g.rev, mode, roads: a, roads2: b, streets });
   return streets;
 }
 function findStreets(g: Grid): Streets {
