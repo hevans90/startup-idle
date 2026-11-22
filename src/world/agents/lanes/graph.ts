@@ -248,10 +248,10 @@ export const lanesDue = (g: Grid) => { buildLaneGraph(g); return built.get(g)?.d
  * WHAT WAITS ON NEW LANES COMES A FRAME AFTER ANOTHER, so no one frame has all of it: how many frames a map's lanes
  * have yet to settle — Infinity while they are behind its roads, then counted down a frame at a time from
  * {@link SETTLE} by {@link pumpLanes}, and 0 once all that waits on them has been worked out. The bus routes are
- * worked out at {@link SETTLE_BUSES}, the traffic takes the lanes up at {@link SETTLE_TRAFFIC}, the roads' looks
+ * worked out from {@link SETTLE_BUSES} down, a little a frame, until the traffic takes the lanes up at {@link SETTLE_TRAFFIC}, the roads' looks
  * are gone over at {@link SETTLE_LOOKS}, who sits where at {@link SETTLE_SEATS}, and the streets' levels at 0.
  */
-export const SETTLE = 5, SETTLE_BUSES = 4, SETTLE_TRAFFIC = 3, SETTLE_LOOKS = 2, SETTLE_SEATS = 1;
+export const SETTLE = 8, SETTLE_BUSES = 7, SETTLE_TRAFFIC = 3, SETTLE_LOOKS = 2, SETTLE_SEATS = 1;
 export const lanesSettle = (g: Grid): number => (!deferring ? 0 : lanesDue(g) ? Infinity : built.get(g)?.settle ?? 0);
 /** Whether a map's lanes are behind its roads, or only just caught up. @see lanesSettle */
 export const lanesSettling = (g: Grid) => lanesSettle(g) > 0;

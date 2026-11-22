@@ -222,6 +222,8 @@ export type Town = {
   parked: Mover[];
   /** The bus routes. @see buses busesOf */
   buses?: Buses;
+  /** The frame of the lanes' settling its routes were last worked on in: once a frame. @see warmRoutes */
+  warmedAt?: number;
   /** The lanes the residents' cars were last parked for. */
   residentsFor?: LaneGraph;
   /** Movers on a job that arrived since the last look. @see stepWorks */
@@ -517,6 +519,8 @@ export function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place | Kerb
   return m;
 }
 
+/** How long a frame spends on the bus routes along a map's new lanes, ms. @see warmRoutes */
+const ROUTES_MS = 1.5;
 let keyed: { g: Grid | null; rev: number; key: string } = { g: null, rev: -1, key: "" };
 /** The lanes, built for the roads as they are now. */
 export function trafficOf(t: Town, g: Grid): Traffic {
@@ -529,7 +533,7 @@ export function trafficOf(t: Town, g: Grid): Traffic {
   // each time till they are. The frame before it takes them up, the bus routes along them. @see lanesSettle)
   if (t.traffic && t.traffic.key !== key) {
     const settle = lanesSettle(g);
-    if (settle === SETTLE_BUSES) warmRoutes(buildLaneGraph(g), t.places);
+    if (settle <= SETTLE_BUSES && settle > SETTLE_TRAFFIC && t.warmedAt !== settle) { t.warmedAt = settle; warmRoutes(buildLaneGraph(g), t.places, ROUTES_MS); }
     if (settle > SETTLE_TRAFFIC) return t.traffic;
   }
   if (!t.traffic || t.traffic.key !== key) t.traffic = buildTraffic(g, key);

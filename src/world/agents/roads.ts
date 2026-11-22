@@ -52,6 +52,19 @@ export const rightOf = (dx: number, dy: number) => ({ x: -dy, y: dx });
  * so a long building does not get a crowd of doors. A gateway per rim cell.
  */
 export function placesOf(g: Grid, net: Network): Place[] {
+  // ONCE FOR EACH STATE OF THE MAP: who sits where, the streets' levels, the services, the town and the rest each
+  // ask after an edit, and each asking was every structure's every side looked along. Kept by the map's count of
+  // its edits, and by what is not an edit — a site finished, a house's first people in. Read only.
+  let sig = g.structures.size;
+  for (const s of g.structures.values()) sig = (Math.imul(sig, 31) + s.id * 4 + (s.build ? 1 : 0) + (s.residents === 0 ? 2 : 0)) | 0;
+  const was = placed.get(g);
+  if (was && was.net === net && was.rev === g.rev && was.sig === sig) return was.out;
+  const out = placesFound(g, net);
+  placed.set(g, { net, rev: g.rev, sig, out });
+  return out;
+}
+const placed = new WeakMap<Grid, { net: Network; rev: number; sig: number; out: Place[] }>();
+function placesFound(g: Grid, net: Network): Place[] {
   const out: Place[] = [];
   for (const s of g.structures.values()) {
     const cx = s.x + (s.w - 1) / 2, cy = s.y + (s.h - 1) / 2;

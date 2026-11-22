@@ -43,6 +43,14 @@ function wayLen(G: LaneGraph, a: Stop, b: Stop): number {
 }
 
 export function routesOf(G: LaneGraph, places: readonly Place[]): Route[] {
+  const steps = routesSteps(G, places);
+  for (;;) { const r = steps.next(); if (r.done) return r.value; }
+}
+/**
+ * THE ROUTES, A STOP'S WAYS AT A TIME: it stops after each search of the lanes — a town's routes are some dozens of
+ * them — to be taken up again in a later frame. @see buses warmRoutes
+ */
+export function* routesSteps(G: LaneGraph, places: readonly Place[]): Generator<void, Route[]> {
   const doors = places.filter((p) => p.kind === "door" && !p.building);
   const R = routesFor(doors.length);
   if (!R || !G.stops.length) return [];
@@ -82,6 +90,8 @@ export function routesOf(G: LaneGraph, places: readonly Place[]): Route[] {
       }
       return row.get(b.id) ?? wayLen(G, a, b);
     };
+    // (Every stop's ways are asked for below, a route begun from each in turn: found here, one at a time.)
+    if (m.length > 1) for (const a of m) { way(a, m[a === m[0] ? 1 : 0]); yield; }
     let order: Stop[] = [], total = Infinity;
     for (const first of m) {
       const o = [first], left = m.filter((s) => s !== first);
