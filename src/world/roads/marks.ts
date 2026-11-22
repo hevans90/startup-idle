@@ -95,6 +95,24 @@ export function marksOf(g: Grid, G: LaneGraph): string[] {
     for (let y = Math.round(y0 - reach); y <= Math.round(y1 + reach); y++) for (let x = Math.round(x0 - reach); x <= Math.round(x1 + reach); x++) cells.push([x, y]);
     return cells;
   };
+  /**
+   * The cells a LINE comes within reach of, a stretch of it at a time: a line round a corner or along a curve has a
+   * box of cells most of which it goes nowhere near, and it was cut against every one of them.
+   */
+  const cellsAlong = (pts: readonly Pt[], reach: number) => {
+    if (pts.length < 2) return cellsOf(pts, reach);
+    const seen = new Set<number>(), cells: [number, number][] = [];
+    for (let k = 0; k + 1 < pts.length; k++) {
+      const a = pts[k], b = pts[k + 1];
+      for (let y = Math.round(Math.min(a.y, b.y) - reach); y <= Math.round(Math.max(a.y, b.y) + reach); y++) {
+        for (let x = Math.round(Math.min(a.x, b.x) - reach); x <= Math.round(Math.max(a.x, b.x) + reach); x++) {
+          const key = (y + 4096) * 16384 + x + 4096;
+          if (!seen.has(key)) { seen.add(key); cells.push([x, y]); }
+        }
+      }
+    }
+    return cells;
+  };
   /** A line cut to a cell and a little more: its pieces there. */
   const cut = (pts: readonly Pt[], x: number, y: number): { p: Pt[]; first: boolean; last: boolean }[] => {
     const lo = -0.5 - KEEP, hi = 0.5 + KEEP, pieces: { p: Pt[]; first: boolean; last: boolean }[] = [];
@@ -116,7 +134,7 @@ export function marksOf(g: Grid, G: LaneGraph): string[] {
   };
   const add = (s: Shape) => {
     if (s.t === "L" || s.t === "M" || s.t === "K") {
-      for (const [x, y] of cellsOf(s.p, 0.5 + KEEP)) for (const piece of cut(s.p, x, y)) {
+      for (const [x, y] of cellsAlong(s.p, 0.5 + KEEP)) for (const piece of cut(s.p, x, y)) {
         if (piece.p.length < 2) continue;
         const body = piece.p.map((p) => loc(p, x, y)).join(" ");
         put(x, y, s.t === "K" ? `K:${body}` : s.t === "L" ? `L${s.c},${r3(s.w)}:${body}` : `M${(piece.first ? s.caps & 1 : 0) | (piece.last ? s.caps & 2 : 0)}:${body}`);

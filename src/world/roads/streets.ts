@@ -51,22 +51,30 @@ function runs(g: Grid, along: "x" | "y"): Int32Array {
  * services each asked for them after every edit, and each was a walk of the whole map. Kept by the map's own count
  * of its edits (@see Grid.rev); a map made as a copy is its own map. Read only.
  */
-const found = new WeakMap<Grid, { rev: number; mode: string; roads: number; roads2: number; streets: Streets }>();
+const found = new WeakMap<Grid, { rev: number; roads: string; streets: Streets }>();
 export function streetsOf(g: Grid): Streets {
-  const mode = groundMode(), kept = found.get(g), was = kept && kept.mode === mode ? kept : undefined;
-  if (was && was.rev === g.rev) return was.streets;
-  // AN EDIT OFF THE ROADS leaves the streets as they were: they are read from the paved cells alone — where they
-  // are, their heights, ramps and decks. Two sums of those, each cell by where it is.
+  const was = found.get(g);
+  if (was && was.rev === g.rev && was.roads.startsWith(groundMode())) return was.streets;
+  // AN EDIT OFF THE ROADS leaves the streets as they were. @see roadsKey
+  const roads = roadsKey(g);
+  if (was && was.roads === roads) { was.rev = g.rev; return was.streets; }
+  const streets = findStreets(g);
+  found.set(g, { rev: g.rev, roads, streets });
+  return streets;
+}
+/**
+ * WHAT A MAP'S ROADS ARE, as a key: the same for two states of a map whose paved cells are in the same places at
+ * the same heights, with the same ramps and decks — which is all its streets and its lanes are read from. Two sums
+ * of those, each cell by where it is; and how the ground is drawn, which says what joins.
+ */
+export function roadsKey(g: Grid): string {
   let a = 0, b = 0;
   for (let i = 0; i < g.paved.length; i++) {
     if (!g.paved[i]) continue;
     const v = Math.imul(i + 1, 0x9e3779b1) ^ Math.imul(g.paved[i] | (g.ramp[i] << 8) | ((g.height[i] & 255) << 16) | (g.deck[i] << 24), 0x85ebca6b) ^ Math.imul(g.deckZ[i] + 129, 0xc2b2ae35);
     a = (a + v) | 0; b = (Math.imul(b ^ v, 0x27d4eb2d) + i) | 0;
   }
-  if (was && was.roads === a && was.roads2 === b) { was.rev = g.rev; return was.streets; }
-  const streets = findStreets(g);
-  found.set(g, { rev: g.rev, mode, roads: a, roads2: b, streets });
-  return streets;
+  return `${groundMode()}|${g.w}x${g.h}|${a}|${b}`;
 }
 function findStreets(g: Grid): Streets {
   const of = new Int32Array(g.w * g.h).fill(-1);

@@ -32,7 +32,8 @@
 import { NEIGHBOUR } from "../../../iso/dir";
 import { idx, inBounds, structureAt, type Grid } from "../../grid";
 import { connects, isPaved } from "../../roads/mask";
-import { streetsOf } from "../../roads/streets";
+import { roadsKey, streetsOf } from "../../roads/streets";
+import { groundMode } from "../../render/ground-mode";
 import {
   add, arc, chaikin, cross, distToLine, dot, lengths, minRadius, norm, pointAt, right, sub, turnCurve, type Pt, FAR_TURN, KEEP, NEAR_TURN } from "./geometry";
 
@@ -227,7 +228,24 @@ export const laneLines = (k: number): number[] => {
   return out;
 };
 
+/**
+ * A map's lanes, built once for each state of its roads: a road laid built them for the roads' looks and again for
+ * the traffic, each a walk of every street. Read only. @see roadsKey
+ */
+const built = new WeakMap<Grid, { rev: number; roads: string; G: LaneGraph }>();
 export function buildLaneGraph(g: Grid): LaneGraph {
+  const was = built.get(g);
+  if (was && was.rev === g.rev && was.roads.startsWith(groundMode())) return was.G;
+  // (And where anything is built: a lay-by is cut only beside a building. @see baysOf)
+  let on = 0;
+  for (let i = 0; i < g.structureAt.length; i++) if (g.structureAt[i] >= 0) on = (Math.imul(on ^ (i + 1), 0x01000193) + i) | 0;
+  const roads = `${roadsKey(g)}|${on}`;
+  if (was && was.roads === roads) { was.rev = g.rev; return was.G; }
+  const G = lanesOf(g);
+  built.set(g, { rev: g.rev, roads, G });
+  return G;
+}
+function lanesOf(g: Grid): LaneGraph {
   const n = g.w * g.h;
   const S = streetsOf(g);
   const cellOf = (i: number): Pt => ({ x: i % g.w, y: (i / g.w) | 0 });
