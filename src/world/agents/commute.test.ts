@@ -2,12 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { attendance, setProjectReader } from "../../game/projects";
 import { commit, createHistory } from "../edit/commands";
-import { RAMP, createGrid, fillTerrain, idx, packRamp } from "../grid";
+import { RAMP, createGrid, fillTerrain, idx, packRamp, setHeight, setPaved } from "../grid";
 import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import {
-  CLIMB, DESKLESS, DESKS, FREE, STRANDED, WORST, commuteEfficiency, walkFrom, commuteFactor, commutesOf, joinsOf, liveCommutes, seat,
+  CLIMB, DESKLESS, DESKS, FREE, STRANDED, WORST, commuteEfficiency, walkFrom, commuteFactor, commutesOf, joinsOf, liveCommutes, liveSeating, seat,
 } from "./commute";
 import { placesOf } from "./roads";
 import { FIXTURE_SIZE, applyFixture } from "../debug/fixtures";
@@ -136,5 +136,35 @@ describe("the roads' joins, worked out once", () => {
       expect([...walkFrom(g, [i], joins)]).toEqual([...walkFrom(g, [i])]);
     }
     expect(tried).toBeGreaterThan(8);
+  });
+});
+
+describe("who sits where, kept", () => {
+  test("is kept through an edit off the roads, and worked out again for one on them: as it would be afresh", () => {
+    const n = FIXTURE_SIZE.bigtown ?? 48;
+    const g = createGrid(n, n, 1);
+    applyFixture(g, "bigtown", 1);
+    const net = createNetwork(g);
+    const j = (v: unknown) => JSON.stringify(v, (_k, x) => (x instanceof Map ? [...x] : x));
+    const was = liveSeating(g, net);
+    expect(was.commutes.size).toBeGreaterThan(10);
+    // A tile of open ground, nowhere near a road or a building, raised.
+    let far = -1;
+    for (let i = 0; i < n * n && far < 0; i++) {
+      const x = i % n, y = (i / n) | 0;
+      let clear = x > 3 && y > 3 && x < n - 4 && y < n - 4;
+      for (let dy = -3; dy <= 3 && clear; dy++) for (let dx = -3; dx <= 3 && clear; dx++) { const k = (y + dy) * n + x + dx; if (g.paved[k] || g.structureAt[k] >= 0) clear = false; }
+      if (clear) far = i;
+    }
+    expect(far).toBeGreaterThanOrEqual(0);
+    setHeight(g, far % n, (far / n) | 0, g.height[far] + 1);
+    expect(liveSeating(g, net)).toBe(was);
+    // A road cut: a cell of it taken up.
+    let cut = -1;
+    for (let i = 0; i < n * n && cut < 0; i++) if (g.paved[i] && !g.deck[i] && g.paved[i - 1] && g.paved[i + 1]) cut = i;
+    setPaved(g, cut % n, (cut / n) | 0, 0);
+    const net2 = createNetwork(g), now = liveSeating(g, net2);
+    expect(now).not.toBe(was);
+    expect(j(now)).toBe(j(seat(g, placesOf(g, net2))));
   });
 });

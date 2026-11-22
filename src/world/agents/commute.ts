@@ -28,6 +28,7 @@ import type { GeneratorId } from "../../state/generators.store";
 import { idx, type Grid } from "../grid";
 import { FERRY_TILES, ferryLinks } from "../boats/ferry-links";
 import { connects } from "../roads/mask";
+import { roadsKey } from "../roads/streets";
 import { SETTLE_SEATS, lanesSettle } from "./lanes/graph";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
@@ -256,8 +257,27 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
   return { commutes, desks, home };
 }
 
-let memo: { g: Grid | null; rev: number; sites: number; people: string; deck: number; closures: number; value: Seating } = {
-  g: null, rev: -1, sites: -1, people: "", deck: -1, closures: -1, value: { commutes: new Map(), desks: new Map(), home: {} },
+/**
+ * WHAT OF THE MAP WHO SITS WHERE IS READ FROM, as a key: its roads (@see roadsKey) — which cells, at what heights,
+ * with which ramps and decks: what joins, and what a step costs; each building's door on them; the buildings, and
+ * what each is; and the ferries' links. (Who lives where, the sites, the cards and the closures are kept beside it.)
+ */
+function seatKey(g: Grid, places: readonly Place[]): string {
+  let a = 0, b = 0;
+  for (const p of places) if (p.kind === "door" && p.structure !== undefined) a = (Math.imul(a ^ (p.structure + 1), 0x01000193) + p.y * g.w + p.x) | 0;
+  for (const s of g.structures.values()) {
+    let d = 0;
+    for (let k = 0; k < s.def.length; k++) d = (Math.imul(d, 31) + s.def.charCodeAt(k)) | 0;
+    b = (Math.imul(b ^ (s.id + 1), 0x01000193) + d + (s.build ? 7 : 0)) | 0;
+  }
+  const ferries = ferryLinks(g);
+  let f = "";
+  if (ferries.size) for (const [from, to] of ferries) f += `${from}:${to.join(",")};`;
+  return `${roadsKey(g)}|${g.structures.size}|${a}|${b}|${f}`;
+}
+
+let memo: { g: Grid | null; rev: number; sites: number; people: string; deck: number; closures: number; what: string; value: Seating } = {
+  g: null, rev: -1, sites: -1, people: "", deck: -1, closures: -1, what: "", value: { commutes: new Map(), desks: new Map(), home: {} },
 };
 
 /**
@@ -283,7 +303,12 @@ export function liveSeating(g: Grid, net: Network): Seating {
   // road laid is nobody's way to work in the frame it is laid. @see lanes/graph lanesSettle)
   if (memo.g === g && memo.rev !== g.rev && memo.sites === sites && memo.people === people && memo.deck === deck && memo.closures === closures && lanesSettle(g) > SETTLE_SEATS) return memo.value;
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.people !== people || memo.deck !== deck || memo.closures !== closures) {
-    memo = { g, rev: g.rev, sites, people, deck, closures, value: seat(g, placesOf(g, net)) };
+    // AN EDIT THAT TOUCHES NONE OF WHAT IT IS READ FROM leaves everyone sitting where they sat: the roads, the
+    // doors on them, the buildings and the ferries. A tile of grass raised in a field was every house's way to
+    // every workplace found again. @see seatKey
+    const places = placesOf(g, net), what = seatKey(g, places);
+    const same = memo.g === g && memo.what === what && memo.sites === sites && memo.people === people && memo.deck === deck && memo.closures === closures;
+    memo = { g, rev: g.rev, sites, people, deck, closures, what, value: same ? memo.value : seat(g, places) };
   }
   return memo.value;
 }
