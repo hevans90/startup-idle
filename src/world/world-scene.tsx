@@ -153,7 +153,7 @@ const SOLVER_WAIT = 10;
  * How bright each kind of light is to the map's own light (@see render/gi): a lamp and a headlight are small and
  * must be very bright to light a street; a lit building is a whole wall of light, and need only glow.
  */
-const GI_LAMP = 13, GI_HEAD = 34, GI_SIGN = 1.6, GI_WINDOW = 0.05, GI_SPILL = 0.28;
+const GI_LAMP = 13, GI_HEAD = 34, GI_SIGN = 1.6, GI_WINDOW = 0.05, GI_SPILL = 0.6;
 /** How long a frame spends on a map's new lanes, ms. @see pumpLanes */
 const LANES_MS = 3;
 /** Whether the device's solver is what should be stepping the water: a device held and not lost, and the toggle on. */
@@ -4151,14 +4151,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const key = `${st.revision}|${giVersion()}|${giPostsRev.current}`;
             if (giStill.current.key !== key) {
               const list: GiLight[] = [], lit = new Map<number, { colour: number; bias: number }>();
-              // THE STREETS' LAMPS: from the lanterns of their lamp posts, where a street has them — a light that
-              // hangs where it is seen to — and elsewhere from over the road, as it was.
+              // THE STREETS' LAMPS: the lanterns of their lamp posts — a light that hangs where it is seen to.
               if (o.lamps) for (const q of posts) list.push({ x: (q.x + 0.5) * 4, y: (q.y + 0.5) * 4, hx: 1.2, hy: 1.2, ...rgb(0xffe2a0, GI_LAMP * 1.5), solid: 0, z: q.z });
-              const posted = (x: number, y: number) => posts.some((q) => Math.abs(q.x - x) < 2.5 && Math.abs(q.y - y) < 2.5);
               for (const l of lightsOf(st.grid)) {
                 const x = (l.x + l.w / 2) * 4, y = (l.y + l.h / 2) * 4;
                 // (A lamp is a point: small and hard, not a soft pool laid on the road.)
-                if (l.kind === "lamp") { if (o.lamps && !posted(l.x, l.y)) list.push({ x, y, hx: 1.2, hy: 1.2, ...rgb(0xffe2a0, GI_LAMP * 1.5), solid: 0, z: 2.5 }); }
+                // (A light with nothing to hang from is no light: a street with no lamp posts is lit by its windows and its traffic.)
+                if (l.kind === "lamp") continue;
                 else if (l.kind === "window") { const tone = l.violet ? 0xb44aff : l.crunch ? 0xd8ecff : 0xffc46b; // (An office at work has more of its windows lit than a street of houses has.)
                   if (o.windows && l.id !== undefined) lit.set(l.id, { colour: tone, bias: l.violet || l.crunch ? 0.3 : 0 });
                   // (Its windows' own light falls outside, where they are shown; a glow the size of it, where they are not.)
