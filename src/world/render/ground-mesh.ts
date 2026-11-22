@@ -1340,35 +1340,14 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   var col: vec3<f32>;
   // A top's second word is the light on its slope, 0 on the level.
   if (vWall.x < 0.5) {
-    col = topColour(vGround, fp);
-    // A STEEP BANK IS BARE: the grass gives out to earth as the ground steepens, in patches.
-    if (steep > 1.2) {
-      let bare = smoothstep(1.7, 3.4, steep + (fbm(vGround * 2.2 + 3.0) - 0.5) * 2.2);
-      if (bare > 0.0) { col = mix(col, dirtAt(vGround, fp) * 0.88, bare * 0.85); }
-    }
-    // A FACE TOO STEEP FOR EARTH IS ROCK — bedded by its height, so the beds run level across a cliff — coming
-    // through the bare earth as the ground steepens. (The continuous surface has no walls: this is its cliff.)
-    if (steep > 3.2) {
-      col = mix(col, rockAt(vGround, vWall.y, fp), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
-    }
-    // UNDER A WOOD, the forest floor, as thick as the canopy over it, ragged at its rim. @see forest.ts
-    if (ground.uMode.x > 0.5) {
-      let can = canopyAt(vGround);
-      if (can > 0.02) { col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88); }
-      col = litterOver(col, vGround, fp);
-      // HEATHER where the heath is, as thick as it is, ragged at its edge, grass coming through it. @see forest.ts heathAt
-      let hth = heathFieldAt(vGround);
-      if (hth > 0.02) { col = mix(col, heatherAt(vGround, fp), smoothstep(0.12, 0.5, hth + (fbm(vGround * 2.3 + 41.0) - 0.5) * 0.5 + (vnoise(vGround * 9.0 + 3.0) - 0.5) * 0.12)); }
-      // CHARRED where a fire went through. @see vegetation/wildfire
-      let chr = charFieldAt(vGround);
-      if (chr > 0.02) { col = charOver(col, vGround, fp, chr); }
-      // WORN where the town tramples it. @see vegetation/wear
-      let wrn = wornFieldAt(vGround);
-      if (wrn > 0.02) { col = wornOver(col, vGround, fp, wrn); }
-      if (fieldCell(vec2<i32>(floor(vGround)))) { col = fieldOver(col, vGround, fp); }
-    }
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
+    // WORKED OUT FIRST, because where it is all beach — every bed under water — it replaces whatever the land
+    // would have been, and the land is the dear part: the grass, the wood's floor, the heather. A flooded map
+    // drew all of that under the water and then laid sand over every pixel of it.
     var level = textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).z;
+    var beach = 0.0;
+    var over = 0.0;
+    var sandy = 0.0;
     if (level > -900.0) {
       // (Blended between the cells round the point — one that was told none taken as a little lower than this one —
       // so the sand's line does not step at a cell's edge.)
@@ -1376,19 +1355,49 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
       let l00 = levelAt(lc, level); let l10 = levelAt(lc + vec2<i32>(1, 0), level);
       let l01 = levelAt(lc + vec2<i32>(0, 1), level); let l11 = levelAt(lc + vec2<i32>(1, 1), level);
       level = mix(mix(l00, l10, lf.x), mix(l01, l11, lf.x), lf.y);
-      let over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
+      over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
       // NOT EVERY SHORE IS A BEACH: by a slow noise over the map a stretch of shore is sand, broad; or a narrow rim
       // of wet earth; or grass down to the water with earth only under it.
       let shore = fbm(vGround * 0.11 + 40.0);
-      let sandy = smoothstep(0.44, 0.56, shore);
+      sandy = smoothstep(0.44, 0.56, shore);
       let rim = mix(mix(0.02, 0.22, smoothstep(0.26, 0.38, shore)), 0.6, sandy);
-      let beach = 1.0 - smoothstep(mix(-0.08, 0.15, sandy), rim, over);
-      if (beach > 0.0) {
-        var stuff = vec3<f32>(0.0);
-        if (sandy > 0.001) { stuff = sandAt(vGround, fp) * sandy; }
-        if (sandy < 0.999) { stuff = stuff + dirtAt(vGround, fp) * 0.8 * (1.0 - sandy); }
-        col = mix(col, stuff * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
+      beach = 1.0 - smoothstep(mix(-0.08, 0.15, sandy), rim, over);
+    }
+    col = vec3<f32>(0.0);
+    if (beach < 1.0) {
+      col = topColour(vGround, fp);
+      // A STEEP BANK IS BARE: the grass gives out to earth as the ground steepens, in patches.
+      if (steep > 1.2) {
+        let bare = smoothstep(1.7, 3.4, steep + (fbm(vGround * 2.2 + 3.0) - 0.5) * 2.2);
+        if (bare > 0.0) { col = mix(col, dirtAt(vGround, fp) * 0.88, bare * 0.85); }
       }
+      // A FACE TOO STEEP FOR EARTH IS ROCK — bedded by its height, so the beds run level across a cliff — coming
+      // through the bare earth as the ground steepens. (The continuous surface has no walls: this is its cliff.)
+      if (steep > 3.2) {
+        col = mix(col, rockAt(vGround, vWall.y, fp), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
+      }
+      // UNDER A WOOD, the forest floor, as thick as the canopy over it, ragged at its rim. @see forest.ts
+      if (ground.uMode.x > 0.5) {
+        let can = canopyAt(vGround);
+        if (can > 0.02) { col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88); }
+        col = litterOver(col, vGround, fp);
+        // HEATHER where the heath is, as thick as it is, ragged at its edge, grass coming through it. @see forest.ts heathAt
+        let hth = heathFieldAt(vGround);
+        if (hth > 0.02) { col = mix(col, heatherAt(vGround, fp), smoothstep(0.12, 0.5, hth + (fbm(vGround * 2.3 + 41.0) - 0.5) * 0.5 + (vnoise(vGround * 9.0 + 3.0) - 0.5) * 0.12)); }
+        // CHARRED where a fire went through. @see vegetation/wildfire
+        let chr = charFieldAt(vGround);
+        if (chr > 0.02) { col = charOver(col, vGround, fp, chr); }
+        // WORN where the town tramples it. @see vegetation/wear
+        let wrn = wornFieldAt(vGround);
+        if (wrn > 0.02) { col = wornOver(col, vGround, fp, wrn); }
+        if (fieldCell(vec2<i32>(floor(vGround)))) { col = fieldOver(col, vGround, fp); }
+      }
+    }
+    if (beach > 0.0) {
+      var stuff = vec3<f32>(0.0);
+      if (sandy > 0.001) { stuff = sandAt(vGround, fp) * sandy; }
+      if (sandy < 0.999) { stuff = stuff + dirtAt(vGround, fp) * 0.8 * (1.0 - sandy); }
+      col = mix(col, stuff * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
     }
     // SNOW where it lies: patchy as it comes and as it goes, more the higher, none on a slope too steep to hold it.
     // (None on a bed under standing water: it would show through.)
@@ -1966,41 +1975,47 @@ void main() {
   }
   vec3 col;
   if (vWall.x < 0.5) {
-    col = topColour(vGround, fp);
-    if (steep > 1.2) {
-      float bare = smoothstep(1.7, 3.4, steep + (fbm(vGround * 2.2 + 3.0) - 0.5) * 2.2);
-      if (bare > 0.0) col = mix(col, dirtAt(vGround, fp) * 0.88, bare * 0.85);
-    }
-    if (steep > 3.2) {
-      col = mix(col, rockAt(vGround, vWall.y, fp), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
-    }
-    if (uMode.x > 0.5) {
-      float can = canopyAt(vGround);
-      if (can > 0.02) col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88);
-      col = litterOver(col, vGround, fp);
-      float hth = heathFieldAt(vGround);
-      if (hth > 0.02) col = mix(col, heatherAt(vGround, fp), smoothstep(0.12, 0.5, hth + (fbm(vGround * 2.3 + 41.0) - 0.5) * 0.5 + (vnoise(vGround * 9.0 + 3.0) - 0.5) * 0.12));
-      float chr = charFieldAt(vGround);
-      if (chr > 0.02) col = charOver(col, vGround, fp, chr);
-      float wrn = wornFieldAt(vGround);
-      if (wrn > 0.02) col = wornOver(col, vGround, fp, wrn);
-      if (fieldCell(ivec2(floor(vGround)))) col = fieldOver(col, vGround, fp);
-    }
     float level = texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).z;
+    float beach = 0.0;
+    float over = 0.0;
+    float sandy = 0.0;
     if (level > -900.0) {
       vec2 lq = vGround - 0.5; ivec2 lc = ivec2(floor(lq)); vec2 lf = lq - floor(lq);
       level = mix(mix(levelAt(lc, level), levelAt(lc + ivec2(1, 0), level), lf.x), mix(levelAt(lc + ivec2(0, 1), level), levelAt(lc + ivec2(1, 1), level), lf.x), lf.y);
-      float over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
+      over = vWall.y - level + (fbm(vGround * 2.3 + 9.0) - 0.5) * 0.5;
       float shore = fbm(vGround * 0.11 + 40.0);
-      float sandy = smoothstep(0.44, 0.56, shore);
+      sandy = smoothstep(0.44, 0.56, shore);
       float rim = mix(mix(0.02, 0.22, smoothstep(0.26, 0.38, shore)), 0.6, sandy);
-      float beach = 1.0 - smoothstep(mix(-0.08, 0.15, sandy), rim, over);
-      if (beach > 0.0) {
-        vec3 stuff = vec3(0.0);
-        if (sandy > 0.001) stuff = sandAt(vGround, fp) * sandy;
-        if (sandy < 0.999) stuff += dirtAt(vGround, fp) * 0.8 * (1.0 - sandy);
-        col = mix(col, stuff * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
+      beach = 1.0 - smoothstep(mix(-0.08, 0.15, sandy), rim, over);
+    }
+    col = vec3(0.0);
+    if (beach < 1.0) {
+      col = topColour(vGround, fp);
+      if (steep > 1.2) {
+        float bare = smoothstep(1.7, 3.4, steep + (fbm(vGround * 2.2 + 3.0) - 0.5) * 2.2);
+        if (bare > 0.0) col = mix(col, dirtAt(vGround, fp) * 0.88, bare * 0.85);
       }
+      if (steep > 3.2) {
+        col = mix(col, rockAt(vGround, vWall.y, fp), smoothstep(3.6, 6.0, steep + (fbm(vGround * 3.1 + 11.0) - 0.5) * 1.6));
+      }
+      if (uMode.x > 0.5) {
+        float can = canopyAt(vGround);
+        if (can > 0.02) col = mix(col, forestFloor(vGround, fp), smoothstep(0.2, 0.68, can + (fbm(vGround * 1.9 + 21.0) - 0.5) * 0.4) * 0.88);
+        col = litterOver(col, vGround, fp);
+        float hth = heathFieldAt(vGround);
+        if (hth > 0.02) col = mix(col, heatherAt(vGround, fp), smoothstep(0.12, 0.5, hth + (fbm(vGround * 2.3 + 41.0) - 0.5) * 0.5 + (vnoise(vGround * 9.0 + 3.0) - 0.5) * 0.12));
+        float chr = charFieldAt(vGround);
+        if (chr > 0.02) col = charOver(col, vGround, fp, chr);
+        float wrn = wornFieldAt(vGround);
+        if (wrn > 0.02) col = wornOver(col, vGround, fp, wrn);
+        if (fieldCell(ivec2(floor(vGround)))) col = fieldOver(col, vGround, fp);
+      }
+    }
+    if (beach > 0.0) {
+      vec3 stuff = vec3(0.0);
+      if (sandy > 0.001) stuff = sandAt(vGround, fp) * sandy;
+      if (sandy < 0.999) stuff += dirtAt(vGround, fp) * 0.8 * (1.0 - sandy);
+      col = mix(col, stuff * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
     }
     bool wetHere = int(texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).w + 0.5) % 4 == 2;
     float soaked = uMode.z;
