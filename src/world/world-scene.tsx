@@ -61,7 +61,9 @@ import {
 } from "./render/bands";
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
 import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
-import { canopyGround, destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
+import { canopyGround, castGround, destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
+import { casterOf } from "./render/casters";
+import { createRoadShade, type RoadShade } from "./render/road-shade";
 import { createGroundCache, setGroundCache, type GroundCache } from "./render/ground-cache";
 import { stepVegetation, wetFrom } from "./vegetation/step";
 import { wearFrom } from "./vegetation/wear";
@@ -486,6 +488,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const streetPropsRef = useRef<StreetProps | null>(null);
   /** What a road over water stands on, and its sides. @see createBridgeProps */
   const bridgePropsRef = useRef<BridgeProps | null>(null);
+  /** The ground's shade laid over the roads. @see road-shade */
+  const roadShadeRef = useRef<RoadShade | null>(null);
   /** The roads being built, as far as each has got. @see createRoadWorks */
   const roadWorksRef = useRef<RoadWorks | null>(null);
   const lineWorksRef = useRef<LineWorks | null>(null);
@@ -1755,6 +1759,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         shopsRef.current = createShopfronts(bl);
         streetPropsRef.current = createStreetProps(bl);
         bridgePropsRef.current = createBridgeProps(bl);
+        if (tlRef.current?.ground) roadShadeRef.current = createRoadShade(bl, tlRef.current.ground);
         roadWorksRef.current = createRoadWorks(bl);
         lineWorksRef.current = createLineWorks(bl, app.renderer as unknown as Renderer);
         roadPlantRef.current = createRoadPlant(bl);
@@ -1810,6 +1815,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       shopsRef.current = null;
       streetPropsRef.current?.destroy();
       bridgePropsRef.current?.destroy();
+      roadShadeRef.current?.destroy(); roadShadeRef.current = null;
       roadWorksRef.current?.destroy();
       roadWorksRef.current = null;
       lineWorksRef.current?.destroy();
@@ -3063,6 +3069,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const grownRef = useRef(new Set<number>());
   /** How many times the map's new lanes have been finished; and whether the roads' looks are to be gone over for it next frame. @see pumpLanes */
   const lanesLandedRef = useRef(0), settledRef = useRef(0), lanesWaitRef = useRef(false);
+  /** Frames counted, for looking at what is built now and then. @see castGround */
+  const castAtRef = useRef(0);
   useEffect(() => { deferLanes(true); return () => deferLanes(false); }, []);
   const cpuFrames = useRef(0);
   /** The frames in a row the water was left unstepped, waiting for the device's solver. @see solverDue */
@@ -4068,6 +4076,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // (A frame of the verge's spots: those of machines no longer drawn are free again. @see kerb-spots)
       kerbFrame();
       if (roadPlantRef.current) roadPlantRef.current.sync(useWorldStore.getState().grid, scale, worksClock());
+      if (roadShadeRef.current) roadShadeRef.current.sync(useWorldStore.getState().grid, scale);
       // MAINS, SEWERS AND CHANNELS being laid. @see line-works
       if (lineWorksRef.current) { const st = useWorldStore.getState(), field = st.getWaterField(); lineWorksRef.current.sync(st.grid, st.lineRev + st.revision, scale, worksClock(), field ? (x, y) => depthAt(field, x, y) : undefined); }
       if (bridgePropsRef.current) {
@@ -4204,6 +4213,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         acc.solve += spent.solve; acc.draw += spent.build; acc.n++;
       }
     }
+    // WHAT IS BUILT THROWS ITS SHADOW on the ground: looked at a few times a second — a building come, gone, or a
+    // floor taller as its people moved in. @see casters
+    { const gm = tlRef.current?.ground; if (gm && castAtRef.current++ % 20 === 0) castGround(gm, grid, (id) => { const s = grid.structures.get(id); return s ? casterOf(s) : null; }); }
     if (!sl || !bl || !hasAnimated(sl)) return;
     tickStructures(sl, { bands: bl, grid, scale }, dt);
   });

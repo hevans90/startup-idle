@@ -30,6 +30,8 @@ import type { BandLayer } from "./bands";
 import { terrainName } from "../terrain-names";
 import { built, cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, pinned, shelfOf, smoothAt, withCorners } from "./drawn";
 import { groundMode } from "./ground-mode";
+import { SHADOW_RUN, SHADOW_RUN_SRC, SHADOW_TINT_SRC, SUN_SRC, SUN_X, SUN_Y } from "../light";
+import type { CastBox } from "./casters";
 import { canopyOf, heathAt } from "./forest";
 import { COVER, vegAt } from "../vegetation/fields";
 
@@ -111,7 +113,7 @@ export function slopeLight(packed: number): number {
 }
 
 /** Which way the light comes from along the ground, as the shader has it (`SUN`), and how much a half step a tile of slope toward it brightens. */
-const SUN_X = -0.94, SUN_Y = 0.34, SLOPE_LIT = 0.2;
+const SLOPE_LIT = 0.2;
 const litOf = (gx: number, gy: number) => Math.max(-0.42, Math.min(0.3, -(gx * SUN_X + gy * SUN_Y) * SLOPE_LIT));
 /**
  * The light on a free cell's drawn top at its corner `(u, v)`: from the fall of its own two edges there, and of the
@@ -171,6 +173,15 @@ export type GroundMesh = {
   /** The drawn ground's height at the middle of every quarter of a tile, half steps; and the shadow the ground throws there, 0–255. @see bakeShade */
   heights: Float32Array;
   shade: Uint8Array;
+  /** What stands on the ground at each quarter of a tile, half steps over it: what is built, for the shadow it throws. @see castGround */
+  casts: Float32Array;
+  /** The highest thing — ground or built — on each tile or any tile beside it, half steps: what a ray toward the sun asks before it looks at a tile a quarter at a time. @see shadeOf */
+  tops: Float32Array;
+  /** What each structure last threw its shadow with, and the quarter-tiles it stood over; and the tallest of them, rounded up. */
+  cast: Map<number, { key: string; box: [number, number, number, number] }>;
+  castTop: number;
+  /** Counts up whenever the shade is worked out again. @see road-shade */
+  shadeRev: number;
   /** The height the shade was last baked under: when the map's highest ground moves, all of it is baked again. */
   shadeTop: number;
   shadeSource: BufferImageSource;
@@ -470,7 +481,7 @@ function makeGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale: numb
   const shade = new Uint8Array(grid.w * SHADE * grid.h * SHADE);
   const shadeSource = new BufferImageSource({ resource: shade, width: grid.w * SHADE, height: grid.h * SHADE, format: "r8unorm", scaleMode: "nearest" });
   const tintSource = new BufferImageSource({ resource: bakeTint(grid.w, grid.h), width: grid.w * SHADE, height: grid.h * SHADE, format: "rgba8unorm", scaleMode: "nearest" });
-  const gm: GroundMesh = { cells, source, edges, edgeSource, grid, heights: new Float32Array(shade.length), shade, shadeTop: NaN, shadeSource, tintSource, stale: [0, 0, grid.w - 1, grid.h - 1], uniforms, cacheU: cacheUniforms(), blank: new BufferImageSource({ resource: new Uint8Array(4), width: 1, height: 1, format: "rgba8unorm", scaleMode: "nearest" }), shader: null as unknown as Shader, rev: 0, gone: [], meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
+  const gm: GroundMesh = { cells, source, edges, edgeSource, grid, heights: new Float32Array(shade.length), shade, casts: new Float32Array(shade.length), tops: new Float32Array(grid.w * grid.h), cast: new Map(), castTop: 0, shadeRev: 0, shadeTop: NaN, shadeSource, tintSource, stale: [0, 0, grid.w - 1, grid.h - 1], uniforms, cacheU: cacheUniforms(), blank: new BufferImageSource({ resource: new Uint8Array(4), width: 1, height: 1, format: "rgba8unorm", scaleMode: "nearest" }), shader: null as unknown as Shader, rev: 0, gone: [], meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
   for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) writeCell(gm, grid, palette, x, y);
   source.update();
   edgeSource.update();
@@ -544,8 +555,7 @@ function bakeTint(w: number, h: number): Uint8Array {
 
 /** How finely the ground's shadow is kept, a side of a tile: the grid the continuous surface is meshed on. */
 const SHADE = 4;
-/** Toward the light along the ground, and the tiles of shadow a half step of height throws: the shader's own (`SUN`, `SHADOW_RUN`). */
-const SHADOW_RUN = 0.55;
+export const SHADE_PER_TILE = SHADE;
 /**
  * THE SHADOW THE GROUND THROWS ON ITSELF, worked out here and not a pixel at a time: the drawn ground's height at
  * the middle of every quarter of a tile (only where it has changed), then from each a walk toward the sun, a
@@ -555,43 +565,127 @@ const SHADOW_RUN = 0.55;
  */
 /** How far behind a crest its shade reaches, tiles toward the back of the map; and how dark it is at its deepest, of a full shadow. */
 const BEHIND = 1.5, BEHIND_DARK = 0.6;
+/** The rays a point looks toward the sun along: the sun's own way, and so far round either side of it, radians. @see shadeOf */
+const SUN_WIDTH = 0.1;
+const RAYS = [-1, -0.5, 0, 0.5, 1].flatMap((k) => { const c = Math.cos(k * SUN_WIDTH), n = Math.sin(k * SUN_WIDTH); return [SUN_X * c - SUN_Y * n, SUN_X * n + SUN_Y * c]; });
 /** The furthest a point looks toward the sun for what shades it, quarters of a tile. */
 const SHADE_STEPS = 48;
+/** The shade worked out again wherever a change inside `x0…x1`, `y0…y1` (quarter tiles) can have moved it: all of it, if the highest thing there is has moved. */
+function reshade(gm: GroundMesh, grid: Grid, x0: number, y0: number, x1: number, y1: number) {
+  gm.shadeRev++;
+  topsOf(gm, grid, x0, y0, x1, y1);
+  const W = grid.w * SHADE, H = grid.h * SHADE, top = grid.maxHeight + 2 + gm.castTop;
+  if (gm.shadeTop !== top) { gm.shadeTop = top; shadeOf(gm.heights, W, H, top, gm.shade, [0, 0, W, H], gm.casts, gm.tops); return; }
+  // (As far as any of the sun's rays reaches, either way. @see RAYS)
+  let sx0 = 0, sx1 = 0, sy0 = 0, sy1 = 0;
+  for (let r = 0; r < RAYS.length; r += 2) { sx0 = Math.min(sx0, RAYS[r] * SHADE_STEPS); sx1 = Math.max(sx1, RAYS[r] * SHADE_STEPS); sy0 = Math.min(sy0, RAYS[r + 1] * SHADE_STEPS); sy1 = Math.max(sy1, RAYS[r + 1] * SHADE_STEPS); }
+  const back = BEHIND * SHADE;
+  shadeOf(gm.heights, W, H, top, gm.shade, [
+    Math.max(0, Math.floor(x0 - Math.max(sx1, back)) - 2), Math.max(0, Math.floor(y0 - Math.max(sy1, back)) - 2),
+    Math.min(W, Math.ceil(x1 - Math.min(sx0, 0)) + 2), Math.min(H, Math.ceil(y1 - Math.min(sy0, 0)) + 2),
+  ], gm.casts, gm.tops);
+}
+/** The tiles' tops (@see GroundMesh.tops) read again wherever a change inside `x0…x1`, `y0…y1` (quarter tiles) can have moved one. */
+function topsOf(gm: GroundMesh, grid: Grid, x0: number, y0: number, x1: number, y1: number) {
+  const W = grid.w * SHADE, hs = gm.heights, cs = gm.casts;
+  const tx0 = Math.max(0, Math.floor(x0 / SHADE) - 1), ty0 = Math.max(0, Math.floor(y0 / SHADE) - 1), tx1 = Math.min(grid.w - 1, Math.ceil(x1 / SHADE)), ty1 = Math.min(grid.h - 1, Math.ceil(y1 / SHADE));
+  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+    let m = -Infinity;
+    const i0 = Math.max(0, (tx - 1) * SHADE), i1 = Math.min(grid.w, tx + 2) * SHADE, j0 = Math.max(0, (ty - 1) * SHADE), j1 = Math.min(grid.h, ty + 2) * SHADE;
+    for (let j = j0; j < j1; j++) for (let i = i0, o = j * W + i0; i < i1; i++, o++) { const v = hs[o] + cs[o]; if (v > m) m = v; }
+    gm.tops[ty * grid.w + tx] = m;
+  }
+}
+/**
+ * WHAT IS BUILT THROWS ITS SHADOW TOO: each structure's boxes (@see casters casterOf) stood on the quarter-tiles
+ * they cover, and the shade worked out again round whichever of them came, went or grew since the last call.
+ * True if anything did.
+ */
+export function castGround(gm: GroundMesh, grid: Grid, casterOf: (id: number) => { key: string; boxes: readonly CastBox[] } | null): boolean {
+  const W = grid.w * SHADE, H = grid.h * SHADE;
+  const now = new Map<number, { key: string; boxes: readonly CastBox[] }>();
+  for (const id of grid.structures.keys()) { const c = casterOf(id); if (c) now.set(id, c); }
+  const boxOf = (boxes: readonly CastBox[]): [number, number, number, number] => {
+    let x0 = W, y0 = H, x1 = 0, y1 = 0;
+    for (const b of boxes) { x0 = Math.min(x0, Math.floor(b.u0 * SHADE)); y0 = Math.min(y0, Math.floor(b.v0 * SHADE)); x1 = Math.max(x1, Math.ceil(b.u1 * SHADE)); y1 = Math.max(y1, Math.ceil(b.v1 * SHADE)); }
+    return [Math.max(0, x0), Math.max(0, y0), Math.min(W, x1), Math.min(H, y1)];
+  };
+  const changed: [number, number, number, number][] = [];
+  for (const [id, was] of gm.cast) if (now.get(id)?.key !== was.key) { changed.push(was.box); gm.cast.delete(id); }
+  for (const [id, c] of now) if (!gm.cast.has(id)) { const box = boxOf(c.boxes); gm.cast.set(id, { key: c.key, box }); changed.push(box); }
+  if (!changed.length) return false;
+  let tallest = 0;
+  for (const c of now.values()) for (const b of c.boxes) tallest = Math.max(tallest, b.z);
+  // (By eights: the whole map's shade is worked out again only when what is built outgrows that.)
+  gm.castTop = Math.ceil(tallest / 8) * 8;
+  // Every changed box cleared, and whatever stands in it stood up again: the quarter-tiles whose middles a box covers, or the one nearest its own.
+  for (const [x0, y0, x1, y1] of changed) for (let j = y0; j < y1; j++) gm.casts.fill(0, j * W + x0, j * W + x1);
+  const hits = (a: readonly number[], b: readonly number[]) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+  for (const [id, c] of now) {
+    const box = gm.cast.get(id)!.box;
+    if (!changed.some((q) => hits(q, box))) continue;
+    for (const b of c.boxes) {
+      let i0 = Math.ceil(b.u0 * SHADE - 0.5), i1 = Math.floor(b.u1 * SHADE - 0.5), j0 = Math.ceil(b.v0 * SHADE - 0.5), j1 = Math.floor(b.v1 * SHADE - 0.5);
+      if (i1 < i0) i0 = i1 = Math.floor(((b.u0 + b.u1) / 2) * SHADE);
+      if (j1 < j0) j0 = j1 = Math.floor(((b.v0 + b.v1) / 2) * SHADE);
+      for (let j = Math.max(0, j0); j <= Math.min(H - 1, j1); j++) for (let i = Math.max(0, i0); i <= Math.min(W - 1, i1); i++) if (b.z > gm.casts[j * W + i]) gm.casts[j * W + i] = b.z;
+    }
+  }
+  const full = gm.shadeTop !== grid.maxHeight + 2 + gm.castTop;
+  if (full) reshade(gm, grid, 0, 0, W, H);
+  else for (const [x0, y0, x1, y1] of changed) reshade(gm, grid, x0, y0, x1, y1);
+  gm.shadeSource.update();
+  return true;
+}
 function bakeShade(gm: GroundMesh, grid: Grid) {
-  const W = grid.w * SHADE, H = grid.h * SHADE, hs = gm.heights, st = gm.stale;
+  const W = grid.w * SHADE, hs = gm.heights, st = gm.stale;
   if (st[0] <= st[2]) {
     // (A cell's height shapes the ground two cells out, and one more for good measure.)
     const x0 = Math.max(0, st[0] - 3) * SHADE, y0 = Math.max(0, st[1] - 3) * SHADE, x1 = Math.min(grid.w, st[2] + 4) * SHADE, y1 = Math.min(grid.h, st[3] + 4) * SHADE;
-    for (let j = y0; j < y1; j++) for (let i = x0; i < x1; i++) hs[j * W + i] = drawnHeight(grid, (i + 0.5) / SHADE, (j + 0.5) / SHADE);
+    // (And only as far as a height did change: a road laid on level ground moves none, and has no shade to work out.)
+    let cx0 = x1, cy0 = y1, cx1 = x0 - 1, cy1 = y0 - 1;
+    for (let j = y0; j < y1; j++) for (let i = x0; i < x1; i++) {
+      const z = Math.fround(drawnHeight(grid, (i + 0.5) / SHADE, (j + 0.5) / SHADE));
+      if (hs[j * W + i] === z) continue;
+      hs[j * W + i] = z;
+      if (i < cx0) cx0 = i; if (i > cx1) cx1 = i; if (j < cy0) cy0 = j; if (j > cy1) cy1 = j;
+    }
     st[0] = 1; st[2] = 0;
+    if (cx1 < cx0 && Number.isFinite(gm.shadeTop) && gm.shadeTop === grid.maxHeight + 2 + gm.castTop) return;
     // ONLY WHERE THE SHADE CAN HAVE CHANGED: the heights read again, and every point whose walk toward the sun or
     // toward the eye can reach one of them. One tile raised was the whole map's shade worked out again.
-    const top = grid.maxHeight + 2;
-    if (gm.shadeTop !== top) { gm.shadeTop = top; shadeOf(hs, W, H, top, gm.shade); }
-    else {
-      const sx = SUN_X * SHADE_STEPS, sy = SUN_Y * SHADE_STEPS, back = BEHIND * SHADE;
-      shadeOf(hs, W, H, top, gm.shade, [
-        Math.max(0, Math.floor(x0 - Math.max(0, sx, back)) - 1), Math.max(0, Math.floor(y0 - Math.max(0, sy, back)) - 1),
-        Math.min(W, Math.ceil(x1 - Math.min(0, sx, back)) + 1), Math.min(H, Math.ceil(y1 - Math.min(0, sy, back)) + 1),
-      ]);
-    }
+    if (cx1 < cx0) reshade(gm, grid, x0, y0, x1, y1); else reshade(gm, grid, cx0, cy0, cx1 + 1, cy1 + 1);
     gm.shadeSource.update();
   }
 }
 /** The shade of every quarter of a tile (0 lit … 255 a full shadow) from the heights at their middles, `W` by `H` of them; `top` over the highest ground. @see bakeShade */
-export function shadeOf(hs: ArrayLike<number>, W: number, H: number, top: number, out: Uint8Array, box: readonly [number, number, number, number] = [0, 0, W, H]) {
-  const step = 1 / SHADE;
+export function shadeOf(hs: ArrayLike<number>, W: number, H: number, top: number, out: Uint8Array, box: readonly [number, number, number, number] = [0, 0, W, H], casts?: ArrayLike<number>, tops?: ArrayLike<number>) {
+  const step = 1 / SHADE, TW = W / SHADE;
   for (let j = box[1]; j < box[3]; j++) for (let i = box[0]; i < box[2]; i++) {
     const h = hs[j * W + i], far = (top - h) * SHADOW_RUN;
+    // THE SUN HAS A WIDTH: a few rays toward it, fanned a little either side, and what they find taken together —
+    // so a shadow's side softens the further it is thrown, as its end does, and is not the quarter-tiles' own
+    // staircase ruled along it.
     let s = 0;
-    for (let k = 1, t = step; t <= far && k <= SHADE_STEPS; k++, t += step) {
-      const qi = Math.round(i + SUN_X * k), qj = Math.round(j + SUN_Y * k);
-      if (qi < 0 || qj < 0 || qi >= W || qj >= H) break;
-      const up = hs[qj * W + qi] - h, over = up * SHADOW_RUN - t;
-      if (over <= 0 || up <= 0.7) continue;
-      const a = Math.min(1, over / (0.06 + t * 0.22)), b = Math.min(1, (up - 0.7) / 1.5);
-      const v = a * a * (3 - 2 * a) * (b * b * (3 - 2 * b));
-      if (v > s) { s = v; if (s >= 1) break; }
+    for (let r = 0; r < RAYS.length; r += 2) {
+      const dx = RAYS[r], dy = RAYS[r + 1];
+      let sr = 0;
+      for (let k = 1, t = step; t <= far && k <= SHADE_STEPS; k++, t += step) {
+        // (What stands there — the ground, and whatever is built on it — read between the four quarter-tiles round the point.)
+        const fx = i + dx * k, fy = j + dy * k, qi = Math.floor(fx), qj = Math.floor(fy);
+        if (qi < 0 || qj < 0 || qi + 1 >= W || qj + 1 >= H) break;
+        // (A tile with nothing on it or beside it high enough to reach this far is not looked at a quarter at a time.)
+        if (tops) { const up = tops[((qj / SHADE) | 0) * TW + ((qi / SHADE) | 0)] - h; if (up <= 0.7 || up * SHADOW_RUN - t <= 0) continue; }
+        const ax = fx - qi, ay = fy - qj, o = qj * W + qi;
+        const top0 = (hs[o] + (casts ? casts[o] : 0)) * (1 - ax) + (hs[o + 1] + (casts ? casts[o + 1] : 0)) * ax;
+        const top1 = (hs[o + W] + (casts ? casts[o + W] : 0)) * (1 - ax) + (hs[o + W + 1] + (casts ? casts[o + W + 1] : 0)) * ax;
+        const up = top0 * (1 - ay) + top1 * ay - h, over = up * SHADOW_RUN - t;
+        if (over <= 0 || up <= 0.7) continue;
+        const a = Math.min(1, over / (0.06 + t * 0.22)), b = Math.min(1, (up - 0.7) / 1.5);
+        const v = a * a * (3 - 2 * a) * (b * b * (3 - 2 * b));
+        if (v > sr) { sr = v; if (sr >= 1) break; }
+      }
+      s += sr * (2 / RAYS.length);
     }
     // AND THE FOOT OF A DROP THAT FACES AWAY: ground that stands over this point on the eye's side of it — the
     // crest that hides its own face — shades what lies behind it, deepest right under the crest and gone within
@@ -843,8 +937,8 @@ fn riseOf(c: vec4<f32>) -> f32 { return floor((c.z - 128.0 * step(127.5, c.z) + 
 
 // THE SUN: which way the light comes from, along the ground — from the screen's left and a little above it, as
 // every baked thing is lit — and how many tiles of shadow a half step of height throws.
-const SUN = vec2<f32>(-0.94, 0.34);
-const SHADOW_RUN = 0.55;
+const SUN = vec2<f32>(${SUN_SRC});
+const SHADOW_RUN = ${SHADOW_RUN_SRC};
 // A cell's height in half steps, a ramp's at its middle.
 fn topOf(c: vec4<f32>) -> f32 { return c.y - 128.0 + riseOf(c) * 0.5; }
 // A cell's drawn corners (0,0), (1,0), (1,1), (0,1), half steps. @see surfaceOf
@@ -895,7 +989,7 @@ fn contactAt(p: vec2<f32>, h: f32) -> f32 {
 }
 // A colour as the sun and the ground round it leave it.
 fn relit(col: vec3<f32>, p: vec2<f32>, h: f32, foot: bool) -> vec3<f32> {
-  var c = mix(col, col * vec3<f32>(0.60, 0.64, 0.74), shadowAt(p, h) * mix(0.72, 0.5, ground.uMode.x));
+  var c = mix(col, col * vec3<f32>(${SHADOW_TINT_SRC}), shadowAt(p, h) * mix(0.72, 0.5, ground.uMode.x));
   if (foot) { c = c * (1.0 - 0.34 * contactAt(p, h)); }
   return c;
 }
@@ -1606,8 +1700,8 @@ vec4 cellAt(ivec2 c) {
 }
 float riseOf(vec4 c) { return floor((c.z - 128.0 * step(127.5, c.z) + 0.5) / 16.0); }
 
-const vec2 SUN = vec2(-0.94, 0.34);
-const float SHADOW_RUN = 0.55;
+const vec2 SUN = vec2(${SUN_SRC});
+const float SHADOW_RUN = ${SHADOW_RUN_SRC};
 float topOf(vec4 c) { return c.y - 128.0 + riseOf(c) * 0.5; }
 vec4 edgesAt(ivec2 c) { return texelFetch(uEdges, ivec2(c.x * 2, c.y), 0); }
 float levelAt(ivec2 c, float own) {
@@ -1647,7 +1741,7 @@ float contactAt(vec2 p, float h) {
   return a;
 }
 vec3 relit(vec3 col, vec2 p, float h, bool foot) {
-  vec3 c = mix(col, col * vec3(0.60, 0.64, 0.74), shadowAt(p, h) * mix(0.72, 0.5, uMode.x));
+  vec3 c = mix(col, col * vec3(${SHADOW_TINT_SRC}), shadowAt(p, h) * mix(0.72, 0.5, uMode.x));
   if (foot) c *= 1.0 - 0.34 * contactAt(p, h);
   return c;
 }

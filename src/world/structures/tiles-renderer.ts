@@ -42,11 +42,12 @@ const seedOf = (s: Structure) => s.id;
  * and for housing, AS FAR AS IT HAS FILLED: a house with a few of its people
  * in is a few floors, and it rises as the rest arrive. @see world/agents/arrivals
  */
-function floorsFor(def: StructureDef, s?: Structure): number {
+export function floorsFor(def: StructureDef, s?: Structure, standing = false): number {
   const most = kitFloors(kitIdOf(def) ?? "");
   if (!most) return 0;
   // OUT OF THE WAY of what the player is aiming at: its ground floor and roof. @see cutaway
-  if (s && collapsed.has(s.id)) return 1;
+  // (`standing`: as it stands, cut away or not — what throws its shadow. @see render/casters)
+  if (s && !standing && collapsed.has(s.id)) return 1;
   const want = def.render.kind === "tiles" ? def.render.kit.floors ?? most : 0;
   const full = Math.max(1, Math.min(want, most));
   const h = housedBy(def.id);
@@ -101,7 +102,7 @@ function drawLot(s: Structure, ctx: RenderCtx): Graphics {
   return g;
 }
 
-const kitIdOf = (def: StructureDef) =>
+export const kitIdOf = (def: StructureDef) =>
   def.render.kind === "tiles" ? def.render.kit.kit : null;
 
 /**
