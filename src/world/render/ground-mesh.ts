@@ -171,6 +171,8 @@ export type GroundMesh = {
   /** The drawn ground's height at the middle of every quarter of a tile, half steps; and the shadow the ground throws there, 0–255. @see bakeShade */
   heights: Float32Array;
   shade: Uint8Array;
+  /** The height the shade was last baked under: when the map's highest ground moves, all of it is baked again. */
+  shadeTop: number;
   shadeSource: BufferImageSource;
   /** The grass's own green, field by field. @see bakeTint */
   tintSource: BufferImageSource;
@@ -468,7 +470,7 @@ function makeGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale: numb
   const shade = new Uint8Array(grid.w * SHADE * grid.h * SHADE);
   const shadeSource = new BufferImageSource({ resource: shade, width: grid.w * SHADE, height: grid.h * SHADE, format: "r8unorm", scaleMode: "nearest" });
   const tintSource = new BufferImageSource({ resource: bakeTint(grid.w, grid.h), width: grid.w * SHADE, height: grid.h * SHADE, format: "rgba8unorm", scaleMode: "nearest" });
-  const gm: GroundMesh = { cells, source, edges, edgeSource, grid, heights: new Float32Array(shade.length), shade, shadeSource, tintSource, stale: [0, 0, grid.w - 1, grid.h - 1], uniforms, cacheU: cacheUniforms(), blank: new BufferImageSource({ resource: new Uint8Array(4), width: 1, height: 1, format: "rgba8unorm", scaleMode: "nearest" }), shader: null as unknown as Shader, rev: 0, gone: [], meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
+  const gm: GroundMesh = { cells, source, edges, edgeSource, grid, heights: new Float32Array(shade.length), shade, shadeTop: NaN, shadeSource, tintSource, stale: [0, 0, grid.w - 1, grid.h - 1], uniforms, cacheU: cacheUniforms(), blank: new BufferImageSource({ resource: new Uint8Array(4), width: 1, height: 1, format: "rgba8unorm", scaleMode: "nearest" }), shader: null as unknown as Shader, rev: 0, gone: [], meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
   for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) writeCell(gm, grid, palette, x, y);
   source.update();
   edgeSource.update();
@@ -553,6 +555,8 @@ const SHADOW_RUN = 0.55;
  */
 /** How far behind a crest its shade reaches, tiles toward the back of the map; and how dark it is at its deepest, of a full shadow. */
 const BEHIND = 1.5, BEHIND_DARK = 0.6;
+/** The furthest a point looks toward the sun for what shades it, quarters of a tile. */
+const SHADE_STEPS = 48;
 function bakeShade(gm: GroundMesh, grid: Grid) {
   const W = grid.w * SHADE, H = grid.h * SHADE, hs = gm.heights, st = gm.stale;
   if (st[0] <= st[2]) {
@@ -560,17 +564,27 @@ function bakeShade(gm: GroundMesh, grid: Grid) {
     const x0 = Math.max(0, st[0] - 3) * SHADE, y0 = Math.max(0, st[1] - 3) * SHADE, x1 = Math.min(grid.w, st[2] + 4) * SHADE, y1 = Math.min(grid.h, st[3] + 4) * SHADE;
     for (let j = y0; j < y1; j++) for (let i = x0; i < x1; i++) hs[j * W + i] = drawnHeight(grid, (i + 0.5) / SHADE, (j + 0.5) / SHADE);
     st[0] = 1; st[2] = 0;
+    // ONLY WHERE THE SHADE CAN HAVE CHANGED: the heights read again, and every point whose walk toward the sun or
+    // toward the eye can reach one of them. One tile raised was the whole map's shade worked out again.
+    const top = grid.maxHeight + 2;
+    if (gm.shadeTop !== top) { gm.shadeTop = top; shadeOf(hs, W, H, top, gm.shade); }
+    else {
+      const sx = SUN_X * SHADE_STEPS, sy = SUN_Y * SHADE_STEPS, back = BEHIND * SHADE;
+      shadeOf(hs, W, H, top, gm.shade, [
+        Math.max(0, Math.floor(x0 - Math.max(0, sx, back)) - 1), Math.max(0, Math.floor(y0 - Math.max(0, sy, back)) - 1),
+        Math.min(W, Math.ceil(x1 - Math.min(0, sx, back)) + 1), Math.min(H, Math.ceil(y1 - Math.min(0, sy, back)) + 1),
+      ]);
+    }
+    gm.shadeSource.update();
   }
-  shadeOf(hs, W, H, grid.maxHeight + 2, gm.shade);
-  gm.shadeSource.update();
 }
 /** The shade of every quarter of a tile (0 lit … 255 a full shadow) from the heights at their middles, `W` by `H` of them; `top` over the highest ground. @see bakeShade */
-export function shadeOf(hs: ArrayLike<number>, W: number, H: number, top: number, out: Uint8Array) {
+export function shadeOf(hs: ArrayLike<number>, W: number, H: number, top: number, out: Uint8Array, box: readonly [number, number, number, number] = [0, 0, W, H]) {
   const step = 1 / SHADE;
-  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+  for (let j = box[1]; j < box[3]; j++) for (let i = box[0]; i < box[2]; i++) {
     const h = hs[j * W + i], far = (top - h) * SHADOW_RUN;
     let s = 0;
-    for (let k = 1, t = step; t <= far && k <= 48; k++, t += step) {
+    for (let k = 1, t = step; t <= far && k <= SHADE_STEPS; k++, t += step) {
       const qi = Math.round(i + SUN_X * k), qj = Math.round(j + SUN_Y * k);
       if (qi < 0 || qj < 0 || qi >= W || qj >= H) break;
       const up = hs[qj * W + qi] - h, over = up * SHADOW_RUN - t;
@@ -593,9 +607,22 @@ export function shadeOf(hs: ArrayLike<number>, W: number, H: number, top: number
   }
 }
 
+const wasCell = new Uint8Array(4), wasEdge = new Float32Array(8);
 /** A cell changed: its texel now, and the bands whose quads it can touch at the next flush. */
 export function markGround(gm: GroundMesh, grid: Grid, palette: Palette, x: number, y: number) {
   if (!inBounds(grid, x, y)) return;
+  // A CELL TOLD IT CHANGED THAT DID NOT, as the ground sees it — water poured on it, a pipe under it, the cell
+  // behind one that did: its own texels come out as they were, and then nothing round it can have changed by it
+  // either. Every stroke was rebuilding five bands' quads either side and baking the whole map's shade again for
+  // ground that had not moved, and throwing away the still view's copy with it.
+  const o4 = idx(grid, x, y) * 4, o8 = idx(grid, x, y) * 8;
+  for (let k = 0; k < 4; k++) wasCell[k] = gm.cells[o4 + k];
+  for (let k = 0; k < 8; k++) wasEdge[k] = gm.edges[o8 + k];
+  writeCell(gm, grid, palette, x, y);
+  let same = true;
+  for (let k = 0; k < 4 && same; k++) same = wasCell[k] === gm.cells[o4 + k];
+  for (let k = 0; k < 8 && same; k++) same = wasEdge[k] === gm.edges[o8 + k];
+  if (same) return;
   // (Itself and the cells round it: whether each is plain is by its neighbours.)
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(grid, x + dx, y + dy)) writeCell(gm, grid, palette, x + dx, y + dy);
   const st = gm.stale;

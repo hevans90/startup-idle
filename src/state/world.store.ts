@@ -1892,7 +1892,9 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       revision: st.revision + 1,
       // a ramp changes the surface height across the cell, so the neighbours
       // that look onto it need re-syncing just as a height edit does
-      lastTouched: markDirty(st.grid, touched, isHeightTool(s0.tool) || isRoadTool(s0.tool)),
+      // (Water poured or drained is the simulation's: nothing drawn from the grid changed, so no cell is handed to
+      // the renderer to reconcile — it was going over every road's look and the ground round each cell for it.)
+      lastTouched: isWaterTool(s0.tool) ? touchedCells(st.grid, touched) : markDirty(st.grid, touched, isHeightTool(s0.tool) || isRoadTool(s0.tool)),
       ...historyMeta(), ...netMeta(),
     });
   },

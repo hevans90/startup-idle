@@ -10,6 +10,8 @@ import './index.css'
 import { installTheme } from './ui/theme/install'
 installTheme()
 import App from './App.tsx'
+import { useFounderStore } from './state/founder.store'
+import { loadCompanyMap } from './world/play/company-map-loader'
 import { ErrorScreen } from './ui/console/error-screen'
 
 const isWorldV2 = new URLSearchParams(window.location.search).get('world') === '1'
@@ -40,6 +42,10 @@ if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('uiki
     seedFixtureCompany()
     mount(<App />)
   })
+} else if (useFounderStore.getState().selectedFounderId != null) {
+  // A COMPANY ALREADY FOUNDED opens on its map: the map's chunk first, so it is drawn with the first render and
+  // not held behind a suspense that React keeps back a third of a second. @see CompanyMap
+  void loadCompanyMap().catch(() => {}).then(() => mount(<App />))
 } else {
   mount(<App />)
 }
