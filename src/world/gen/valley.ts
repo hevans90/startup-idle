@@ -85,7 +85,7 @@ export type RiverPlan = {
 export function planRivers(g: Grid, p: GenParams, rng: () => number): RiverPlan {
   const paths: number[][] = [];
   if (p.rivers > 0) {
-    const outlet = outletField(g);
+    const outlet = outletField(g), parts = partsOf(g);
     for (let n = 0; n < p.rivers; n++) {
       // A COURSE THAT STOPS INLAND IS NOT A RIVER, so one is tried again
       // rather than kept. The walk is bounded by the street and by ground it
@@ -95,7 +95,7 @@ export function planRivers(g: Grid, p: GenParams, rng: () => number): RiverPlan 
       // river that never reaches one has nowhere to put what is fed into it.
       let path: number[] = [];
       for (let tries = 0; tries < 6 && !path.length; tries++) {
-        const ends = pickCrossing(g, rng, outlet);
+        const ends = pickCrossing(g, rng, outlet, parts);
         if (!ends) break;
         const got = walk(g, p, rng, ends[0], spread(g, [ends[1]]), null, null);
         if (got.length >= 2 && onRim(g, got[got.length - 1])) path = got;
@@ -142,7 +142,7 @@ export const onRim = (g: Grid, i: number) => {
  * maximising it puts the river in the same place on every seed.
  */
 function pickCrossing(
-  g: Grid, rng: () => number, outlet: Int32Array,
+  g: Grid, rng: () => number, outlet: Int32Array, parts: Int32Array,
 ): [number, number] | null {
   const edge: number[] = [];
   for (let i = 0; i < outlet.length; i++) if (outlet[i] === 0) edge.push(i);
@@ -169,7 +169,9 @@ function pickCrossing(
     if (apart < short) continue;
     const mx = ((a % g.w) + (b % g.w)) / 2, my = (((a / g.w) | 0) + ((b / g.w) | 0)) / 2;
     if (Math.min(mx, my, g.w - 1 - mx, g.h - 1 - my) < inland) continue;
-    if (spread(g, [b])[a] === UNREACHED) continue;         // no way between
+    // (Asked of the map's pieces, worked out once: a search of the whole map from `b` for each pair sampled was
+    // most of making a big map.)
+    if (parts[a] !== parts[b]) continue;                   // no way between
     if (apart >= long) found.push([a, b]);
     else fallback = fallback ?? [a, b];
   }
@@ -196,6 +198,27 @@ export function outletField(g: Grid): Int32Array {
     for (const x of [0, g.w - 1]) seeds.push(idx(g, x, y));
   }
   return spread(g, seeds);
+}
+
+/** WHICH PIECE OF CUTTABLE GROUND each cell is in: two cells have a way between them where these are the same. @see spread */
+export function partsOf(g: Grid): Int32Array {
+  const n = g.w * g.h, out = new Int32Array(n).fill(-1), queue = new Int32Array(n);
+  for (let s = 0, part = 0; s < n; s++) {
+    if (out[s] >= 0) continue;
+    let head = 0, tail = 0;
+    out[s] = part; queue[tail++] = s;
+    while (head < tail) {
+      const i = queue[head++], x = i % g.w, y = (i / g.w) | 0;
+      for (const [dx, dy] of STEPS) {
+        if (!free(g, x + dx, y + dy)) continue;
+        const j = idx(g, x + dx, y + dy);
+        if (out[j] >= 0) continue;
+        out[j] = part; queue[tail++] = j;
+      }
+    }
+    part++;
+  }
+  return out;
 }
 
 /**

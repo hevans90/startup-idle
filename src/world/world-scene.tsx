@@ -144,6 +144,10 @@ const deskTint = (share: number) => {
  * device: half a 60 Hz frame, the rest for drawing it. @see maxStep
  */
 const CPU_SOLVE_MS = 8;
+/** How many frames the water waits unstepped for the device's solver to be built for a new field. @see solverDue */
+const SOLVER_WAIT = 10;
+/** Whether the device's solver is what should be stepping the water: a device held and not lost, and the toggle on. */
+const solverDue = () => heldDevice() !== null && deviceLost() === null && useWorldStore.getState().gpuWater;
 /**
  * A damaged building's tint, by what did it: mud from a flood, scorched warm
  * by heat, greyed out by the inspector — so the causes look apart even
@@ -3045,6 +3049,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   /** Why there is no GPU solver just now, and how many CPU frames that has cost. @see sayWaterSolver */
   const noSolver = useRef<string | null>("not built yet");
   const cpuFrames = useRef(0);
+  /** The frames in a row the water was left unstepped, waiting for the device's solver. @see solverDue */
+  const solverWaits = useRef(0);
   const cpuSaid = useRef(0);
   /** The CPU solver's measured cost a substep, and the substeps a frame it is given. @see CPU_SOLVE_MS */
   const cpuWater = useRef({ perSub: 0, cap: MAX_SUBSTEPS });
@@ -3122,6 +3128,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // rather than a storey of its own, so there is no second thing here
       // for the device path to forget about. @see syncSlots
       if (solver) {
+        solverWaits.current = 0;
         solver.step(field.columns, dt);
         gpuWaterSaw(solver.last());
       }
@@ -3142,7 +3149,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             });
           }
         }
-        stepWater(field, dt);
+        // THE FRAMES BEFORE THE DEVICE'S SOLVER IS BUILT for a new field are not stepped here instead: a whole map
+        // on the host is a fifth of a second a frame on a big one, twice over, for water the device is about to
+        // take as it stands. Only a few: a solver that never comes leaves the host to it.
+        if (solverDue() && solverWaits.current < SOLVER_WAIT) solverWaits.current++;
+        else stepWater(field, dt);
       }
       const t1 = performance.now();
       sw(); sw = section("water: gather");

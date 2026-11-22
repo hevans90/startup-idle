@@ -147,6 +147,62 @@ export function drawnCentre(grid: Grid, x: number, y: number): number {
 
 const near = [0, 0, 0, 0], reach = [0, 0, 0, 0], beds = [0, 0, 0, 0], wets = [false, false, false, false];
 
+/**
+ * THE CONTINUOUS SURFACE AT THE POINTS A BUILD KEEPS ASKING FOR, kept while a whole map's ground is being made.
+ *
+ * The ground is cut into quarters of a tile, and a build asks for the surface at the same quarter points over and
+ * over: a corner by each of the four cells round it, for its texel and again for its quads; a tile's quads for a
+ * ring of points into the tiles beside it. Each is a reading of the whole surface. Read only while
+ * {@link withCorners} runs — nothing may change the map meanwhile — and kept after it only while every
+ * cell it is read from is as it was: so nothing has to know when to forget it. Inside it the surface also reads every cell's middle from a
+ * table, and looks for built ground to meet only where there is some.
+ * Doubles, and only points that are a whole number of `1/fine` (a power of two, so the point asked for is the
+ * point kept, to the bit): what is kept is exactly what would have been worked out.
+ */
+/** How finely the builds that share readings cut a tile, a side: the ground's mesh, its shade and the water's columns. @see withCorners */
+export const SURFACE_FINE = 4;
+type Kept = {
+  grid: Grid; mode: string; fine: number; across: number; down: number;
+  /** What the surface is read from, a cell: its height, its ramp, its deck's height, and whether it is void, paved, decked, on a main, under a building. The readings are kept for as long as none of it has changed. */
+  from: Int32Array;
+  /** The surface at every point that is a whole number of `1/fine`, a tile out past the map each way; NaN until asked. */
+  at: Float64Array | null;
+  /** And at the middle of every `1/fine` of a tile, where the ground there is bare: what the water's columns stand on and the shade is baked from. */
+  mids: Float64Array | null;
+  /** Every cell's height at its middle, two cells out past the map each way. @see midOf */
+  mid: Float64Array;
+  /** Whether any built ground is within a cell of each cell (one past the map's far edges): where none is, there is nothing for bare ground to meet. */
+  meet: Uint8Array;
+};
+/** The readings of the last build, kept while the map has not changed since: a new map's water field and its ground ask for the same heights, one after the other. */
+let kept: Kept | null = null;
+let lattice: Kept | null = null;
+export function withCorners<T>(grid: Grid, fine: number, make: () => T): T {
+  const was = lattice;
+  // (Compared cell by cell, not by the map's `rev`: a write that forgot to count itself would leave the water
+  // standing on ground that is no longer there.)
+  const n = grid.w * grid.h, from = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    from[i] = (grid.height[i] + 512) | (grid.ramp[i] << 10) | (((grid.deckZ[i] + 128) & 255) << 18) | (grid.terrain[i] === VOID ? 1 << 26 : 0) | (grid.paved[i] ? 1 << 27 : 0)
+      | (grid.deck[i] !== 0 ? 1 << 28 : 0) | (grid.main[i] ? 1 << 29 : 0) | (grid.structureAt[i] >= 0 ? 1 << 30 : 0);
+  }
+  let same = kept !== null && kept.grid === grid && kept.fine === fine && kept.mode === groundMode() && kept.from.length === n;
+  if (same) { const k = kept!.from; for (let i = 0; i < n; i++) if (k[i] !== from[i]) { same = false; break; } }
+  if (!same) {
+    const W = grid.w + 4, mid = new Float64Array(W * (grid.h + 4));
+    for (let y = -2; y < grid.h + 2; y++) for (let x = -2; x < grid.w + 2; x++) mid[(y + 2) * W + x + 2] = midOf(grid, x, y);
+    const C = grid.w + 1, meet = new Uint8Array(C * (grid.h + 1));
+    for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) {
+      if (grid.terrain[idx(grid, x, y)] === VOID || !built(grid, x, y)) continue;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (x + dx >= 0 && y + dy >= 0) meet[(y + dy) * C + x + dx] = 1;
+    }
+    // (A tile further out each way than the map: the quads ask a step past its edge.)
+    kept = { grid, from, mode: groundMode(), fine, across: (grid.w + 2) * fine + 1, down: (grid.h + 2) * fine + 1, at: null, mids: null, mid, meet };
+  }
+  lattice = kept;
+  try { return make(); } finally { lattice = was; }
+}
+
 /** The drawn height of cell `(x, y)` at its corner `(u, v)`, half steps. */
 export function drawnCorner(grid: Grid, x: number, y: number, u: number, v: number): number {
   if (pinned(grid, x, y)) return groundMode() === "smooth" && road(grid, x, y) ? roadCorner(grid, x + u, y + v) : cornerZ(grid, x, y, u, v);
@@ -220,9 +276,25 @@ export function drawnFlat(grid: Grid, x: number, y: number): boolean {
 export function drawnHeight(grid: Grid, fx: number, fy: number): number {
   const x = Math.max(0, Math.min(grid.w - 1, Math.floor(fx))), y = Math.max(0, Math.min(grid.h - 1, Math.floor(fy)));
   const a = Math.max(0, Math.min(1, fx - x)), b = Math.max(0, Math.min(1, fy - y));
+  // (The continuous surface is asked for the point itself: the four corners first, each a whole reading of it, were
+  // worked out and thrown away — five readings a point, and the shade's bake asks sixteen points a tile.)
+  const held = pinned(grid, x, y);
+  if (!held && groundMode() === "smooth") {
+    const l = lattice;
+    if (l !== null && l.grid === grid) {
+      // (The middle of a quarter of a tile: asked for by the water's field, a column each, and again by the shade's bake.)
+      const i = fx * l.fine - 0.5, j = fy * l.fine - 0.5, n = grid.w * l.fine;
+      if (i === Math.floor(i) && j === Math.floor(j) && i >= 0 && j >= 0 && i < n && j < grid.h * l.fine) {
+        const k = j * n + i, mids = l.mids ??= new Float64Array(n * grid.h * l.fine).fill(NaN);
+        let z = mids[k];
+        if (z !== z) { z = smoothAt(grid, fx, fy); mids[k] = z; }
+        return z;
+      }
+    }
+    return smoothAt(grid, fx, fy);
+  }
   const c00 = drawnCorner(grid, x, y, 0, 0), c10 = drawnCorner(grid, x, y, 1, 0), c11 = drawnCorner(grid, x, y, 1, 1), c01 = drawnCorner(grid, x, y, 0, 1);
-  if (pinned(grid, x, y)) return (c00 * (1 - a) + c10 * a) * (1 - b) + (c01 * (1 - a) + c11 * a) * b;
-  if (groundMode() === "smooth") return smoothAt(grid, fx, fy);
+  if (held) return (c00 * (1 - a) + c10 * a) * (1 - b) + (c01 * (1 - a) + c11 * a) * b;
   const h = drawnCentre(grid, x, y), da = a - 0.5, db = b - 0.5, t = 2 * Math.max(Math.abs(da), Math.abs(db));
   if (t <= 0) return h;
   // Out along the ray from the middle to the edge it meets, and how far along that edge.
@@ -336,6 +408,19 @@ const MEET = 0.5;
  * drawn to meet it at its edge: a cutting, an embankment. Pure.
  */
 export function smoothAt(grid: Grid, fx: number, fy: number): number {
+  const l = lattice;
+  if (l !== null && l.grid === grid) {
+    const i = (fx + 1) * l.fine, j = (fy + 1) * l.fine;
+    if (i === Math.floor(i) && j === Math.floor(j) && i >= 0 && j >= 0 && i < l.across && j < l.down) {
+      const k = j * l.across + i, at = l.at ??= new Float64Array(l.across * l.down).fill(NaN);
+      let z = at[k];
+      if (z !== z) { z = smoothRead(grid, fx, fy); at[k] = z; }
+      return z;
+    }
+  }
+  return smoothRead(grid, fx, fy);
+}
+function smoothRead(grid: Grid, fx: number, fy: number): number {
   // IT WANDERS: the bare ground is read a little to one side of the point, by a slow noise fixed to the map — so a
   // crest, a cliff's line and a shore, ruled straight along a row of tiles of one height, are not straight. Level
   // ground stays level; built ground and the meeting with it are where they are.
@@ -362,13 +447,19 @@ function noise(x: number, y: number): number {
 function surface(grid: Grid, fx: number, fy: number, qx: number, qy: number): number {
   const px = Math.max(0, Math.min(grid.w, fx)), py = Math.max(0, Math.min(grid.h, fy));
   const gx = Math.max(0, Math.min(grid.w, qx)) - 0.5, gy = Math.max(0, Math.min(grid.h, qy)) - 0.5, i0 = Math.floor(gx), j0 = Math.floor(gy), tx = gx - i0, ty = gy - j0;
-  for (let r = 0; r < 4; r++) {
+  const l = lattice !== null && lattice.grid === grid ? lattice : null;
+  if (l !== null) {
+    // (The middles from the build's table: the same sixteen numbers. @see withCorners)
+    const M = l.mid, W = grid.w + 4;
+    for (let r = 0, o = (j0 + 1) * W + i0 + 1; r < 4; r++, o += W) row[r] = through(M[o], M[o + 1], M[o + 2], M[o + 3], tx);
+  } else for (let r = 0; r < 4; r++) {
     const j = j0 - 1 + r;
     row[r] = through(midOf(grid, i0 - 1, j), midOf(grid, i0, j), midOf(grid, i0 + 1, j), midOf(grid, i0 + 2, j), tx);
   }
   let z = through(row[0], row[1], row[2], row[3], ty);
   // BUILT GROUND NEAR BY: each such tile's own height at its nearest point, the nearer counting for far more.
   const cx = Math.floor(px), cy = Math.floor(py);
+  if (l !== null && !l.meet[cy * (grid.w + 1) + cx]) return z;
   let near = 0, sum = 0, weight = 0;
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     const x = cx + dx, y = cy + dy;

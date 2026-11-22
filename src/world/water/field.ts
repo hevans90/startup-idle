@@ -15,7 +15,7 @@
  * surface somewhere to vary within a tile, which is what stops a lake reading
  * as a row of flat plates, and it gives the flow room to turn.
  */
-import { drawnFan, drawnHeight, fanHeight } from "../render/drawn";
+import { drawnFan, drawnHeight, fanHeight, withCorners } from "../render/drawn";
 import { groundMode } from "../render/ground-mode";
 import { fieldWater } from "../render/water-mode";
 import {
@@ -167,8 +167,8 @@ export function createWaterField(
     setMaterialDrag(field.columns, index, material.drag);
   }
   setOpenEdge(field.columns, OPEN_EDGE_DEFAULT);
-  syncGround(field, grid);
-  fillPools(field, grid);
+  // (The pools are filled to their level over the ground the columns were just given: the same readings. @see withCorners)
+  withCorners(grid, COLUMNS_PER_TILE, () => { syncGround(field, grid); fillPools(field, grid); });
   return field;
 }
 
@@ -346,6 +346,12 @@ export function syncGround(field: WaterField, grid: Grid) {
  *     falls, which is what the falls have always done with a lip.
  */
 export function syncSlots(field: WaterField, grid: Grid) {
+  // (On the continuous surface every column's floor is a reading of it: the readings share a build's tables, and
+  // are kept for the ground's mesh, which asks for the same ones. @see withCorners)
+  if (fieldWater() && groundMode() === "smooth") withCorners(grid, COLUMNS_PER_TILE, () => slotsOf(field, grid));
+  else slotsOf(field, grid);
+}
+function slotsOf(field: WaterField, grid: Grid) {
   const { columns } = field;
   const { nx, ny, cells, layers, ground, roof } = columns;
   // The water a building has just gone down on, to be put back beside it.

@@ -19,7 +19,7 @@ import type { TreeFrame, TreesSheet } from "../props/trees-format";
 import { useCalendarStore } from "../../state/calendar.store";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
 import type { BandLayer } from "./bands";
-import { drawnCorner, drawnHeight } from "./drawn";
+import { SURFACE_FINE, drawnCorner, drawnHeight, withCorners } from "./drawn";
 import { canopyOf, forestTrees, scattered } from "./forest";
 import { ageStep } from "../vegetation/step";
 import { sickness } from "../vegetation/stress";
@@ -238,22 +238,29 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
 
       // THE MAP: cells whose woods, height or ground changed — a cell's trees are by the canopy round it.
       const sown = planted();
-      const mk = `${rev}|${g.veg.rev}|${scale}|${palette.length}|${sown.rev}`;
-      if (mk !== key) {
+      const mk = `${rev}|${g.veg.rev}|${scale}|${palette.length}`;
+      if (mk !== key || sown.rev !== plantedSeen) {
+        // (What something else planted changes without the map: the map's cells are not gone over again for it.)
+        const scan = mk !== key;
         key = mk;
+        const touch = (trees: readonly Tree[]) => { for (const tr of trees) { dirty.add(tr.band * 2 + BODY); dirty.add(tr.shade * 2 + SHADE); } };
+        let changed = false;
+        // (Every cell's corners and every tree's foot are readings of the ground: a build's worth. @see withCorners)
+        if (scan) withCorners(g, SURFACE_FINE, () => {
         const W = g.w, can = new Float32Array(W * g.h);
         for (let y = 0; y < g.h; y++) for (let x = 0; x < W; x++) can[y * W + x] = canopyOf(g, palette, x, y);
         const at = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= g.h ? 0 : can[y * W + x]);
-        const touch = (trees: readonly Tree[]) => { for (const tr of trees) { dirty.add(tr.band * 2 + BODY); dirty.add(tr.shade * 2 + SHADE); } };
         if (scale !== scaleNow) { scaleNow = scale; for (const c of cells.values()) touch(c.trees); touch(plantedTrees); cells.clear(); }
         const seen = new Set<number>();
-        let changed = false;
         for (let y = 0; y < g.h; y++) for (let x = 0; x < W; x++) {
-          let any = 0, ck = "";
-          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const c = at(x + dx, y + dy); any += c; ck += `${Math.round(c * 72)},`; }
+          let any = 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) any += at(x + dx, y + dy);
           const i = idx(g, x, y), cv = g.veg.cover[i];
           // (Reeds, heath, snags where a wood burnt and what the player made stand where there is no canopy.)
           if (!any && cv !== COVER.reeds && cv !== COVER.meadow && cv !== COVER.burnt && cv < COVER.stumps && !scattered(g, palette, x, y)) continue;
+          // (Its key is spelt out only now: most of a map grows nothing.)
+          let ck = "";
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) ck += `${Math.round(at(x + dx, y + dy) * 72)},`;
           // (A hedge joins those beside it.)
           if (cv === COVER.hedge) for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) ck += x + dx >= 0 && y + dy >= 0 && x + dx < W && y + dy < g.h && g.veg.cover[idx(g, x + dx, y + dy)] === COVER.hedge ? "h" : "-";
           // (What is built on a cell takes what grew there: a building, a deck, a main.)
@@ -284,6 +291,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
           touch(trees);
         }
         for (const [i, c] of cells) if (!seen.has(i)) { changed = true; touch(c.trees); cells.delete(i); }
+        });
         // WHAT SOMETHING ELSE PLANTED: a street's trees, a park's. Each its own tint and sway, by where it stands.
         if (sown.rev !== plantedSeen) {
           touch(plantedTrees);

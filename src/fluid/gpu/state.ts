@@ -503,6 +503,8 @@ export type GpuState = {
   length: Record<FieldName, number>;
   /** Floats in the whole buffer. */
   floats: number;
+  /** Whether nothing has been written to `field` yet: it is all nought, as the device made it. @see upload */
+  blank: boolean;
   destroy: () => void;
 };
 
@@ -656,7 +658,7 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     // Off unless the solver turns it on, so a harness that only wants an
     // answer does not pay for a query set it never reads. @see createStamps
     stamps: null,
-    offset, length: sizes, floats: at,
+    offset, length: sizes, floats: at, blank: true,
     destroy: () => {
       field.destroy(); reduce.destroy(); acc.destroy(); consts.destroy();
     },
@@ -1008,8 +1010,19 @@ export function uploadArrivals(
  */
 export function upload(s: GpuState, f: ColumnField) {
   const q = s.device.queue;
-  const put = (name: FieldName, data: Float32Array) =>
+  // NOUGHT IS NOT SENT TO A BUFFER THAT IS ALL NOUGHT. A buffer just made is, and most of a new map's state is —
+  // every flux, every scratch plane, every fall's — so the first upload copied megabytes of zeroes over zeroes:
+  // an eighth of a second on a new 96 tile map. Only the first: after it the buffer holds whatever ran.
+  const blank = s.blank;
+  s.blank = false;
+  const put = (name: FieldName, data: Float32Array) => {
+    if (blank) {
+      let any = false;
+      for (let k = 0; k < data.length; k++) if (data[k] !== 0) { any = true; break; }
+      if (!any) return;
+    }
     q.writeBuffer(s.field, s.offset[name] * 4, data);
+  };
   put("ground", f.ground);
   put("depth", f.depth);
   put("roof", f.roof);

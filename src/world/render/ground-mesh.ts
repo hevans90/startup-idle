@@ -28,7 +28,7 @@ import { RAMP, VOID, idx, inBounds, rampDir, rampRise, structureOf, type Grid } 
 import { structureDef } from "../structures/def";
 import type { BandLayer } from "./bands";
 import { terrainName } from "../terrain-names";
-import { built, cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, pinned, shelfOf, smoothAt } from "./drawn";
+import { built, cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, pinned, shelfOf, smoothAt, withCorners } from "./drawn";
 import { groundMode } from "./ground-mode";
 import { canopyOf, heathAt } from "./forest";
 import { COVER, vegAt } from "../vegetation/fields";
@@ -449,6 +449,10 @@ function writeEdges(gm: GroundMesh, grid: Grid, x: number, y: number, palette: P
 }
 
 export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale = 1): GroundMesh {
+  // (Every corner of the map once, however many cells and quads ask for it. @see withCorners)
+  return withCorners(grid, FINE, () => makeGroundMesh(grid, bl, palette, scale));
+}
+function makeGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale: number): GroundMesh {
   const cells = new Uint8Array(grid.w * grid.h * 4);
   const source = new BufferImageSource({ resource: cells, width: grid.w, height: grid.h, format: "rgba8unorm", scaleMode: "nearest" });
   const uniforms = new UniformGroup({
@@ -517,8 +521,12 @@ const stepOf = (a: number, b: number, v: number) => { const t = Math.max(0, Math
  * all of it far broader than a pixel, and it was worked out afresh at every one. Once a map, `SHADE` texels a tile
  * a side; the shader blends the four round a point.
  */
+let tinted: { w: number; h: number; out: Uint8Array } | null = null;
 function bakeTint(w: number, h: number): Uint8Array {
+  // (By the map's size and nothing else: a new map of the same size has the same one.)
+  if (tinted !== null && tinted.w === w && tinted.h === h) return tinted.out;
   const W = w * SHADE, H = h * SHADE, out = new Uint8Array(W * H * 4);
+  tinted = { w, h, out };
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
     const x = (i + 0.5) / SHADE, y = (j + 0.5) / SHADE;
     let r = 112 / 255, g = 156 / 255, b = 68 / 255;
@@ -604,13 +612,28 @@ export function markGround(gm: GroundMesh, grid: Grid, palette: Palette, x: numb
 
 /** What grows changed on these cells: the canopy over them and round them, and the texels sent. @see vegetation/step */
 export function canopyGround(gm: GroundMesh, grid: Grid, palette: Palette, cells: Iterable<number>) {
+  // (Each cell once, however many of those round it changed: a new map's first growth is most of its cells, and
+  // each was written nine times.)
+  const due = new Uint8Array(grid.w * grid.h);
   let any = false;
   for (const i of cells) {
     const x = i % grid.w, y = (i / grid.w) | 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(grid, x + dx, y + dy)) writeEdges(gm, grid, x + dx, y + dy, palette);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(grid, x + dx, y + dy)) due[idx(grid, x + dx, y + dy)] = 1;
     any = true;
   }
-  if (any) gm.edgeSource.update();
+  if (!any) return;
+  withCorners(grid, FINE, () => { for (let i = 0; i < due.length; i++) if (due[i]) writeEdges(gm, grid, i % grid.w, (i / grid.w) | 0, palette); });
+  gm.edgeSource.update();
+}
+
+/** The whole ground again, every cell written once: for a map that changed all over. @see markGround, which is for one cell */
+export function rebuildGround(gm: GroundMesh, grid: Grid, palette: Palette) {
+  withCorners(grid, FINE, () => {
+    for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) writeCell(gm, grid, palette, x, y);
+    gm.stale = [0, 0, grid.w - 1, grid.h - 1];
+    for (let b = 0; b < gm.meshes.length; b++) gm.dirty.add(b);
+    flushGround(gm, grid, palette);
+  });
 }
 
 /** Rebuild the bands marked, and send the texels. */
