@@ -71,6 +71,8 @@ const FIXTURES: [FixtureId, string][] = [
   ["brink", "brink (5²)"],
   ["terrain", "terrain"],
   ["rough", "rough"],
+  // A dock basin with lit quays: for looking at the night, its windows and the water. @see buildWaterfront
+  ["waterfront", "waterfront"],
 ];
 const STEPS: [number, string][] = [
   [1, "×0.5"],
@@ -199,7 +201,7 @@ export function LightSection() {
   const [ms, setMs] = useState(NaN);
   useEffect(() => { const t = setInterval(() => setMs(giMs()), 500); return () => clearInterval(t); }, []);
   const put = (p: Partial<GiOptions>) => setO(setGi(p));
-  const flag = (k: "on" | "glows" | "floors" | "walls" | "lamps" | "windows" | "headlights" | "only", label: string, title?: string) => (
+  const flag = (k: "on" | "glows" | "floors" | "water" | "walls" | "lamps" | "windows" | "headlights" | "only", label: string, title?: string) => (
     <button key={k} type="button" title={title} onClick={() => put({ [k]: !o[k] })} className={`${BTN} ${o[k] ? ON : OFF}`}>{label}</button>
   );
   return (
@@ -218,6 +220,7 @@ export function LightSection() {
         {flag("lamps", "lamps")}
         {flag("windows", "windows")}
         {flag("headlights", "headlights")}
+        {flag("water", "water", "the water gives the light back")}
       </Row>
       <Row>
         <span className="mr-1 text-fg-faint">reach</span>

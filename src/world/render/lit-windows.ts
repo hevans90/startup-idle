@@ -125,6 +125,15 @@ export function windowsOf(s: Structure): Win[] {
   return out;
 }
 
+/** Whether a kind of building has windows to light at all: a quay, a yard, a shed have none, and are lit as they were. */
+const windowed = new Map<string, boolean>();
+export function hasWindows(s: Structure): boolean {
+  const key = `${s.def}|${s.w}x${s.h}`;
+  let has = windowed.get(key);
+  if (has === undefined) windowed.set(key, (has = windowsOf(s).length > 0));
+  return has;
+}
+
 /** A window's own number, 0–1: what its hours and its colour are worked out from. The same every time it is asked. */
 export function seedOf(id: number, w: Win): number {
   let h = Math.imul(id + 1, 0x9e3779b1) ^ Math.imul(Math.round(w.a0 * 97) + w.face * 7919, 0x85ebca6b) ^ Math.imul(Math.round(w.z0 * 31) + 13, 0xc2b2ae35);

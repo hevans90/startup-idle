@@ -64,7 +64,7 @@ import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } fro
 import { canopyGround, castGround, destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
 import { casterOf } from "./render/casters";
 import { createRoadShade, type RoadShade } from "./render/road-shade";
-import { createLitWindows, hiddenAt, litShare, type LitWindows } from "./render/lit-windows";
+import { createLitWindows, hasWindows, hiddenAt, litShare, type LitWindows } from "./render/lit-windows";
 import { createGroundCache, setGroundCache, type GroundCache } from "./render/ground-cache";
 import { stepVegetation, wetFrom } from "./vegetation/step";
 import { wearFrom } from "./vegetation/wear";
@@ -4161,7 +4161,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 else if (l.kind === "window") { const tone = l.violet ? 0xb44aff : l.crunch ? 0xd8ecff : 0xffc46b; // (An office at work has more of its windows lit than a street of houses has.)
                   if (o.windows && l.id !== undefined) lit.set(l.id, { colour: tone, bias: l.violet || l.crunch ? 0.3 : 0 });
                   // (Its windows' own light falls outside, where they are shown; a glow the size of it, where they are not.)
-                  if (o.windows && !o.floors) list.push({ x, y, hx: l.w * 2 * 0.8, hy: l.h * 2 * 0.8, ...rgb(l.violet ? 0xb44aff : l.crunch ? 0xd8ecff : 0xffc46b, GI_WINDOW), solid: 1 }); }
+                  const bare = l.id !== undefined && !hasWindows(st.grid.structures.get(l.id)!);
+                  if (o.windows && (!o.floors || bare)) list.push({ x, y, hx: l.w * 2 * 0.8, hy: l.h * 2 * 0.8, ...rgb(l.violet ? 0xb44aff : l.crunch ? 0xd8ecff : 0xffc46b, GI_WINDOW), solid: 1 }); }
                 else if (o.windows) list.push({ x, y, hx: 1.5, hy: 1.5, ...rgb(l.tint ?? 0xffffff, l.neon ? GI_SIGN * 1.6 : GI_SIGN), solid: 1, z: 1.5 });
               }
               giStill.current = { key, lights: list, lit };
@@ -4183,6 +4184,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             laid = giRef.current.gi.tick({
               lights, windows: o.floors && litRef.current ? litRef.current.emitters(GI_SPILL) : undefined,
               heights: gm.heights, casts: gm.casts, sceneRev: gm.shadeRev, low: st.grid.minHeight, top: st.grid.maxHeight + gm.castTop,
+              // (The water as the solver has it on the GPU, where it does: for what it gives back of the light.)
+              water: gpuRef.current ? { depth: gpuRef.current.sources[0], bed: gpuRef.current.sources[1] } : null,
               grade: gradeRef.current, night: nightNow, clock: litClock, share: litNow,
             });
           }

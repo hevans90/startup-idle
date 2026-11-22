@@ -34,7 +34,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "spill" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough" | "farms" | "wildfire" | "ground";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough" | "farms" | "waterfront" | "wildfire" | "ground";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -1351,7 +1351,7 @@ export function buildGround(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, spill: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48, farms: 48, wildfire: 48, ground: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, spill: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48, farms: 48, wildfire: 48, ground: 48, waterfront: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1363,7 +1363,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "spill", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough", "farms", "wildfire", "ground",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough", "farms", "wildfire", "ground", "waterfront",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1416,6 +1416,7 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "farms": buildFarms(g, material); recomputeHeightRange(g); return;
     case "wildfire": buildWildfire(g, material); recomputeHeightRange(g); return;
     case "ground": buildGround(g, material); recomputeHeightRange(g); return;
+    case "waterfront": buildWaterfront(g, material); recomputeHeightRange(g); return;
   }
 }
 
@@ -1604,6 +1605,58 @@ export function buildStreets(g: Grid, material: number) {
   startLadder(g, SERVICE_DEFS.map((d) => d.id));
   // Each street at its row's level; the roads joining them, and the fourth, at the finest.
   pinBeauty((_x, y) => (y === rows[0] ? 1 : y === rows[1] ? 2 : 3));
+  edited(g);
+}
+
+/**
+ * A WATERFRONT, to look at the night on: a still dock basin with towers and houses along its two far quays, a
+ * promenade behind them at the finest level — so its kerbs have lamp posts — and smaller houses across the road.
+ * The buildings stand on the banks AWAY from the eye, so their lit windows lie on the water in front of them.
+ * Opened with play rules on and held at midnight, the windows come and go by their own hours, the lamp posts
+ * light the promenade, and the basin gives all of it back. @see render/gi, render/lit-windows
+ *
+ * STILL WATER, a pond and not a river: held a half step under its quay, with nowhere to run, so what is looked at
+ * is the light on it and not its flow.
+ */
+export function buildWaterfront(g: Grid, material: number) {
+  clear(g, material);
+  const history = createHistory();
+  const put = (id: string, x: number, y: number, shop?: string) => {
+    const def = structureDef(id);
+    if (!def) return;
+    const cmd = placeCommand(g, { ...def, placement: undefined }, x, y);
+    if (!cmd) return;
+    commit(g, history, cmd);
+    const live = cmd.structures?.added[0] && g.structures.get(cmd.structures.added[0].id);
+    if (!live) return;
+    delete live.residents;
+    if (shop) live.shop = shop;
+  };
+  const LAND = 2, BED = -4, LEVEL = 1;
+  // The basin: the near corner of the map, its two far sides the quays.
+  const B0 = 20, B1 = g.w - 5;
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) set(g, x, y, x >= B0 && x <= B1 && y >= B0 && y <= B1 ? BED : LAND);
+  pond(g, LEVEL, 1, B0, B0, B1, B1);
+  // The promenade: along behind both quays, and joined at the corner.
+  const R = 16, R0 = 4;
+  for (let k = R0; k <= B1; k++) { g.paved[idx(g, k, R)] = 1; g.paved[idx(g, R, k)] = 1; }
+  const shops = SERVICE_DEFS.filter((d) => d.shop).map((d) => d.id);
+  // On the quays, a tile back from the water: towers and tall houses, every other tile, a shop in some.
+  const tall = ["kit:10x_dev.landmark", "kit:10x_dev.t2", "kit:vibe_coder.landmark", "kit:intern.t2", "kit:vibe_coder.t2", "kit:intern.landmark"];
+  let n = 0;
+  for (let k = B0 + 1; k <= B1 - 1; k += 2, n++) {
+    put(tall[n % tall.length], k, R + 2, n % 3 === 1 ? shops[n % shops.length] : undefined);
+    put(tall[(n + 3) % tall.length], R + 2, k, n % 3 === 2 ? shops[(n + 2) % shops.length] : undefined);
+  }
+  // Across the road from them: smaller houses, out of step with the quays'.
+  const small = ["kit:intern.t1", "kit:vibe_coder.t1", "kit:10x_dev.t1", "kit:intern.t0"];
+  for (let k = R0 + 2; k <= B1 - 1; k += 2) {
+    if (Math.abs(k - R) < 2) continue;
+    put(small[k % small.length], k, R - 1);
+    put(small[(k + 1) % small.length], R - 1, k);
+  }
+  // The finest streets, so their kerbs are lit: a lamp post every few tiles. @see street-props
+  pinBeauty(() => 3);
   edited(g);
 }
 
