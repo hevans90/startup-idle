@@ -178,6 +178,16 @@ export type GroundMesh = {
   stale: [number, number, number, number];
   edgeSource: BufferImageSource;
   uniforms: UniformGroup;
+  /** How the ground's own shader takes its colour: worked out, or read from the still view's copy. @see ground-cache.ts */
+  cacheU: UniformGroup;
+  /** A texel of nothing, where the copy's textures go before there is a copy. Its own: nobody else can take it away. */
+  blank: BufferImageSource;
+  /** The one shader every band's mesh draws with. */
+  shader: Shader;
+  /** Counts up whenever what the ground would draw changes: a texel, a uniform, a band's quads. @see ground-cache.ts */
+  rev: number;
+  /** Called when this is destroyed, by whatever hung something on it. */
+  gone: (() => void)[];
   meshes: Mesh<Geometry, Shader>[];
   /** Bands whose quads are out of date. */
   dirty: Set<number>;
@@ -454,12 +464,17 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
   const shade = new Uint8Array(grid.w * SHADE * grid.h * SHADE);
   const shadeSource = new BufferImageSource({ resource: shade, width: grid.w * SHADE, height: grid.h * SHADE, format: "r8unorm", scaleMode: "nearest" });
   const tintSource = new BufferImageSource({ resource: bakeTint(grid.w, grid.h), width: grid.w * SHADE, height: grid.h * SHADE, format: "rgba8unorm", scaleMode: "nearest" });
-  const gm: GroundMesh = { cells, source, edges, edgeSource, grid, heights: new Float32Array(shade.length), shade, shadeSource, tintSource, stale: [0, 0, grid.w - 1, grid.h - 1], uniforms, meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
+  const gm: GroundMesh = { cells, source, edges, edgeSource, grid, heights: new Float32Array(shade.length), shade, shadeSource, tintSource, stale: [0, 0, grid.w - 1, grid.h - 1], uniforms, cacheU: cacheUniforms(), blank: new BufferImageSource({ resource: new Uint8Array(4), width: 1, height: 1, format: "rgba8unorm", scaleMode: "nearest" }), shader: null as unknown as Shader, rev: 0, gone: [], meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
   for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) writeCell(gm, grid, palette, x, y);
   source.update();
   edgeSource.update();
   bakeShade(gm, grid);
   const shader = groundShader(gm);
+  gm.shader = shader;
+  // Whatever is sent to a texture changes what the ground draws. @see GroundMesh.rev
+  const touched = () => { gm.rev++; };
+  for (const src of [source, edgeSource, shadeSource, tintSource]) src.on("update", touched);
+  gm.gone.push(() => { for (const src of [source, edgeSource, shadeSource, tintSource]) src.off("update", touched); });
   for (let b = 0; b < bl.staticOf.length; b++) {
     const { verts, idx: ix } = bandQuads(grid, palette, b, scale);
     const vb = new Buffer({ data: verts, usage: BufferUsage.VERTEX | BufferUsage.COPY_DST });
@@ -610,6 +625,7 @@ export function flushGround(gm: GroundMesh, grid: Grid, palette: Palette) {
     g.indexBuffer.data = ix;
   }
   gm.dirty.clear();
+  gm.rev++;
   gm.source.update();
   gm.edgeSource.update();
   bakeShade(gm, grid);
@@ -631,12 +647,15 @@ export function seasonGround(gm: GroundMesh, s: { bloom: number; dry: number; br
 }
 
 export function destroyGroundMesh(gm: GroundMesh) {
+  for (const f of gm.gone) f();
+  gm.gone.length = 0;
   if (surfaces.get(gm.grid)?.source === gm.edgeSource) surfaces.delete(gm.grid);
   for (const m of gm.meshes) { m.parent?.removeChild(m); m.geometry.destroy(true); m.destroy(); }
   gm.meshes.length = 0;
   gm.source.destroy();
   gm.shadeSource.destroy();
   gm.tintSource.destroy();
+  gm.blank.destroy();
   // (The water's layer reads this too, and goes in the same teardown: destroyed once this frame is done with it.)
   const shared = gm.edgeSource;
   setTimeout(() => shared.destroy(), 500);
@@ -646,7 +665,11 @@ export function destroyGroundMesh(gm: GroundMesh) {
 
 let program: { gpu: GpuProgram; gl: GlProgram } | null = null;
 
-function groundShader(gm: GroundMesh): Shader {
+/** The mode word of {@link GroundMesh.cacheU}: 0 worked out, 1 the copy being made, 2 read from the copy, 3 the count being made. */
+export const cacheUniforms = () => new UniformGroup({ uCacheMode: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } });
+
+/** The ground's shader over `gm`'s textures, its colour taken as `cacheU` says (the mesh's own, unless given). @see ground-cache.ts */
+export function groundShader(gm: GroundMesh, cacheU: UniformGroup = gm.cacheU): Shader {
   program ??= {
     gpu: GpuProgram.from({
       vertex: { source: WGSL, entryPoint: "mainVertex" },
@@ -654,7 +677,7 @@ function groundShader(gm: GroundMesh): Shader {
       name: "ground",
       // Written out, not left to Pixi, which would have every texture filterable: the drawn surface is floats,
       // fetched and never filtered, and a filterable binding will not take it. @see water-gpu.ts gpuLayout
-      layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { ground: 0, uCells: 1, uEdges: 2, uShade: 3, uTint: 4 }],
+      layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { ground: 0, uCells: 1, uEdges: 2, uShade: 3, uTint: 4, gcache: 5, uCache: 6, uCount: 7 }],
       gpuLayout: [
         [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
         [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
@@ -664,12 +687,15 @@ function groundShader(gm: GroundMesh): Shader {
           { binding: 2, visibility: 2, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
           { binding: 3, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
           { binding: 4, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+          { binding: 5, visibility: 2, buffer: { type: "uniform" } },
+          { binding: 6, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+          { binding: 7, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
         ],
       ],
     }),
     gl: GlProgram.from({ vertex: GLSL_VERTEX, fragment: GLSL_FRAGMENT, name: "ground" }),
   };
-  return new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source, uEdges: gm.edgeSource, uShade: gm.shadeSource, uTint: gm.tintSource } });
+  return new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source, uEdges: gm.edgeSource, uShade: gm.shadeSource, uTint: gm.tintSource, gcache: cacheU, uCache: gm.blank, uCount: gm.blank } });
 }
 
 /*
@@ -705,6 +731,12 @@ struct Ground { uMap: vec4<f32>, uMode: vec4<f32>, uSeason: vec4<f32> };
 @group(2) @binding(2) var uEdges : texture_2d<f32>;
 @group(2) @binding(3) var uShade : texture_2d<f32>;
 @group(2) @binding(4) var uTint : texture_2d<f32>;
+// THE STILL VIEW'S COPY. While nothing the ground draws has changed since the last frame, its colour is read back
+// from the copy made of it then, a pixel for a pixel, in place of being worked out again. @see ground-cache.ts
+struct GCache { uCacheMode: vec4<f32> };
+@group(2) @binding(5) var<uniform> gcache : GCache;
+@group(2) @binding(6) var uCache : texture_2d<f32>;
+@group(2) @binding(7) var uCount : texture_2d<f32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -1315,7 +1347,7 @@ fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
 }
 
 @fragment
-fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, @location(2) vTint: vec4<f32>, @location(3) vWorld: vec2<f32>, @location(4) vSteep: f32) -> @location(0) vec4<f32> {
+fn mainFragment(@builtin(position) vAt: vec4<f32>, @location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, @location(2) vTint: vec4<f32>, @location(3) vWorld: vec2<f32>, @location(4) vSteep: f32) -> @location(0) vec4<f32> {
   gScreen = vWorld * ground.uMap.z;
   let fs = fwidth(gScreen);
   gScreenFp = max(fs.x, fs.y) * 1.5;
@@ -1325,6 +1357,30 @@ fn mainFragment(@location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, 
   // How steep a top is here, half steps a tile: worked out a corner at a time and carried across the face, so
   // what is laid by it does not turn at every triangle's edge.
   let steep = vSteep;
+  // THE STILL VIEW'S COPY (after the widths above: a derivative may not follow a branch). Only what is SOLID is
+  // copied — tops and walls — and it is copied sample by sample and averaged, as the window is. It is read back
+  // only where every sample of the pixel is under exactly one solid face: the count says so (each face adds a
+  // quarter to the samples it covers, so one face each is a quarter), and the copy being solid there says none
+  // was left bare. Two faces side by side then both lay the pixel's one averaged colour, which is what their own
+  // two would have averaged to. Where one face lies over another — a crest against the ground behind — each is
+  // worked out as ever. The fringe and the water's cut face are laid over whatever is behind them: always worked
+  // out, and so is the ground under any pixel they touch (they are counted too, apart), since what they lay over
+  // an averaged pixel is not what they would have laid over its parts.
+  let cm = gcache.uCacheMode.x;
+  if (cm > 0.5) {
+    let solid = vWall.x <= 2.5;
+    if (cm > 2.5) { return select(vec4<f32>(0.0, 0.25, 0.0, 0.0), vec4<f32>(0.25, 0.0, 0.0, 0.0), solid); }
+    if (cm > 1.5) {
+      if (solid) {
+        let at = vec2<i32>(vAt.xy);
+        let n = textureLoad(uCount, at, 0);
+        if (abs(n.r * 255.0 - 64.0) < 0.5 && n.g == 0.0) {
+          let c = textureLoad(uCache, at, 0);
+          if (c.a > 0.999) { return c; }
+        }
+      }
+    } else if (!solid) { return vec4<f32>(0.0); }
+  }
   // THE WATER'S CUT FACE at the map's edge: its second word is how far under the surface.
   if (vWall.x > 4.5) {
     let a = 0.62 + 0.2 * smoothstep(0.0, 3.0, vWall.y);

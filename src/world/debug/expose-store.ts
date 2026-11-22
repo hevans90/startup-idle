@@ -83,6 +83,8 @@ declare global {
     __readback?: (on: boolean) => void;
     /** Forces the dispatch region to the whole map. @see setWholeMap */
     __wholeMap?: (on: boolean) => void;
+    /** Turns the still view's copy of the ground off or on, and says what it has done. @see ground-cache.ts */
+    __groundCache?: (on?: boolean) => { made: number; reading: boolean };
     /** Walks the box, not the listed tiles. @see setByBox */
     __byBox?: (on: boolean) => void;
     /** Leaves passes out of the frame, for bisecting a fault. @see setSkip */

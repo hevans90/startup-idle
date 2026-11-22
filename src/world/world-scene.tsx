@@ -62,6 +62,7 @@ import {
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
 import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
 import { canopyGround, destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
+import { createGroundCache, setGroundCache, type GroundCache } from "./render/ground-cache";
 import { stepVegetation, wetFrom } from "./vegetation/step";
 import { wearFrom } from "./vegetation/wear";
 import { fallWanted } from "./render/falling";
@@ -1591,6 +1592,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             applyPinned(renderer as unknown as Renderer, useWorldStore.getState().viewport);
             // THE BANDS THIS CAMERA SHOWS, as the tick would cull them.
             cullBandsRef.current?.();
+            groundCacheRef.current?.step();
             renderer.render({ container: stage });
             flushStamps(
               (renderer as unknown as { gpu?: { device: GPUDevice } })
@@ -3026,6 +3028,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    */
   /** The band cull, as the tick runs it and the bench calls it. */
   const cullBandsRef = useRef<(() => void) | null>(null);
+  // THE GROUND'S COPY OF A STILL VIEW. @see ground-cache.ts
+  const groundCacheRef = useRef<GroundCache | null>(null);
+  useEffect(() => {
+    const cache = createGroundCache(app.renderer as unknown as Renderer, () => tlRef.current?.ground ?? null);
+    groundCacheRef.current = cache;
+    if (import.meta.env.DEV) {
+      // Off and on, for timing one against the other; and what it has done.
+      window.__groundCache = (on?: boolean) => {
+        if (on !== undefined) setGroundCache(on);
+        return cache.says();
+      };
+    }
+    return () => { groundCacheRef.current = null; cache.destroy(); };
+  }, [app]);
   /** Why there is no GPU solver just now, and how many CPU frames that has cost. @see sayWaterSolver */
   const noSolver = useRef<string | null>("not built yet");
   const cpuFrames = useRef(0);
@@ -4270,7 +4286,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       e();
     }
   };
-  useTick(() => cullBandsRef.current?.());
+  useTick(() => { cullBandsRef.current?.(); groundCacheRef.current?.step(); });
 
   // ROADS IN DETAIL CLOSE UP: the cells on screen painted at the resolution the
   // zoom shows them at, a few new ones a frame. Asked again only when the zoom

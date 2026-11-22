@@ -116,7 +116,7 @@ src/
     structures/      #   Definitions, placement, renderers
     water/           #   Live water field, mains, ports, pollution
     slop/            #   Slop tanks
-    render/          #   Bands, terrain, water mesh, mains, holograms; `batch-binds.ts` bounds Pixi's texture bind groups (they grew without end); `graphics-free.ts` frees a destroyed Graphics' shapes
+    render/          #   Bands, terrain, water mesh, mains, holograms; `ground-cache.ts` copies the ground on a still view so its shader runs once, not every frame; `batch-binds.ts` bounds Pixi's texture bind groups (they grew without end); `graphics-free.ts` frees a destroyed Graphics' shapes
     agents/          #   Traffic, arrivals, commute, services, mood
     events/          #   Map events
     boats/           #   Boats, wakes, port traffic
