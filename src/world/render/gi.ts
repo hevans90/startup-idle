@@ -336,17 +336,18 @@ fn mainFragment(in: VSOutput) -> @location(0) vec4<f32> {
 }
 `;
 const GLINT_WGSL = SHEET_COMMON + /* wgsl */ `
-// THE WATER, as the solver has it: how deep and its bed, half steps, a quarter-tile; and how strong a reflection is, and the clock.
+// THE WATER, as the solver has it: how deep and its bed, half steps, a quarter-tile; and how strong a reflection is, the clock, and the highest deck's height.
 @group(2) @binding(4) var uDepth : texture_2d<f32>;
 @group(2) @binding(5) var uBed : texture_2d<f32>;
 struct Glint { uGlint: vec4<f32> };
 @group(2) @binding(6) var<uniform> glint : Glint;
-// The ground and what is built at a point, as sceneAt gives them — from the one quarter-tile it is in: for a look along a ray, where one will do.
+// The ground and what is built at a point, as sceneAt gives them — in one look: for a look along a ray, where one will do.
 fn sceneNear(q: vec2<f32>) -> vec2<f32> {
   let uv = q / sheet.uScene.xy;
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { return vec2<f32>(sheet.uScene.z, 0.0); }
-  let size = vec2<f32>(textureDimensions(uSceneTex));
-  let s = textureLoad(uSceneTex, vec2<i32>(clamp(uv * size, vec2<f32>(0.0), size - vec2<f32>(1.0))), 0);
+  // (Between the quarter-tiles round it, in the one look: a wall's edge is then a slope a ripple slides along, where
+  // read from the one it is in it was a step, and the light on the water went on and off in specks as ripples crossed it.)
+  let s = textureSampleLevel(uSceneTex, uLightSampler, uv, 0.0);
   return vec2<f32>(s.g * ${HEIGHT_SPAN}.0 + sheet.uScene.z, s.r * ${HEIGHT_SPAN}.0);
 }
 fn waterCol(c: vec2<i32>, size: vec2<i32>, rows: i32) -> vec2<f32> {
@@ -365,6 +366,19 @@ fn waterAt(q: vec2<f32>) -> vec2<f32> {
   let d = waterCol(c + vec2<i32>(0, 1), size, rows); let e = waterCol(c + vec2<i32>(1, 1), size, rows);
   return mix(mix(a, b, f.x), mix(d, e, f.x), f.y);
 }
+// The light at a height over a point, as lightOver gives it, from the two heights it lies between: the others' share
+// of it is small, and every look along a ray asking all four was most of what the water's light cost.
+fn lightTwo(q: vec2<f32>, up: f32) -> vec3<f32> {
+  let n = i32(sheet.uMap.w);
+  var i = 0;
+  for (var k = 1; k < n - 1; k++) { if (up >= sheet.uHeights[k]) { i = k; } }
+  let j = min(i + 1, n - 1);
+  let a = abs(up - sheet.uHeights[i]) / 2.5;
+  var l = layerAt(q, f32(i)) / (1.0 + a * a);
+  if (j != i) { let b = abs(up - sheet.uHeights[j]) / 2.5; l += layerAt(q, f32(j)) / (1.0 + b * b); }
+  return l;
+}
+fn grain(c: vec2<f32>) -> f32 { return fract(sin(dot(c, vec2<f32>(12.9898, 78.233))) * 43758.5453); }
 @fragment
 fn mainFragment(in: VSOutput) -> @location(0) vec4<f32> {
   // ONLY WHERE WATER IS WHAT IS SEEN: not a building standing in front of it, nor dry ground.
@@ -374,6 +388,17 @@ fn mainFragment(in: VSOutput) -> @location(0) vec4<f32> {
   // The water's face is over its bed: the line of sight meets it that much nearer the eye.
   let p = s.at + vec2<f32>(w0.x / 4.0);
   let level = s.ground + w0.x;
+  // NOR WHERE A BRIDGE'S DECK IS WHAT IS SEEN, the water under it: on up the line of sight from the water, as high
+  // as the highest deck there is, a deck met at the height the line is at. (No bridges: no looks.)
+  var dt = s.t + w0.x / 4.0 + 0.125;
+  let dsize = vec2<f32>(textureDimensions(uSceneTex));
+  for (var k = 0; k < 9; k++) {
+    if (4.0 * dt > glint.uGlint.z + 1.0) { break; }
+    let duv = (in.vGround + vec2<f32>(dt)) / sheet.uScene.xy;
+    let db = textureLoad(uSceneTex, vec2<i32>(clamp(duv * dsize, vec2<f32>(0.0), dsize - vec2<f32>(1.0))), 0).b;
+    if (db > 0.0 && abs(db * ${HEIGHT_SPAN}.0 + sheet.uScene.z - 4.0 * dt) <= 1.0) { return vec4<f32>(0.0); }
+    dt += 0.5;
+  }
   // ITS RIPPLES, which break a light's image into streaks: two slow swells crossing, by where and when.
   let c = glint.uGlint.y;
   let rip = vec2<f32>(sin(p.x * 9.0 + p.y * 3.1 + c * 1.3) + sin(p.x * 4.3 - p.y * 7.7 - c * 0.9), sin(p.y * 8.3 - p.x * 2.7 + c * 1.1) + sin(p.x * 6.1 + p.y * 5.3 + c * 0.7)) * 0.5;
@@ -388,7 +413,9 @@ fn mainFragment(in: VSOutput) -> @location(0) vec4<f32> {
   // was four times the work on a screen full of water, for a picture no different to the eye.)
   // (Each look begun a little nearer or further by where the pixel is: six looks along a ray are six bands on
   // still water, and broken up they are a grain the ripples carry.)
-  let jit = 0.75 + 0.5 * fract(sin(dot(floor(p * 23.0), vec2<f32>(12.9898, 78.233))) * 43758.5453);
+  // (The grain smooth from one cell of it to the next: cut at the cells' edges it was a mosaic of diamonds.)
+  let jc = floor(p * 31.0); let jf = smoothstep(vec2<f32>(0.0), vec2<f32>(1.0), p * 31.0 - jc);
+  let jit = 0.75 + 0.5 * mix(mix(grain(jc), grain(jc + vec2<f32>(1.0, 0.0)), jf.x), mix(grain(jc + vec2<f32>(0.0, 1.0)), grain(jc + vec2<f32>(1.0)), jf.x), jf.y);
   for (var r = 0; r < 2; r++) {
     let rise = select(1.4, 4.0, r == 0);
     let share = select(0.6, 1.0, r == 0);
@@ -403,10 +430,11 @@ fn mainFragment(in: VSOutput) -> @location(0) vec4<f32> {
       let fall = 1.0 / (1.0 + d * d * 0.12);
       // HOW MUCH OF A WALL IS IN THE WAY: none where the ray clears the roof, all of it a storey under the eaves —
       // by degrees, or a building's image on the water has an edge cut with a knife, and ripples make floes of it.
-      let wall = smoothstep(0.0, 2.2, sc.x + sc.y - h) * step(0.3, sc.y);
+      let wall = smoothstep(0.0, 2.2, sc.x + sc.y - h) * smoothstep(0.15, 0.9, sc.y);
       let up = max(0.0, h - sc.x);
       // A lit wall is given back; the glow of the open air over the water, hardly.
-      got += through * (wall * lightOver(q + vec2<f32>(0.14), up, 2.5) + (1.0 - wall) * 0.06 * lightOver(q, up, 2.5)) * fall;
+      // (One look at the light for both: a wall's read a little out from its face.)
+      got += through * mix(0.06, 1.0, wall) * lightTwo(q + vec2<f32>(0.14 * wall), up) * fall;
       through *= 1.0 - wall;
       if (through < 0.03) { break; }
       d *= 1.75;
@@ -433,6 +461,8 @@ export type GiFrame = {
   grade: number; night: number;
   /** The water, where the solver has it on the GPU: how deep and its bed, a quarter-tile, as Pixi's own textures. @see water-gpu */
   water?: { depth: unknown; bed: unknown } | null;
+  /** The bridges' decks, a tile: which tiles have one, and how high it runs, half steps. Nothing of the light on water is laid over them. */
+  decks?: { on: Uint8Array; z: Int8Array } | null;
   /** The windows' clock, s, and how many of them are lit (0–1). @see lit-windows */
   clock: number; share: number;
 };
@@ -604,6 +634,8 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
   } : null;
 
   let seenScene = -1, seenWalls: boolean | null = null, frame = 0;
+  // (The decks as they were last sent, and the highest of them: looked at again twice a second, there being nothing that counts their changes.)
+  let seenDecks = 0, deckTop = -1e3;
   let fresh = "", freshScene = -1, freshWindows = -2, freshWalls: boolean | null = null;
   return {
     rest() { if (sized) { sized.mesh.visible = false; if (sized.glint) sized.glint.visible = false; } },
@@ -612,12 +644,22 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       const s = size();
       frame++;
       // WHAT STANDS, AND ON WHAT: sent again when either changes.
-      if (f.sceneRev !== seenScene) {
-        seenScene = f.sceneRev;
-        const k = 255 / HEIGHT_SPAN;
+      let decks = seenDecks;
+      if (f.decks && (frame % 32 === 1 || f.sceneRev !== seenScene)) {
+        decks = 0;
+        for (let i = 0; i < f.decks.on.length; i++) if (f.decks.on[i]) decks = (Math.imul(decks, 31) + i * 64 + f.decks.z[i] + 129) | 0;
+      }
+      if (f.sceneRev !== seenScene || decks !== seenDecks) {
+        seenScene = f.sceneRev; seenDecks = decks; deckTop = -1e3;
+        const k = 255 / HEIGHT_SPAN, tw = SW / Q;
         for (let i = 0, o = 0; i < SW * SH; i++, o += 4) {
           sceneBytes[o] = Math.min(255, Math.round(f.casts[i] * k));
           sceneBytes[o + 1] = Math.max(0, Math.min(255, Math.round((f.heights[i] - f.low) * k)));
+          // (A deck over this quarter-tile, and how high: nothing, where there is none.)
+          const tile = f.decks ? (((i / SW) | 0) >> 2) * tw + ((i % SW) >> 2) : -1;
+          const deck = tile >= 0 && f.decks!.on[tile] !== 0;
+          sceneBytes[o + 2] = deck ? Math.max(1, Math.min(255, Math.round((f.decks!.z[tile] - f.low) * k))) : 0;
+          if (deck) deckTop = Math.max(deckTop, f.decks!.z[tile]);
           sceneBytes[o + 3] = 255;
         }
         device.queue.writeTexture({ texture: sceneGpu }, sceneBytes, { bytesPerRow: SW * 4 }, [SW, SH]);
@@ -734,7 +776,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       if (s.glint) {
         s.glint.visible = !!water && !options.only;
         const u = s.glintU.uniforms.uGlint as Float32Array;
-        u[0] = GLINT; u[1] = f.clock;
+        u[0] = GLINT; u[1] = f.clock; u[2] = deckTop;
         s.glintU.update();
       }
       return true;

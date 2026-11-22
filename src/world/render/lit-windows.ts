@@ -149,6 +149,8 @@ export const litAt = (seed: number, t: number, share: number) => roll(seed, Math
 /** How many of a town's windows are lit, by how far through the night it is (0 dusk … 1 dawn): most in the evening, few by morning. */
 export const litShare = (through: number) => 0.62 - 0.5 * Math.min(1, Math.max(0, through));
 
+/** The bridges' decks, a tile: which tiles have one, and how high it runs, half steps. */
+export type Decks = { on: Uint8Array; z: Int8Array };
 /**
  * Whether a point `z` half steps up (from the map's zero) at `(u, v)` is hidden from the eye by what stands nearer:
  * along the line of sight — a tile along both axes for every four half steps up — over the ground and what is
@@ -159,7 +161,7 @@ export const litShare = (through: number) => 0.62 - 0.5 * Math.min(1, Math.max(0
  * and most of a storey taller than its box: a window lit through a roof is seen at once, and one put out a little
  * early behind an eave is not.
  */
-export function hiddenAt(gm: Pick<GroundMesh, "heights" | "casts" | "w" | "h">, u: number, v: number, z: number, grow = 1, slack = 1.1): boolean {
+export function hiddenAt(gm: Pick<GroundMesh, "heights" | "casts" | "w" | "h">, u: number, v: number, z: number, grow = 1, slack = 1.1, decks?: Decks): boolean {
   const S = SHADE_PER_TILE, W = gm.w * S, H = gm.h * S;
   // (From past the wall it is on and that wall's own quarter-tile of grace; as far as the tallest thing could reach.)
   for (let t = 0.55; t < 9; t += 1 / S) {
@@ -168,6 +170,11 @@ export function hiddenAt(gm: Pick<GroundMesh, "heights" | "casts" | "w" | "h">, 
     // (`grow` and `slack`: how many quarter-tiles wider, and how much taller, a building counts for. A window's are
     // the generous ones above; a thing out in the street, far from any wall, is asked more exactly.)
     const line = z + 4 * t - slack;
+    // (A bridge's deck in the way: the line of sight through the slab of it, and its girders under.)
+    if (decks) {
+      const tile = Math.floor(v + 0.5 + t) * gm.w + Math.floor(u + 0.5 + t), up = z + 4 * t - decks.z[tile];
+      if (decks.on[tile] !== 0 && up >= -1.5 && up <= 0.75) return true;
+    }
     for (let dj = -grow; dj <= grow; dj++) for (let di = -grow; di <= grow; di++) {
       const o = (j + dj) * W + i + di;
       if (gm.casts[o] > 0 && gm.heights[o] + gm.casts[o] > line) return true;
@@ -176,8 +183,8 @@ export function hiddenAt(gm: Pick<GroundMesh, "heights" | "casts" | "w" | "h">, 
   return false;
 }
 /** Whether any of a window is hidden: its middle, or either end of its head or its sill. A window half behind a roof is not drawn. */
-export function windowHidden(gm: Pick<GroundMesh, "heights" | "casts" | "w" | "h">, w: Win, ground: number): boolean {
-  const at = (a: number, z: number) => (w.face === 0 ? hiddenAt(gm, w.at, a, ground + z) : hiddenAt(gm, a, w.at, ground + z));
+export function windowHidden(gm: Pick<GroundMesh, "heights" | "casts" | "w" | "h">, w: Win, ground: number, decks?: Decks): boolean {
+  const at = (a: number, z: number) => (w.face === 0 ? hiddenAt(gm, w.at, a, ground + z, 1, 1.1, decks) : hiddenAt(gm, a, w.at, ground + z, 1, 1.1, decks));
   return at((w.a0 + w.a1) / 2, (w.z0 + w.z1) / 2) || at(w.a0, w.z0) || at(w.a1, w.z0) || at(w.a0, w.z1) || at(w.a1, w.z1);
 }
 
@@ -360,7 +367,7 @@ export function createLitWindows(world: Container, zIndex: number): LitWindows {
             if (w.face === 0) lights.push(out, mid, 1.1, half, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
             else lights.push(mid, out, half, 1.1, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
           }
-          if (windowHidden(gm, w, ground)) { hidden++; continue; }
+          if (windowHidden(gm, w, ground, { on: g.deck, z: g.deckZ })) { hidden++; continue; }
           shown++;
           // The pane and its glow round it: a quad on the wall's own plane, past the pane's edges.
           const ha = (w.a1 - w.a0) / 2, hz = (w.z1 - w.z0) / 2, pa = Math.max(HALO_MIN, ha * HALO), pz = Math.max(HALO_MIN_Z, hz * HALO);

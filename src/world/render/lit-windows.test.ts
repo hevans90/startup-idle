@@ -67,4 +67,17 @@ describe("a window behind a building", () => {
     // And one high enough to be seen over it.
     expect(hiddenAt(gm, 6.5, 6.5, 11)).toBe(false);
   });
+  test("is hidden by a bridge's deck across the line of sight, and not by one it is seen over or under", () => {
+    const n = 16, S = SHADE_PER_TILE, W = n * S;
+    const gm = { heights: new Float32Array(W * W), casts: new Float32Array(W * W), w: n, h: n };
+    const decks = { on: new Uint8Array(n * n), z: new Int8Array(n * n) };
+    // A deck eight half steps up, two tiles nearer the eye: the line from a point at the ground meets it there.
+    decks.on[9 * n + 9] = 1; decks.z[9 * n + 9] = 8;
+    expect(hiddenAt(gm, 6.5, 6.5, 0, 1, 1.1, decks)).toBe(true);
+    // Higher, the line goes over the deck; lower, under it.
+    expect(hiddenAt(gm, 6.5, 6.5, 5, 1, 1.1, decks)).toBe(false);
+    expect(hiddenAt(gm, 6.5, 6.5, -5, 1, 1.1, decks)).toBe(false);
+    // And a thing on the deck itself is not hidden by it.
+    expect(hiddenAt(gm, 8.5, 8.5, 8.5, 0, 0.3, decks)).toBe(false);
+  });
 });

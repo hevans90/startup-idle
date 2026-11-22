@@ -4186,6 +4186,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               heights: gm.heights, casts: gm.casts, sceneRev: gm.shadeRev, low: st.grid.minHeight, top: st.grid.maxHeight + gm.castTop,
               // (The water as the solver has it on the GPU, where it does: for what it gives back of the light.)
               water: gpuRef.current ? { depth: gpuRef.current.sources[0], bed: gpuRef.current.sources[1] } : null,
+              decks: { on: st.grid.deck, z: st.grid.deckZ },
               grade: gradeRef.current, night: nightNow, clock: litClock, share: litNow,
             });
           }
@@ -4196,7 +4197,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (laid && gm) {
           const world = overlayRoot.current?.parent;
           if (!lampsRoot.current && world) { const c = new Container(); c.eventMode = "none"; c.zIndex = 22; world.addChild(c); lampsRoot.current = c; }
-          if (lampsRoot.current) { lampsRoot.current.visible = true; lampsOverRef.current = { root: lampsRoot.current, hidden: (x, y, z) => hiddenAt(gm, x, y, z, 0, 0.3) }; }
+          if (lampsRoot.current) { lampsRoot.current.visible = true; lampsOverRef.current = { root: lampsRoot.current, hidden: (x, y, z) => hiddenAt(gm, x, y, z, 0, 0.3, { on: st.grid.deck, z: st.grid.deckZ }) }; }
         } else { lampsOverRef.current = null; if (lampsRoot.current) lampsRoot.current.visible = false; }
         if (litRef.current) litRef.current.tick(laid && o.floors ? nightNow : 0, litClock, litNow, collapsedNow());
         if (laid && !o.glows) glowNight = 0;
