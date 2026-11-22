@@ -235,14 +235,27 @@ export function withCorners<T>(grid: Grid, fine: number, make: () => T): T {
     keptRev++;
     changes.push({ rev: keptRev, box: part ? [x0 - REACH, y0 - REACH, x1 + REACH, y1 + REACH] : null });
     if (changes.length > 16) changes.shift();
-    const W = grid.w + 4, mid = new Float64Array(W * (grid.h + 4));
-    for (let y = -2; y < grid.h + 2; y++) for (let x = -2; x < grid.w + 2; x++) mid[(y + 2) * W + x + 2] = midOf(grid, x, y);
-    const C = grid.w + 1, meet = new Uint8Array(C * (grid.h + 1));
-    for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) {
-      if (grid.terrain[idx(grid, x, y)] === VOID || !built(grid, x, y)) continue;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (x + dx >= 0 && y + dy >= 0) meet[(y + dy) * C + x + dx] = 1;
+    const W = grid.w + 4, C = grid.w + 1;
+    const isBuilt = (x: number, y: number) => x >= 0 && y >= 0 && x < grid.w && y < grid.h && grid.terrain[idx(grid, x, y)] !== VOID && built(grid, x, y);
+    let mid: Float64Array, meet: Uint8Array;
+    if (part) {
+      // (The tables too: only the cells that changed, and those their middles and what is built on them are read by.)
+      mid = kept!.mid; meet = kept!.meet;
+      for (let y = Math.max(-2, y0 - 2); y <= Math.min(grid.h + 1, y1 + 2); y++) for (let x = Math.max(-2, x0 - 2); x <= Math.min(grid.w + 1, x1 + 2); x++) mid[(y + 2) * W + x + 2] = midOf(grid, x, y);
+      for (let y = Math.max(0, y0 - 1); y <= Math.min(grid.h, y1 + 1); y++) for (let x = Math.max(0, x0 - 1); x <= Math.min(grid.w, x1 + 1); x++) {
+        let m = 0;
+        for (let dy = -1; dy <= 1 && !m; dy++) for (let dx = -1; dx <= 1; dx++) if (isBuilt(x - dx, y - dy)) { m = 1; break; }
+        meet[y * C + x] = m;
+      }
+    } else {
+      mid = new Float64Array(W * (grid.h + 4));
+      for (let y = -2; y < grid.h + 2; y++) for (let x = -2; x < grid.w + 2; x++) mid[(y + 2) * W + x + 2] = midOf(grid, x, y);
+      meet = new Uint8Array(C * (grid.h + 1));
+      for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) {
+        if (!isBuilt(x, y)) continue;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (x + dx >= 0 && y + dy >= 0) meet[(y + dy) * C + x + dx] = 1;
+      }
     }
-    // (A tile further out each way than the map: the quads ask a step past its edge.)
     const across = (grid.w + 2) * fine + 1, down = (grid.h + 2) * fine + 1;
     if (part) {
       // AN EDIT IS A FEW CELLS: only the readings within reach of them are forgotten, the rest of the map's kept.

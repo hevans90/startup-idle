@@ -92,6 +92,15 @@ export function createPavedLayer(grid: Grid, scale = 1, renderer?: Renderer, pai
   };
 }
 
+/** Whether two looks are the same look: every part of each. */
+function sameLook(a: Look | null | undefined, b: Look | null | undefined): boolean {
+  if (!a || !b) return !a && !b;
+  const A = a as unknown as Record<string, unknown>, B = b as unknown as Record<string, unknown>;
+  for (const k in A) if (A[k] !== B[k] && (A[k] ?? "") !== (B[k] ?? "")) return false;
+  for (const k in B) if (!(k in A) && (B[k] ?? "") !== "") return false;
+  return true;
+}
+
 /**
  * Work out every cell's look again: before syncing cells after an edit. The
  * cells whose parking bays or lane markings changed — a street's lay-bys can
@@ -103,7 +112,8 @@ export function refreshLooks(pl: PavedLayer, grid: Grid): number[] {
   const old = pl.looks;
   pl.looks = looksOf(grid, pl.dress, pl.bays?.(grid));
   const changed: number[] = [];
-  if (old.length === pl.looks.length) for (let i = 0; i < old.length; i++) if ((old[i]?.bay ?? "") !== (pl.looks[i]?.bay ?? "") || (old[i]?.mk ?? "") !== (pl.looks[i]?.mk ?? "")) changed.push(i);
+  // (Any of a cell's look, not only its bays and its lines: the lanes it is read from may have been built since. @see deferLanes)
+  if (old.length === pl.looks.length) for (let i = 0; i < old.length; i++) if (!sameLook(old[i], pl.looks[i])) changed.push(i);
   return changed;
 }
 

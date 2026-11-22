@@ -11,7 +11,16 @@
 import { groundMode } from "../render/ground-mode";
 import { NEIGHBOUR } from "../../iso/dir";
 import { idx, type Grid } from "../grid";
-import { connects } from "./mask";
+import { connects as joined, isPaved } from "./mask";
+
+/**
+ * WHICH WAYS ON EACH ROAD TILE HAS, worked out once for a finding of the streets and read from then on: the finding
+ * asks it of every tile many times over — each a look at both tiles' heights, ramps and decks.
+ */
+const BIT = { N: 1, E: 2, S: 4, W: 8 } as const;
+let ways: Uint8Array | null = null, waysW = 0, waysH = 0;
+const connects = (g: Grid, x: number, y: number, d: keyof typeof BIT): boolean =>
+  ways !== null ? x >= 0 && y >= 0 && x < waysW && y < waysH && (ways[y * waysW + x] & BIT[d]) !== 0 : joined(g, x, y, d);
 
 const DIRS = ["N", "E", "S", "W"] as const;
 
@@ -77,6 +86,17 @@ export function roadsKey(g: Grid): string {
   return `${groundMode()}|${g.w}x${g.h}|${a}|${b}`;
 }
 function findStreets(g: Grid): Streets {
+  const table = new Uint8Array(g.w * g.h);
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+    if (!isPaved(g, x, y)) continue;
+    let m = 0;
+    for (const d of DIRS) if (joined(g, x, y, d)) m |= BIT[d];
+    table[y * g.w + x] = m;
+  }
+  ways = table; waysW = g.w; waysH = g.h;
+  try { return streetsBy(g); } finally { ways = null; }
+}
+function streetsBy(g: Grid): Streets {
   const of = new Int32Array(g.w * g.h).fill(-1);
   const tiles: number[][] = [];
   // A JUNCTION is where the road runs on both ways further than any road is

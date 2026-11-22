@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { createGrid, fillTerrain, idx, type Grid } from "../../grid";
+import { createGrid, fillTerrain, idx, setHeight, setPaved, type Grid } from "../../grid";
 import { generateMap } from "../../gen/generate-map";
 import { FIXTURE_IDS, FIXTURE_SIZE, applyFixture } from "../../debug/fixtures";
+import { deferLanes, forgetZones, lanesDue, pumpLanes } from "./graph";
+import { routeLanes, waysFrom } from "./drive";
 import { WALK as PAINT_WALK } from "../../render/road-paint";
 import { isPaved } from "../../roads/mask";
 import { buildLaneGraph, LANE_MAX, MEDIAN_HALF, PARK_STRIP, laneEdge, laneOffset, lanesFor, WALK, type LaneGraph } from "./graph";
@@ -242,5 +244,78 @@ describe("the lane graph", () => {
       for (const l of G.lanes) if (!l.sink) expect({ id, lane: l.id, next: l.next.length > 0 }).toEqual({ id, lane: l.id, next: true });
       for (const J of G.junctions) expect({ id, j: J.id, arms: J.arms.length > 0 }).toEqual({ id, j: J.id, arms: true });
     }
+  });
+
+  test("a junction's zones kept from before a road was laid are those found afresh after it", () => {
+    for (const id of ["bigtown", "streets", "traffic", "junctions", "plaza", "avenue", "roadShapes"] as const) {
+      const n = FIXTURE_SIZE[id] ?? 48;
+      const g = createGrid(n, n, 1);
+      applyFixture(g, id, 1);
+      forgetZones();
+      const before = buildLaneGraph(g).zones.length;
+      // A stub of road off the first kerb found with open ground beside it, and a crossroads cut through it.
+      let laid = 0;
+      for (let y = 2; y < n - 4 && laid < 2; y++) for (let x = 2; x < n - 4 && laid < 2; x++) {
+        if (!g.paved[y * n + x] || g.paved[y * n + x + 1] || g.paved[y * n + x + 2] || g.paved[(y + 1) * n + x + 1] || g.paved[(y - 1) * n + x + 1]) continue;
+        for (let k = 1; k <= 3; k++) { setHeight(g, x + k, y, g.height[y * n + x]); setPaved(g, x + k, y, 1); }
+        laid++; x += 6; y += 5;
+      }
+      const kept = buildLaneGraph(g).zones;
+      forgetZones();
+      // (A copy of the map is its own map: its lanes are built, not handed back.)
+      const afresh = buildLaneGraph({ ...g }).zones;
+      expect({ id, laid: laid > 0, before: before >= 0, zones: kept }).toEqual({ id, laid: true, before: true, zones: afresh });
+    }
+  });
+
+  test("how far to drive to each of several, found in one search, is what a search for each finds", () => {
+    for (const id of ["bigtown", "streets", "traffic", "junctions"] as const) {
+      const n = FIXTURE_SIZE[id] ?? 48;
+      const g = createGrid(n, n, 1);
+      applyFixture(g, id, 1);
+      const G = buildLaneGraph(g);
+      // Spots along the street lanes, a spread of them: every one from every other.
+      const street = G.lanes.filter((l) => l.kind === "street" && l.len > 1);
+      const spots = street.filter((_, k) => k % Math.max(1, Math.floor(street.length / 24)) === 0).map((l, k) => ({ lane: l.id, s: l.len * (0.2 + 0.6 * ((k * 7) % 10) / 10) }));
+      const alone = (a: { lane: number; s: number }, b: { lane: number; s: number }) => {
+        const r = routeLanes(G, [a], [b]);
+        return r ? r.lanes.reduce((m, l) => m + G.lanes[l].len, 0) - r.s0 - (G.lanes[r.lanes[r.lanes.length - 1]].len - r.s1) : Infinity;
+      };
+      for (const a of spots) {
+        const others = spots.filter((b) => b !== a);
+        expect({ id, from: a.lane, far: waysFrom(G, a, others) }).toEqual({ id, from: a.lane, far: others.map((b) => alone(a, b)) });
+      }
+      expect(spots.length).toBeGreaterThan(3);
+    }
+  });
+
+  test("a map's lanes built a little at a time are its lanes built at once, and it goes on with the old ones meanwhile", () => {
+    const n = FIXTURE_SIZE.bigtown ?? 48;
+    const g = createGrid(n, n, 1);
+    applyFixture(g, "bigtown", 1);
+    const old = buildLaneGraph(g);
+    deferLanes(true);
+    try {
+      // A stub of road laid off the first kerb with open ground beside it.
+      let laid = false;
+      for (let y = 2; y < n - 4 && !laid; y++) for (let x = 2; x < n - 4 && !laid; x++) {
+        if (!g.paved[y * n + x] || g.paved[y * n + x + 1] || g.paved[y * n + x + 2] || g.paved[(y + 1) * n + x + 1] || g.paved[(y - 1) * n + x + 1]) continue;
+        for (let k = 1; k <= 3; k++) { setHeight(g, x + k, y, g.height[y * n + x]); setPaved(g, x + k, y, 1); }
+        laid = true;
+      }
+      expect(laid).toBe(true);
+      expect(buildLaneGraph(g)).toBe(old);
+      expect(lanesDue(g)).toBe(true);
+      let frames = 0;
+      while (!pumpLanes(g, 0)) expect(++frames).toBeLessThan(100000);
+      expect(frames).toBeGreaterThan(3);
+      expect(lanesDue(g)).toBe(false);
+      const soon = buildLaneGraph(g);
+      expect(soon).not.toBe(old);
+      deferLanes(false);
+      forgetZones();
+      const once = buildLaneGraph({ ...g });
+      expect(JSON.stringify(soon, (_k, v) => (v instanceof Map ? [...v] : v instanceof Float32Array ? [...v] : v))).toBe(JSON.stringify(once, (_k, v) => (v instanceof Map ? [...v] : v instanceof Float32Array ? [...v] : v)));
+    } finally { deferLanes(false); }
   });
 });

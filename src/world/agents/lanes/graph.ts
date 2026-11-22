@@ -232,20 +232,67 @@ export const laneLines = (k: number): number[] => {
  * A map's lanes, built once for each state of its roads: a road laid built them for the roads' looks and again for
  * the traffic, each a walk of every street. Read only. @see roadsKey
  */
-const built = new WeakMap<Grid, { rev: number; roads: string; G: LaneGraph }>();
+type Built = { rev: number; roads: string; G: LaneGraph; due?: { roads: string; rev: number; steps: Generator<void, LaneGraph> }; /** Frames to go, after new lanes are done, before what waits on them last is worked out. @see lanesSettling */ settle?: number };
+const built = new WeakMap<Grid, Built>();
+let deferring = false;
+/**
+ * NOT ALL AT ONCE, where it is on: a map whose roads change goes on with the lanes it had — a road laid has none
+ * yet, as a road being built has none — while its new ones are built a little a frame by {@link pumpLanes}. A
+ * town's lanes are a hundredth of a second and more to build, and laying one tile of road stopped the game for it.
+ * Off, as it is for anything that does not draw frames, the lanes are always the roads'.
+ */
+export const deferLanes = (on: boolean) => { deferring = on; };
+/** Whether a map's lanes are behind its roads: new ones are being built. @see deferLanes */
+export const lanesDue = (g: Grid) => { buildLaneGraph(g); return built.get(g)?.due !== undefined; };
+/**
+ * Whether a map's lanes are behind its roads, or only just caught up: what is worked out from them comes a frame
+ * after another — the traffic and the bus routes with the lanes, the roads' looks the frame after, the streets'
+ * levels the frame after that — so no one frame has all of it.
+ */
+export const lanesSettling = (g: Grid) => lanesDue(g) || (built.get(g)?.settle ?? 0) > 0;
+/** What a map's lanes are kept by: its roads, and where anything is built — a lay-by is cut only beside a building. @see baysOf */
+function lanesKey(g: Grid): string {
+  let on = 0;
+  for (let i = 0; i < g.structureAt.length; i++) if (g.structureAt[i] >= 0) on = (Math.imul(on ^ (i + 1), 0x01000193) + i) | 0;
+  return `${roadsKey(g)}|${on}`;
+}
+const finish = (steps: Generator<void, LaneGraph>): LaneGraph => { for (;;) { const r = steps.next(); if (r.done) return r.value; } };
 export function buildLaneGraph(g: Grid): LaneGraph {
   const was = built.get(g);
   if (was && was.rev === g.rev && was.roads.startsWith(groundMode())) return was.G;
-  // (And where anything is built: a lay-by is cut only beside a building. @see baysOf)
-  let on = 0;
-  for (let i = 0; i < g.structureAt.length; i++) if (g.structureAt[i] >= 0) on = (Math.imul(on ^ (i + 1), 0x01000193) + i) | 0;
-  const roads = `${roadsKey(g)}|${on}`;
-  if (was && was.roads === roads) { was.rev = g.rev; return was.G; }
-  const G = lanesOf(g);
+  const roads = lanesKey(g);
+  if (was && was.roads === roads) { was.rev = g.rev; was.due = undefined; return was.G; }
+  if (deferring && was) {
+    // (The lanes it had, and the new ones begun: begun again if the roads have changed since they were.)
+    if (!was.due || was.due.roads !== roads) was.due = { roads, rev: g.rev, steps: lanesSteps(g) };
+    else was.due.rev = g.rev;
+    was.rev = g.rev;
+    return was.G;
+  }
+  const G = finish(lanesSteps(g));
   built.set(g, { rev: g.rev, roads, G });
   return G;
 }
-function lanesOf(g: Grid): LaneGraph {
+/**
+ * Build a little more of a map's new lanes, for about `ms`: true when they are done, and the map's lanes are its
+ * roads' again. Once a frame. @see deferLanes
+ */
+export function pumpLanes(g: Grid, ms: number): boolean {
+  buildLaneGraph(g);
+  const was = built.get(g), due = was?.due;
+  if (!was || !due) { if (was?.settle) was.settle--; return false; }
+  const t0 = performance.now();
+  for (;;) {
+    const r = due.steps.next();
+    if (r.done) { was.G = r.value; was.roads = due.roads; was.due = undefined; was.settle = 2; return true; }
+    if (performance.now() - t0 >= ms) return false;
+  }
+}
+/**
+ * THE LANES, BUILT A STAGE AT A TIME: it stops between its stages, and between one junction and the next, to be
+ * taken up again — in a later frame, where a town's worth is not to be had inside one. @see pumpLanes
+ */
+function* lanesSteps(g: Grid): Generator<void, LaneGraph> {
   const n = g.w * g.h;
   const S = streetsOf(g);
   const cellOf = (i: number): Pt => ({ x: i % g.w, y: (i / g.w) | 0 });
@@ -274,6 +321,7 @@ function lanesOf(g: Grid): LaneGraph {
     }
   }
 
+  yield;
   // ── junction regions ─────────────────────────────────────────────────
   const region = new Int32Array(n).fill(-1);
   const junctions: Junction[] = [];
@@ -293,6 +341,7 @@ function lanesOf(g: Grid): LaneGraph {
     junctions.push({ id, kind: "end", cells, centre, arms: [] });
   }
 
+  yield;
   // ── street lanes ─────────────────────────────────────────────────────
   const lanes: Lane[] = [];
   const mk = (l: Omit<Lane, "id" | "at" | "len" | "next" | "zones">): Lane => {
@@ -416,9 +465,11 @@ function lanesOf(g: Grid): LaneGraph {
     }
   }
 
+  yield;
   // ── junctions: what each is, and the way through ─────────────────────
   const zones: Zone[] = [];
   for (const J of junctions) {
+    yield;
     J.kind = kindOf(J, g.w);
     if (J.kind === "priority") markMajor(J, streets);
     const inner: Lane[] = J.kind === "roundabout" ? ring(J, lanes, mk) : throughJunction(g, J, lanes, mk, region);
@@ -436,8 +487,10 @@ function lanesOf(g: Grid): LaneGraph {
   }
   for (const z of zones) { lanes[z.a].zones.push(z.id); lanes[z.b].zones.push(z.id); }
 
+  yield;
   // ── pavements ────────────────────────────────────────────────────────
   const { walk, crossings } = pavements(g, streets, junctions);
+  yield;
   // Cars wait behind a junction's crossings, clear of them for whoever walks over.
   for (const J of junctions) {
     for (const A of J.arms) {
@@ -453,7 +506,9 @@ function lanesOf(g: Grid): LaneGraph {
 
   let loose = 0;
   for (let i = 0; i < n; i++) if (isPaved(g, i % g.w, (i / g.w) | 0) && streetOf[i] < 0 && region[i] < 0) loose++;
+  yield;
   const { stops, kept } = stopsOf(g, streets, lanes, crossings);
+  yield;
   const bays = baysOf(g, streets, lanes, crossings, kept);
   layBack(g, walk, bays);
   return { lanes, zones, junctions, streets, walk, crossings, bays, stops, loose };
@@ -988,7 +1043,61 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
  * from the same lane part ways, and one running on into the other follows
  * it, so neither is a conflict; every other pair that comes that near is.
  */
+/**
+ * A JUNCTION'S ZONES ARE ITS OWN: read from its curves alone — where each runs, which way it turns, what it leads
+ * into — and from nothing else on the map. So they are kept by those, and a road laid finds again only the zones of
+ * the junctions it changed: in a town of a hundred junctions it was finding all of them, every curve walked along
+ * every other a step at a time, for most of a twentieth of a second.
+ *
+ * Kept as which of the junction's curves, by their place among them: the lanes are numbered afresh each time.
+ */
+type ZoneIn = { i: number; j: number; sa: number; ea: number; sb: number; eb: number; merge: boolean };
+const zonesKept = new Map<string, ZoneIn[]>();
+/** Forget every junction's zones. For a test that must find them afresh. */
+export const forgetZones = () => zonesKept.clear();
+const TURNS = ["", "left", "right", "straight", "uturn"];
+let keyBuf = new Float64Array(1024), keyWords = new Uint32Array(keyBuf.buffer);
+/** What a junction's zones are read from, as a key: two sums over every number of it. */
+function zonesKey(inner: readonly Lane[]): string {
+  let n = 0;
+  const put = (v: number) => {
+    if (n === keyBuf.length) { const b = new Float64Array(n * 2); b.set(keyBuf); keyBuf = b; keyWords = new Uint32Array(b.buffer); }
+    keyBuf[n++] = v;
+  };
+  const place = new Map<number, number>();
+  inner.forEach((l, k) => place.set(l.id, k));
+  // (A lane led into that is not one of these: by the order they are first met in, which is all that is asked of
+  // it — whether two curves lead into the same one.)
+  const outside = new Map<number, number>();
+  put(inner.length);
+  for (const l of inner) {
+    put(l.pts.length); put(l.len); put(TURNS.indexOf(l.turn ?? "") + 7);
+    for (const p of l.pts) { put(p.x); put(p.y); }
+    put(l.next.length);
+    for (const x of l.next) {
+      const k = place.get(x);
+      if (k !== undefined) put(k);
+      else { let o = outside.get(x); if (o === undefined) outside.set(x, (o = outside.size)); put(-1 - o); }
+    }
+  }
+  let a = 0x811c9dc5 | 0, b = 0x9e3779b9 | 0;
+  for (let k = 0; k < n * 2; k++) { const w = keyWords[k]; a = Math.imul(a ^ w, 0x01000193); b = (Math.imul(b + w, 0x85ebca6b) ^ (b >>> 13)) | 0; }
+  return `${n}|${a}|${b}`;
+}
 function findZones(junction: number, inner: readonly Lane[], zones: Zone[]) {
+  const key = zonesKey(inner);
+  let kept = zonesKept.get(key);
+  if (!kept) {
+    const found: Zone[] = [], place = new Map<number, number>();
+    inner.forEach((l, k) => place.set(l.id, k));
+    zonesFound(junction, inner, found);
+    kept = found.map((z) => ({ i: place.get(z.a)!, j: place.get(z.b)!, sa: z.sa, ea: z.ea, sb: z.sb, eb: z.eb, merge: z.merge }));
+    if (zonesKept.size > 4096) zonesKept.clear();
+    zonesKept.set(key, kept);
+  }
+  for (const z of kept) zones.push({ id: zones.length, junction, a: inner[z.i].id, sa: z.sa, ea: z.ea, b: inner[z.j].id, sb: z.sb, eb: z.eb, merge: z.merge });
+}
+function zonesFound(junction: number, inner: readonly Lane[], zones: Zone[]) {
   const near = (a: Lane, b: Lane, s: number): boolean => {
     const { p, h } = pointAt(a.pts, a.at, s);
     const d = distToLine(p, b.pts);

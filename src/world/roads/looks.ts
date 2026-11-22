@@ -21,7 +21,7 @@ import { hash } from "../structures/projects/model";
 import { DIAG, DIR, isPaved, maskAt } from "./mask";
 import { streetsOf } from "./streets";
 import { resolveRole, type RoadRole } from "./role";
-import { RING_OF, buildLaneGraph } from "../agents/lanes/graph";
+import { RING_OF, buildLaneGraph, type LaneGraph } from "../agents/lanes/graph";
 import { marksOf } from "./marks";
 import { KEEP } from "../agents/lanes/geometry";
 
@@ -163,6 +163,9 @@ const has = (open: number, s: Side) => (open & (1 << s)) !== 0;
 /** The axis a straight runs along: `u` if open both ways in x, `v` in y. */
 const axisOf = (open: number): "u" | "v" | "" => (has(open, 0) && has(open, 1) ? "u" : has(open, 2) && has(open, 3) ? "v" : "");
 
+/** A map's lanes' lines, kept by the lanes. @see marksOf */
+const marked = new WeakMap<LaneGraph, string[]>();
+
 /**
  * Every paved cell's look. `dress` is {@link dressOf} per cell, or none: a
  * street with no level yet, tarmac and no zebras. `bays` per cell, its kerbs
@@ -230,7 +233,10 @@ export function looksOf(g: Grid, dress?: Uint8Array, bays?: Uint8Array | Uint16A
   }
   // A WIDE STREET'S CELLS, as the lanes have them, and the way each runs: what is painted on them of lanes is
   // worked out from the lanes themselves. @see roads/marks
-  const G = buildLaneGraph(g), marks = marksOf(g, G);
+  // (The lines by the lanes they were worked out from: the same lanes, the same lines.)
+  const G = buildLaneGraph(g);
+  let marks = marked.get(G);
+  if (!marks) marked.set(G, (marks = marksOf(g, G)));
   const wideAx = new Map<number, string>();
   for (const st of G.streets) {
     if (st.width < 2) continue;

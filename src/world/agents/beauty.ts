@@ -5,6 +5,7 @@
  * (@see street-props), and its houses get a little more to like.
  * @see BEAUTY_MOOD, plans/services-overhaul.md §4
  */
+import { lanesSettling } from "./lanes/graph";
 import { housedBy, residentsIn } from "../../game/housing";
 import type { Grid, Structure } from "../grid";
 import type { Network } from "../roads/network";
@@ -96,6 +97,8 @@ let memo: { g: Grid | null; rev: number; cover: Coverage | null; pin: ((x: numbe
 
 /** Every street's level on this map now, worked out again when the map or what is met has changed. */
 export function liveBeauty(g: Grid, net: Network): Beauty {
+  // (While the map's new lanes are being built, the levels it had: the streets' looks wait for them too. @see deferLanes)
+  if (memo.g === g && memo.value && memo.rev !== g.rev && lanesSettling(g)) return memo.value;
   const cover = liveCoverage(g, net);
   if (memo.g !== g || memo.rev !== g.rev || memo.cover !== cover || memo.pin !== pinned || !memo.value) {
     const streets = streetsOf(g);

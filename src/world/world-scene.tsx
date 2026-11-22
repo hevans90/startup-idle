@@ -123,7 +123,7 @@ import {
   drawOrigin, drawPickCrosshair, drawRoadMask,
 } from "./render/overlays";
 import { drawLaneGraph } from "./render/lane-overlay";
-import { bayMarksOf, buildLaneGraph, type LaneGraph } from "./agents/lanes/graph";
+import { bayMarksOf, buildLaneGraph, deferLanes, lanesDue, pumpLanes } from "./agents/lanes/graph";
 
 /**
  * How solid the ground stays in x-ray.
@@ -146,6 +146,8 @@ const deskTint = (share: number) => {
 const CPU_SOLVE_MS = 8;
 /** How many frames the water waits unstepped for the device's solver to be built for a new field. @see solverDue */
 const SOLVER_WAIT = 10;
+/** How long a frame spends on a map's new lanes, ms. @see pumpLanes */
+const LANES_MS = 3;
 /** Whether the device's solver is what should be stepping the water: a device held and not lost, and the toggle on. */
 const solverDue = () => heldDevice() !== null && deviceLost() === null && useWorldStore.getState().gpuWater;
 /**
@@ -1893,7 +1895,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const netGfx = useRef<Graphics | null>(null);
   const maskGfx = useRef<Graphics | null>(null);
   const laneGfx = useRef<Graphics | null>(null);
-  const laneCache = useRef<{ grid: Grid; rev: number; G: LaneGraph } | null>(null);
   const originGfx = useRef<Graphics | null>(null);
   const hoverGfx = useRef<Graphics | null>(null);
   const openGfx = useRef<Graphics | null>(null);
@@ -1933,9 +1934,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (laneGfx.current) {
       if (overlays.lanes) {
         // Built once a revision: panning redraws the overlays.
-        const rev = useWorldStore.getState().revision, c = laneCache.current;
-        const G = c && c.grid === grid && c.rev === rev ? c.G : buildLaneGraph(grid);
-        laneCache.current = { grid, rev, G };
+        // (Kept by the lanes' builder itself, by the roads they are of.)
+        const G = buildLaneGraph(grid);
         drawLaneGraph(laneGfx.current, grid, G, scale);
       }
       else laneGfx.current.clear();
@@ -3061,6 +3061,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const noSolver = useRef<string | null>("not built yet");
   /** The cells whose vegetation changed since the woods were last gone over. @see TreeMesh.sync */
   const grownRef = useRef(new Set<number>());
+  /** How many times the map's new lanes have been finished; and whether the roads' looks are to be gone over for it next frame. @see pumpLanes */
+  const lanesLandedRef = useRef(0), relookRef = useRef(false), lanesWaitRef = useRef(false);
+  useEffect(() => { deferLanes(true); return () => deferLanes(false); }, []);
   const cpuFrames = useRef(0);
   /** The frames in a row the water was left unstepped, waiting for the device's solver. @see solverDue */
   const solverWaits = useRef(0);
@@ -3808,6 +3811,21 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   useTick((ticker) => {
     const sl = slRef.current, bl = blRef.current;
     const raw = ((ticker as unknown as { deltaMS?: number }).deltaMS ?? 16.7) / 1000;
+    // THE LANES, A LITTLE A FRAME, when the roads have changed: and the frame after they are done, the roads' looks
+    // by them — the lines, the lay-bys — painted on whatever changed. @see deferLanes
+    {
+      const g0 = useWorldStore.getState().grid, pl = plRef.current;
+      if (relookRef.current && pl && bl) {
+        relookRef.current = false;
+        for (const i of refreshLooks(pl, g0)) {
+          const x = i % g0.w, y = (i / g0.w) | 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(g0, x + dx, y + dy)) syncPaved(pl, bl, g0, x + dx, y + dy);
+        }
+      }
+      // (Not in the frame the roads changed, which has that to do: from the next.)
+      if (lanesWaitRef.current && pumpLanes(g0, LANES_MS)) { lanesLandedRef.current++; relookRef.current = true; }
+      lanesWaitRef.current = lanesDue(g0);
+    }
     const tFx = performance.now();
     const sFx = section("tick: fx (juice, night, lights, AI layer, rain)");
     // THE DRONES' LANDINGS, flashed where each job was done. @see AiRunner.landed
@@ -4053,7 +4071,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const streetNet = getNetwork();
       if (streetPropsRef.current && streetNet) {
         const st = useWorldStore.getState();
-        streetPropsRef.current.sync(st.grid, liveBeauty(st.grid, streetNet), st.revision, scale, trafficOf(getTown(), st.grid).G.crossings, trafficOf(getTown(), st.grid).G.bays);
+        streetPropsRef.current.sync(st.grid, liveBeauty(st.grid, streetNet), st.revision + lanesLandedRef.current, scale, trafficOf(getTown(), st.grid).G.crossings, trafficOf(getTown(), st.grid).G.bays);
         // THE BENCHES' SEATS, for the town's walkers to sit on. @see Town.seats
         const seats = streetPropsRef.current.seats();
         if (seats !== seatsRef.current) { seatsRef.current = seats; getTown().seats = seatsByCell(st.grid, seats); }

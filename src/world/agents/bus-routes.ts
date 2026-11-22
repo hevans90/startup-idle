@@ -7,7 +7,7 @@
  *
  * Pure: from the lane graph's stop sites and the town's doors.
  */
-import { routeLanes } from "./lanes/drive";
+import { routeLanes, waysFrom } from "./lanes/drive";
 import type { LaneGraph, Stop } from "./lanes/graph";
 import type { Place } from "./roads";
 
@@ -72,8 +72,16 @@ export function routesOf(G: LaneGraph, places: readonly Place[]): Route[] {
   // edge of the map and out again.
   const routes: Route[] = [];
   for (const m of members) {
-    const len = new Map<string, number>();
-    const way = (a: Stop, b: Stop) => { const k = `${a.id},${b.id}`; let c = len.get(k); if (c === undefined) len.set(k, (c = wayLen(G, a, b))); return c; };
+    // (From a stop to every other of the route's in one search of the lanes: a search a pair was ninety of them a route.)
+    const rows = new Map<number, Map<number, number>>();
+    const way = (a: Stop, b: Stop) => {
+      let row = rows.get(a.id);
+      if (!row) {
+        const others = m.filter((s) => s !== a), far = waysFrom(G, { lane: a.lane, s: a.s }, others.map((s) => ({ lane: s.lane, s: s.s })));
+        rows.set(a.id, (row = new Map(others.map((s, k) => [s.id, far[k]]))));
+      }
+      return row.get(b.id) ?? wayLen(G, a, b);
+    };
     let order: Stop[] = [], total = Infinity;
     for (const first of m) {
       const o = [first], left = m.filter((s) => s !== first);

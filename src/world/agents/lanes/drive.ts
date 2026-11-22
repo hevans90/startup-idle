@@ -322,6 +322,92 @@ export function routeLanes(G: LaneGraph, starts: readonly Spot[], goals: readonl
 }
 
 /**
+ * HOW FAR IT IS TO DRIVE from one spot to each of several, along the lanes of the way {@link routeLanes} would take
+ * to each: Infinity where there is none. One search from the start for all of them — the search does not depend on
+ * where it is going, only when it stops — so each is exactly what a search for it alone finds: its best way is
+ * taken at the moment that search would have stopped. A town's bus routes asked the way between every two of a
+ * route's stops, a search each.
+ */
+export function waysFrom(G: LaneGraph, start: Spot, goals: readonly Spot[], min = 0.5): number[] {
+  const n = G.lanes.length, N = goals.length;
+  const cost = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1), startS = new Float64Array(n).fill(NaN);
+  const goalOn = new Map<number, number[]>();
+  goals.forEach((g, k) => { const l = goalOn.get(g.lane); if (l) l.push(k); else goalOn.set(g.lane, [k]); });
+  // Each goal's best way so far: its cost, its lane and the lane before (-1: it starts there); and whether its own search is over.
+  const bc = new Float64Array(N).fill(Infinity), bl = new Int32Array(N).fill(-1), bf = new Int32Array(N).fill(-1), done = new Uint8Array(N);
+  const out = new Array<number>(N).fill(Infinity);
+  let open = N;
+  /** A goal's search is over: its way as the lanes stand now, and how far along them. */
+  const close = (k: number) => {
+    done[k] = 1; open--;
+    if (bl[k] < 0) return;
+    const s1 = goals[k].s;
+    let first = bl[k], len = G.lanes[bl[k]].len;
+    for (let at = bf[k]; at >= 0; at = prev[at]) { len += G.lanes[at].len; first = at; }
+    const s0 = startS[first];
+    out[k] = len - (s0 === s0 ? s0 : 0) - (G.lanes[bl[k]].len - s1);
+  };
+  const hc: number[] = [], hl: number[] = [];
+  const push = (c: number, l: number) => {
+    hc.push(c); hl.push(l);
+    for (let k = hc.length - 1; k > 0;) {
+      const p = (k - 1) >> 1;
+      if (hc[p] <= hc[k]) break;
+      const tc = hc[p], tl = hl[p]; hc[p] = hc[k]; hl[p] = hl[k]; hc[k] = tc; hl[k] = tl;
+      k = p;
+    }
+  };
+  {
+    const l = G.lanes[start.lane];
+    for (const k of goalOn.get(start.lane) ?? []) {
+      const d = goals[k].s - start.s;
+      if (d >= min && d < bc[k]) { bc[k] = d; bl[k] = start.lane; bf[k] = -1; }
+    }
+    const c = l.len - start.s;
+    cost[start.lane] = c; startS[start.lane] = start.s; prev[start.lane] = -1; push(c, start.lane);
+  }
+  const changesBefore = (id: number) => { let m = 0; for (let at = id, p = prev[at]; p >= 0 && isChange(G, p, at); at = p, p = prev[at]) m++; return m; };
+  while (hc.length && open > 0) {
+    const c = hc[0], id = hl[0], lc = hc.pop()!, ll = hl.pop()!;
+    if (hc.length) {
+      hc[0] = lc; hl[0] = ll;
+      for (let k = 0; ;) {
+        const a = 2 * k + 1, b = a + 1;
+        let m = k;
+        if (a < hc.length && hc[a] < hc[m]) m = a;
+        if (b < hc.length && hc[b] < hc[m]) m = b;
+        if (m === k) break;
+        const tc = hc[m], tl = hl[m]; hc[m] = hc[k]; hl[m] = hl[k]; hc[k] = tc; hl[k] = tl;
+        k = m;
+      }
+    }
+    if (c > cost[id]) continue;
+    for (let k = 0; k < N; k++) if (!done[k] && c >= bc[k]) close(k);
+    if (open === 0) break;
+    const here = G.lanes[id], before = prev[id], s0 = startS[id];
+    if (here.beside && here.len - (s0 === s0 ? s0 : 0) >= CHANGE_ROOM * (1 + changesBefore(id))) {
+      for (const b of here.beside) {
+        if (b === before) continue;
+        const nc = c + CHANGE_COST;
+        if (nc < cost[b]) { cost[b] = nc; prev[b] = id; startS[b] = NaN; push(nc, b); }
+      }
+    }
+    for (const b of here.next) {
+      const ln = G.lanes[b];
+      for (const k of goalOn.get(b) ?? []) {
+        if (done[k]) continue;
+        const total = c + costOf(ln) + goals[k].s;
+        if (total < bc[k]) { bc[k] = total; bl[k] = b; bf[k] = id; }
+      }
+      const nc = c + costOf(ln) + ln.len;
+      if (nc < cost[b]) { cost[b] = nc; prev[b] = id; startS[b] = NaN; push(nc, b); }
+    }
+  }
+  for (let k = 0; k < N; k++) if (!done[k]) close(k);
+  return out;
+}
+
+/**
  * A route as one line; where along it each of its lanes begins (its point 0,
  * which may be behind the line's start, or level with a lane changed from);
  * and where the vehicle comes onto each — for a change of lane, where it
