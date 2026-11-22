@@ -1,9 +1,10 @@
 /**
- * Editing chrome — tool, brush, material, history and file controls.
+ * Editing chrome — tool, brush, material, history and file controls: the pieces the editor's sidebar is made of,
+ * a tab's worth each, and what stands in its head. @see editor-sidebar
  *
  * React, per the Pixi/React boundary: none of this lives in world space.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/shallow";
 
 import {
@@ -17,6 +18,7 @@ import { allStructureDefs } from "../structures/def";
 import { fluidChoices } from "../water/materials";
 import { housingCapacity } from "../../game/housing";
 import { buildCost } from "../../game/build-cost";
+import { giMs, giOptions, setGi, type GiOptions } from "../render/gi";
 
 /** A building's price for its tooltip, as play rules would charge it. @see buildCost */
 const priceOf = (defId: string) => {
@@ -24,22 +26,19 @@ const priceOf = (defId: string) => {
   return p ? ` · $${Math.round(p.toNumber()).toLocaleString()} in play` : " · not for sale in play";
 };
 
-const BTN = "cursor-pointer rounded border px-2 py-1 font-mono";
+const BTN = "cursor-pointer rounded border px-2 py-1 font-mono leading-none";
 const ON = "border-good bg-good/20 text-good";
-const OFF = "border-line bg-surface-1 text-fg-muted hover:bg-surface-2";
+const OFF = "border-line bg-surface-1 text-fg-muted hover:bg-surface-2 hover:text-fg";
+const DEAD = "cursor-default rounded border px-2 py-1 font-mono leading-none border-line-quiet bg-surface-1 text-fg-faint";
 
-const TOOLS: [ToolId, string][] = [
-  ["paintTerrain", "paint (b)"],
-  ["erase", "erase (e)"],
-  ["inspect", "look (v)"],
-];
-/** Separate row: these write `height`, not a material. */
-const HEIGHT_UI: [ToolId, string][] = [
-  ["raise", "raise (r)"],
-  ["lower", "lower (f)"],
-  ["flatten", "flatten"],
-  ["smooth", "smooth"],
-];
+/** Every tool by what it is called here and the key that picks it: the header says which is in hand. @see use-edit-keys */
+const TOOL_NAMES: Partial<Record<ToolId, [string, string?]>> = {
+  paintTerrain: ["paint", "b"], erase: ["erase", "e"], inspect: ["look", "v"],
+  raise: ["raise", "r"], lower: ["lower", "f"], flatten: ["flatten"], smooth: ["smooth"],
+  paintRoad: ["pave", "p"], eraseRoad: ["unpave", "o"], slope: ["slope", "u"], unslope: ["unslope", "i"],
+  pourWater: ["pour", "j"], drainWater: ["drain", "k"], spring: ["spring", "l"], sink: ["sink", ";"], pipe: ["pipe", "'"], boat: ["boat", "h"],
+  placeStructure: ["build", "n"], demolish: ["demolish", "x"],
+};
 /** Awkward terrain on demand, so a picking bug is reproducible. */
 const FIXTURES: [FixtureId, string][] = [
   ["flat", "flat"],
@@ -77,19 +76,41 @@ const STEPS: [number, string][] = [
   [1, "×0.5"],
   [2, "×1"],
 ];
-// Named so it is obvious which shapes need a DRAG: with rect or line a single
-// click leaves anchor === head and therefore covers one cell, which reads as
-// "the brush doesn't work" unless the label says so.
-const BRUSHES: [BrushId, string][] = [
-  ["point", "point (1)"],
-  ["rect", "drag rect (2)"],
-  ["line", "drag line (3)"],
+// (Rect and line need a DRAG: a single click leaves anchor === head and covers one cell — said in the tooltip.)
+const BRUSHES: [BrushId, string, string][] = [
+  ["point", "point", "1"],
+  ["rect", "rect", "2 · drag"],
+  ["line", "line", "3 · drag"],
 ];
 const SIZES: [number, string][] = [
-  [0, "1×1"],
-  [1, "3×3"],
-  [2, "5×5"],
+  [0, "1"],
+  [1, "3"],
+  [2, "5"],
 ];
+
+/** A section's heading, and what follows it laid out in a wrapping row. */
+export function Section({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="mb-4">
+      <h3 className="mb-1.5 flex items-baseline justify-between text-[10px] tracking-widest text-fg-faint uppercase">
+        <span>{title}</span>
+        {note !== undefined && <span className="font-mono tracking-normal text-fg-muted normal-case">{note}</span>}
+      </h3>
+      {children}
+    </section>
+  );
+}
+export const Row = ({ children }: { children: ReactNode }) => <div className="mb-1 flex flex-wrap items-center gap-1">{children}</div>;
+/** A tool's button: its name, its key small beside it, lit while it is the one in hand. */
+function Tool({ id, title }: { id: ToolId; title?: string }) {
+  const tool = useWorldStore((s) => s.tool), setTool = useWorldStore((s) => s.setTool);
+  const [name, key] = TOOL_NAMES[id] ?? [id];
+  return (
+    <button type="button" onClick={() => setTool(id)} title={title} className={`${BTN} ${tool === id ? ON : OFF}`}>
+      {name}{key && <span className="ml-1.5 opacity-50">{key}</span>}
+    </button>
+  );
+}
 
 /**
  * The wet count and the volume, POLLED.
@@ -149,82 +170,203 @@ function Beds() {
   // thing that can say it changed. @see housingCapacity
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const beds = useMemo(() => housingCapacity(grid), [grid, revision]);
-  return (
-    <div className="mt-1 text-fg-muted">
-      {beds.intern + beds.vibe_coder + beds["10x_dev"] === 0
-        ? <span>no housing built</span>
-        : (
-          <span>
-            beds — intern <span className="text-fg">{beds.intern}</span>
-            {" · vibe "}<span className="text-fg">{beds.vibe_coder}</span>
-            {" · 10x "}<span className="text-fg">{beds["10x_dev"]}</span>
-          </span>
-        )}
-    </div>
-  );
+  return <span title="beds: intern · vibe coder · 10x dev">{beds.intern} · {beds.vibe_coder} · {beds["10x_dev"]} beds</span>;
 }
-function History() {
+/** Undo and redo, for the panel's head: each says what it would undo when hovered. */
+export function History() {
   const { undoDepth, redoDepth, undoName, redoName, doUndo, doRedo } = useWorldStore(useShallow((s) => ({
     undoDepth: s.undoDepth, redoDepth: s.redoDepth, undoName: s.undoName, redoName: s.redoName, doUndo: s.doUndo, doRedo: s.doRedo,
   })));
   return (
     <>
-      <div className="flex flex-wrap gap-1">
-        <button type="button" onClick={doUndo} disabled={!undoDepth}
-          title={undoName ?? undefined}
-          className={`${BTN} ${undoDepth ? OFF : "border-line-quiet bg-surface-1 text-fg-faint"}`}>
-          undo {undoDepth ? `(${undoDepth})` : ""}
-        </button>
-        <button type="button" onClick={doRedo} disabled={!redoDepth}
-          title={redoName ?? undefined}
-          className={`${BTN} ${redoDepth ? OFF : "border-line-quiet bg-surface-1 text-fg-faint"}`}>
-          redo {redoDepth ? `(${redoDepth})` : ""}
-        </button>
-      </div>
-      {undoName && (
-        <p className="mt-1 truncate font-mono text-fg-muted" title={undoName}>
-          last: {undoName}
-        </p>
-      )}
+      <button type="button" onClick={doUndo} disabled={!undoDepth} title={undoName ? `undo: ${undoName} (⌘Z)` : "undo (⌘Z)"} className={undoDepth ? `${BTN} ${OFF}` : DEAD}>
+        undo{undoDepth ? <span className="ml-1.5 opacity-50">{undoDepth}</span> : null}
+      </button>
+      <button type="button" onClick={doRedo} disabled={!redoDepth} title={redoName ? `redo: ${redoName} (⇧⌘Z)` : "redo (⇧⌘Z)"} className={redoDepth ? `${BTN} ${OFF}` : DEAD}>
+        redo{redoDepth ? <span className="ml-1.5 opacity-50">{redoDepth}</span> : null}
+      </button>
     </>
   );
 }
 
-export function EditPanel() {
+/**
+ * THE NIGHT'S LIGHT, a spike, switched here: on or off, each kind of light, what stops it, how far and how finely
+ * it is worked out, how strong it is — and the night itself, held at midnight to look at it. @see render/gi
+ */
+export function LightSection() {
+  const [o, setO] = useState<GiOptions>(() => ({ ...giOptions() }));
+  const [night, setNight] = useState(false);
+  const [ms, setMs] = useState(NaN);
+  useEffect(() => { const t = setInterval(() => setMs(giMs()), 500); return () => clearInterval(t); }, []);
+  const put = (p: Partial<GiOptions>) => setO(setGi(p));
+  const flag = (k: "on" | "glows" | "walls" | "lamps" | "windows" | "headlights" | "only", label: string, title?: string) => (
+    <button key={k} type="button" title={title} onClick={() => put({ [k]: !o[k] })} className={`${BTN} ${o[k] ? ON : OFF}`}>{label}</button>
+  );
+  return (
+    <Section title="night light" note={Number.isFinite(ms) && o.on ? `${ms.toFixed(2)} ms` : undefined}>
+      <Row>
+        <button type="button" title="hold the map at midnight (needs play rules, and day and night on in settings)"
+          onClick={() => { const w = window as unknown as { __dayPhase?: number }; if (night) delete w.__dayPhase; else w.__dayPhase = 0; setNight(!night); }}
+          className={`${BTN} ${night ? ON : OFF}`}>midnight</button>
+        {flag("on", "cascades", "work the night's light out on the map; off, the flat night and its glows")}
+        {flag("glows", "glows", "draw the old glow sprites too")}
+        {flag("walls", "walls", "buildings stop light")}
+        {flag("only", "light only", "show the light alone")}
+      </Row>
+      <Row>
+        {flag("lamps", "lamps")}
+        {flag("windows", "windows")}
+        {flag("headlights", "headlights")}
+      </Row>
+      <Row>
+        <span className="mr-1 text-fg-faint">reach</span>
+        {([3, 4, 5] as const).map((n) => (
+          <button key={n} type="button" title="how many cascades: how far light reaches" onClick={() => put({ cascades: n })} className={`${BTN} ${o.cascades === n ? ON : OFF}`}>{n}</button>
+        ))}
+        <span className="mx-1 text-fg-faint">grid</span>
+        {([2, 1] as const).map((n) => (
+          <button key={n} type="button" title="probe spacing: half a tile, or a quarter" onClick={() => put({ spacing: n })} className={`${BTN} ${o.spacing === n ? ON : OFF}`}>{n === 2 ? "coarse" : "fine"}</button>
+        ))}
+      </Row>
+      <Row>
+        <span className="mr-1 text-fg-faint">strength</span>
+        <button type="button" onClick={() => put({ gain: Math.max(0.1, +(o.gain - 0.1).toFixed(2)) })} className={`${BTN} ${OFF}`}>−</button>
+        <span className="w-6 text-center font-mono">{o.gain.toFixed(1)}</span>
+        <button type="button" onClick={() => put({ gain: +(o.gain + 0.1).toFixed(2) })} className={`${BTN} ${OFF}`}>+</button>
+      </Row>
+    </Section>
+  );
+}
+
+/** THE TOOL IN HAND, for the panel's head: whichever tab is open, it says what a click on the map will do. */
+export function ToolInHand() {
+  const tool = useWorldStore((s) => s.tool);
+  const [name, key] = TOOL_NAMES[tool] ?? [tool];
+  return <span className="font-mono text-good">{name}{key && <span className="ml-1.5 opacity-50">{key}</span>}</span>;
+}
+
+/** The game's rules or the editor's: on, a building needs a road and has to be paid for. @see playing */
+export function PlayRules() {
+  const playing = useWorldStore((s) => s.playing), setPlaying = useWorldStore((s) => s.setPlaying);
+  return (
+    <button type="button" onClick={() => setPlaying(!playing)} title="play rules: housing needs road frontage and costs money; the night falls"
+      className={`${BTN} ${playing ? ON : OFF}`}>play rules</button>
+  );
+}
+
+/** THE BRUSH, for the panel's head: its shape and its size, which every painting tool shares. */
+export function BrushBar() {
+  const { brush, brushRadius, setBrush, setBrushRadius } = useWorldStore(useShallow((s) => ({ brush: s.brush, brushRadius: s.brushRadius, setBrush: s.setBrush, setBrushRadius: s.setBrushRadius })));
+  return (
+    <div className="flex items-center gap-1">
+      <span className="mr-1 text-[10px] tracking-widest text-fg-faint uppercase">brush</span>
+      {BRUSHES.map(([id, label, hint]) => (
+        <button key={id} type="button" title={hint} onClick={() => setBrush(id)} className={`${BTN} ${brush === id ? ON : OFF}`}>{label}</button>
+      ))}
+      <span className="mx-0.5 text-fg-faint">·</span>
+      {SIZES.map(([r, label]) => (
+        <button key={r} type="button" title={`${label}×${label}`} onClick={() => setBrushRadius(r)} className={`${BTN} ${brushRadius === r ? ON : OFF}`}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
+/** LAND: what it is made of, and how high it stands. */
+export function LandTab() {
+  const { material, palette, heightStep, setMaterial, setHeightStep } = useWorldStore(useShallow((s) => ({
+    material: s.material, palette: s.palette, heightStep: s.heightStep, setMaterial: s.setMaterial, setHeightStep: s.setHeightStep,
+  })));
+  return (
+    <>
+      <Section title="ground">
+        <Row><Tool id="paintTerrain" /><Tool id="erase" /><Tool id="inspect" /></Row>
+        <div className="grid grid-cols-3 gap-1">
+          {palette.map((frame, i) =>
+            i === VOID_MATERIAL ? null : (
+              <button key={i} type="button" onClick={() => setMaterial(i)}
+                className={`${BTN} truncate ${material === i ? ON : OFF}`}>
+                {frame?.replace(/^[A-Za-z]+_/, "").replace(/\.png$/, "") ?? "?"}
+              </button>
+            ),
+          )}
+        </div>
+      </Section>
+      <Section title="height">
+        <Row><Tool id="raise" /><Tool id="lower" /><Tool id="flatten" /><Tool id="smooth" /></Row>
+        <Row>
+          <span className="mr-1 text-fg-faint">step</span>
+          {STEPS.map(([n, label]) => (
+            <button key={n} type="button" onClick={() => setHeightStep(n)} className={`${BTN} ${heightStep === n ? ON : OFF}`}>{label}</button>
+          ))}
+        </Row>
+      </Section>
+    </>
+  );
+}
+
+/** ROADS: laid, taken up, and sloped. */
+export function RoadsTab() {
+  return (
+    <Section title="roads" note={<Networks />}>
+      <Row><Tool id="paintRoad" /><Tool id="eraseRoad" /></Row>
+      <Row><Tool id="slope" /><Tool id="unslope" /></Row>
+    </Section>
+  );
+}
+
+/** WATER: poured and drained, its springs and sinks, its pipes and boats, and what it is. */
+export function WaterTab() {
+  const { fluidMaterial, setFluidMaterial, openEdge, setOpenEdge } = useWorldStore(useShallow((s) => ({
+    fluidMaterial: s.fluidMaterial, setFluidMaterial: s.setFluidMaterial, openEdge: s.openEdge, setOpenEdge: s.setOpenEdge,
+  })));
+  return (
+    <>
+      <Section title="water" note={<><WaterMeta /><Sources /></>}>
+        <Row><Tool id="pourWater" /><Tool id="drainWater" /></Row>
+        <Row><Tool id="spring" /><Tool id="sink" /></Row>
+        <Row>
+          <Tool id="pipe" title="a water main: drag from water to a building that drinks" />
+          <Tool id="boat" title="click on water to put a boat on it; click a boat to take it off" />
+        </Row>
+      </Section>
+      <Section title="fluid">
+        <Row>
+          {fluidChoices().map(({ index, material }: { index: number; material: { name: string } }) => (
+            <button key={index} type="button" onClick={() => setFluidMaterial(index)} className={`${BTN} ${fluidMaterial === index ? ON : OFF}`}>{material.name}</button>
+          ))}
+        </Row>
+      </Section>
+      <Section title="map edge">
+        <Row>
+          <button type="button" onClick={() => setOpenEdge(!openEdge)} title="whether water runs off the edge of the map" className={`${BTN} ${openEdge ? ON : OFF}`}>open edge</button>
+        </Row>
+      </Section>
+    </>
+  );
+}
+
+/** BUILD: what stands on the map, put up and taken down. */
+export function BuildTab() {
+  const { structureDefId, setStructureDef } = useWorldStore(useShallow((s) => ({ structureDefId: s.structureDefId, setStructureDef: s.setStructureDef })));
+  return (
+    <Section title="buildings" note={<Beds />}>
+      <Row><Tool id="placeStructure" /><Tool id="demolish" /></Row>
+      <div className="grid grid-cols-2 gap-1">
+        {allStructureDefs().map((d) => (
+          <button key={d.id} type="button" onClick={() => setStructureDef(d.id)}
+            title={`${d.name} · ${d.footprint.w}×${d.footprint.h} · ${d.render.kind}${priceOf(d.id)}`}
+            className={`${BTN} truncate text-left ${structureDefId === d.id ? ON : OFF}`}>{d.name}</button>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+/** THE MAP ITSELF: kept and brought back, made blank at a size, or set up as one of the fixtures. */
+export function MapTab() {
   const fileRef = useRef<HTMLInputElement>(null);
-  /**
-   * WHAT THIS PANEL ACTUALLY READS, and nothing else.
-   *
-   * `useWorldStore()` with no selector subscribes to the whole state, and
-   * zustand hands back a new state object on every write — so the panel, which
-   * is the entire sidebar and several hundred buttons, re-rendered on every
-   * `setHover`. That is once per pointer move across the canvas. It showed up
-   * in a profile of a single pour as the biggest thing in the trace, in
-   * React's own per-commit cost rather than in any component here.
-   *
-   * Shallow over the slice it names: the actions are stable references and the
-   * rest are primitives or objects that only change when they really do.
-   */
-  const {
-    tool, brush, brushRadius, material, palette, grid, heightStep, setTool, setBrush, setBrushRadius,
-    setMaterial, setHeightStep, loadGrid, resize, applyFixture,
-    structureDefId, setStructureDef,
-    fluidMaterial, setFluidMaterial,
-    openEdge, setOpenEdge, getWaterField, playing, setPlaying, setGenParam,
-  } = useWorldStore(useShallow((s) => ({
-    tool: s.tool, brush: s.brush, brushRadius: s.brushRadius,
-    material: s.material, palette: s.palette, grid: s.grid,
-    heightStep: s.heightStep,
-    setTool: s.setTool, setBrush: s.setBrush, setBrushRadius: s.setBrushRadius,
-    setMaterial: s.setMaterial, setHeightStep: s.setHeightStep,
-    loadGrid: s.loadGrid,
-    resize: s.resize, applyFixture: s.applyFixture, setGenParam: s.setGenParam,
-    structureDefId: s.structureDefId,
-    setStructureDef: s.setStructureDef, fluidMaterial: s.fluidMaterial,
-    setFluidMaterial: s.setFluidMaterial,
-    openEdge: s.openEdge, setOpenEdge: s.setOpenEdge,
-    getWaterField: s.getWaterField,
-    playing: s.playing, setPlaying: s.setPlaying,
+  const { palette, grid, loadGrid, resize, applyFixture, getWaterField, setGenParam } = useWorldStore(useShallow((s) => ({
+    palette: s.palette, grid: s.grid, loadGrid: s.loadGrid, resize: s.resize, applyFixture: s.applyFixture, getWaterField: s.getWaterField, setGenParam: s.setGenParam,
   })));
 
   const save = () => {
@@ -255,169 +397,41 @@ export function EditPanel() {
 
   return (
     <>
-      <p className="mt-4 mb-1 text-fg-muted">tool</p>
-      <div className="flex flex-wrap gap-1">
-        {TOOLS.map(([id, label]) => (
-          <button key={id} type="button" onClick={() => setTool(id)}
-            className={`${BTN} ${tool === id ? ON : OFF}`}>{label}</button>
-        ))}
-      </div>
-
-      <p className="mt-3 mb-1 text-fg-muted">height</p>
-      <div className="flex flex-wrap gap-1">
-        {HEIGHT_UI.map(([id, label]) => (
-          <button key={id} type="button" onClick={() => setTool(id)}
-            className={`${BTN} ${tool === id ? ON : OFF}`}>{label}</button>
-        ))}
-      </div>
-      <div className="mt-1 flex flex-wrap items-center gap-1">
-        <span className="mr-1 text-fg-muted">step</span>
-        {STEPS.map(([n, label]) => (
-          <button key={n} type="button" onClick={() => setHeightStep(n)}
-            className={`${BTN} ${heightStep === n ? ON : OFF}`}>{label}</button>
-        ))}
-      </div>
-
-      <p className="mt-3 mb-1 text-fg-muted">road</p>
-      <div className="flex flex-wrap items-center gap-1">
-        <button type="button" onClick={() => setTool("paintRoad")}
-          className={`${BTN} ${tool === "paintRoad" ? ON : OFF}`}>pave (p)</button>
-        <button type="button" onClick={() => setTool("eraseRoad")}
-          className={`${BTN} ${tool === "eraseRoad" ? ON : OFF}`}>unpave (o)</button>
-        <span className="ml-1 text-fg-muted">
-          <Networks />
-        </span>
-      </div>
-
-      <div className="mt-1 flex flex-wrap items-center gap-1">
-        <button type="button" onClick={() => setTool("slope")}
-          className={`${BTN} ${tool === "slope" ? ON : OFF}`}>slope (u)</button>
-        <button type="button" onClick={() => setTool("unslope")}
-          className={`${BTN} ${tool === "unslope" ? ON : OFF}`}>unslope (i)</button>
-      </div>
-
-      <p className="mt-3 mb-1 text-fg-muted">water</p>
-      <div className="flex flex-wrap items-center gap-1">
-        <button type="button" onClick={() => setTool("pourWater")}
-          className={`${BTN} ${tool === "pourWater" ? ON : OFF}`}>pour (j)</button>
-        <button type="button" onClick={() => setTool("drainWater")}
-          className={`${BTN} ${tool === "drainWater" ? ON : OFF}`}>drain (k)</button>
-        <button type="button" onClick={() => setTool("spring")}
-          className={`${BTN} ${tool === "spring" ? ON : OFF}`}>spring (l)</button>
-        <button type="button" onClick={() => setTool("sink")}
-          className={`${BTN} ${tool === "sink" ? ON : OFF}`}>sink (;)</button>
-        <button type="button" onClick={() => setTool("pipe")}
-          title="a water main: drag from water to a building that drinks"
-          className={`${BTN} ${tool === "pipe" ? ON : OFF}`}>pipe (&apos;)</button>
-        <button type="button" onClick={() => setTool("boat")}
-          title="click on water to put a boat on it; click a boat to take it off"
-          className={`${BTN} ${tool === "boat" ? ON : OFF}`}>boat (h)</button>
-        <button type="button" onClick={() => setOpenEdge(!openEdge)}
-          title="whether water runs off the edge of the map"
-          className={`${BTN} ${openEdge ? ON : OFF}`}>open edge</button>
-        {fluidChoices().map(({ index, material }: { index: number; material: { name: string } }) => (
-          <button key={index} type="button" onClick={() => setFluidMaterial(index)}
-            className={`${BTN} ${fluidMaterial === index ? ON : OFF}`}>{material.name}</button>
-        ))}
-        <span className="ml-1 text-fg-muted">
-          <WaterMeta />
-          <Sources />
-        </span>
-      </div>
-
-      <p className="mt-3 mb-1 text-fg-muted">structures</p>
-      <div className="flex flex-wrap items-center gap-1">
-        <button type="button" onClick={() => setTool("placeStructure")}
-          className={`${BTN} ${tool === "placeStructure" ? ON : OFF}`}>build (n)</button>
-        <button type="button" onClick={() => setTool("demolish")}
-          className={`${BTN} ${tool === "demolish" ? ON : OFF}`}>demolish (x)</button>
-        {/* THE GAME'S RULES OR THE EDITOR'S. On, a building needs a road and
-            has to be paid for; off, this is an authoring tool. @see playing */}
-        <button type="button" onClick={() => setPlaying(!playing)}
-          title="Play rules: housing needs road frontage and costs money"
-          className={`${BTN} ${playing ? ON : OFF}`}>play rules</button>
-      </div>
-      <Beds />
-      <div className="mt-1 flex flex-wrap gap-1">
-        {allStructureDefs().map((d) => (
-          <button key={d.id} type="button" onClick={() => setStructureDef(d.id)}
-            title={`${d.footprint.w}×${d.footprint.h} · ${d.render.kind}${priceOf(d.id)}`}
-            className={`${BTN} ${structureDefId === d.id ? ON : OFF}`}>{d.name}</button>
-        ))}
-      </div>
-
-      <p className="mt-3 mb-1 text-fg-muted">brush</p>
-      <div className="flex flex-wrap gap-1">
-        {BRUSHES.map(([id, label]) => (
-          <button key={id} type="button" onClick={() => setBrush(id)}
-            className={`${BTN} ${brush === id ? ON : OFF}`}>{label}</button>
-        ))}
-      </div>
-
-      <p className="mt-3 mb-1 text-fg-muted">brush size</p>
-      <div className="flex flex-wrap gap-1">
-        {SIZES.map(([r, label]) => (
-          <button key={r} type="button" onClick={() => setBrushRadius(r)}
-            className={`${BTN} ${brushRadius === r ? ON : OFF}`}>{label}</button>
-        ))}
-      </div>
-
-      <p className="mt-3 mb-1 text-fg-muted">material</p>
-      <div className="flex flex-wrap gap-1">
-        {palette.map((frame, i) =>
-          i === VOID_MATERIAL ? null : (
-            <button key={i} type="button" onClick={() => setMaterial(i)}
-              className={`${BTN} ${material === i ? ON : OFF}`}>
-              {frame?.replace(/^[A-Za-z]+_/, "").replace(/\.png$/, "") ?? "?"}
-            </button>
-          ),
-        )}
-      </div>
-
-      <p className="mt-3 mb-1 text-fg-muted">history</p>
-      <History />
-
-      <p className="mt-3 mb-1 text-fg-muted">map</p>
-      <div className="flex flex-wrap gap-1">
-        <button type="button" onClick={save} className={`${BTN} ${OFF}`}>save</button>
-        <button type="button" onClick={() => fileRef.current?.click()} className={`${BTN} ${OFF}`}>
-          load
-        </button>
-        <button type="button" onClick={() => resize(grid.w, grid.h)} className={`${BTN} ${OFF}`}>
-          reset
-        </button>
-      </div>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="application/json,.json"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void load(f);
-          e.target.value = ""; // so the same file can be re-loaded
-        }}
-      />
-
+      <Section title="file">
+        <Row>
+          <button type="button" onClick={save} className={`${BTN} ${OFF}`}>save</button>
+          <button type="button" onClick={() => fileRef.current?.click()} className={`${BTN} ${OFF}`}>load</button>
+          <button type="button" onClick={() => resize(grid.w, grid.h)} title="a blank map at this size" className={`${BTN} ${OFF}`}>reset</button>
+        </Row>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void load(f);
+            e.target.value = ""; // so the same file can be re-loaded
+          }}
+        />
+      </Section>
       {/* A BLANK map at this size, for authoring — and the generator's size is
           set to match, or pressing generate afterwards would quietly hand back
           a map of a different size from the one just chosen. @see GenParams */}
-      <p className="mt-3 mb-1 text-fg-muted">size</p>
-      <div className="flex flex-wrap gap-1">
-        {[16, 32, DEFAULT_SIZE, 96].map((n) => (
-          <button key={n} type="button"
-            onClick={() => { resize(n, n); setGenParam("size", n); }}
-            className={`${BTN} ${grid.w === n ? ON : OFF}`}>{n}²</button>
-        ))}
-      </div>
-
-      <p className="mt-3 mb-1 text-fg-muted">terrain fixture</p>
-      <div className="flex flex-wrap gap-1">
-        {FIXTURES.map(([id, label]) => (
-          <button key={id} type="button" onClick={() => applyFixture(id)}
-            className={`${BTN} ${OFF}`}>{label}</button>
-        ))}
-      </div>
+      <Section title="blank map">
+        <Row>
+          {[16, 32, DEFAULT_SIZE, 96].map((n) => (
+            <button key={n} type="button" onClick={() => { resize(n, n); setGenParam("size", n); }} className={`${BTN} ${grid.w === n ? ON : OFF}`}>{n}²</button>
+          ))}
+        </Row>
+      </Section>
+      <Section title="fixtures">
+        <div className="grid grid-cols-3 gap-1">
+          {FIXTURES.map(([id, label]) => (
+            <button key={id} type="button" title={label} onClick={() => applyFixture(id)} className={`${BTN} truncate ${OFF}`}>{label}</button>
+          ))}
+        </div>
+      </Section>
     </>
   );
 }

@@ -145,6 +145,8 @@ export type Overlays = {
    * tiles you are hovering to inspect. @see CellReadout
    */
   readout: boolean;
+  /** The buildings' labels over the map, in the editor: off, for looking at the map itself. @see play/building-labels */
+  labels: boolean;
 };
 
 /**
@@ -889,6 +891,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     grid: false, bands: false, height: false, origin: true, faces: true,
     net: false, mask: false, lanes: false, xray: false,
     readout: START_READOUT,
+    labels: false,
   },
   seed: null,
   gen: START_GEN,

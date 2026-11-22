@@ -7,23 +7,19 @@
  * without checking the target, which would kill scrolling in any panel nested
  * inside it.
  */
+import { useEffect } from "react";
 import { useResizeToWrapper } from "../hooks/use-resize-to-wrapper";
-import type { Overlays } from "../state/world.store";
-import { DEFAULT_SIZE, useWorldStore } from "../state/world.store";
+import { useWorldStore } from "../state/world.store";
 import { useFoundWorld, WorldCanvas } from "./world-canvas";
 import { BuildingLabels } from "./play/building-labels";
 import { PortIncome } from "./play/port-income";
-import { Calibration } from "./debug/calibration";
 import { CellReadout } from "./debug/cell-readout";
-import { EditPanel } from "./debug/edit-panel";
-import { SeedControls } from "./debug/seed-controls";
+import { EditorSidebar } from "./debug/editor-sidebar";
 import "./debug/expose-store";
 import { GpuCheckHud } from "./debug/gpu-check-hud";
 import { GpuWaterToggle } from "./debug/gpu-water-toggle";
-import { Minimap } from "./debug/minimap";
 import { PerfHud } from "./debug/perf-hud";
 import { useEditKeys } from "./edit/use-edit-keys";
-import { bandCount } from "./iso";
 
 /** @see GpuCheckHud — six comparisons and a copy of the field per run. */
 const GPU_CHECK =
@@ -35,13 +31,10 @@ export function WorldEditor() {
   // The editor's own map, authored freely: no game rules. @see useFoundWorld
   useFoundWorld("editor", false);
   useEditKeys();
-  const grid = useWorldStore((s) => s.grid);
-  const drawnBands = useWorldStore((s) => s.drawnBands);
-  const hover = useWorldStore((s) => s.hover);
   const overlays = useWorldStore((s) => s.overlays);
-  const toggleOverlay = useWorldStore((s) => s.toggleOverlay);
-
-  const total = bandCount(grid.w, grid.h);
+  // THE LOOK TOOL IN HAND when the editor opens: a first click on the map looks, and changes nothing.
+  const setTool = useWorldStore((s) => s.setTool);
+  useEffect(() => { setTool("inspect"); }, [setTool]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-surface-0 text-fg">
@@ -49,7 +42,8 @@ export function WorldEditor() {
           which is the failure mode that makes v1's map-harness look broken */}
       <div ref={setRef} className="relative min-h-0 min-w-[420px] flex-1">
         <WorldCanvas wrapperRef={wrapperRef} size={size} />
-        <BuildingLabels />
+        {/* Off until asked for: they stand over the map being looked at. @see Overlays.labels */}
+        {overlays.labels && <BuildingLabels />}
         <PortIncome />
         {/* anchored HTML — inside the wrapper but pointer-events-none, so it
             can never intercept a pick */}
@@ -66,89 +60,8 @@ export function WorldEditor() {
         {overlays.readout && <CellReadout />}
       </div>
 
-      {/* chrome — sibling of the wrapper, so wheel events are its own */}
-      <aside className="w-72 shrink-0 overflow-y-auto border-l border-line-quiet bg-surface-0 p-4 text-xs">
-        {/* WHERE THE TITLE WAS. A panel does not need to say which panel it
-            is; the seed is the thing worth writing down. @see SeedControls */}
-        <SeedControls />
-
-        <dl className="grid grid-cols-2 gap-y-1 font-mono">
-          <dt className="text-fg-muted">size</dt>
-          <dd>
-            {grid.w}×{grid.h}
-          </dd>
-          <dt className="text-fg-muted">cells</dt>
-          <dd>{(grid.w * grid.h).toLocaleString()}</dd>
-          <dt className="text-fg-muted">bands</dt>
-          <dd>{total}</dd>
-          <dt className="text-fg-muted">drawn</dt>
-          <dd
-            className={
-              drawnBands < total ? "text-good" : "text-fg"
-            }
-          >
-            {drawnBands}{" "}
-            <span className="text-fg-muted">
-              ({total ? Math.round((drawnBands / total) * 100) : 0}%)
-            </span>
-          </dd>
-          <dt className="text-fg-muted">height</dt>
-          <dd>
-            {grid.minHeight}…{grid.maxHeight}
-          </dd>
-          <dt className="text-fg-muted">hover</dt>
-          <dd className={hover ? "text-good" : "text-fg-muted"}>
-            {hover ? `${hover.x},${hover.y}` : "—"}
-          </dd>
-        </dl>
-
-        <p className="mt-4 mb-1 text-fg-muted">overlays</p>
-        <div className="flex flex-wrap gap-1">
-          {(
-            [
-              "grid",
-              "bands",
-              "height",
-              "origin",
-              "net",
-              "mask",
-              "lanes",
-              "xray",
-              "faces",
-              "readout",
-            ] as (keyof Overlays)[]
-          ).map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => toggleOverlay(k)}
-              className={`cursor-pointer rounded border px-2 py-1 font-mono ${
-                overlays[k]
-                  ? "border-good bg-good/20 text-good"
-                  : "border-line bg-surface-1 text-fg-muted hover:bg-surface-2"
-              }`}
-            >
-              {k}
-            </button>
-          ))}
-        </div>
-
-        <EditPanel />
-
-        <p className="mt-4 mb-1 text-fg-muted">minimap</p>
-        <Minimap />
-
-        <div className="mt-4">
-          <Calibration />
-        </div>
-
-        <p className="mt-6 leading-relaxed text-fg-muted">
-          Left-drag paints; while a paint tool is active, pan with middle or
-          right button. <span className="font-mono">⌘Z</span> /{" "}
-          <span className="font-mono">⇧⌘Z</span> undo and redo — a whole drag is
-          one step. Default map is {DEFAULT_SIZE}² of flat grass at height 0.
-        </p>
-      </aside>
+      {/* chrome — sibling of the wrapper, so wheel events are its own. @see EditorSidebar */}
+      <EditorSidebar />
     </div>
   );
 }
