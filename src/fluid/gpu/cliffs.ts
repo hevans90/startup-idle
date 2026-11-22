@@ -27,7 +27,7 @@
  */
 import { FALL_MIN, THROW_EASE } from "../falls";
 import {
-  CLIFFN_SLOT, STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
+  CLIFFN_SLOT, REDUCE_SLOTS, STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 
 const WORKGROUP = 8;
 
@@ -53,6 +53,13 @@ fn claim(k: i32) {
 }
 
 /** The smoothed launch for one slot — see the long note this carries. */
+// WATER IN THE AIR OVER AN EDGE lands at one end of it, so both ends' tiles
+// are flagged as holding water: a landing is then never outside the list.
+// @see createTiles
+fn inAir(x: i32, y: i32, jx: i32, jy: i32) {
+  atomicStore(&reduce[${REDUCE_SLOTS} + tileOf(x, y)], 1);
+  atomicStore(&reduce[${REDUCE_SLOTS} + tileOf(jx, jy)], 1);
+}
 fn seedThrow(ia: i32, x: i32, y: i32, own: f32) {
 
   // THE LAUNCH IS SEEDED ONLY WHERE A COLUMN HAS JUST BECOME A LIP, not every
@@ -126,6 +133,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let stepDown = groundAt(ia) - groundAt(jb);
         if ((joined && max(stepDown, -stepDown) >= ${f(FALL_MIN)})
           || airAt(k) > 0.0 || frontAt(k) > 0.0) {
+          if (airAt(k) > 0.0) { inAir(x, y, x + 1, y); }
           claim(k);
           // THE LATCH, asked with last frame's and written for this one. This
           // thread owns the edge and dropAt reads only this edge's latch, so
@@ -141,6 +149,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let stepDown = groundAt(ia) - groundAt(jb);
         if ((joined && max(stepDown, -stepDown) >= ${f(FALL_MIN)})
           || airAt(k + 1) > 0.0 || frontAt(k + 1) > 0.0) {
+          if (airAt(k + 1) > 0.0) { inAir(x, y, x, y + 1); }
           claim(k + 1);
           setFalling(k + 1, select(0.0, 1.0, dropAt(i, 1, a, b) != 0.0));
         } else {

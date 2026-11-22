@@ -72,10 +72,15 @@ fn setQ(e: i32, v: f32) {
  * length squared over a time, the length being the depth.
  */
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn prep(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
-  if (x > consts.box.z || y > consts.box.w) { return; }
+fn prep(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+  let at = cellOf(gid, wid, lid);
+  if (at.x < 0) { return; }
+  let x = at.x;
+  let y = at.y;
   let i = y * nx() + x;
   let step = select(nx(), 1, AXIS == 0);
   let inMap = select(y + 1 < ny(), x + 1 < nx(), AXIS == 0);
@@ -125,10 +130,15 @@ fn prep(@builtin(global_invocation_id) gid: vec3<u32>) {
  * is there is last substep's. Every edge that takes part is inside the box.
  */
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn exchange(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
-  if (x > consts.box.z || y > consts.box.w) { return; }
+fn exchange(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+  let at = cellOf(gid, wid, lid);
+  if (at.x < 0) { return; }
+  let x = at.x;
+  let y = at.y;
   let i = y * nx() + x;
   let L = slots();
   for (var a = 0; a < L; a = a + 1) {
@@ -143,8 +153,7 @@ fn exchange(@builtin(global_invocation_id) gid: vec3<u32>) {
       for (var k = 0; k < 4; k = k + 1) {
         let jx = x + select(select(0, 1, k == 1), -1, k == 0);
         let jy = y + select(select(0, 1, k == 3), -1, k == 2);
-        if (jx < consts.box.x || jx > consts.box.z
-            || jy < consts.box.y || jy > consts.box.w) { continue; }
+        if (!inRegion(jx, jy)) { continue; }
         let ej = P + jy * nx() + jx;
         let hj = iterBAt(ej);
         if (hj <= 0.0) { continue; }
@@ -160,7 +169,8 @@ fn exchange(@builtin(global_invocation_id) gid: vec3<u32>) {
 `;
 
 export type DiffusePass = {
-  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box) => void;
+  /** Over `box`, or over the listed tiles where `tiles` is their dispatch. @see createTiles */
+  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box, tiles?: GPUBuffer) => void;
   layout: GPUBindGroupLayout;
 };
 
@@ -179,7 +189,7 @@ export function createDiffuse(device: GPUDevice): DiffusePass {
 
   return {
     layout,
-    encode: (enc, s, box) => {
+    encode: (enc, s, box, tiles) => {
       const gx = Math.ceil((box.x1 - box.x0 + 1) / WORKGROUP);
       const gy = Math.ceil((box.y1 - box.y0 + 1) / WORKGROUP);
       const pass = beginPass(enc, s, "diffuse");
@@ -187,7 +197,8 @@ export function createDiffuse(device: GPUDevice): DiffusePass {
         for (const pipeline of axis) {
           pass.setPipeline(pipeline);
           bindState(pass, s, layout);
-          pass.dispatchWorkgroups(gx, gy);
+          if (tiles) pass.dispatchWorkgroupsIndirect(tiles, 0);
+          else pass.dispatchWorkgroups(gx, gy);
         }
       }
       pass.end();

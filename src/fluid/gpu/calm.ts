@@ -84,27 +84,30 @@ fn calmScale() -> f32 {
 
 ${CALM_DEPTH_WGSL}
 
-fn inBox(x: i32, y: i32) -> bool {
-  return x >= consts.box.x && x <= consts.box.z && y >= consts.box.y && y <= consts.box.w;
-}
+fn inBox(x: i32, y: i32) -> bool { return inRegion(x, y); }
 
 /** The Laplacian of the edge velocities at (x, y) in plane P. @see lapAt */
 fn lapAt(P: i32, x: i32, y: i32) -> f32 {
   let e = P + y * nx() + x;
   let vi = veloAt(e);
   var L = 0.0;
-  if (x > consts.box.x && iterBAt(e - 1) > 0.0) { L = L + (veloAt(e - 1) - vi); }
-  if (x < consts.box.z && iterBAt(e + 1) > 0.0) { L = L + (veloAt(e + 1) - vi); }
-  if (y > consts.box.y && iterBAt(e - nx()) > 0.0) { L = L + (veloAt(e - nx()) - vi); }
-  if (y < consts.box.w && iterBAt(e + nx()) > 0.0) { L = L + (veloAt(e + nx()) - vi); }
+  if (inRegion(x - 1, y) && iterBAt(e - 1) > 0.0) { L = L + (veloAt(e - 1) - vi); }
+  if (inRegion(x + 1, y) && iterBAt(e + 1) > 0.0) { L = L + (veloAt(e + 1) - vi); }
+  if (inRegion(x, y - 1) && iterBAt(e - nx()) > 0.0) { L = L + (veloAt(e - nx()) - vi); }
+  if (inRegion(x, y + 1) && iterBAt(e + nx()) > 0.0) { L = L + (veloAt(e + nx()) - vi); }
   return L;
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn prep(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
-  if (x > consts.box.z || y > consts.box.w) { return; }
+fn prep(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+  let at = cellOf(gid, wid, lid);
+  if (at.x < 0) { return; }
+  let x = at.x;
+  let y = at.y;
   let i = y * nx() + x;
   let step = select(nx(), 1, AXIS == 0);
   let inMap = select(y + 1 < ny(), x + 1 < nx(), AXIS == 0);
@@ -135,10 +138,15 @@ fn prep(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 /** LAP: each edge's Laplacian, once, into iterA — free once the breaking exchange is done. */
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn lap(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
-  if (x > consts.box.z || y > consts.box.w) { return; }
+fn lap(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+  let at = cellOf(gid, wid, lid);
+  if (at.x < 0) { return; }
+  let x = at.x;
+  let y = at.y;
   let i = y * nx() + x;
   let L = slots();
   for (var a = 0; a < L; a = a + 1) {
@@ -150,10 +158,15 @@ fn lap(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn exchange(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
-  if (x > consts.box.z || y > consts.box.w) { return; }
+fn exchange(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+  let at = cellOf(gid, wid, lid);
+  if (at.x < 0) { return; }
+  let x = at.x;
+  let y = at.y;
   let i = y * nx() + x;
   let k = calmScale();
   let L = slots();
@@ -182,7 +195,8 @@ fn exchange(@builtin(global_invocation_id) gid: vec3<u32>) {
 `;
 
 export type CalmPass = {
-  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box) => void;
+  /** Over `box`, or over the listed tiles where `tiles` is their dispatch. @see createTiles */
+  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box, tiles?: GPUBuffer) => void;
   layout: GPUBindGroupLayout;
 };
 
@@ -201,7 +215,7 @@ export function createCalm(device: GPUDevice): CalmPass {
 
   return {
     layout,
-    encode: (enc, s, box) => {
+    encode: (enc, s, box, tiles) => {
       const gx = Math.ceil((box.x1 - box.x0 + 1) / WORKGROUP);
       const gy = Math.ceil((box.y1 - box.y0 + 1) / WORKGROUP);
       const pass = beginPass(enc, s, "calm");
@@ -209,7 +223,8 @@ export function createCalm(device: GPUDevice): CalmPass {
         for (const pipeline of axis) {
           pass.setPipeline(pipeline);
           bindState(pass, s, layout);
-          pass.dispatchWorkgroups(gx, gy);
+          if (tiles) pass.dispatchWorkgroupsIndirect(tiles, 0);
+          else pass.dispatchWorkgroups(gx, gy);
         }
       }
       pass.end();

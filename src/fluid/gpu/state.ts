@@ -74,7 +74,7 @@ const num = (v: number) => (Number.isInteger(v) ? `${v}.0` : String(v));
  * compare harness is what caught it. @see CONSTS_STRIDE, which is a multiple
  * of 256 and has plenty of room.
  */
-const CONSTS_BYTES = 352;
+const CONSTS_BYTES = 368;
 
 /**
  * How far apart one substep's constants sit from the next.
@@ -97,6 +97,28 @@ export const CONSTS_SLOTS = 16;
  * @see GpuState.reduce
  */
 export const REDUCE_SLOTS = 13 + 64;
+
+/**
+ * THE WET TILES, and the side of one in columns: a workgroup's worth.
+ *
+ * The passes that move water were dispatched over one box round all of it,
+ * and a river's box is most of the map: fourteen tiles in a hundred wet on a
+ * generated map, seventy nine in a hundred dispatched. So the device lists the
+ * tiles that hold water, widened by as far as a frame can carry it, and those
+ * passes run a workgroup per listed tile. A dry map lists none and runs none.
+ * @see createTiles, cellOf
+ */
+export const TILE = 8;
+
+/** How many tiles a map of this many columns is cut into. @see TILE */
+export const tileCount = (nx: number, ny: number) =>
+  Math.ceil(nx / TILE) * Math.ceil(ny / TILE);
+
+/** The slot the listed tiles are counted in — the one the old tally left. */
+export const TILEN_SLOT = 11;
+
+/** Workgroups across the listed tiles' dispatch; the rest wrap onto rows. */
+export const TILE_ROW = 1024;
 
 /** The slot the spray's spawn counter claims from. @see REDUCE_SLOTS */
 export const SPAWNED_SLOT = 6;
@@ -405,6 +427,9 @@ export const FIELDS = [
   // it: packed by matpack's second entry point, copied out LATCH_ROW wide.
   // A quarter of the copy the floats were. @see LATCH_ROW
   "fallByte",
+  // WHICH TILES THE WATER PASSES RUN OVER this frame, as a flag a tile and as
+  // the list the dispatch walks. The device's own. @see TILE
+  "tileOn", "tileList",
 ] as const;
 export type FieldName = (typeof FIELDS)[number];
 
@@ -501,6 +526,10 @@ export type PassUniforms = {
   rimHeld: boolean;
   /** How many STOREYS a column has. @see ColumnField.layers */
   slots: number;
+  /** Whether the water passes walk the listed tiles, not the box. @see TILE */
+  tiles?: boolean;
+  /** How many tiles round a wet one are listed with it. @see createTiles */
+  tileReach?: number;
 };
 
 /**
@@ -560,6 +589,7 @@ export function fieldSizes(
     falling: pairCells * 2,
     // Whole rows of LATCH_ROW bytes, so the copy never reads past the field.
     fallByte: Math.ceil((pairCells * 2) / LATCH_ROW) * (LATCH_ROW / 4),
+    tileOn: tileCount(nx, ny), tileList: tileCount(nx, ny),
   };
 }
 
@@ -608,7 +638,9 @@ export function createGpuState(device: GPUDevice, f: ColumnField): GpuState {
     label: "landings",
   });
   const reduce = device.createBuffer({
-    size: REDUCE_SLOTS * 4,
+    // AND A FLAG A TILE after the slots: whether it holds water. Atomics, so
+    // here rather than with the floats. @see TILE
+    size: (REDUCE_SLOTS + tileCount(f.nx, f.ny)) * 4,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     label: "reduce",
   });
@@ -1122,6 +1154,8 @@ export function writeConsts(
   i32[68] = o.foamNow; i32[69] = o.foamNext;
   i32[70] = o.splashNow; i32[71] = o.splashIn;
   f32[51] = u.frameDt;
+  i32[88] = u.tiles ? 1 : 0; i32[89] = o.tileOn; i32[90] = o.tileList;
+  i32[91] = u.tileReach ?? 1;
   s.device.queue.writeBuffer(s.consts, (slot % CONSTS_SLOTS) * CONSTS_STRIDE, buf);
 }
 
@@ -1214,6 +1248,7 @@ struct Consts {
   o13: vec4<i32>,        // wantN, then the rim: offset, material, whether held
   o14: vec4<i32>,        // roof: offset, how many storeys; falling, fallByte: offsets
   o15: vec4<i32>,        // offsets: slotMask, foul, foulIn, volIn
+  o16: vec4<i32>,        // tiles: whether walked, tileOn, tileList, reach
 };
 
 @group(0) @binding(0) var<uniform> consts : Consts;
@@ -1229,6 +1264,47 @@ fn landBoxAt() -> i32 { return nx() * ny() * slots() * 5; }
 
 fn nx() -> i32 { return consts.dims.x; }
 fn ny() -> i32 { return consts.dims.y; }
+
+// THE TILES. A pass that moves water asks cellOf which column its thread has:
+// by the box, or by the list of tiles holding water. @see TILE
+fn tileMode() -> bool { return consts.o16.x != 0; }
+fn tilesAcross() -> i32 { return (nx() + ${TILE - 1}) / ${TILE}; }
+fn tilesDown() -> i32 { return (ny() + ${TILE - 1}) / ${TILE}; }
+fn tileReach() -> i32 { return consts.o16.w; }
+fn tileOnAt(t: i32) -> bool { return field[consts.o16.y + t] != 0.0; }
+fn setTileOn(t: i32, v: f32) { field[consts.o16.y + t] = v; }
+fn tileListAt(k: i32) -> i32 { return i32(field[consts.o16.z + k]); }
+fn setTileList(k: i32, t: i32) { field[consts.o16.z + k] = f32(t); }
+fn tileOf(x: i32, y: i32) -> i32 { return (y / ${TILE}) * tilesAcross() + x / ${TILE}; }
+
+// WHETHER A NEIGHBOUR WAS WALKED this substep. One that was not carries
+// whatever it last held, and nothing may be read off it.
+fn inRegion(x: i32, y: i32) -> bool {
+  if (tileMode()) {
+    if (x < 0 || y < 0 || x >= nx() || y >= ny()) { return false; }
+    return tileOnAt(tileOf(x, y));
+  }
+  return x >= consts.box.x && x <= consts.box.z && y >= consts.box.y && y <= consts.box.w;
+}
+
+// THE COLUMN A THREAD WORKS, or x below nought for none. By the box it is the
+// box's corner plus the thread; by the tiles the workgroup takes the next
+// listed tile and its threads are that tile's columns.
+fn cellOf(gid: vec3<u32>, wid: vec3<u32>, lid: vec3<u32>) -> vec2<i32> {
+  if (!tileMode()) {
+    let x = consts.box.x + i32(gid.x);
+    let y = consts.box.y + i32(gid.y);
+    if (x > consts.box.z || y > consts.box.w) { return vec2<i32>(-1, -1); }
+    return vec2<i32>(x, y);
+  }
+  let k = i32(wid.y) * ${TILE_ROW} + i32(wid.x);
+  if (k >= atomicLoad(&reduce[${TILEN_SLOT}])) { return vec2<i32>(-1, -1); }
+  let t = tileListAt(k);
+  let x = (t % tilesAcross()) * ${TILE} + i32(lid.x);
+  let y = (t / tilesAcross()) * ${TILE} + i32(lid.y);
+  if (x >= nx() || y >= ny()) { return vec2<i32>(-1, -1); }
+  return vec2<i32>(x, y);
+}
 fn wnx() -> i32 { return consts.dims.z; }
 fn wstride() -> i32 { return consts.dims.w; }
 fn gain() -> f32 { return consts.a.x; }
@@ -1443,6 +1519,21 @@ fn carriedBox() -> vec4<i32> {
     min(nx() - 1, atomicLoad(&reduce[2]) + 1),
     min(ny() - 1, atomicLoad(&reduce[3]) + 1),
   );
+}
+
+// THE COLUMN A CARRIED FIELD'S THREAD WORKS: one inside carriedBox, and by the
+// tiles one of a listed tile's too. Water ends a frame inside the list, so no
+// wet column is left out; a dry one outside it keeps what it had, as one
+// outside the box always did. @see cellOf
+fn carriedCell(gid: vec3<u32>, wid: vec3<u32>, lid: vec3<u32>) -> vec2<i32> {
+  var at = vec2<i32>(i32(gid.x), i32(gid.y));
+  if (tileMode()) {
+    at = cellOf(gid, wid, lid);
+    if (at.x < 0) { return at; }
+  }
+  let b = carriedBox();
+  if (at.x < b.x || at.y < b.y || at.x > b.z || at.y > b.w) { return vec2<i32>(-1, -1); }
+  return at;
 }
 
 fn foamNowAt(i: i32) -> f32 { return field[consts.o11.x + i]; }

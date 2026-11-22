@@ -68,6 +68,7 @@ import { createApply, readReduce, reduceSeed } from "./apply";
 import { createArrive } from "./arrive";
 import { createPipes } from "./pipes";
 import { createCliffs } from "./cliffs";
+import { createTiles } from "./tiles";
 import { createCalm } from "./calm";
 import { createDiffuse } from "./diffuse";
 import { createDivergence } from "./divergence";
@@ -87,7 +88,7 @@ import { createWant } from "./want";
 import {
   ARRIVE_STRIDE, CLIFFN_SLOT, CONSTS_SLOTS, CONSTS_STRIDE, slotMaskOf,
   CARRIED_BACK, CARRY_ROLL, DEPTH_ROLL, FALL_OUT_BACK, FALL_OUT_MAX, FALL_OUT_STRIDE,
-  FIELDS, REDUCE_SLOTS, SPAWNED_SLOT, SPAWN_MAX, SPAWN_STRIDE, WANT_MAX,
+  FIELDS, REDUCE_SLOTS, SPAWNED_SLOT, TILE, SPAWN_MAX, SPAWN_STRIDE, WANT_MAX,
   copyOut, createGpuState, runsOf,
   upload, uploadArrivals, writeConsts, type FieldName, type Sink,
 } from "./state";
@@ -167,6 +168,8 @@ export type GpuFrame = {
      * to walk the whole map for these, every tick. @see createMeta
      */
     wet: number;
+    /** Tiles the water passes ran over; nought by the box. */
+    tiles: number;
     water: number;
   } | null;
   /**
@@ -362,6 +365,7 @@ export function createGpuWater(
     pipes: createPipes(device),
     spill: createSpill(device),
     cliffs: createCliffs(device),
+    tiles: createTiles(device),
     diffuse: createDiffuse(device),
     calm: createCalm(device),
     accelerate: createAccelerate(device),
@@ -890,7 +894,7 @@ export function createGpuWater(
       x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1,
       deepest: r.deepest, breaking: r.breaking, cliffN: r.cliffN,
       clamped: r.clamped, deltaSum: r.deltaSum,
-      wet: r.wet, water: r.water,
+      wet: r.wet, water: r.water, tiles: r.tiles,
     };
     into.box.x0 = r.x0; into.box.y0 = r.y0;
     into.box.x1 = r.x1; into.box.y1 = r.y1;
@@ -1370,7 +1374,14 @@ export function createGpuWater(
     passes.arrive.encode(enc, state, arriveN);
     // THE MAINS, on the water as it stands with this frame's pours in it: what they draw is gone before the first substep moves any.
     if (on("pipes")) passes.pipes.encode(enc, state);
+    // THE TILES HOLDING WATER, flagged on the water as the substeps will find
+    // it; the cliffs add the ones with water in the air; then the list.
+    // @see createTiles
+    const tiled = !wholeMap && !byBox;
+    if (tiled) passes.tiles.mark(enc, state);
     passes.cliffs.encode(enc, state);
+    if (tiled) passes.tiles.list(enc, state);
+    const tiles = tiled ? passes.tiles.args(state) : undefined;
 
     let calmFirst = true;
     for (const h of plan) {
@@ -1458,6 +1469,9 @@ export function createGpuWater(
         // deliberately so. @see cliffCount, and the note on FallsPass.encode
         // for why a tighter bound was measured and rejected.
         cliffN: field.nx * field.ny * 2,
+        // A COLUMN A SUBSTEP is as far as water goes, and a wet column reads
+        // one more: that many columns, in tiles. @see createTiles
+        tiles: tiled, tileReach: Math.ceil((plan.length + 1) / TILE),
       }, field.wnx, field.wstride, slot);
       state.constsAt = (slot % CONSTS_SLOTS) * CONSTS_STRIDE;
       slot++;
@@ -1474,16 +1488,16 @@ export function createGpuWater(
       // What was breaking at the end of the last step dissipates at the start
       // of this one, on the viscosity that step worked out.
       if (field.breaking && p.breaking > 0 && on("diffuse")) {
-        passes.diffuse.encode(sub, state, region);
+        passes.diffuse.encode(sub, state, region, tiles);
       }
       // And deep water loses its column-scale chop, once a frame, over the
       // frame's time. @see calmChop
-      if (calmFirst && on("diffuse")) passes.calm.encode(sub, state, region);
+      if (calmFirst && on("diffuse")) passes.calm.encode(sub, state, region, tiles);
       calmFirst = false;
-      if (on("accelerate")) passes.accelerate.encode(sub, state, region);
-      if (on("limit")) passes.limit.encode(sub, state, region);
-      if (on("divergence")) passes.divergence.encode(sub, state, region);
-      if (on("apply")) passes.apply.encode(sub, state, region);
+      if (on("accelerate")) passes.accelerate.encode(sub, state, region, tiles);
+      if (on("limit")) passes.limit.encode(sub, state, region, tiles);
+      if (on("divergence")) passes.divergence.encode(sub, state, region, tiles);
+      if (on("apply")) passes.apply.encode(sub, state, region, tiles);
       // A THREAD PER CLIFF EDGE, and a column has a slot pair's worth of
       // them. @see fallEdge
       if (on("falls")) {
@@ -1502,10 +1516,10 @@ export function createGpuWater(
     // it at the top of `drawGpuWater`.
     if (carried) {
       const enc2 = enc;
-      passes.wash.encode(enc2, state);
+      passes.wash.encode(enc2, state, tiles);
       // The foam AFTER the wash and before the bank is cleared: it reads the
       // splash the last substep's plunges banked. @see foam-gpu
-      passes.foam.encode(enc2, state);
+      passes.foam.encode(enc2, state, tiles);
       enc2.clearBuffer(state.acc);
     }
     // AND THE LIPS, WRITTEN OUT AS A LIST — last of all, because the row
@@ -1753,6 +1767,13 @@ export const setReadback = (on: boolean) => { readbackOn = on; };
  */
 let wholeMap = false;
 export const setWholeMap = (on: boolean) => { wholeMap = on; };
+
+/**
+ * Walk the box rather than the listed tiles, for timing one against the
+ * other on one server. The whole map does too. @see createTiles
+ */
+let byBox = false;
+export const setByBox = (on: boolean) => { byBox = on; };
 
 /**
  * PASSES TO LEAVE OUT, for bisecting a fault by removing half of it.

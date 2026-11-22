@@ -108,7 +108,7 @@ src/
   game/              # Pure game logic: catalogs, multipliers, costs, projects…
   molecules/  ui/    # Composite UI and primitives
   iso/               # Isometric maths, building-kit composition
-  fluid/             # Column water solver; gpu/ is WebGPU compute
+  fluid/             # Column water solver; gpu/ is WebGPU compute, run over the tiles holding water (gpu/tiles.ts)
   world/             # The company's map, and the ?world=1 editor
     grid.ts  iso.ts  #   Map layers; projection, picking
     gen/             #   Map generator

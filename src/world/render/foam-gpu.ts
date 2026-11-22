@@ -153,11 +153,15 @@ fn sampleFoam(sx: f32, sy: f32, slot: i32, bed: f32, wet: f32) -> f32 {
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn carry(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let b = carriedBox();
-  let x = i32(gid.x);
-  let y = i32(gid.y);
-  if (x < b.x || y < b.y || x > b.z || y > b.w) { return; }
+fn carry(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+  let at = carriedCell(gid, wid, lid);
+  if (at.x < 0) { return; }
+  let x = at.x;
+  let y = at.y;
   let i = y * nx() + x;
   let cells = nx() * ny();
   let back = frameDt() / cellSize();
@@ -183,11 +187,15 @@ fn carry(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn swap(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let b = carriedBox();
-  let x = i32(gid.x);
-  let y = i32(gid.y);
-  if (x < b.x || y < b.y || x > b.z || y > b.w) { return; }
+fn swap(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+  let at = carriedCell(gid, wid, lid);
+  if (at.x < 0) { return; }
+  let x = at.x;
+  let y = at.y;
   let i = y * nx() + x;
   let cells = nx() * ny();
   for (var a = 0; a < slots(); a = a + 1) {
@@ -197,7 +205,8 @@ fn swap(@builtin(global_invocation_id) gid: vec3<u32>) {
 `;
 
 export type FoamPass = {
-  encode: (enc: GPUCommandEncoder, s: GpuState) => void;
+  /** Over the map, or over the listed tiles where `tiles` is their dispatch. */
+  encode: (enc: GPUCommandEncoder, s: GpuState, tiles?: GPUBuffer) => void;
   layout: GPUBindGroupLayout;
 };
 
@@ -213,7 +222,7 @@ export function createFoamPass(device: GPUDevice): FoamPass {
     }));
   return {
     layout,
-    encode: (enc, s) => {
+    encode: (enc, s, tiles) => {
       const pass = beginPass(enc, s, "foam");
       // The splash over the whole map, because a drop can land anywhere and
       // a mark has to fade wherever it was left.
@@ -222,15 +231,17 @@ export function createFoamPass(device: GPUDevice): FoamPass {
       pass.dispatchWorkgroups(
         Math.ceil(s.nx / WORKGROUP), Math.ceil(s.ny / WORKGROUP),
       );
-      // OVER THE WHOLE MAP, and each thread decides for itself whether it is
-      // in the box — because the box it has to match is the one the device
-      // just reduced, which this side does not know. @see carriedBox
+      // OVER THE LISTED TILES, or the whole map without them, and each thread
+      // decides for itself whether it is in the box — because the box it has
+      // to match is the one the device just reduced, which this side does not
+      // know. @see carriedCell
       const gx = Math.ceil(s.nx / WORKGROUP);
       const gy = Math.ceil(s.ny / WORKGROUP);
       for (const pipeline of [carry, swap]) {
         pass.setPipeline(pipeline);
         bindState(pass, s, layout);
-        pass.dispatchWorkgroups(gx, gy);
+        if (tiles) pass.dispatchWorkgroupsIndirect(tiles, 0);
+        else pass.dispatchWorkgroups(gx, gy);
       }
       pass.end();
     },

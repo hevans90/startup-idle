@@ -83,6 +83,8 @@ declare global {
     __readback?: (on: boolean) => void;
     /** Forces the dispatch region to the whole map. @see setWholeMap */
     __wholeMap?: (on: boolean) => void;
+    /** Walks the box, not the listed tiles. @see setByBox */
+    __byBox?: (on: boolean) => void;
     /** Leaves passes out of the frame, for bisecting a fault. @see setSkip */
     __skip?: (names: string[]) => void;
     /** Lips back as a list, or as five whole arrays. @see setFallList */

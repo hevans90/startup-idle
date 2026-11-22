@@ -172,15 +172,25 @@ fn fluxAt(old: f32, e: Edge, wind: f32) -> f32 {
   return select(0.0, out, out > ${FLUX_FLOOR} || out < ${-FLUX_FLOOR});
 }
 
-@compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
-  // The ACTIVE BOX and nothing outside it, because that is what the CPU walks:
-  // an edge the CPU never touched keeps last step's flux, and a device that
-  // helpfully updated it would disagree everywhere the water is not.
-  if (x > consts.box.z || y > consts.box.w) { return; }
+/** Whether the far end of an edge is walked. By the box, as it always was: yes. */
+fn walked(x: i32, y: i32) -> bool {
+  return !tileMode() || tileOnAt(tileOf(x, y));
+}
 
+@compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
+fn main(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+  let at = cellOf(gid, wid, lid);
+  if (at.x < 0) { return; }
+  let x = at.x;
+  let y = at.y;
+  // ONLY THE COLUMNS cellOf HANDS OUT — the box's, or the listed tiles' — and
+  // nothing outside them, as the CPU walks its box: an edge never touched
+  // keeps last step's flux, and a device that helpfully updated it would
+  // disagree everywhere the water is not.
   let i = y * nx() + x;
 
   // The wind grid is coarser than the columns — one cell every wstride — and
@@ -198,8 +208,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // WHICH STOREYS THIS COLUMN AND ITS TWO NEIGHBOURS HAVE, read once. An edge
   // with a storey missing at either end is not joined, and its flux is nought
   // — written without the loads that would have said so. @see hasSlot
-  let east = select(0u, slotMaskAt(i + 1), x + 1 < nx());
-  let south = select(0u, slotMaskAt(i + nx()), y + 1 < ny());
+  // AND BY THE TILES, AN EDGE OUT OF THE LIST IS A WALL. What crosses it would
+  // leave a column that is walked for one that is not, and be gone. The list
+  // reaches past anywhere water can get to in a frame, so this holds nothing
+  // back that was going anywhere; it is what makes a short list a stall
+  // instead of a leak. @see createTiles
+  let east = select(0u, slotMaskAt(i + 1), x + 1 < nx() && walked(x + 1, y));
+  let south = select(0u, slotMaskAt(i + nx()), y + 1 < ny() && walked(x, y + 1));
   for (var a = 0; a < L; a = a + 1) {
     let ia = slotBase(a) + i;
     if (!hasSlot(i, a)) {
@@ -242,7 +257,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 export type AcceleratePass = {
   /** Encode the dispatch into an existing encoder, for the real solver. */
-  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box) => void;
+  /** Over `box`, or over the listed tiles where `tiles` is their dispatch. @see createTiles */
+  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box, tiles?: GPUBuffer) => void;
   layout: GPUBindGroupLayout;
 };
 
@@ -261,14 +277,17 @@ export function createAccelerate(device: GPUDevice): AcceleratePass {
 
   return {
     layout,
-    encode: (enc, s, box) => {
+    encode: (enc, s, box, tiles) => {
       const pass = beginPass(enc, s, "accelerate");
       pass.setPipeline(pipeline);
       bindState(pass, s, layout);
-      pass.dispatchWorkgroups(
-        Math.ceil((box.x1 - box.x0 + 1) / WORKGROUP),
-        Math.ceil((box.y1 - box.y0 + 1) / WORKGROUP),
-      );
+      if (tiles) pass.dispatchWorkgroupsIndirect(tiles, 0);
+      else {
+        pass.dispatchWorkgroups(
+          Math.ceil((box.x1 - box.x0 + 1) / WORKGROUP),
+          Math.ceil((box.y1 - box.y0 + 1) / WORKGROUP),
+        );
+      }
       pass.end();
     },
   };

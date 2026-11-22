@@ -217,7 +217,7 @@ import {
 import { createSpike, spikeExpected } from "./render/compute-spike";
 import {
   createGpuWater, setDepthBand, setFallList, setReadback, setSkip,
-  setWholeMap, type GpuWater,
+  setByBox, setWholeMap, type GpuWater,
 } from "../fluid/gpu/solver";
 import {
   SPRAY_BOUNDS, WIND_BOUNDS, checkPour, checkPourLive, compareFrames, flat,
@@ -736,6 +736,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         window.__readback = setReadback;
         // And whether the dispatch region is the box or the map. @see setWholeMap
         window.__wholeMap = setWholeMap;
+        window.__byBox = setByBox;
         // And which passes to leave out, for bisecting. @see setSkip
         window.__skip = setSkip;
         // And whether the lips come back as a list or as five whole arrays,

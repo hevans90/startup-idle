@@ -33,7 +33,7 @@
 import { BREAK_START, BREAK_STOP, FOUL_SETTLE, PERSIST, VERTICAL } from "../columns";
 import {
   CLAMP_SCALE, CLAMP_SLOT, DELTA_SCALE, DELTA_SLOT, REDUCE_SLOTS,
-  AIR_SLOT, DEPTH_LANES, DEPTH_SLOT, WATER_SCALE, WET_SLOT,
+  AIR_SLOT, DEPTH_LANES, DEPTH_SLOT, TILEN_SLOT, WATER_SCALE, WET_SLOT,
   STATE_WGSL, beginPass, bindState, stateLayout, type GpuState, shaderModule,} from "./state";
 import type { Box } from "./accelerate";
 
@@ -112,15 +112,18 @@ var<workgroup> partY1: array<i32, ${WORKGROUP * WORKGROUP}>;
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
 fn main(
   @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
   @builtin(local_invocation_index) li: u32,
 ) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
+  let at = cellOf(gid, wid, lid);
+  let x = at.x;
+  let y = at.y;
   // NOT AN EARLY RETURN ANY MORE. There is a workgroup barrier below and a
   // barrier reached by only some of a workgroup's threads is undefined
   // behaviour, not a slow path — so the threads outside the region stay, do
   // nothing, and contribute an identity to the reduction.
-  let inside = x <= consts.box.z && y <= consts.box.w;
+  let inside = at.x >= 0;
   // The identities: nothing to add, nothing to clamp, no depth, and a box
   // that is inside out. @see reduceSeed
   partDelta[li] = 0.0;
@@ -239,7 +242,8 @@ fn cell(x: i32, y: i32, li: u32) {
 `;
 
 export type ApplyPass = {
-  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box) => void;
+  /** Over `box`, or over the listed tiles where `tiles` is their dispatch. @see createTiles */
+  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box, tiles?: GPUBuffer) => void;
   layout: GPUBindGroupLayout;
 };
 
@@ -275,6 +279,8 @@ export const readReduce = (raw: Int32Array) => ({
   deltaSum: raw[DELTA_SLOT] / DELTA_SCALE,
   /** Tiles whose mean depth is over the dry depth. @see WET_SLOT */
   wet: raw[WET_SLOT],
+  /** Tiles the water passes ran over; nought by the box. @see TILEN_SLOT */
+  tiles: raw[TILEN_SLOT],
   /**
    * What the COLUMNS hold, summed on the device. @see DEPTH_SLOT
    *
@@ -301,14 +307,17 @@ export function createApply(device: GPUDevice): ApplyPass {
   });
   return {
     layout,
-    encode: (enc, s, box) => {
+    encode: (enc, s, box, tiles) => {
       const pass = beginPass(enc, s, "apply");
       pass.setPipeline(pipeline);
       bindState(pass, s, layout);
-      pass.dispatchWorkgroups(
-        Math.ceil((box.x1 - box.x0 + 1) / WORKGROUP),
-        Math.ceil((box.y1 - box.y0 + 1) / WORKGROUP),
-      );
+      if (tiles) pass.dispatchWorkgroupsIndirect(tiles, 0);
+      else {
+        pass.dispatchWorkgroups(
+          Math.ceil((box.x1 - box.x0 + 1) / WORKGROUP),
+          Math.ceil((box.y1 - box.y0 + 1) / WORKGROUP),
+        );
+      }
       pass.end();
     },
   };

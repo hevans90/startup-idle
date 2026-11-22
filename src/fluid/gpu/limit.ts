@@ -75,10 +75,15 @@ fn outflowAt(a: i32, i: i32, x: i32, y: i32) -> f32 {
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn scales(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
-  if (x > consts.box.z || y > consts.box.w) { return; }
+fn scales(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+  let at = cellOf(gid, wid, lid);
+  if (at.x < 0) { return; }
+  let x = at.x;
+  let y = at.y;
   let i = y * nx() + x;
   for (var a = 0; a < slots(); a = a + 1) {
     let ia = slotBase(a) + i;
@@ -91,10 +96,15 @@ fn scales(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn apply(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
-  if (x > consts.box.z || y > consts.box.w) { return; }
+fn apply(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+  let at = cellOf(gid, wid, lid);
+  if (at.x < 0) { return; }
+  let x = at.x;
+  let y = at.y;
   let i = y * nx() + x;
   let L = slots();
   for (var a = 0; a < L; a = a + 1) {
@@ -119,7 +129,8 @@ fn apply(@builtin(global_invocation_id) gid: vec3<u32>) {
 `;
 
 export type LimitPass = {
-  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box) => void;
+  /** Over `box`, or over the listed tiles where `tiles` is their dispatch. @see createTiles */
+  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box, tiles?: GPUBuffer) => void;
   layout: GPUBindGroupLayout;
 };
 
@@ -137,7 +148,7 @@ export function createLimit(device: GPUDevice): LimitPass {
 
   return {
     layout,
-    encode: (enc, s, box) => {
+    encode: (enc, s, box, tiles) => {
       const groups: [number, number] = [
         Math.ceil((box.x1 - box.x0 + 1) / WORKGROUP),
         Math.ceil((box.y1 - box.y0 + 1) / WORKGROUP),
@@ -149,7 +160,8 @@ export function createLimit(device: GPUDevice): LimitPass {
       for (const pipeline of [scales, applyStage]) {
         pass.setPipeline(pipeline);
         bindState(pass, s, layout);
-        pass.dispatchWorkgroups(groups[0], groups[1]);
+        if (tiles) pass.dispatchWorkgroupsIndirect(tiles, 0);
+        else pass.dispatchWorkgroups(groups[0], groups[1]);
       }
       pass.end();
     },

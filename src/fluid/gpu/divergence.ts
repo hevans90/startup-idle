@@ -66,10 +66,15 @@ fn divertedAt(i: i32, axis: i32, a: i32, b: i32, moved: f32) -> bool {
 }
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let x = consts.box.x + i32(gid.x);
-  let y = consts.box.y + i32(gid.y);
-  if (x > consts.box.z || y > consts.box.w) { return; }
+fn main(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>,
+) {
+  let at = cellOf(gid, wid, lid);
+  if (at.x < 0) { return; }
+  let x = at.x;
+  let y = at.y;
   let i = y * nx() + x;
   let sp = spread();
   let L = slots();
@@ -80,8 +85,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   // there carries nought — accelerate has just written it so — and adding a
   // nought changes no sum, so those terms are skipped rather than loaded.
   // @see hasSlot
-  let north = select(0u, slotMaskAt(i - nx()), y - 1 >= consts.box.y);
-  let west = select(0u, slotMaskAt(i - 1), x - 1 >= consts.box.x);
+  let north = select(0u, slotMaskAt(i - nx()), inRegion(x, y - 1));
+  let west = select(0u, slotMaskAt(i - 1), inRegion(x - 1, y));
   let east = select(0u, slotMaskAt(i + 1), x + 1 < nx());
   let south = select(0u, slotMaskAt(i + nx()), y + 1 < ny());
   for (var a = 0; a < L; a = a + 1) {
@@ -194,7 +199,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 `;
 
 export type DivergencePass = {
-  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box) => void;
+  /** Over `box`, or over the listed tiles where `tiles` is their dispatch. @see createTiles */
+  encode: (enc: GPUCommandEncoder, s: GpuState, box: Box, tiles?: GPUBuffer) => void;
   layout: GPUBindGroupLayout;
 };
 
@@ -210,14 +216,17 @@ export function createDivergence(device: GPUDevice): DivergencePass {
   });
   return {
     layout,
-    encode: (enc, s, box) => {
+    encode: (enc, s, box, tiles) => {
       const pass = beginPass(enc, s, "divergence");
       pass.setPipeline(pipeline);
       bindState(pass, s, layout);
-      pass.dispatchWorkgroups(
-        Math.ceil((box.x1 - box.x0 + 1) / WORKGROUP),
-        Math.ceil((box.y1 - box.y0 + 1) / WORKGROUP),
-      );
+      if (tiles) pass.dispatchWorkgroupsIndirect(tiles, 0);
+      else {
+        pass.dispatchWorkgroups(
+          Math.ceil((box.x1 - box.x0 + 1) / WORKGROUP),
+          Math.ceil((box.y1 - box.y0 + 1) / WORKGROUP),
+        );
+      }
       pass.end();
     },
   };
