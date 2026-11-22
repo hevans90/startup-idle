@@ -62,6 +62,8 @@ export function floorsFor(def: StructureDef, s?: Structure, standing = false): n
 const collapsed = new Set<number>();
 export const setCollapsed = (id: number, down: boolean) => { if (down) collapsed.add(id); else collapsed.delete(id); };
 export const isCollapsed = (id: number) => collapsed.has(id);
+/** The buildings cut down now. @see render/lit-windows */
+export const collapsedNow = (): ReadonlySet<number> => collapsed;
 
 /** District colours, for a lot's sign. */
 const LOT_SIGN: Record<string, number> = { intern: 0xf2b51d, vibe_coder: 0xff4fa3, "10x_dev": 0x2fb8a8 };
@@ -135,7 +137,8 @@ function buildSprites(
   const out: Container[] = [];
   // A SHOP in its ground floor: that ground floor, its front on the shop's face, painted the trade's. @see shopfronts
   const front = frontOf(ctx.grid, s);
-  const pieces = housePieces(look, kitId, floorsFor(def, s), seedOf(s), front && shopKeyOf(front)), tint = houseTint(kitId, seedOf(s));
+  // (Cut down to see past it, it is left open: its ground floor, and no roof set on that. @see cutaway)
+  const pieces = housePieces(look, kitId, floorsFor(def, s), seedOf(s), front && shopKeyOf(front), collapsed.has(s.id)), tint = houseTint(kitId, seedOf(s));
   const paint = front ? shopPaint(front.sv) : 0xffffff;
   // Lowest first, so insertion order alone stacks the column.
   for (const cell of footprintCells(s.x, s.y, s.w, s.h)) {

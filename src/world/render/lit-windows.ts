@@ -26,7 +26,7 @@
  * one or the other.
  * @see gi.ts, lights.ts
  */
-import { Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup, type Container, type Matrix } from "pixi.js";
+import { Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup, type Container } from "pixi.js";
 import { HALF_STEPS_PER_M, TILES_PER_M } from "../agents/cars/models";
 import { footprintCells, idx, inBounds, type Grid, type Structure } from "../grid";
 import { houseOf } from "../houses/models";
@@ -37,6 +37,7 @@ import { structureDef } from "../structures/def";
 import { lookOf } from "../structures/projects/looks";
 import { bays, floorsOf, type Facade, type Mass } from "../structures/projects/model";
 import { floorsFor, kitIdOf } from "../structures/tiles-renderer";
+import { WINDOW_FLOATS, windowLight } from "./gi";
 import { SHADE_PER_TILE, type GroundMesh } from "./ground-mesh";
 
 /** A window: on the face toward +u (`face` 0, at `u = at`, from `a0` to `a1` along `v`) or toward +v (1), tiles; from `z0` to `z1` up, half steps; and its floor. */
@@ -143,17 +144,30 @@ export const litShare = (through: number) => 0.62 - 0.5 * Math.min(1, Math.max(0
  * Whether a point `z` half steps up (from the map's zero) at `(u, v)` is hidden from the eye by what stands nearer:
  * along the line of sight — a tile along both axes for every four half steps up — over the ground and what is
  * built on it, a quarter-tile at a time.
+ *
+ * ERRING TOWARD HIDDEN. What is built is known here as boxes, and a box is a little smaller than the building
+ * drawn — its eaves, its ridge, its cornice stand past it. So a building counts for a quarter-tile wider all round
+ * and most of a storey taller than its box: a window lit through a roof is seen at once, and one put out a little
+ * early behind an eave is not.
  */
 export function hiddenAt(gm: Pick<GroundMesh, "heights" | "casts" | "w" | "h">, u: number, v: number, z: number): boolean {
   const S = SHADE_PER_TILE, W = gm.w * S, H = gm.h * S;
-  // (From a little out from the wall it is on; as far as the tallest thing could reach.)
-  for (let t = 0.3; t < 9; t += 1 / S) {
+  // (From past the wall it is on and that wall's own quarter-tile of grace; as far as the tallest thing could reach.)
+  for (let t = 0.55; t < 9; t += 1 / S) {
     const i = Math.floor((u + 0.5 + t) * S), j = Math.floor((v + 0.5 + t) * S);
-    if (i < 0 || j < 0 || i >= W || j >= H) return false;
-    const o = j * W + i;
-    if (gm.casts[o] > 0 && gm.heights[o] + gm.casts[o] > z + 4 * t + 0.4) return true;
+    if (i < 1 || j < 1 || i >= W - 1 || j >= H - 1) return false;
+    const line = z + 4 * t - 1.1;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const o = (j + dj) * W + i + di;
+      if (gm.casts[o] > 0 && gm.heights[o] + gm.casts[o] > line) return true;
+    }
   }
   return false;
+}
+/** Whether any of a window is hidden: its middle, or either end of its head or its sill. A window half behind a roof is not drawn. */
+export function windowHidden(gm: Pick<GroundMesh, "heights" | "casts" | "w" | "h">, w: Win, ground: number): boolean {
+  const at = (a: number, z: number) => (w.face === 0 ? hiddenAt(gm, w.at, a, ground + z) : hiddenAt(gm, a, w.at, ground + z));
+  return at((w.a0 + w.a1) / 2, (w.z0 + w.z1) / 2) || at(w.a0, w.z0) || at(w.a1, w.z0) || at(w.a0, w.z1) || at(w.a1, w.z1);
 }
 
 const WGSL = /* wgsl */ `
@@ -170,8 +184,8 @@ struct LocalUniforms {
   uRound: f32,
 };
 @group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
-// How dark it is; the clock, s; how many windows are lit, 0–1; unused.
-struct Lit { uNight: vec4<f32> };
+// How dark it is; the clock, s; how many windows are lit, 0–1; unused. And the buildings cut down to their ground floors, by their ids (-1: none).
+struct Lit { uNight: vec4<f32>, uCutA: vec4<f32>, uCutB: vec4<f32>, uCutC: vec4<f32>, uCutD: vec4<f32> };
 @group(2) @binding(0) var<uniform> lit : Lit;
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -181,7 +195,7 @@ struct VSOutput {
 };
 fn roll(a: f32, b: f32) -> f32 { return fract(sin(a * 127.1 + b * 311.7) * 43758.5453); }
 @vertex
-fn mainVertex(@location(0) aPosition: vec2<f32>, @location(1) aUv: vec2<f32>, @location(2) aCore: vec2<f32>, @location(3) aSeed: vec2<f32>, @location(4) aColor: vec3<f32>) -> VSOutput {
+fn mainVertex(@location(0) aPosition: vec2<f32>, @location(1) aUv: vec2<f32>, @location(2) aCore: vec2<f32>, @location(3) aSeed: vec2<f32>, @location(4) aColor: vec3<f32>, @location(5) aOwner: vec2<f32>) -> VSOutput {
   let mvp = globalUniforms.uProjectionMatrix * globalUniforms.uWorldTransformMatrix * localUniforms.uTransformMatrix;
   var out: VSOutput;
   out.position = vec4<f32>((mvp * vec3<f32>(aPosition, 1.0)).xy, 0.0, 1.0);
@@ -191,7 +205,10 @@ fn mainVertex(@location(0) aPosition: vec2<f32>, @location(1) aUv: vec2<f32>, @l
   let ph = lit.uNight.y / ${150}.0 + seed * 13.0; let slot = floor(ph); let f = ph - slot;
   let share = clamp(lit.uNight.z + aSeed.y, 0.0, 1.0);
   let now = step(roll(seed, slot), share); let was = step(roll(seed, slot - 1.0), share);
-  let on = mix(was, now, smoothstep(0.0, ${1.5} / ${150}.0, f));
+  var on = mix(was, now, smoothstep(0.0, ${1.5} / ${150}.0, f));
+  // A BUILDING CUT DOWN to see past it has no floors over its ground floor: nor their windows.
+  let o = vec4<f32>(aOwner.x);
+  if (aOwner.y > 0.5 && (any(lit.uCutA == o) || any(lit.uCutB == o) || any(lit.uCutC == o) || any(lit.uCutD == o))) { on = 0.0; }
   // THE ROOM BEHIND IT: most warm, some brighter than others; here and there a screen's cold light.
   let k = roll(seed, 3.7); let cold = step(0.88, roll(seed, 9.1));
   let tone = mix(aColor, vec3<f32>(0.55, 0.72, 1.0), cold) * (0.55 + 0.6 * k);
@@ -216,6 +233,7 @@ in vec2 aUv;
 in vec2 aCore;
 in vec2 aSeed;
 in vec3 aColor;
+in vec2 aOwner;
 out vec2 vUv;
 out vec2 vCore;
 out vec4 vColor;
@@ -223,6 +241,7 @@ uniform mat3 uProjectionMatrix;
 uniform mat3 uWorldTransformMatrix;
 uniform mat3 uTransformMatrix;
 uniform vec4 uNight;
+uniform vec4 uCutA; uniform vec4 uCutB; uniform vec4 uCutC; uniform vec4 uCutD;
 float roll(float a, float b) { return fract(sin(a * 127.1 + b * 311.7) * 43758.5453); }
 void main() {
   mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
@@ -233,6 +252,8 @@ void main() {
   float share = clamp(uNight.z + aSeed.y, 0.0, 1.0);
   float now = step(roll(seed, slot), share); float was = step(roll(seed, slot - 1.0), share);
   float on = mix(was, now, smoothstep(0.0, ${1.5} / ${150}.0, f));
+  vec4 o = vec4(aOwner.x);
+  if (aOwner.y > 0.5 && (any(equal(uCutA, o)) || any(equal(uCutB, o)) || any(equal(uCutC, o)) || any(equal(uCutD, o)))) on = 0.0;
   float k = roll(seed, 3.7); float cold = step(0.88, roll(seed, 9.1));
   vec3 tone = mix(aColor, vec3(0.55, 0.72, 1.0), cold) * (0.55 + 0.6 * k);
   vColor = vec4(tone, on * uNight.x);
@@ -254,9 +275,6 @@ void main() {
 }
 `;
 
-/** A light just outside a wall, for the map's own light: where, how big, and the windows behind it — each by its number. Quarter-tiles. */
-type Spill = { x: number; y: number; hx: number; hy: number; r: number; g: number; b: number; seeds: number[]; bias: number };
-
 export type LitWindows = {
   /**
    * Put the windows where the map's buildings are now: `lit`, each lit building's colour by its id, and how much
@@ -264,23 +282,25 @@ export type LitWindows = {
    * says the buildings, what stands in front of them or their lights have changed — has.
    */
   sync: (g: Grid, gm: GroundMesh, lit: ReadonlyMap<number, { colour: number; bias: number }>, scale: number, key: string) => void;
-  /** This frame: how dark it is (0–1), the clock (s), how many windows are lit (0–1), and the map's transform to the screen. */
-  tick: (night: number, t: number, share: number, map: Matrix) => void;
-  /** The light the ground floors' lit windows throw outside, now: a light a face, as strong as its lit windows are many (`k` each). Quarter-tiles. */
-  spill: (t: number, share: number, k: number) => { x: number; y: number; hx: number; hy: number; r: number; g: number; b: number; solid: 0 | 1 }[];
+  /** This frame: how dark it is (0–1), the clock (s), how many windows are lit (0–1), and the buildings cut down to their ground floors now. */
+  tick: (night: number, t: number, share: number, cut?: ReadonlySet<number>) => void;
+  /** Every window as a light for the map's own — seen or not, it shines — each just outside its wall at its own height, `k` strong; and a count that moves when they do. @see gi windowLight */
+  emitters: (k: number) => { data: Float32Array; n: number; rev: number };
   /** How many windows are drawn, and how many were hidden behind something. */
   count: () => { shown: number; hidden: number };
   destroy: () => void;
 };
 
 let program: { gpu: GpuProgram; gl: GlProgram } | null = null;
-/** Floats a corner: where, where in its glow, how much of the glow is pane, its number and its odds, its colour. */
-const F = 11;
+/** Floats a corner: where, where in its glow, how much of the glow is pane, its number and its odds, its colour, whose it is and which floor's. */
+const F = 13;
 /** How far a window's glow reaches past its pane: of its own size, and at least so much, tiles and half steps. */
 const HALO = 0.55, HALO_MIN = 0.035, HALO_MIN_Z = 0.16;
 
-export function createLitWindows(stage: Container, zIndex: number): LitWindows {
-  const uniforms = new UniformGroup({ uNight: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } });
+/** The lit windows, as `world`'s child — the map's own container — so they sit on their windows through every pan and zoom, in the frame the map moves. */
+export function createLitWindows(world: Container, zIndex: number): LitWindows {
+  const none = () => ({ value: new Float32Array([-1, -1, -1, -1]), type: "vec4<f32>" as const });
+  const uniforms = new UniformGroup({ uNight: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" }, uCutA: none(), uCutB: none(), uCutC: none(), uCutD: none() });
   program ??= {
     gpu: GpuProgram.from({
       vertex: { source: WGSL, entryPoint: "mainVertex" }, fragment: { source: WGSL, entryPoint: "mainFragment" }, name: "lit-windows",
@@ -293,7 +313,7 @@ export function createLitWindows(stage: Container, zIndex: number): LitWindows {
   const ib = new Buffer({ data: new Uint32Array(6), usage: BufferUsage.INDEX | BufferUsage.COPY_DST });
   const at = (o: number, format: "float32x2" | "float32x3") => ({ buffer: vb, format, stride: F * 4, offset: o * 4 });
   const geometry = new Geometry({
-    attributes: { aPosition: at(0, "float32x2"), aUv: at(2, "float32x2"), aCore: at(4, "float32x2"), aSeed: at(6, "float32x2"), aColor: at(8, "float32x3") },
+    attributes: { aPosition: at(0, "float32x2"), aUv: at(2, "float32x2"), aCore: at(4, "float32x2"), aSeed: at(6, "float32x2"), aColor: at(8, "float32x3"), aOwner: at(11, "float32x2") },
     indexBuffer: ib,
   });
   const mesh = new Mesh<Geometry, Shader>({ geometry, shader: new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { lit: uniforms } }) });
@@ -301,45 +321,41 @@ export function createLitWindows(stage: Container, zIndex: number): LitWindows {
   mesh.blendMode = "add";
   mesh.zIndex = zIndex;
   mesh.visible = false;
-  stage.addChild(mesh);
+  world.addChild(mesh);
   let seen = "", shown = 0, hidden = 0;
-  let spills: Spill[] = [];
-  let spilt: { at: number; share: number; k: number; out: ReturnType<LitWindows["spill"]> } | null = null;
+  let lights: number[] = [], rev = 0;
+  let packed: { k: number; rev: number; data: Float32Array; n: number } | null = null;
   return {
     sync(g, gm, lit, scale, key) {
       if (key === seen) return;
-      seen = key; spilt = null;
+      seen = key; rev++;
       const v: number[] = [];
-      shown = 0; hidden = 0; spills = [];
+      shown = 0; hidden = 0; lights = [];
       const S = SHADE_PER_TILE;
       for (const [id, { colour, bias }] of lit) {
         const s = g.structures.get(id);
         if (!s || !inBounds(g, s.x, s.y)) continue;
         const ground = g.height[idx(g, s.x, s.y)];
         const r = ((colour >> 16) & 255) / 255, gr = ((colour >> 8) & 255) / 255, b = (colour & 255) / 255;
-        // The ground floor's windows by the face they are on: the light they throw outside. @see spill
-        const faces = new Map<string, { face: 0 | 1; at: number; a0: number; a1: number; seeds: number[] }>();
         for (const w of windowsOf(s)) {
           const seed = seedOf(id, w);
-          if (w.floor === 0) {
-            const fk = `${w.face}|${w.at.toFixed(2)}|${Math.floor(w.a0 + 0.5)}`, f = faces.get(fk);
-            if (f) { f.a0 = Math.min(f.a0, w.a0); f.a1 = Math.max(f.a1, w.a1); f.seeds.push(seed); } else faces.set(fk, { face: w.face, at: w.at, a0: w.a0, a1: w.a1, seeds: [seed] });
+          const am = (w.a0 + w.a1) / 2;
+          // ITS LIGHT, whether the eye sees it or not: just outside the wall it is in, as long as it is wide, at
+          // its own height over the building's ground. Quarter-tiles, a cell's corner at its whole number.
+          {
+            const out = (w.at + 0.5 + 0.28) * S, mid = (am + 0.5) * S, half = Math.max(0.4, ((w.a1 - w.a0) / 2) * S);
+            if (w.face === 0) lights.push(out, mid, 0.5, half, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
+            else lights.push(mid, out, half, 0.5, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
           }
-          const am = (w.a0 + w.a1) / 2, cu = w.face === 0 ? w.at : am, cv = w.face === 0 ? am : w.at;
-          if (hiddenAt(gm, cu, cv, ground + (w.z0 + w.z1) / 2)) { hidden++; continue; }
+          if (windowHidden(gm, w, ground)) { hidden++; continue; }
           shown++;
           // The pane and its glow round it: a quad on the wall's own plane, past the pane's edges.
           const ha = (w.a1 - w.a0) / 2, hz = (w.z1 - w.z0) / 2, pa = Math.max(HALO_MIN, ha * HALO), pz = Math.max(HALO_MIN_Z, hz * HALO);
           const core = [ha / (ha + pa), hz / (hz + pz)];
           for (const [ua, uz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
             const a = am + ua * (ha + pa), z = ground + (w.z0 + w.z1) / 2 + uz * (hz + pz), pu = w.face === 0 ? w.at : a, pv = w.face === 0 ? a : w.at;
-            v.push((pu - pv) * HW * scale, ((pu + pv) * HH - z * HEIGHT_UNIT) * scale, ua, uz, core[0], core[1], seed, bias, r, gr, b);
+            v.push((pu - pv) * HW * scale, ((pu + pv) * HH - z * HEIGHT_UNIT) * scale, ua, uz, core[0], core[1], seed, bias, r, gr, b, id, w.floor);
           }
-        }
-        for (const f of faces.values()) {
-          // Just outside the wall, the length of its windows: in quarter-tiles, a cell's corner at its whole number.
-          const am = (f.a0 + f.a1) / 2 + 0.5, out = f.at + 0.5 + 0.3, half = Math.max(0.6, ((f.a1 - f.a0) / 2) * S);
-          spills.push(f.face === 0 ? { x: out * S, y: am * S, hx: 0.6, hy: half, r, g: gr, b, seeds: f.seeds, bias } : { x: am * S, y: out * S, hx: half, hy: 0.6, r, g: gr, b, seeds: f.seeds, bias });
         }
       }
       const n = v.length / (F * 4);
@@ -349,25 +365,21 @@ export function createLitWindows(stage: Container, zIndex: number): LitWindows {
       for (let q = 0; q < n; q++) ix.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3], q * 6);
       ib.data = ix;
     },
-    tick(night, t, share, map) {
+    tick(night, t, share, cut) {
       mesh.visible = night > 0.02 && shown > 0;
       if (!mesh.visible) return;
       const u = uniforms.uniforms.uNight as Float32Array;
       u[0] = Math.min(1, night * 1.2); u[1] = t; u[2] = share;
+      // (Sixteen at once: more than a hand's reach cuts down.)
+      const ids = cut ? [...cut] : [];
+      (["uCutA", "uCutB", "uCutC", "uCutD"] as const).forEach((name, k) => { const c = uniforms.uniforms[name] as Float32Array; for (let i = 0; i < 4; i++) c[i] = ids[k * 4 + i] ?? -1; });
       uniforms.update();
-      mesh.setFromMatrix(map);
     },
-    spill(t, share, k) {
-      // (Counted again a couple of times a second: the windows change over seconds, not frames.)
-      if (spilt && Math.abs(t - spilt.at) < 0.5 && spilt.share === share && spilt.k === k) return spilt.out;
-      const out: ReturnType<LitWindows["spill"]> = [];
-      for (const s of spills) {
-        let n = 0;
-        for (const seed of s.seeds) if (litAt(seed, t, Math.min(1, share + s.bias))) n++;
-        if (n) out.push({ x: s.x, y: s.y, hx: s.hx, hy: s.hy, r: s.r * k * n, g: s.g * k * n, b: s.b * k * n, solid: 1 });
-      }
-      spilt = { at: t, share, k, out };
-      return out;
+    emitters(k) {
+      if (packed && packed.k === k && packed.rev === rev) return packed;
+      const n = lights.length / 10, data = new Float32Array(n * WINDOW_FLOATS);
+      for (let i = 0; i < n; i++) { const o = i * 10; windowLight(data, i * WINDOW_FLOATS, lights[o], lights[o + 1], lights[o + 2], lights[o + 3], lights[o + 4] * k, lights[o + 5] * k, lights[o + 6] * k, lights[o + 7], lights[o + 8], lights[o + 9]); }
+      return (packed = { k, rev, data, n });
     },
     count: () => ({ shown, hidden }),
     destroy() { mesh.parent?.removeChild(mesh); mesh.destroy(); geometry.destroy(true); },

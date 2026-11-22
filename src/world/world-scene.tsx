@@ -117,7 +117,7 @@ import { portWork } from "./boats/traffic";
 import { setPortLife } from "./structures/port-life";
 // Registers the `tiles` strategy. Imported for the side effect: the registry is
 // what the layer looks a definition up in, and nothing else references it.
-import { setCollapsed } from "./structures/tiles-renderer";
+import { collapsedNow, setCollapsed } from "./structures/tiles-renderer";
 import { houseSprites } from "./houses/houses-sheet";
 import { isPaved, maskAt, maskDirtyCells } from "./roads/mask";
 import { netIdAt } from "./roads/network";
@@ -153,7 +153,7 @@ const SOLVER_WAIT = 10;
  * How bright each kind of light is to the map's own light (@see render/gi): a lamp and a headlight are small and
  * must be very bright to light a street; a lit building is a whole wall of light, and need only glow.
  */
-const GI_LAMP = 7, GI_HEAD = 10, GI_SIGN = 1.2, GI_WINDOW = 0.05, GI_SPILL = 0.3;
+const GI_LAMP = 7, GI_HEAD = 10, GI_SIGN = 1.2, GI_WINDOW = 0.05, GI_SPILL = 0.28;
 /** How long a frame spends on a map's new lanes, ms. @see pumpLanes */
 const LANES_MS = 3;
 /** Whether the device's solver is what should be stepping the water: a device held and not lost, and the toggle on. */
@@ -666,7 +666,6 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     lightsRef.current = createLights(app.stage, 1e9 + 0.5);
     // THE VEHICLES' HEADLIGHTS, over the night too, under the town's lights. @see createCarGlow
     carGlowRef.current = createCarGlow(app.stage, 1e9 + 0.4);
-    litRef.current = createLitWindows(app.stage, 1e9 + 0.45);
     return () => {
       for (const x of [g, r]) { x.parent?.removeChild(x); x.destroy(); }
       night.current = null;
@@ -4132,7 +4131,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         let laid = false;
         if (o.on && gm && blNow && nightNow > 0.02) {
           if (giRef.current && (giRef.current.w !== st.grid.w || giRef.current.h !== st.grid.h)) { giRef.current.gi.destroy(); giRef.current = null; }
-          if (!giRef.current) { const gi = createGi(app.renderer, app.stage, 1e9, st.grid.w, st.grid.h, scale); if (gi) giRef.current = { gi, w: st.grid.w, h: st.grid.h }; }
+          // (In the map's own container, over everything in it: they move with the map, in the frame it moves.)
+          const world = overlayRoot.current?.parent;
+          if (!giRef.current && world) { const gi = createGi(app.renderer, world, 20, st.grid.w, st.grid.h, scale); if (gi) giRef.current = { gi, w: st.grid.w, h: st.grid.h }; }
+          if (!litRef.current && world) litRef.current = createLitWindows(world, 21);
           if (giRef.current) {
             const rgb = (hex: number, k: number) => ({ r: (((hex >> 16) & 255) / 255) * k, g: (((hex >> 8) & 255) / 255) * k, b: ((hex & 255) / 255) * k });
             // What stands still, listed again when the map or the options change.
@@ -4142,12 +4144,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               for (const l of lightsOf(st.grid)) {
                 const x = (l.x + l.w / 2) * 4, y = (l.y + l.h / 2) * 4;
                 // (A lamp is a point: small and hard, not a soft pool laid on the road.)
-                if (l.kind === "lamp") { if (o.lamps) list.push({ x, y, hx: 0.7, hy: 0.7, ...rgb(0xffe2a0, GI_LAMP), solid: 1 }); }
+                if (l.kind === "lamp") { if (o.lamps) list.push({ x, y, hx: 0.7, hy: 0.7, ...rgb(0xffe2a0, GI_LAMP), solid: 1, z: 2.5 }); }
                 else if (l.kind === "window") { const tone = l.violet ? 0xb44aff : l.crunch ? 0xd8ecff : 0xffc46b; // (An office at work has more of its windows lit than a street of houses has.)
                   if (o.windows && l.id !== undefined) lit.set(l.id, { colour: tone, bias: l.violet || l.crunch ? 0.3 : 0 });
                   // (Its windows' own light falls outside, where they are shown; a glow the size of it, where they are not.)
                   if (o.windows && !o.floors) list.push({ x, y, hx: l.w * 2 * 0.8, hy: l.h * 2 * 0.8, ...rgb(l.violet ? 0xb44aff : l.crunch ? 0xd8ecff : 0xffc46b, GI_WINDOW), solid: 1 }); }
-                else if (o.windows) list.push({ x, y, hx: 1.5, hy: 1.5, ...rgb(l.tint ?? 0xffffff, l.neon ? GI_SIGN * 1.6 : GI_SIGN), solid: 1 });
+                else if (o.windows) list.push({ x, y, hx: 1.5, hy: 1.5, ...rgb(l.tint ?? 0xffffff, l.neon ? GI_SIGN * 1.6 : GI_SIGN), solid: 1, z: 1.5 });
               }
               giStill.current = { key, lights: list, lit };
             }
@@ -4160,17 +4162,17 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               }
             }
             // THE LIT BUILDINGS' OWN WINDOWS, each by its own hours, where what stands in front does not hide them:
-            // and the light the ground floors' throw outside, for the map's light to carry.
-            if (o.floors && litRef.current) {
-              litRef.current.sync(st.grid, gm, giStill.current.lit, scale, `${key}|${gm.shadeRev}`);
-              const spill = litRef.current.spill(litClock, litNow, GI_SPILL);
-              if (spill.length) lights = lights.concat(spill);
-            }
-            laid = giRef.current.gi.tick(lights, gm.casts, gm.shadeRev, gradeRef.current, nightNow, blNow.root.worldTransform);
+            // and every one of them a light of its own, at its own height, for the map's light to carry.
+            if (o.floors && litRef.current) litRef.current.sync(st.grid, gm, giStill.current.lit, scale, `${key}|${gm.shadeRev}`);
+            laid = giRef.current.gi.tick({
+              lights, windows: o.floors && litRef.current ? litRef.current.emitters(GI_SPILL) : undefined,
+              heights: gm.heights, casts: gm.casts, sceneRev: gm.shadeRev, low: st.grid.minHeight, top: st.grid.maxHeight + gm.castTop,
+              grade: gradeRef.current, night: nightNow, clock: litClock, share: litNow,
+            });
           }
-        } else if (giRef.current && blNow) giRef.current.gi.tick([], new Float32Array(0), 0, 0xffffff, 0, blNow.root.worldTransform);
+        } else if (giRef.current) giRef.current.gi.rest();
         if (night.current) night.current.visible = !laid;
-        if (litRef.current && blNow) litRef.current.tick(laid && o.floors ? nightNow : 0, litClock, litNow, blNow.root.worldTransform);
+        if (litRef.current) litRef.current.tick(laid && o.floors ? nightNow : 0, litClock, litNow, collapsedNow());
         if (laid && !o.glows) glowNight = 0;
       }
       if (lightsRef.current && blNow) {

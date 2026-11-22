@@ -224,7 +224,13 @@ export function LightSection() {
         {([3, 4, 5] as const).map((n) => (
           <button key={n} type="button" title="how many cascades: how far light reaches" onClick={() => put({ cascades: n })} className={`${BTN} ${o.cascades === n ? ON : OFF}`}>{n}</button>
         ))}
-        <span className="mx-1 text-fg-faint">grid</span>
+        <span className="mx-1 text-fg-faint">heights</span>
+        {([1, 2, 4] as const).map((n) => (
+          <button key={`h${n}`} type="button" title="how many heights the light is worked out at: 1 is the ground alone" onClick={() => put({ layers: n })} className={`${BTN} ${o.layers === n ? ON : OFF}`}>{n}</button>
+        ))}
+      </Row>
+      <Row>
+        <span className="mr-1 text-fg-faint">grid</span>
         {([2, 1] as const).map((n) => (
           <button key={n} type="button" title="probe spacing: half a tile, or a quarter" onClick={() => put({ spacing: n })} className={`${BTN} ${o.spacing === n ? ON : OFF}`}>{n === 2 ? "coarse" : "fine"}</button>
         ))}

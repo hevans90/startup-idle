@@ -60,9 +60,10 @@ export type HousePiece = { tex: Texture; anchor: { x: number; y: number }; lift:
  * A house of `floors` storeys as the sprites to draw, lowest first: the
  * ground floor, a floor for each storey over it (which of the kit's, by
  * `seed`, so a street of one kit is not a street of one house), the roof, and the snow that lies on it. With a
- * `shop`, its ground floor is the one with the shop in it, on that face.
+ * `shop`, its ground floor is the one with the shop in it, on that face. `open`: cut down to what is asked for and
+ * left open — no roof put on it, and no snow: a house cut away to see past is not a shorter house.
  */
-export function housePieces(look: HouseLook, kit: string, floors: number, seed: number, shop?: ShopKey | null): HousePiece[] {
+export function housePieces(look: HouseLook, kit: string, floors: number, seed: number, shop?: ShopKey | null, open = false): HousePiece[] {
   const storey = (houseOf(kit)?.storey ?? 0) * HALF_STEPS_PER_M * HEIGHT_UNIT;
   const out: HousePiece[] = [];
   const add = (p: HousePart, lift: number) => p.tex.forEach((tex, k) => {
@@ -71,6 +72,7 @@ export function housePieces(look: HouseLook, kit: string, floors: number, seed: 
   add((shop && look.shop?.[shop]) || look.ground, 0);
   const n = look.mids.length ? Math.max(1, floors) : 1;
   for (let f = 1; f < n; f++) add(look.mids[(seed + f) % look.mids.length], (f - 1) * storey);
+  if (open) return out;
   add(look.roof, (n - 1) * storey);
   // (The snow alone is its second layer.)
   const snow = look.snow?.tex[1];
