@@ -105,7 +105,7 @@ export const CLIMB = 2;
  * The walk along the roads from some doors to every cell, in tiles — a ramp
  * counting `CLIMB` — and -1 where there is no way.
  */
-export function walkFrom(g: Grid, starts: readonly number[]): Int32Array {
+export function walkFrom(g: Grid, starts: readonly number[], joins?: Uint8Array): Int32Array {
   const dist = new Int32Array(g.w * g.h).fill(-1);
   // A FERRY is a few tiles of road across the water, from its port's gate to the roads on the banks. @see ferryLinks
   const ferries = ferryLinks(g);
@@ -119,8 +119,9 @@ export function walkFrom(g: Grid, starts: readonly number[]): Int32Array {
       const i = bucket[q];
       if (dist[i] !== d) continue;
       const x = i % g.w, y = (i - x) / g.w;
-      for (const dir of DIRS) {
-        if (!connects(g, x, y, dir)) continue;
+      for (let k = 0; k < 4; k++) {
+        const dir = DIRS[k];
+        if (joins ? !(joins[i] & (1 << k)) : !connects(g, x, y, dir)) continue;
         const [dx, dy] = NEIGHBOUR[dir];
         const j = idx(g, x + dx, y + dy);
         // CLOSED for road works: no way through. @see ROAD_WORKS
@@ -142,7 +143,22 @@ export function walkFrom(g: Grid, starts: readonly number[]): Int32Array {
   return dist;
 }
 
-const roadsFrom = (g: Grid, start: number) => walkFrom(g, [start]);
+/**
+ * WHICH WAYS ON EACH ROAD CELL HAS, a bit a way in {@link DIRS}' order: worked out once for many walks of the same
+ * map — each asks it of every cell of road, and each asking is a look at both cells' heights, ramps and decks.
+ * @see walkFrom
+ */
+export function joinsOf(g: Grid): Uint8Array {
+  const out = new Uint8Array(g.w * g.h);
+  for (let i = 0; i < out.length; i++) {
+    if (!g.paved[i]) continue;
+    const x = i % g.w, y = (i - x) / g.w;
+    let m = 0;
+    for (let k = 0; k < 4; k++) if (connects(g, x, y, DIRS[k])) m |= 1 << k;
+    out[i] = m;
+  }
+  return out;
+}
 
 /**
  * WHO SITS WHERE: each kind's people living on the map, given desks at its
@@ -162,6 +178,10 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
   const open = [...g.structures.values()].filter((s) => (!s.build || rules.openSites) && workplaceKind(s.def));
   // Each workplace's desks, as its own kind's cards make them.
   for (const w of open) desks.set(w.id, { used: 0, of: Math.round((DESKS[w.def] ?? 0) * cultureNow(workplaceKind(w.def)!).desks) });
+  // (The roads' joins once for every workplace's search, and each workplace's search once for every kind that asks.)
+  let joins: Uint8Array | undefined;
+  const walks = new Map<number, Int32Array>();
+  const roadsFrom = (start: number) => walks.get(start) ?? walks.set(start, walkFrom(g, [start], (joins ??= joinsOf(g)))).get(start)!;
   for (const who of Object.keys(WORKPLACES) as GeneratorId[]) {
     const houses = [...g.structures.values()].filter((s) => housedBy(s.def)?.id === who);
     const works = rules.anyDesk ? open : open.filter((s) => workplaceKind(s.def) === who);
@@ -171,19 +191,31 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
     const deskless = Math.max(desklessShare(), deck.deskless);
     if (!houses.length) continue;
     // Every house and workplace a road joins, nearest first.
-    const pairs: { house: number; work: number; tiles: number }[] = [];
-    for (const w of works) {
+    // (Sorted as numbers — the tiles, then the house by its id, then the workplace as it came — and not by a
+    // comparison called for every two of some thousands of pairs: the same order.)
+    const byId = [...houses].sort((p, q) => p.id - q.id), rank = new Map(byId.map((h, k) => [h.id, k]));
+    const NH = houses.length, NW = works.length;
+    const keys: number[] = [];
+    works.forEach((w, wi) => {
       const wd = doorOf.get(w.id);
-      if (!wd) continue;
-      const dist = roadsFrom(g, idx(g, wd.x, wd.y));
+      if (!wd) return;
+      const dist = roadsFrom(idx(g, wd.x, wd.y));
       for (const h of houses) {
         const hd = doorOf.get(h.id);
         const t = hd ? dist[idx(g, hd.x, hd.y)] : -1;
-        if (t >= 0) pairs.push({ house: h.id, work: w.id, tiles: t });
+        if (t >= 0) keys.push((t * NH + rank.get(h.id)!) * NW + wi);
       }
+    });
+    const sorted = Float64Array.from(keys).sort();
+    const pairs: { house: number; work: number; tiles: number }[] = new Array(sorted.length);
+    for (let k = 0; k < sorted.length; k++) {
+      const v = sorted[k], wi = v % NW, r = (v - wi) / NW, hk = r % NH;
+      pairs[k] = { house: byId[hk].id, work: works[wi].id, tiles: (r - hk) / NH };
     }
-    pairs.sort((a, b) => a.tiles - b.tiles || a.house - b.house);
     const reachable = new Set(pairs.map((p) => p.house));
+    // (Each house's nearest: its first pair, as they are sorted — not looked for down the whole list for every house.)
+    const nearestOf = new Map<number, (typeof pairs)[number]>();
+    for (const p of pairs) if (!nearestOf.has(p.house)) nearestOf.set(p.house, p);
     // Company Housing's rule: a house beside a workplace is all at work, at no desk.
     const beside = new Set(deck.nextDoor ? pairs.filter((p) => p.tiles <= NEXT_DOOR && workplaceKind(g.structures.get(p.work)!.def) === who).map((p) => p.house) : []);
     // Shuttle Bus's rule: those with no road are taken, and work in full.
@@ -209,7 +241,7 @@ export function seat(g: Grid, places: readonly Place[]): Seating {
         continue;
       }
       // An empty house: the commute its people would have, to the nearest.
-      const nearest = pairs.find((p) => p.house === h.id)!;
+      const nearest = nearestOf.get(h.id)!;
       if (n === 0) {
         commutes.set(h.id, { tiles: nearest.tiles, eff: commuteEfficiency(nearest.tiles), to: nearest.work, deskless: 0 });
         continue;

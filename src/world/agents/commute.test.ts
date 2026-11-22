@@ -7,9 +7,10 @@ import { createNetwork } from "../roads/network";
 import { structureDef } from "../structures/def";
 import { placeCommand } from "../structures/place";
 import {
-  CLIMB, DESKLESS, DESKS, FREE, STRANDED, WORST, commuteEfficiency, walkFrom, commuteFactor, commutesOf, liveCommutes, seat,
+  CLIMB, DESKLESS, DESKS, FREE, STRANDED, WORST, commuteEfficiency, walkFrom, commuteFactor, commutesOf, joinsOf, liveCommutes, seat,
 } from "./commute";
 import { placesOf } from "./roads";
+import { FIXTURE_SIZE, applyFixture } from "../debug/fixtures";
 
 /** A road along row 5, 40 long; things placed on its north side. */
 function street(things: [string, number][], gapAt?: number) {
@@ -119,5 +120,21 @@ describe("a hill town's walk", () => {
     const walk = walkFrom(g, [idx(g, 0, 5)]);
     expect(walk[idx(g, 8, 5)]).toBe(8);
     expect(walk[idx(g, 20, 5)]).toBe(20 + CLIMB - 1);
+  });
+});
+
+describe("the roads' joins, worked out once", () => {
+  test("a walk by them is the walk without them, from any road of a town", () => {
+    const n = FIXTURE_SIZE.bigtown ?? 48;
+    const g = createGrid(n, n, 1);
+    applyFixture(g, "bigtown", 1);
+    const joins = joinsOf(g);
+    let tried = 0;
+    for (let i = 0; i < g.paved.length; i += 97) {
+      if (!g.paved[i]) continue;
+      tried++;
+      expect([...walkFrom(g, [i], joins)]).toEqual([...walkFrom(g, [i])]);
+    }
+    expect(tried).toBeGreaterThan(8);
   });
 });
