@@ -97,7 +97,8 @@ function steps(p: Pen, m: Mass, a: number, w: number, n: number, z0: number, col
 
 /** A tree: a trunk and a round crown, shadowed underneath and lit on top, `s` its size. */
 export function tree(p: Pen, u: number, v: number, z: number, s = 1) {
-  p.flat(u - 0.2 * s, v - 0.12 * s, u + 0.22 * s, v + 0.16 * s, z + 0.003, 0x000000, 0.12);
+  // (Its shadow away from the sun: toward +u, and a little toward −v. @see world/light)
+  p.flat(u - 0.17 * s, v - 0.17 * s, u + 0.25 * s, v + 0.11 * s, z + 0.003, 0x000000, 0.12);
   p.box(u - 0.035 * s, v - 0.035 * s, u + 0.035 * s, v + 0.035 * s, z, z + 0.9 * s, TRUNK);
   const c = z + 1.45 * s;
   p.dot(u, v, c - 0.12 * s, 0.27 * s, tone(LEAF, 0.72));
@@ -196,7 +197,8 @@ function bench(p: Pen, u: number, v: number, z: number, along: "u" | "v" = "u", 
 function car(p: Pen, u: number, v: number, z: number, colour: number, along: "u" | "v" = "u") {
   const L = 0.3, W = 0.13;
   const [hu, hv] = along === "u" ? [L, W] : [W, L];
-  p.flat(u - hu - 0.03, v - hv + 0.02, u + hu + 0.04, v + hv + 0.06, z + 0.002, 0x000000, 0.18);
+  // (Its shadow away from the sun: out from under it toward +u. @see world/light)
+  p.flat(u - hu + 0.01, v - hv - 0.02, u + hu + 0.07, v + hv + 0.01, z + 0.002, 0x000000, 0.18);
   p.box(u - hu, v - hv, u + hu, v + hv, z + 0.08, z + 0.34, colour);
   const [cu, cv] = along === "u" ? [hu * 0.55, hv * 0.92] : [hu * 0.92, hv * 0.55];
   p.box(u - cu, v - cv, u + cu, v + cv, z + 0.34, z + 0.56, 0x2a3540, { top: colour });

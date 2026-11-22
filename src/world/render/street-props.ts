@@ -181,7 +181,8 @@ function streetTree(p: Pen, u: number, v: number, kind: number) {
   // Its pit, an iron grate in the paving.
   p.flat(u - 0.08, v - 0.08, u + 0.08, v + 0.08, 0.008, IRON);
   for (const k of [-0.04, 0, 0.04]) p.flat(u + k - 0.006, v - 0.07, u + k + 0.006, v + 0.07, 0.009, 0x4a5058);
-  p.flat(u - 0.22, v - 0.1, u + 0.2, v + 0.18, 0.01, 0x000000, 0.1);
+  // (Its shadow away from the sun: toward +u, and a little toward −v. @see world/light)
+  p.flat(u - 0.17, v - 0.17, u + 0.25, v + 0.11, 0.01, 0x000000, 0.1);
   p.box(u - 0.02, v - 0.02, u + 0.02, v + 0.02, 0, 0.6, 0x6d4a2a);
   if (kind === 0) { tree(p, u, v, 0, 0.55); return; }
   if (kind === 1) {

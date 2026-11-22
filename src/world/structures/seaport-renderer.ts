@@ -134,11 +134,11 @@ function draw(G: Statics, s: Structure, ctx: RenderCtx, c: number): void {
     const [ua, va] = L(a0, d0), [ub, vb] = L(a1, d1);
     return [Math.min(ua, ub), Math.min(va, vb), Math.max(ua, ub), Math.max(va, vb)] as const;
   };
-  /** A box: its top and the sides the camera sees, which face +u and +v. The +u side is the lit one. */
+  /** A box: its top and the sides the camera sees, which face +u and +v. The +v side is the lit one, as the sun stands: the +u side faces away from it. @see world/light */
   const box = (a0: number, d0: number, a1: number, d1: number, z0: number, z1: number, top: number, lit: number, dark: number) => {
     const [u0, v0, u1, v1] = rect(a0, d0, a1, d1);
-    quad([P(u1, v0, z1), P(u1, v1, z1), P(u1, v1, z0), P(u1, v0, z0)], lit);
-    quad([P(u0, v1, z1), P(u1, v1, z1), P(u1, v1, z0), P(u0, v1, z0)], dark);
+    quad([P(u1, v0, z1), P(u1, v1, z1), P(u1, v1, z0), P(u1, v0, z0)], dark);
+    quad([P(u0, v1, z1), P(u1, v1, z1), P(u1, v1, z0), P(u0, v1, z0)], lit);
     quad([P(u0, v0, z1), P(u1, v0, z1), P(u1, v1, z1), P(u0, v1, z1)], top);
   };
   const line = (a: [number, number], b: [number, number], color: number, width: number, alpha = 1) => {
@@ -169,23 +169,24 @@ function draw(G: Statics, s: Structure, ctx: RenderCtx, c: number): void {
     // A SHED: walls, a door, a roof whose ridge runs out toward the water.
     const [wu0, wv0, wu1, wv1] = rect(a0 + 0.08, 0.1, a0 + 0.95, depth - 0.45);
     const top = QUAY + WALLS, ridge = top + (RIDGE - WALLS), eave = 0.08;
-    quad([P(wu1, wv0, top), P(wu1, wv1, top), P(wu1, wv1, QUAY), P(wu1, wv0, QUAY)], WALL);
-    quad([P(wu0, wv1, top), P(wu1, wv1, top), P(wu1, wv1, QUAY), P(wu0, wv1, QUAY)], WALL_SHADE);
+    quad([P(wu1, wv0, top), P(wu1, wv1, top), P(wu1, wv1, QUAY), P(wu1, wv0, QUAY)], WALL_SHADE);
+    quad([P(wu0, wv1, top), P(wu1, wv1, top), P(wu1, wv1, QUAY), P(wu0, wv1, QUAY)], WALL);
     // EACH SLOPE IS ONE PLANE, through the ridge and the wall's top edge, and
     // the eave carries on down it; the roof ends FLUSH with the gable, since an
     // overhang there is seen from underneath at this angle.
     if (alongU) {
       const um = (wu0 + wu1) / 2, low = top - (eave * (ridge - top)) / (um - wu0);
-      quad([P(wu0, wv1, top), P(wu1, wv1, top), P(um, wv1, ridge)], WALL_SHADE);
-      quad([P(wu0 - eave, wv0, low), P(um, wv0, ridge), P(um, wv1, ridge), P(wu0 - eave, wv1, low)], ROOF_SHADE);
-      quad([P(um, wv0, ridge), P(wu1 + eave, wv0, low), P(wu1 + eave, wv1, low), P(um, wv1, ridge)], ROOF);
+      // (The slope toward the sun the lit one; the one that falls away from it, toward +u, in shade.)
+      quad([P(wu0, wv1, top), P(wu1, wv1, top), P(um, wv1, ridge)], WALL);
+      quad([P(wu0 - eave, wv0, low), P(um, wv0, ridge), P(um, wv1, ridge), P(wu0 - eave, wv1, low)], ROOF);
+      quad([P(um, wv0, ridge), P(wu1 + eave, wv0, low), P(wu1 + eave, wv1, low), P(um, wv1, ridge)], ROOF_SHADE);
       const dv = (wv0 + wv1) / 2;
       quad([P(wu1, dv - 0.22, QUAY + 1.8), P(wu1, dv + 0.22, QUAY + 1.8), P(wu1, dv + 0.22, QUAY), P(wu1, dv - 0.22, QUAY)], DOOR);
     } else {
       const vm = (wv0 + wv1) / 2, low = top - (eave * (ridge - top)) / (vm - wv0);
-      quad([P(wu1, wv0, top), P(wu1, wv1, top), P(wu1, vm, ridge)], WALL);
-      quad([P(wu0, wv0 - eave, low), P(wu0, vm, ridge), P(wu1, vm, ridge), P(wu1, wv0 - eave, low)], ROOF);
-      quad([P(wu0, vm, ridge), P(wu0, wv1 + eave, low), P(wu1, wv1 + eave, low), P(wu1, vm, ridge)], ROOF_SHADE);
+      quad([P(wu1, wv0, top), P(wu1, wv1, top), P(wu1, vm, ridge)], WALL_SHADE);
+      quad([P(wu0, wv0 - eave, low), P(wu0, vm, ridge), P(wu1, vm, ridge), P(wu1, wv0 - eave, low)], ROOF_SHADE);
+      quad([P(wu0, vm, ridge), P(wu0, wv1 + eave, low), P(wu1, wv1 + eave, low), P(wu1, vm, ridge)], ROOF);
       const du = (wu0 + wu1) / 2;
       quad([P(du - 0.22, wv1, QUAY + 1.8), P(du + 0.22, wv1, QUAY + 1.8), P(du + 0.22, wv1, QUAY), P(du - 0.22, wv1, QUAY)], DOOR);
     }

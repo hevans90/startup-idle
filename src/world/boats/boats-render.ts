@@ -234,7 +234,7 @@ function drawBoat(g: Graphics, b: Boat, s: number, bandsN: number): number {
     // Outward normal in the tile plane, for an outline wound this way round.
     const nu = c.v - a.v, nv = -(c.u - a.u);
     if (nu + nv <= 0) continue;
-    const lit = nu > nv;
+    const lit = nv > nu;
     g.poly([a.px, a.py, c.px, c.py, sea[(k + 1) % n].px, sea[(k + 1) % n].py, sea[k].px, sea[k].py]);
     g.fill({ color: b.ai ? (lit ? AI_HULL : AI_HULL_SHADE) : lit ? HULL : HULL_SHADE });
     // A stripe under the gunwale.
@@ -270,7 +270,7 @@ function drawBoat(g: Graphics, b: Boat, s: number, bandsN: number): number {
         const nu = n2.v - a.v, nv = -(n2.u - a.u);
         if (nu + nv <= 0) continue;
         g.poly([r[k].px, r[k].py, r[(k + 1) % 4].px, r[(k + 1) % 4].py, n2.px, n2.py, a.px, a.py]);
-        g.fill({ color: nu > nv ? lit : shade });
+        g.fill({ color: nv > nu ? lit : shade });
       }
       g.poly(r.flatMap((p) => [p.px, p.py]));
       g.fill({ color: top });

@@ -591,7 +591,8 @@ export function drawMoverFront(
       const nu = b.v - a.v, nv = -(b.u - a.u);
       if (nu + nv <= 0) continue;
       g.poly([a.px, a.py, b.px, b.py, lo[(k + 1) % n].px, lo[(k + 1) % n].py, lo[k].px, lo[k].py]);
-      g.fill(paint(part, nu > nv ? colour : shade(colour, 0.72)));
+      // (The side toward +v the lit one, as the sun stands. @see world/light)
+      g.fill(paint(part, nv > nu ? colour : shade(colour, 0.72)));
     }
     g.poly(hi.flatMap((p) => [p.px, p.py]));
     g.fill(paint(part, top));
