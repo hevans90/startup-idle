@@ -33,7 +33,7 @@ import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { BREEDS, CHILD_STEP_M, DOGS, JOGGERS, KIDS, PARENTS, PEDAL_TURN_M, RUN_STEP_M, STEP_TILES } from "./people/people-format";
 import { dogFor, HAND_GAP, KEEP, stepDogs, stepWalkers, type Dog } from "./walker-life";
 import { KEEP as HAND } from "./lanes/geometry";
-import { BUS_TAKE, busArrives, busesOf, busTrip, kerbAt, queueAt, stepBuses, type BusLeg, type Buses, type Ride } from "./buses";
+import { BUS_TAKE, busArrives, busesOf, warmRoutes, busTrip, kerbAt, queueAt, stepBuses, type BusLeg, type Buses, type Ride } from "./buses";
 import { TILES_PER_M } from "./cars/models";
 import { groundMode } from "../render/ground-mode";
 import { isPaved } from "../roads/mask";
@@ -48,7 +48,7 @@ import {
 import { walkBetween, type Kerbside, type Walk } from "./lanes/walk";
 import { riderId, shirtOf, SHIRTS } from "./people/cast";
 import { aboard, bayNear, carNear, heldBays, kerbOf, PARK_CAP, refile, RESIDENT_SHARE, STAY } from "./parking";
-import { lanesDue, type LaneGraph } from "./lanes/graph";
+import { SETTLE_BUSES, SETTLE_TRAFFIC, buildLaneGraph, lanesSettle, type LaneGraph } from "./lanes/graph";
 import { NEIGHBOUR } from "../../iso/dir";
 import { structureAt } from "../grid";
 import type { Emergency } from "./emergency";
@@ -517,13 +517,21 @@ export function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place | Kerb
   return m;
 }
 
+let keyed: { g: Grid | null; rev: number; key: string } = { g: null, rev: -1, key: "" };
 /** The lanes, built for the roads as they are now. */
 export function trafficOf(t: Town, g: Grid): Traffic {
   // Nothing edited, nothing to hash: a step asks a few times. @see Grid.rev
   if (t.traffic && t.trafficRev === g.rev && t.trafficGrid === g) return t.traffic;
-  const key = roadKey(g);
-  // (While the map's new lanes are still being built, the traffic it had: asked again each time till they are. @see deferLanes)
-  if (t.traffic && t.traffic.key !== key && lanesDue(g)) return t.traffic;
+  // (The roads' key once for each state of the map: held, the traffic is asked for several times a frame.)
+  if (keyed.g !== g || keyed.rev !== g.rev) keyed = { g, rev: g.rev, key: roadKey(g) };
+  const key = keyed.key;
+  // (While the map's new lanes are still being built, and a frame or two after, the traffic it had: asked again
+  // each time till they are. The frame before it takes them up, the bus routes along them. @see lanesSettle)
+  if (t.traffic && t.traffic.key !== key) {
+    const settle = lanesSettle(g);
+    if (settle === SETTLE_BUSES) warmRoutes(buildLaneGraph(g), t.places);
+    if (settle > SETTLE_TRAFFIC) return t.traffic;
+  }
   if (!t.traffic || t.traffic.key !== key) t.traffic = buildTraffic(g, key);
   t.trafficRev = g.rev;
   t.trafficGrid = g;

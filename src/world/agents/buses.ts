@@ -57,12 +57,25 @@ export function kerbAt(g: Grid, s: Stop): Kerbside {
 /** A stop as a place a bus drives to: its cell. */
 const placeAt = (g: Grid, s: Stop, net: number): Place => ({ kind: "door", x: s.cell % g.w, y: (s.cell / g.w) | 0, net });
 
+const doorsBy = (places: readonly Place[]) => Math.floor(places.filter((p) => p.kind === "door" && !p.building).length / 10);
+const warmed = new WeakMap<LaneGraph, { doors: number; routes: Route[] }>();
+/**
+ * The routes along lanes the town has not taken up yet, worked out a frame ahead of its traffic: taken by
+ * {@link busesOf} when it has, if the doors are as many still. @see lanes/graph lanesSettle
+ */
+export function warmRoutes(G: LaneGraph, places: readonly Place[]): void {
+  const doors = doorsBy(places);
+  if (warmed.get(G)?.doors !== doors) warmed.set(G, { doors, routes: routesOf(G, places) });
+}
+
 /** The town's routes, worked out again if the lanes or how many doors there are have changed. */
 export function busesOf(t: Town, G: LaneGraph): Buses {
   // (By tens of doors: not a new set of routes for every house built.)
-  const doors = Math.floor(t.places.filter((p) => p.kind === "door" && !p.building).length / 10);
+  const doors = doorsBy(t.places);
   if (!t.buses || t.buses.G !== G || t.buses.doors !== doors) {
-    t.buses = { G, doors, routes: routesOf(G, t.places), until: t.buses?.until ?? 0 };
+    const warm = warmed.get(G);
+    t.buses = { G, doors, routes: warm && warm.doors === doors ? warm.routes : routesOf(G, t.places), until: t.buses?.until ?? 0 };
+    warmed.delete(G);
   }
   return t.buses;
 }

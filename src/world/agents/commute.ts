@@ -28,6 +28,7 @@ import type { GeneratorId } from "../../state/generators.store";
 import { idx, type Grid } from "../grid";
 import { FERRY_TILES, ferryLinks } from "../boats/ferry-links";
 import { connects } from "../roads/mask";
+import { SETTLE_SEATS, lanesSettle } from "./lanes/graph";
 import type { Network } from "../roads/network";
 import { placesOf, type Place } from "./roads";
 import { notable } from "../../game/machine";
@@ -246,6 +247,9 @@ export function liveSeating(g: Grid, net: Network): Seating {
   const deck = cultureVersion();
   // And a junction closed, or opened again. @see setClosed
   const closures = closuresVersion();
+  // (While the map's new lanes are being built, and the frames after that have their own work, who sat where: a
+  // road laid is nobody's way to work in the frame it is laid. @see lanes/graph lanesSettle)
+  if (memo.g === g && memo.rev !== g.rev && memo.sites === sites && memo.people === people && memo.deck === deck && memo.closures === closures && lanesSettle(g) > SETTLE_SEATS) return memo.value;
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.people !== people || memo.deck !== deck || memo.closures !== closures) {
     memo = { g, rev: g.rev, sites, people, deck, closures, value: seat(g, placesOf(g, net)) };
   }

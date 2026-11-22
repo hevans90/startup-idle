@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { createGrid, fillTerrain, idx, setHeight, setPaved, type Grid } from "../../grid";
 import { generateMap } from "../../gen/generate-map";
 import { FIXTURE_IDS, FIXTURE_SIZE, applyFixture } from "../../debug/fixtures";
-import { deferLanes, forgetZones, lanesDue, pumpLanes } from "./graph";
+import { SETTLE, deferLanes, forgetZones, lanesDue, lanesSettle, lanesSettling, pumpLanes } from "./graph";
 import { routeLanes, waysFrom } from "./drive";
 import { WALK as PAINT_WALK } from "../../render/road-paint";
 import { isPaved } from "../../roads/mask";
@@ -312,6 +312,10 @@ describe("the lane graph", () => {
       expect(lanesDue(g)).toBe(false);
       const soon = buildLaneGraph(g);
       expect(soon).not.toBe(old);
+      // What waits on them, a frame each: counted down to nothing, a pump a frame.
+      expect(lanesSettle(g)).toBe(SETTLE);
+      for (let k = SETTLE - 1; k >= 0; k--) { expect(pumpLanes(g, 0)).toBe(false); expect(lanesSettle(g)).toBe(k); }
+      expect(lanesSettling(g)).toBe(false);
       deferLanes(false);
       forgetZones();
       const once = buildLaneGraph({ ...g });

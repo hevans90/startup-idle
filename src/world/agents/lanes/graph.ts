@@ -245,11 +245,16 @@ export const deferLanes = (on: boolean) => { deferring = on; };
 /** Whether a map's lanes are behind its roads: new ones are being built. @see deferLanes */
 export const lanesDue = (g: Grid) => { buildLaneGraph(g); return built.get(g)?.due !== undefined; };
 /**
- * Whether a map's lanes are behind its roads, or only just caught up: what is worked out from them comes a frame
- * after another — the traffic and the bus routes with the lanes, the roads' looks the frame after, the streets'
- * levels the frame after that — so no one frame has all of it.
+ * WHAT WAITS ON NEW LANES COMES A FRAME AFTER ANOTHER, so no one frame has all of it: how many frames a map's lanes
+ * have yet to settle — Infinity while they are behind its roads, then counted down a frame at a time from
+ * {@link SETTLE} by {@link pumpLanes}, and 0 once all that waits on them has been worked out. The bus routes are
+ * worked out at {@link SETTLE_BUSES}, the traffic takes the lanes up at {@link SETTLE_TRAFFIC}, the roads' looks
+ * are gone over at {@link SETTLE_LOOKS}, who sits where at {@link SETTLE_SEATS}, and the streets' levels at 0.
  */
-export const lanesSettling = (g: Grid) => lanesDue(g) || (built.get(g)?.settle ?? 0) > 0;
+export const SETTLE = 5, SETTLE_BUSES = 4, SETTLE_TRAFFIC = 3, SETTLE_LOOKS = 2, SETTLE_SEATS = 1;
+export const lanesSettle = (g: Grid): number => (!deferring ? 0 : lanesDue(g) ? Infinity : built.get(g)?.settle ?? 0);
+/** Whether a map's lanes are behind its roads, or only just caught up. @see lanesSettle */
+export const lanesSettling = (g: Grid) => lanesSettle(g) > 0;
 /** What a map's lanes are kept by: its roads, and where anything is built — a lay-by is cut only beside a building. @see baysOf */
 function lanesKey(g: Grid): string {
   let on = 0;
@@ -284,7 +289,7 @@ export function pumpLanes(g: Grid, ms: number): boolean {
   const t0 = performance.now();
   for (;;) {
     const r = due.steps.next();
-    if (r.done) { was.G = r.value; was.roads = due.roads; was.due = undefined; was.settle = 2; return true; }
+    if (r.done) { was.G = r.value; was.roads = due.roads; was.due = undefined; was.settle = SETTLE; return true; }
     if (performance.now() - t0 >= ms) return false;
   }
 }

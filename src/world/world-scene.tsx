@@ -123,7 +123,7 @@ import {
   drawOrigin, drawPickCrosshair, drawRoadMask,
 } from "./render/overlays";
 import { drawLaneGraph } from "./render/lane-overlay";
-import { bayMarksOf, buildLaneGraph, deferLanes, lanesDue, pumpLanes } from "./agents/lanes/graph";
+import { SETTLE_LOOKS, SETTLE_TRAFFIC, bayMarksOf, buildLaneGraph, deferLanes, lanesDue, lanesSettle, pumpLanes } from "./agents/lanes/graph";
 
 /**
  * How solid the ground stays in x-ray.
@@ -3062,7 +3062,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   /** The cells whose vegetation changed since the woods were last gone over. @see TreeMesh.sync */
   const grownRef = useRef(new Set<number>());
   /** How many times the map's new lanes have been finished; and whether the roads' looks are to be gone over for it next frame. @see pumpLanes */
-  const lanesLandedRef = useRef(0), relookRef = useRef(false), lanesWaitRef = useRef(false);
+  const lanesLandedRef = useRef(0), settledRef = useRef(0), lanesWaitRef = useRef(false);
   useEffect(() => { deferLanes(true); return () => deferLanes(false); }, []);
   const cpuFrames = useRef(0);
   /** The frames in a row the water was left unstepped, waiting for the device's solver. @see solverDue */
@@ -3815,15 +3815,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // by them — the lines, the lay-bys — painted on whatever changed. @see deferLanes
     {
       const g0 = useWorldStore.getState().grid, pl = plRef.current;
-      if (relookRef.current && pl && bl) {
-        relookRef.current = false;
-        for (const i of refreshLooks(pl, g0)) {
-          const x = i % g0.w, y = (i / g0.w) | 0;
-          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(g0, x + dx, y + dy)) syncPaved(pl, bl, g0, x + dx, y + dy);
+      // (Not in the frame the roads changed, which has that to do: from the next. And once they are done, a frame
+      // each for what waits on them. @see lanesSettle)
+      if (lanesWaitRef.current || !lanesDue(g0)) {
+        pumpLanes(g0, LANES_MS);
+        const settle = lanesSettle(g0);
+        if (settle !== settledRef.current) {
+          settledRef.current = settle;
+          // (The street's things stand by the traffic's crossings and bays, and by the streets' levels.)
+          if (settle === SETTLE_TRAFFIC || (settle === 0 && lanesLandedRef.current > 0)) lanesLandedRef.current++;
+          if (settle === SETTLE_LOOKS && pl && bl) {
+            for (const i of refreshLooks(pl, g0)) {
+              const x = i % g0.w, y = (i / g0.w) | 0;
+              for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(g0, x + dx, y + dy)) syncPaved(pl, bl, g0, x + dx, y + dy);
+            }
+          }
         }
       }
-      // (Not in the frame the roads changed, which has that to do: from the next.)
-      if (lanesWaitRef.current && pumpLanes(g0, LANES_MS)) { lanesLandedRef.current++; relookRef.current = true; }
       lanesWaitRef.current = lanesDue(g0);
     }
     const tFx = performance.now();

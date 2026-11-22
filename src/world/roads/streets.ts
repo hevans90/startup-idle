@@ -32,7 +32,9 @@ export type Streets = {
 };
 
 /** How many ways on a road tile has. */
-const waysOn = (g: Grid, x: number, y: number) => DIRS.reduce((n, d) => n + (connects(g, x, y, d) ? 1 : 0), 0);
+const COUNT = Uint8Array.from({ length: 16 }, (_v, m) => (m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1) + ((m >> 3) & 1));
+const waysOn = (g: Grid, x: number, y: number) =>
+  ways !== null ? (x >= 0 && y >= 0 && x < waysW && y < waysH ? COUNT[ways[y * waysW + x]] : 0) : DIRS.reduce((n, d) => n + (connects(g, x, y, d) ? 1 : 0), 0);
 
 /** Wider than any road is: a tile the road runs on past this both ways is a junction. @see GenParams.roadWidth */
 const WIDEST = 4;

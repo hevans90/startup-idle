@@ -108,6 +108,88 @@ function WaterMeta() {
   return <>{m.wet} wet · {m.volume}</>;
 }
 
+/**
+ * WHAT AN EDIT CHANGES, EACH ITS OWN: the panel is the whole sidebar, several hundred buttons, and it read the
+ * map's revision and the undo stack — so every stroke rendered all of it again, in the frame the stroke had the
+ * map to redraw in. These read them; the panel does not.
+ */
+function Networks() {
+  const n = useWorldStore((s) => s.netComponents);
+  return <>{n} network{n === 1 ? "" : "s"}</>;
+}
+function Sources() {
+  const grid = useWorldStore((s) => s.grid), revision = useWorldStore((s) => s.revision);
+  // Counted off the grid rather than mirrored into the store: a spring is an
+  // ordinary layer write, so `revision` already says when it can have changed.
+  const { springs, sinks, pipes } = useMemo(() => {
+    let springs = 0, sinks = 0, pipes = 0;
+    for (const r of grid.source) {
+      if (r > 0) springs++;
+      else if (r < 0) sinks++;
+    }
+    for (let i = 0; i < grid.main.length; i++) if (grid.main[i] || grid.mainEnd[i]) pipes++;
+    return { springs, sinks, pipes };
+    // `revision` is the dependency that matters and the one the rule cannot
+    // see: an edit mutates the grid's typed arrays in place, so the object it
+    // is watching never changes identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grid, revision]);
+  return (
+    <>
+      {springs > 0 && ` · ${springs} spring${springs === 1 ? "" : "s"}`}
+      {sinks > 0 && ` · ${sinks} sink${sinks === 1 ? "" : "s"}`}
+      {pipes > 0 && ` · ${pipes} pipe${pipes === 1 ? "" : "s"}`}
+    </>
+  );
+}
+function Beds() {
+  const grid = useWorldStore((s) => s.grid), revision = useWorldStore((s) => s.revision);
+  // Beds on the map, which is the ceiling on hiring. Off the grid for the same
+  // reason the springs are: an edit mutates in place, so `revision` is the only
+  // thing that can say it changed. @see housingCapacity
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const beds = useMemo(() => housingCapacity(grid), [grid, revision]);
+  return (
+    <div className="mt-1 text-fg-muted">
+      {beds.intern + beds.vibe_coder + beds["10x_dev"] === 0
+        ? <span>no housing built</span>
+        : (
+          <span>
+            beds — intern <span className="text-fg">{beds.intern}</span>
+            {" · vibe "}<span className="text-fg">{beds.vibe_coder}</span>
+            {" · 10x "}<span className="text-fg">{beds["10x_dev"]}</span>
+          </span>
+        )}
+    </div>
+  );
+}
+function History() {
+  const { undoDepth, redoDepth, undoName, redoName, doUndo, doRedo } = useWorldStore(useShallow((s) => ({
+    undoDepth: s.undoDepth, redoDepth: s.redoDepth, undoName: s.undoName, redoName: s.redoName, doUndo: s.doUndo, doRedo: s.doRedo,
+  })));
+  return (
+    <>
+      <div className="flex flex-wrap gap-1">
+        <button type="button" onClick={doUndo} disabled={!undoDepth}
+          title={undoName ?? undefined}
+          className={`${BTN} ${undoDepth ? OFF : "border-line-quiet bg-surface-1 text-fg-faint"}`}>
+          undo {undoDepth ? `(${undoDepth})` : ""}
+        </button>
+        <button type="button" onClick={doRedo} disabled={!redoDepth}
+          title={redoName ?? undefined}
+          className={`${BTN} ${redoDepth ? OFF : "border-line-quiet bg-surface-1 text-fg-faint"}`}>
+          redo {redoDepth ? `(${redoDepth})` : ""}
+        </button>
+      </div>
+      {undoName && (
+        <p className="mt-1 truncate font-mono text-fg-muted" title={undoName}>
+          last: {undoName}
+        </p>
+      )}
+    </>
+  );
+}
+
 export function EditPanel() {
   const fileRef = useRef<HTMLInputElement>(null);
   /**
@@ -124,50 +206,26 @@ export function EditPanel() {
    * rest are primitives or objects that only change when they really do.
    */
   const {
-    tool, brush, brushRadius, material, palette, grid, undoDepth, redoDepth,
-    undoName, redoName, heightStep, setTool, setBrush, setBrushRadius,
-    setMaterial, setHeightStep, doUndo, doRedo, loadGrid, resize, applyFixture,
-    netComponents, structureDefId, setStructureDef,
-    fluidMaterial, setFluidMaterial, revision,
+    tool, brush, brushRadius, material, palette, grid, heightStep, setTool, setBrush, setBrushRadius,
+    setMaterial, setHeightStep, loadGrid, resize, applyFixture,
+    structureDefId, setStructureDef,
+    fluidMaterial, setFluidMaterial,
     openEdge, setOpenEdge, getWaterField, playing, setPlaying, setGenParam,
   } = useWorldStore(useShallow((s) => ({
     tool: s.tool, brush: s.brush, brushRadius: s.brushRadius,
     material: s.material, palette: s.palette, grid: s.grid,
-    undoDepth: s.undoDepth, redoDepth: s.redoDepth,
-    undoName: s.undoName, redoName: s.redoName, heightStep: s.heightStep,
+    heightStep: s.heightStep,
     setTool: s.setTool, setBrush: s.setBrush, setBrushRadius: s.setBrushRadius,
     setMaterial: s.setMaterial, setHeightStep: s.setHeightStep,
-    doUndo: s.doUndo, doRedo: s.doRedo, loadGrid: s.loadGrid,
+    loadGrid: s.loadGrid,
     resize: s.resize, applyFixture: s.applyFixture, setGenParam: s.setGenParam,
-    netComponents: s.netComponents, structureDefId: s.structureDefId,
+    structureDefId: s.structureDefId,
     setStructureDef: s.setStructureDef, fluidMaterial: s.fluidMaterial,
-    setFluidMaterial: s.setFluidMaterial, revision: s.revision,
+    setFluidMaterial: s.setFluidMaterial,
     openEdge: s.openEdge, setOpenEdge: s.setOpenEdge,
     getWaterField: s.getWaterField,
     playing: s.playing, setPlaying: s.setPlaying,
   })));
-
-  // Counted off the grid rather than mirrored into the store: a spring is an
-  // ordinary layer write, so `revision` already says when it can have changed.
-  const { springs, sinks, pipes } = useMemo(() => {
-    let springs = 0, sinks = 0, pipes = 0;
-    for (const r of grid.source) {
-      if (r > 0) springs++;
-      else if (r < 0) sinks++;
-    }
-    for (let i = 0; i < grid.main.length; i++) if (grid.main[i] || grid.mainEnd[i]) pipes++;
-    return { springs, sinks, pipes };
-    // `revision` is the dependency that matters and the one the rule cannot
-    // see: an edit mutates the grid's typed arrays in place, so the object it
-    // is watching never changes identity.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grid, revision]);
-
-  // Beds on the map, which is the ceiling on hiring. Off the grid for the same
-  // reason the springs are: an edit mutates in place, so `revision` is the only
-  // thing that can say it changed. @see housingCapacity
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const beds = useMemo(() => housingCapacity(grid), [grid, revision]);
 
   const save = () => {
     // With the live field, so the file keeps the water that is on the map and
@@ -227,7 +285,7 @@ export function EditPanel() {
         <button type="button" onClick={() => setTool("eraseRoad")}
           className={`${BTN} ${tool === "eraseRoad" ? ON : OFF}`}>unpave (o)</button>
         <span className="ml-1 text-fg-muted">
-          {netComponents} network{netComponents === 1 ? "" : "s"}
+          <Networks />
         </span>
       </div>
 
@@ -263,9 +321,7 @@ export function EditPanel() {
         ))}
         <span className="ml-1 text-fg-muted">
           <WaterMeta />
-          {springs > 0 && ` · ${springs} spring${springs === 1 ? "" : "s"}`}
-          {sinks > 0 && ` · ${sinks} sink${sinks === 1 ? "" : "s"}`}
-          {pipes > 0 && ` · ${pipes} pipe${pipes === 1 ? "" : "s"}`}
+          <Sources />
         </span>
       </div>
 
@@ -281,17 +337,7 @@ export function EditPanel() {
           title="Play rules: housing needs road frontage and costs money"
           className={`${BTN} ${playing ? ON : OFF}`}>play rules</button>
       </div>
-      <div className="mt-1 text-fg-muted">
-        {beds.intern + beds.vibe_coder + beds["10x_dev"] === 0
-          ? <span>no housing built</span>
-          : (
-            <span>
-              beds — intern <span className="text-fg">{beds.intern}</span>
-              {" · vibe "}<span className="text-fg">{beds.vibe_coder}</span>
-              {" · 10x "}<span className="text-fg">{beds["10x_dev"]}</span>
-            </span>
-          )}
-      </div>
+      <Beds />
       <div className="mt-1 flex flex-wrap gap-1">
         {allStructureDefs().map((d) => (
           <button key={d.id} type="button" onClick={() => setStructureDef(d.id)}
@@ -329,23 +375,7 @@ export function EditPanel() {
       </div>
 
       <p className="mt-3 mb-1 text-fg-muted">history</p>
-      <div className="flex flex-wrap gap-1">
-        <button type="button" onClick={doUndo} disabled={!undoDepth}
-          title={undoName ?? undefined}
-          className={`${BTN} ${undoDepth ? OFF : "border-line-quiet bg-surface-1 text-fg-faint"}`}>
-          undo {undoDepth ? `(${undoDepth})` : ""}
-        </button>
-        <button type="button" onClick={doRedo} disabled={!redoDepth}
-          title={redoName ?? undefined}
-          className={`${BTN} ${redoDepth ? OFF : "border-line-quiet bg-surface-1 text-fg-faint"}`}>
-          redo {redoDepth ? `(${redoDepth})` : ""}
-        </button>
-      </div>
-      {undoName && (
-        <p className="mt-1 truncate font-mono text-fg-muted" title={undoName}>
-          last: {undoName}
-        </p>
-      )}
+      <History />
 
       <p className="mt-3 mb-1 text-fg-muted">map</p>
       <div className="flex flex-wrap gap-1">
