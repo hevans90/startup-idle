@@ -183,6 +183,8 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
   let groundOf: Grid | null = null, groundSeen = -1;
   /** What each cell was made of, and whether water stood on it, when these were last gone over. */
   let soilSeen = new Int16Array(0);
+  /** The map last looked at, and its own count of its edits then. @see Grid.rev */
+  let seenOf: Grid | null = null, seenRev = -1;
   /** Each part with trees: its mesh, and the year at which it must be written again. */
   const meshes = new Map<number, { mesh: Mesh<Geometry, Shader>; next: number }>();
   /** The trees of each part, back to front: made again when the map changes. */
@@ -256,6 +258,11 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
       // (Not the store's count of edits, which water poured moves too: what a cell's trees are read from — the
       // ground and what is built on it, what the cell is made of and whether water stands on it, what grows.)
       void rev;
+      // (Nothing counted as changed since the last look, on the map or in what grows or was planted: the map is
+      // not read over again to find that out — sixty times a second, on a big map, was a share of every frame.)
+      const quiet = seenOf === g && seenRev === g.rev && g.veg.rev === vegSeen && sown.rev === plantedSeen && key === `${scale}|${palette.length}`;
+      if (!quiet) {
+      seenOf = g; seenRev = g.rev;
       const now = withCorners(g, SURFACE_FINE, () => {
         // (What each cell is made of and whether water stands on it: the cells where that changed, or null for all.)
         const n = g.terrain.length;
@@ -399,6 +406,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
         }
       }
 
+      }
       // THE YEAR: every part whose first turn is done — all of them if the year went back.
       if (t < lastT - 1e-6) for (const p of meshes.keys()) dirty.add(p);
       lastT = t;
@@ -408,7 +416,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
     },
     destroy() {
       for (const p of [...meshes.keys()]) drop(p);
-      cells.clear(); parts.clear(); key = ""; vegSeen = -1; groundOf = null;
+      cells.clear(); parts.clear(); key = ""; vegSeen = -1; groundOf = null; seenOf = null;
     },
   };
 }
