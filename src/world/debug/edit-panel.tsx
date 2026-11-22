@@ -199,7 +199,7 @@ export function LightSection() {
   const [ms, setMs] = useState(NaN);
   useEffect(() => { const t = setInterval(() => setMs(giMs()), 500); return () => clearInterval(t); }, []);
   const put = (p: Partial<GiOptions>) => setO(setGi(p));
-  const flag = (k: "on" | "glows" | "walls" | "lamps" | "windows" | "headlights" | "only", label: string, title?: string) => (
+  const flag = (k: "on" | "glows" | "floors" | "walls" | "lamps" | "windows" | "headlights" | "only", label: string, title?: string) => (
     <button key={k} type="button" title={title} onClick={() => put({ [k]: !o[k] })} className={`${BTN} ${o[k] ? ON : OFF}`}>{label}</button>
   );
   return (
@@ -209,6 +209,7 @@ export function LightSection() {
           onClick={() => { const w = window as unknown as { __dayPhase?: number }; if (night) delete w.__dayPhase; else w.__dayPhase = 0; setNight(!night); }}
           className={`${BTN} ${night ? ON : OFF}`}>midnight</button>
         {flag("on", "cascades", "work the night's light out on the map; off, the flat night and its glows")}
+        {flag("floors", "floors", "lit buildings show their own windows, a floor at a time")}
         {flag("glows", "glows", "draw the old glow sprites too")}
         {flag("walls", "walls", "buildings stop light")}
         {flag("only", "light only", "show the light alone")}

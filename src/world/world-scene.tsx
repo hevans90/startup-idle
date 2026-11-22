@@ -64,6 +64,7 @@ import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } fro
 import { canopyGround, castGround, destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
 import { casterOf } from "./render/casters";
 import { createRoadShade, type RoadShade } from "./render/road-shade";
+import { createLitWindows, litShare, type LitWindows } from "./render/lit-windows";
 import { createGroundCache, setGroundCache, type GroundCache } from "./render/ground-cache";
 import { stepVegetation, wetFrom } from "./vegetation/step";
 import { wearFrom } from "./vegetation/wear";
@@ -152,7 +153,7 @@ const SOLVER_WAIT = 10;
  * How bright each kind of light is to the map's own light (@see render/gi): a lamp and a headlight are small and
  * must be very bright to light a street; a lit building is a whole wall of light, and need only glow.
  */
-const GI_LAMP = 9, GI_HEAD = 12, GI_SIGN = 2, GI_WINDOW = 0.05;
+const GI_LAMP = 7, GI_HEAD = 10, GI_SIGN = 1.2, GI_WINDOW = 0.05, GI_SPILL = 0.3;
 /** How long a frame spends on a map's new lanes, ms. @see pumpLanes */
 const LANES_MS = 3;
 /** Whether the device's solver is what should be stepping the water: a device held and not lost, and the toggle on. */
@@ -640,7 +641,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const carGlowRef = useRef<CarGlow | null>(null);
   /** The night's light worked out on the map, where it is asked for; the lights that stand still, as last listed; and the night's grade this frame. @see render/gi */
   const giRef = useRef<{ gi: Gi; w: number; h: number } | null>(null);
-  const giStill = useRef<{ key: string; lights: GiLight[] }>({ key: "", lights: [] });
+  const giStill = useRef<{ key: string; lights: GiLight[]; lit: Map<number, { colour: number; bias: number }> }>({ key: "", lights: [], lit: new Map() });
+  /** The lit buildings' own windows, a floor at a time. @see render/lit-windows */
+  const litRef = useRef<LitWindows | null>(null);
   const gradeRef = useRef(0xffffff);
   const lightsAt = useRef<{ grid: unknown; rev: number; crunch: boolean }>({ grid: null, rev: -1, crunch: false });
   // AND RAIN over it while a flood is coming or here. @see drawRain
@@ -663,6 +666,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     lightsRef.current = createLights(app.stage, 1e9 + 0.5);
     // THE VEHICLES' HEADLIGHTS, over the night too, under the town's lights. @see createCarGlow
     carGlowRef.current = createCarGlow(app.stage, 1e9 + 0.4);
+    litRef.current = createLitWindows(app.stage, 1e9 + 0.45);
     return () => {
       for (const x of [g, r]) { x.parent?.removeChild(x); x.destroy(); }
       night.current = null;
@@ -672,6 +676,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       carGlowRef.current = null;
       giRef.current?.gi.destroy();
       giRef.current = null;
+      litRef.current?.destroy();
+      litRef.current = null;
       rain.current = null;
     };
   }, [app]);
@@ -4117,6 +4123,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // headlight, and the night's grade laid through it — the flat sheet and, unless asked for, the glows put by.
       // A spike. @see render/gi
       let glowNight = nightNow;
+      // (The windows' own clock, seconds since the page came up: small enough for a shader to count by.)
+      const litClock = performance.now() / 1000;
+      // How far through the night it is, dusk to dawn: fewer windows lit as it goes. @see lit-windows litShare
+      const litNow = litShare((((phaseNow() - 0.75) % 1) + 1) % 1 / 0.5);
       {
         const o = giOptions(), gm = tlRef.current?.ground, st = useWorldStore.getState();
         let laid = false;
@@ -4128,14 +4138,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             // What stands still, listed again when the map or the options change.
             const key = `${st.revision}|${giVersion()}`;
             if (giStill.current.key !== key) {
-              const list: GiLight[] = [];
+              const list: GiLight[] = [], lit = new Map<number, { colour: number; bias: number }>();
               for (const l of lightsOf(st.grid)) {
                 const x = (l.x + l.w / 2) * 4, y = (l.y + l.h / 2) * 4;
-                if (l.kind === "lamp") { if (o.lamps) list.push({ x, y, hx: 1.8, hy: 1.8, ...rgb(0xffe2a0, GI_LAMP), solid: 0 }); }
-                else if (l.kind === "window") { if (o.windows) list.push({ x, y, hx: l.w * 2 * 0.8, hy: l.h * 2 * 0.8, ...rgb(l.violet ? 0xb44aff : l.crunch ? 0xd8ecff : 0xffc46b, GI_WINDOW), solid: 1 }); }
+                // (A lamp is a point: small and hard, not a soft pool laid on the road.)
+                if (l.kind === "lamp") { if (o.lamps) list.push({ x, y, hx: 0.7, hy: 0.7, ...rgb(0xffe2a0, GI_LAMP), solid: 1 }); }
+                else if (l.kind === "window") { const tone = l.violet ? 0xb44aff : l.crunch ? 0xd8ecff : 0xffc46b; // (An office at work has more of its windows lit than a street of houses has.)
+                  if (o.windows && l.id !== undefined) lit.set(l.id, { colour: tone, bias: l.violet || l.crunch ? 0.3 : 0 });
+                  // (Its windows' own light falls outside, where they are shown; a glow the size of it, where they are not.)
+                  if (o.windows && !o.floors) list.push({ x, y, hx: l.w * 2 * 0.8, hy: l.h * 2 * 0.8, ...rgb(l.violet ? 0xb44aff : l.crunch ? 0xd8ecff : 0xffc46b, GI_WINDOW), solid: 1 }); }
                 else if (o.windows) list.push({ x, y, hx: 1.5, hy: 1.5, ...rgb(l.tint ?? 0xffffff, l.neon ? GI_SIGN * 1.6 : GI_SIGN), solid: 1 });
               }
-              giStill.current = { key, lights: list };
+              giStill.current = { key, lights: list, lit };
             }
             let lights = giStill.current.lights;
             if (o.headlights) {
@@ -4145,10 +4159,18 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 lights.push({ x: (m.x + 0.5 + Math.cos(m.heading) * 0.8) * 4, y: (m.y + 0.5 + Math.sin(m.heading) * 0.8) * 4, hx: 2.4, hy: 2.4, ...rgb(0xfff0c8, GI_HEAD), solid: 0 });
               }
             }
+            // THE LIT BUILDINGS' OWN WINDOWS, each by its own hours, where what stands in front does not hide them:
+            // and the light the ground floors' throw outside, for the map's light to carry.
+            if (o.floors && litRef.current) {
+              litRef.current.sync(st.grid, gm, giStill.current.lit, scale, `${key}|${gm.shadeRev}`);
+              const spill = litRef.current.spill(litClock, litNow, GI_SPILL);
+              if (spill.length) lights = lights.concat(spill);
+            }
             laid = giRef.current.gi.tick(lights, gm.casts, gm.shadeRev, gradeRef.current, nightNow, blNow.root.worldTransform);
           }
         } else if (giRef.current && blNow) giRef.current.gi.tick([], new Float32Array(0), 0, 0xffffff, 0, blNow.root.worldTransform);
         if (night.current) night.current.visible = !laid;
+        if (litRef.current && blNow) litRef.current.tick(laid && o.floors ? nightNow : 0, litClock, litNow, blNow.root.worldTransform);
         if (laid && !o.glows) glowNight = 0;
       }
       if (lightsRef.current && blNow) {

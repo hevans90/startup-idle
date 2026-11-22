@@ -29,6 +29,8 @@ export type GiOptions = {
   cascades: 3 | 4 | 5;
   /** Quarter-tiles between the nearest cascade's probes: 1 is finer and four times the work of 2. */
   spacing: 1 | 2;
+  /** Whether lit buildings show their own windows lit, a floor at a time. @see lit-windows */
+  floors: boolean;
   /** Whether the old glows — the soft sprites over the lamps, windows and headlights — are drawn too. */
   glows: boolean;
   /** Whether buildings stop light. Off, light passes through everything. */
@@ -40,7 +42,7 @@ export type GiOptions = {
   /** Show the light alone, over a black map: what was worked out, and nothing else. */
   only: boolean;
 };
-const options: GiOptions = { on: false, cascades: 4, spacing: 2, glows: false, walls: true, lamps: true, windows: true, headlights: true, gain: 0.5, only: false };
+const options: GiOptions = { on: false, cascades: 4, spacing: 1, floors: true, glows: false, walls: true, lamps: true, windows: true, headlights: true, gain: 0.5, only: false };
 let version = 0;
 export const giOptions = (): Readonly<GiOptions> => options;
 export const giVersion = () => version;
@@ -59,8 +61,8 @@ if (typeof window !== "undefined") {
   if (q) {
     const words = (q[1] ?? "").split(",");
     setGi({
-      on: !words.includes("off"), glows: words.includes("glows"), only: words.includes("only"), walls: !words.includes("nowalls"),
-      ...(words.includes("3") ? { cascades: 3 } : words.includes("5") ? { cascades: 5 } : {}), ...(words.includes("1") ? { spacing: 1 } : {}),
+      on: !words.includes("off"), glows: words.includes("glows"), floors: !words.includes("nofloors"), only: words.includes("only"), walls: !words.includes("nowalls"),
+      ...(words.includes("3") ? { cascades: 3 } : words.includes("5") ? { cascades: 5 } : {}), ...(words.includes("2") ? { spacing: 2 } : {}),
     });
   }
 }
@@ -71,7 +73,7 @@ export type GiLight = { x: number; y: number; hx: number; hy: number; r: number;
 /** Quarter-tiles a tile: the grid the ground's shade and what is built are kept on. @see ground-mesh SHADE_PER_TILE */
 const Q = 4;
 /** Lights at most, a frame. */
-const MAX_LIGHTS = 4096;
+const MAX_LIGHTS = 16384;
 const FLOATS = 8;
 
 const EMIT_WGSL = /* wgsl */ `
