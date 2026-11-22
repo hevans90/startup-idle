@@ -95,10 +95,10 @@ export function createPavedLayer(grid: Grid, scale = 1, renderer?: Renderer, pai
 /** Whether two looks are the same look: every part of each. */
 function sameLook(a: Look | null | undefined, b: Look | null | undefined): boolean {
   if (!a || !b) return !a && !b;
-  const A = a as unknown as Record<string, unknown>, B = b as unknown as Record<string, unknown>;
-  for (const k in A) if (A[k] !== B[k] && (A[k] ?? "") !== (B[k] ?? "")) return false;
-  for (const k in B) if (!(k in A) && (B[k] ?? "") !== "") return false;
-  return true;
+  // (Field by field, by name: gone over for every cell of the map after an edit of its roads.)
+  return a.open === b.open && a.diag === b.diag && a.ramp === b.ramp && a.lvl === b.lvl && a.vr === b.vr && a.ctr === b.ctr && a.mk === b.mk
+    && a.wx === b.wx && a.gw === b.gw && a.stop === b.stop && a.arrow === b.arrow && a.box === b.box && a.yl === b.yl && a.zz === b.zz
+    && a.zeb === b.zeb && a.xing === b.xing && a.slow === b.slow && a.rb === b.rb && a.bay === b.bay && a.spd === b.spd;
 }
 
 /**

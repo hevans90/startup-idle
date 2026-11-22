@@ -261,7 +261,7 @@ export type BridgeProps = { sync(g: Grid, rev: number, scale: number, depth?: (x
 
 /** The bridges' pieces, in the bands. */
 export function createBridgeProps(bands: BandLayer): BridgeProps {
-  let drawn: Container[] = [], key = "", level = "", tick = 0;
+  let drawn: Container[] = [], key = "", level = "", tick = 0, made = "";
   const clear = () => { for (const c of drawn) { c.parent?.removeChild(c); c.destroy({ children: true }); } drawn = []; };
   return {
     sync(g, rev, scale, depth, force) {
@@ -279,10 +279,16 @@ export function createBridgeProps(bands: BandLayer): BridgeProps {
       const k = `${rev}|${scale}|${force ?? ""}|${P ? "baked" : ""}|${level}`;
       if (k === key) return;
       key = k;
+      // AN EDIT THAT MOVES NO PIECE OF A BRIDGE leaves them standing: every bridge's sprites were thrown away and made
+      // again for a tile of road laid across the map, and each band they stand in drawn up again for it.
+      const pieces = P ? bridgePiecesOf(g, still, force) : [];
+      const sig = P ? `${scale}|${JSON.stringify(pieces)}` : "";
+      if (sig === made) return;
+      made = sig;
       clear();
       if (!P) return;
       const under = new Map<number, Container>();
-      for (const p of bridgePiecesOf(g, still, force)) {
+      for (const p of pieces) {
         // (A piece between two tiles is the higher one's: drawn with it.)
         const band = p.cell ? bandOf(p.cell.x, p.cell.y) : bandOf(Math.ceil(p.x), Math.ceil(p.y)), sp = propSprite(P, p.id, p.turn, p.x, p.y, p.z, scale);
         if (!sp) continue;
@@ -295,7 +301,7 @@ export function createBridgeProps(bands: BandLayer): BridgeProps {
           let c = under.get(band);
           if (!c) {
             const layer = bands.staticOf[band];
-            if (!layer) { sp.destroy({ children: true }); continue; }
+            if (!layer) { sp.destroy({ children: true }); made = ""; continue; }
             c = new Container(); c.eventMode = "none";
             layer.addChild(c);
             under.set(band, c); drawn.push(c);
@@ -303,7 +309,7 @@ export function createBridgeProps(bands: BandLayer): BridgeProps {
           c.addChild(sp);
         } else {
           const layer = bands.dynamicOf[band];
-          if (!layer) { sp.destroy({ children: true }); continue; }
+          if (!layer) { sp.destroy({ children: true }); made = ""; continue; }
           sp.zIndex = p.tier === "back" ? -0.45 : 0.45;
           layer.addChild(sp);
           drawn.push(sp);
