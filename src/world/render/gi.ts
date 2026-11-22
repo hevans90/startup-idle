@@ -23,7 +23,7 @@ import { HH, HW } from "../iso";
 
 /** What the spike can be asked for, live. @see setGi */
 export type GiOptions = {
-  /** Whether the light is worked out at all: off, the night is the flat grade and the glows it always was. */
+  /** Whether the light is worked out at all — it is, unless turned off: off, the night is the flat grade and the glows it always was. */
   on: boolean;
   /** How many cascades: how far a light reaches — 3, some five tiles; 4, some twenty; 5, the map. */
   cascades: 3 | 4 | 5;
@@ -44,7 +44,7 @@ export type GiOptions = {
   /** Show the light alone, over a black map: what was worked out, and nothing else. */
   only: boolean;
 };
-const options: GiOptions = { on: false, cascades: 4, spacing: 2, floors: true, layers: 4, glows: false, walls: true, lamps: true, windows: true, headlights: true, gain: 0.5, only: false };
+const options: GiOptions = { on: true, cascades: 4, spacing: 2, floors: true, layers: 4, glows: false, walls: true, lamps: true, windows: true, headlights: true, gain: 0.5, only: false };
 let version = 0;
 export const giOptions = (): Readonly<GiOptions> => options;
 export const giVersion = () => version;
@@ -53,7 +53,7 @@ export function setGi(o: Partial<GiOptions>): GiOptions { Object.assign(options,
 let lastMs = NaN;
 export const giMs = () => lastMs;
 
-// ASKED FOR IN THE ADDRESS, or from the console: `?gi` turns it on (`?gi=glows,only,5,1` with options), and
+// ASKED FOR IN THE ADDRESS, or from the console: `?gi=off` turns it off (`?gi=glows,only,5,fine` are options), and
 // `__gi({ ... })` changes anything live; `__giMs()` says what it cost.
 if (typeof window !== "undefined") {
   const w = window as unknown as { __gi?: (o?: Partial<GiOptions>) => GiOptions; __giMs?: () => number };
@@ -484,6 +484,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
   } : null;
 
   let seenScene = -1, seenWalls: boolean | null = null, frame = 0;
+  let fresh = "", freshScene = -1, freshWindows = -2, freshWalls: boolean | null = null;
   return {
     rest() { if (sized) sized.mesh.visible = false; },
     tick(f) {
@@ -535,9 +536,18 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
         ...(timed && (first || last) ? { timestampWrites: { querySet: timed.set, ...(first ? { beginningOfPassWriteIndex: 0 } : {}), ...(last ? { endOfPassWriteIndex: 1 } : {}) } } : {}),
       });
       const emitView = emit.createView();
+      // NOT EVERY HEIGHT EVERY FRAME. The street's light moves with every car and is worked out each frame; the
+      // heights over it change as windows come on and go out, over a second or more, and take turns — one of them
+      // a frame. All of them at once when anything they are made from has changed: what is built, the options.
+      const all = fresh !== s.key || freshScene !== f.sceneRev || freshWindows !== windowRev || freshWalls !== options.walls;
+      fresh = s.key; freshScene = f.sceneRev; freshWindows = windowRev; freshWalls = options.walls;
+      const turn = s.layers.length > 1 ? 1 + (frame % (s.layers.length - 1)) : 0;
+      const due = s.layers.map((_l, li) => all || li === 0 || li === turn);
+      const firstDue = due.indexOf(true), lastDue = due.lastIndexOf(true);
       s.layers.forEach((l, li) => {
+        if (!due[li]) return;
         // This height's lights; then the cascades from the furthest in; then its light, into its own stretch.
-        const e = pass(emitView, false, li === 0);
+        const e = pass(emitView, false, li === firstDue);
         e.setPipeline(emitPipe); e.setBindGroup(0, l.emitBind);
         if (n) { e.setVertexBuffer(0, lightBuf); e.draw(6, n); }
         if (wins && windowBuf && windowN) { e.setVertexBuffer(0, windowBuf); e.draw(6, windowN); }
@@ -547,7 +557,8 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
           p.setPipeline(cascPipe); p.setBindGroup(0, l.levels[i].bind); p.draw(3);
           p.end();
         }
-        const fin = pass(s.lightView, li > 0, false, li === s.layers.length - 1);
+        // (Its own stretch written over; the others' kept as they were last worked out.)
+        const fin = pass(s.lightView, !(all && li === 0), false, li === lastDue);
         fin.setViewport(li * s.px, 0, s.px, s.py, 0, 1);
         fin.setPipeline(finalPipe); fin.setBindGroup(0, l.finalBind); fin.draw(3);
         fin.end();

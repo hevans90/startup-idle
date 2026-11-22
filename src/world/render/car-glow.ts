@@ -57,7 +57,8 @@ type Glow = { pool: Sprite; head: Sprite; tail: Sprite };
 
 export type CarGlow = {
   /** This frame: the town's vehicles, how dark it is (0–1), the map's transform to the screen and its scale. */
-  tick: (town: Town, night: number, map: Matrix, scale: number) => void;
+  /** `pools`: whether each has its pool of light laid on the road in front of it — not where the map's own light lays it. @see gi */
+  tick: (town: Town, night: number, map: Matrix, scale: number, pools?: boolean) => void;
   destroy: () => void;
 };
 
@@ -78,7 +79,7 @@ export function createCarGlow(stage: Container, zIndex: number): CarGlow {
   };
   const m3 = new Matrix();
   return {
-    tick(town, night, map, scale) {
+    tick(town, night, map, scale, pools = true) {
       root.visible = night > 0.05;
       if (!root.visible) {
         if (shown.size) { for (const g of shown.values()) for (const s of [g.pool, g.head, g.tail]) s.destroy(); shown.clear(); }
@@ -106,6 +107,7 @@ export function createCarGlow(stage: Container, zIndex: number): CarGlow {
         m3.set((Ax * REACH * k) / tw, (Ay * REACH * k) / tw, (Bx * SPREAD * k) / th, (By * SPREAD * k) / th, nose.x, nose.y);
         g.pool.setFromMatrix(m3);
         g.pool.alpha = POOL;
+        g.pool.visible = pools;
         // THE LAMPS' GLOWS.
         const up = LAMP_Z * HALF_STEPS_PER_M * k, size = (LAMP_SIZE * k * scale * 64) / 32;
         const h = at(half, up), t = at(-half, up);

@@ -153,7 +153,7 @@ const SOLVER_WAIT = 10;
  * How bright each kind of light is to the map's own light (@see render/gi): a lamp and a headlight are small and
  * must be very bright to light a street; a lit building is a whole wall of light, and need only glow.
  */
-const GI_LAMP = 7, GI_HEAD = 10, GI_SIGN = 1.2, GI_WINDOW = 0.05, GI_SPILL = 0.28;
+const GI_LAMP = 13, GI_HEAD = 34, GI_SIGN = 1.6, GI_WINDOW = 0.05, GI_SPILL = 0.28;
 /** How long a frame spends on a map's new lanes, ms. @see pumpLanes */
 const LANES_MS = 3;
 /** Whether the device's solver is what should be stepping the water: a device held and not lost, and the toggle on. */
@@ -4158,7 +4158,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               lights = lights.slice();
               for (const m of getTown().movers) {
                 if (!lampsLit(m)) continue;
-                lights.push({ x: (m.x + 0.5 + Math.cos(m.heading) * 0.8) * 4, y: (m.y + 0.5 + Math.sin(m.heading) * 0.8) * 4, hx: 2.4, hy: 2.4, ...rgb(0xfff0c8, GI_HEAD), solid: 0 });
+                // (Two pools along its way, the nearer the brighter: a beam thrown ahead, not a glow round the car.)
+                const ch = Math.cos(m.heading), sh = Math.sin(m.heading);
+                lights.push({ x: (m.x + 0.5 + ch * 0.55) * 4, y: (m.y + 0.5 + sh * 0.55) * 4, hx: 1.3, hy: 1.3, ...rgb(0xfff0c8, GI_HEAD), solid: 0, z: 0.5 });
+                lights.push({ x: (m.x + 0.5 + ch * 1.25) * 4, y: (m.y + 0.5 + sh * 1.25) * 4, hx: 2, hy: 2, ...rgb(0xfff0c8, GI_HEAD * 0.45), solid: 0, z: 0.5 });
               }
             }
             // THE LIT BUILDINGS' OWN WINDOWS, each by its own hours, where what stands in front does not hide them:
@@ -4189,7 +4192,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         }
         lightsRef.current.tick(glowNight, blNow.root.worldTransform, now / 1000);
       }
-      if (carGlowRef.current && blNow) carGlowRef.current.tick(getTown(), glowNight, blNow.root.worldTransform, scale);
+      // (A car's lamps are lit either way; the pool they throw on the road is the map's own light's, where that is laid.)
+      if (carGlowRef.current && blNow) carGlowRef.current.tick(getTown(), nightNow, blNow.root.worldTransform, scale, glowNight > 0);
       // THE AI ON THE MAP. @see createAiLayer
       const ai = aiLayerRef.current;
       // In development, `__aiPreview` shows it in the editor at any stage.
