@@ -19,7 +19,7 @@ import type { TreeFrame, TreesSheet } from "../props/trees-format";
 import { useCalendarStore } from "../../state/calendar.store";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
 import type { BandLayer } from "./bands";
-import { SURFACE_FINE, drawnCorner, drawnHeight, withCorners } from "./drawn";
+import { SURFACE_FINE, cornersRev, drawnCorner, drawnHeight, withCorners } from "./drawn";
 import { canopyOf, forestTrees, scattered } from "./forest";
 import { ageStep } from "../vegetation/step";
 import { sickness } from "../vegetation/stress";
@@ -238,7 +238,14 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
 
       // THE MAP: cells whose woods, height or ground changed — a cell's trees are by the canopy round it.
       const sown = planted();
-      const mk = `${rev}|${g.veg.rev}|${scale}|${palette.length}`;
+      // (Not the store's count of edits, which water poured moves too: what a cell's trees are read from — the
+      // ground and what is built on it, what the cell is made of and whether water stands on it, what grows.)
+      void rev;
+      const mk = withCorners(g, SURFACE_FINE, () => {
+        let soil = 0;
+        for (let i = 0; i < g.terrain.length; i++) soil = (Math.imul(soil, 31) + g.terrain[i] * 2 + (g.pool[i] > 0 ? 1 : 0)) | 0;
+        return `${cornersRev()}|${soil}|${g.veg.rev}|${scale}|${palette.length}`;
+      });
       if (mk !== key || sown.rev !== plantedSeen) {
         // (What something else planted changes without the map: the map's cells are not gone over again for it.)
         const scan = mk !== key;

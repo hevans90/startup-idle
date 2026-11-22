@@ -176,6 +176,20 @@ type Kept = {
 };
 /** The readings of the last build, kept while the map has not changed since: a new map's water field and its ground ask for the same heights, one after the other. */
 let kept: Kept | null = null;
+/**
+ * How far from a cell that changed a reading of the surface can differ, cells: the curve through the middles reads
+ * two cells either side, a little to one side of the point (@see smoothRead); built ground is met within half a
+ * tile, and a road's corner is the mean of the road tiles round it. Four, with room.
+ */
+const REACH = 4;
+/** Forget the readings kept. For a test that must work the ground out afresh. */
+export const forgetCorners = () => { kept = null; };
+let keptRev = 0;
+/**
+ * Counts each time the readings kept were made afresh or any of them forgotten: inside {@link withCorners}, the
+ * same number as last time says nothing the surface is read from has changed on this map since.
+ */
+export const cornersRev = () => keptRev;
 let lattice: Kept | null = null;
 export function withCorners<T>(grid: Grid, fine: number, make: () => T): T {
   const was = lattice;
@@ -187,8 +201,19 @@ export function withCorners<T>(grid: Grid, fine: number, make: () => T): T {
       | (grid.deck[i] !== 0 ? 1 << 28 : 0) | (grid.main[i] ? 1 << 29 : 0) | (grid.structureAt[i] >= 0 ? 1 << 30 : 0);
   }
   let same = kept !== null && kept.grid === grid && kept.fine === fine && kept.mode === groundMode() && kept.from.length === n;
-  if (same) { const k = kept!.from; for (let i = 0; i < n; i++) if (k[i] !== from[i]) { same = false; break; } }
-  if (!same) {
+  // WHERE IT CHANGED, if it is the map the readings were kept for: a box round the cells that differ.
+  let x0 = grid.w, y0 = grid.h, x1 = -1, y1 = -1;
+  if (same) {
+    const k = kept!.from;
+    for (let i = 0; i < n; i++) if (k[i] !== from[i]) {
+      const x = i % grid.w, y = (i / grid.w) | 0;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+  }
+  const part = same && x1 >= 0 && (x1 - x0 + 1 + 2 * REACH) * (y1 - y0 + 1 + 2 * REACH) < n / 2;
+  if (same && x1 >= 0 && !part) same = false;
+  if (!same || part) {
+    keptRev++;
     const W = grid.w + 4, mid = new Float64Array(W * (grid.h + 4));
     for (let y = -2; y < grid.h + 2; y++) for (let x = -2; x < grid.w + 2; x++) mid[(y + 2) * W + x + 2] = midOf(grid, x, y);
     const C = grid.w + 1, meet = new Uint8Array(C * (grid.h + 1));
@@ -197,7 +222,23 @@ export function withCorners<T>(grid: Grid, fine: number, make: () => T): T {
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (x + dx >= 0 && y + dy >= 0) meet[(y + dy) * C + x + dx] = 1;
     }
     // (A tile further out each way than the map: the quads ask a step past its edge.)
-    kept = { grid, from, mode: groundMode(), fine, across: (grid.w + 2) * fine + 1, down: (grid.h + 2) * fine + 1, at: null, mids: null, mid, meet };
+    const across = (grid.w + 2) * fine + 1, down = (grid.h + 2) * fine + 1;
+    if (part) {
+      // AN EDIT IS A FEW CELLS: only the readings within reach of them are forgotten, the rest of the map's kept.
+      // One tile raised was every column of the water's floor read again, and every quad's corner of the bands redone.
+      const k = kept!, at = k.at, mids = k.mids, cols = grid.w * fine, rows = grid.h * fine;
+      if (at) {
+        const i0 = Math.max(0, (x0 - REACH + 1) * fine), i1 = Math.min(across - 1, (x1 + 2 + REACH) * fine);
+        const j0 = Math.max(0, (y0 - REACH + 1) * fine), j1 = Math.min(down - 1, (y1 + 2 + REACH) * fine);
+        for (let j = j0; j <= j1; j++) at.fill(NaN, j * across + i0, j * across + i1 + 1);
+      }
+      if (mids) {
+        const i0 = Math.max(0, (x0 - REACH) * fine), i1 = Math.min(cols, (x1 + 1 + REACH) * fine);
+        const j0 = Math.max(0, (y0 - REACH) * fine), j1 = Math.min(rows, (y1 + 1 + REACH) * fine);
+        for (let j = j0; j < j1; j++) mids.fill(NaN, j * cols + i0, j * cols + i1);
+      }
+      k.from = from; k.mid = mid; k.meet = meet;
+    } else kept = { grid, from, mode: groundMode(), fine, across, down, at: null, mids: null, mid, meet };
   }
   lattice = kept;
   try { return make(); } finally { lattice = was; }

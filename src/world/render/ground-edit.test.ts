@@ -2,8 +2,10 @@ import { beforeAll, describe, expect, test } from "bun:test";
 
 import { createGrid, fillTerrain, setHeight, setPaved, type Grid } from "../grid";
 import { createBandLayer } from "./bands";
+import { forgetCorners } from "./drawn";
 import { createGroundMesh, destroyGroundMesh, flushGround, markGround, type GroundMesh } from "./ground-mesh";
 import { setGroundMode } from "./ground-mode";
+import { createWaterField, syncGround } from "../water/field";
 
 const PALETTE = [null, "grass", "dirt"] as const;
 
@@ -41,6 +43,8 @@ describe("the ground after an edit", () => {
     for (const [x, y, edit] of edits) { edit(); told(gm, grid, x, y); }
     const after = drawn(gm);
     destroyGroundMesh(gm);
+    // (Afresh: none of the readings the edits kept.)
+    forgetCorners();
     const fresh = createGroundMesh(grid, createBandLayer(grid.w, grid.h), PALETTE, 1);
     const want = drawn(fresh);
     expect(Array.from(after.cells)).toEqual(Array.from(want.cells));
@@ -58,5 +62,18 @@ describe("the ground after an edit", () => {
     setHeight(grid, 10, 10, grid.height[10 * grid.w + 10] + 2);
     told(gm, grid, 10, 10);
     expect(gm.rev).toBeGreaterThan(rev);
+  });
+
+  test("the water's floor after edits is the floor a new field would stand on", () => {
+    const grid = hills(), field = createWaterField(grid);
+    for (const [x, y, z] of [[6, 9, 7], [19, 14, -4], [2, 25, 9], [26, 1, 8], [13, 13, 5]] as const) {
+      setHeight(grid, x, y, z);
+      syncGround(field, grid);
+    }
+    setPaved(grid, 12, 12, 1);
+    syncGround(field, grid);
+    const after = Array.from(field.columns.ground);
+    forgetCorners();
+    expect(after).toEqual(Array.from(createWaterField(grid).columns.ground));
   });
 });

@@ -666,6 +666,10 @@ export function rebuildGround(gm: GroundMesh, grid: Grid, palette: Palette) {
 /** Rebuild the bands marked, and send the texels. */
 export function flushGround(gm: GroundMesh, grid: Grid, palette: Palette) {
   if (!gm.dirty.size) return;
+  // (The bands' corners are readings of the surface, most of them of ground that did not move. @see withCorners)
+  withCorners(grid, FINE, () => flushed(gm, grid, palette));
+}
+function flushed(gm: GroundMesh, grid: Grid, palette: Palette) {
   for (const b of gm.dirty) {
     const { verts, idx: ix } = bandQuads(grid, palette, b, gm.scale);
     const g = gm.meshes[b].geometry;
