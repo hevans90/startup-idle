@@ -45,7 +45,20 @@ function runs(g: Grid, along: "x" | "y"): Int32Array {
   return out;
 }
 
+/**
+ * The streets of a map, found once for each state of it: its looks, its lanes, its props, its beauty and its
+ * services each asked for them after every edit, and each was a walk of the whole map. Kept by the map's own count
+ * of its edits (@see Grid.rev); a map made as a copy is its own map. Read only.
+ */
+const found = new WeakMap<Grid, { rev: number; streets: Streets }>();
 export function streetsOf(g: Grid): Streets {
+  const was = found.get(g);
+  if (was && was.rev === g.rev) return was.streets;
+  const streets = findStreets(g);
+  found.set(g, { rev: g.rev, streets });
+  return streets;
+}
+function findStreets(g: Grid): Streets {
   const of = new Int32Array(g.w * g.h).fill(-1);
   const tiles: number[][] = [];
   // A JUNCTION is where the road runs on both ways further than any road is

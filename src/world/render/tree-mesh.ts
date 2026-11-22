@@ -99,6 +99,10 @@ function shadeBand(S: TreesSheet, kind: string, turn: number, size: number, u: n
   return Math.min(band + 3, last);
 }
 
+/** The numbers a cell's trees are made from: the canopy on it and the eight round it, a hedge's joins, what is built and what it is made of, what grows, its four corners. */
+const KEY = 24;
+const HEDGE_SIDES = [[1, 0], [0, 1], [-1, 0], [0, -1]] as const;
+
 /**
  * Write one band's part of its trees for the year `t` — their BODIES, top to foot, swaying; or the SHADOWS that
  * fall in it, foot down — and the year at which the first of them finishes its turn.
@@ -167,7 +171,10 @@ const BODY = 0, SHADE = 1;
 
 export function createTreeMesh(bands: BandLayer): TreeMesh {
   /** Each cell near a wood: its trees, and what they were stood up for. */
-  const cells = new Map<number, { key: string; trees: Tree[] }>();
+  const cells = new Map<number, { trees: Tree[] }>();
+  /** What each cell's trees were last made from, `KEY` numbers a cell: compared as numbers — spelt as text, a map's worth of them was most of going over it. */
+  let keys = new Float32Array(0);
+  const kk = new Float32Array(KEY);
   /** Each part with trees: its mesh, and the year at which it must be written again. */
   const meshes = new Map<number, { mesh: Mesh<Geometry, Shader>; next: number }>();
   /** The trees of each part, back to front: made again when the map changes. */
@@ -258,23 +265,31 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
         for (let y = 0; y < g.h; y++) for (let x = 0; x < W; x++) can[y * W + x] = canopyOf(g, palette, x, y);
         const at = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= g.h ? 0 : can[y * W + x]);
         if (scale !== scaleNow) { scaleNow = scale; for (const c of cells.values()) touch(c.trees); touch(plantedTrees); cells.clear(); }
-        const seen = new Set<number>();
+        if (keys.length !== W * g.h * KEY) { keys = new Float32Array(W * g.h * KEY); if (cells.size) changed = true; for (const c of cells.values()) touch(c.trees); cells.clear(); }
+        const seen = new Uint8Array(W * g.h);
         for (let y = 0; y < g.h; y++) for (let x = 0; x < W; x++) {
           let any = 0;
           for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) any += at(x + dx, y + dy);
           const i = idx(g, x, y), cv = g.veg.cover[i];
           // (Reeds, heath, snags where a wood burnt and what the player made stand where there is no canopy.)
           if (!any && cv !== COVER.reeds && cv !== COVER.meadow && cv !== COVER.burnt && cv < COVER.stumps && !scattered(g, palette, x, y)) continue;
-          // (Its key is spelt out only now: most of a map grows nothing.)
-          let ck = "";
-          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) ck += `${Math.round(at(x + dx, y + dy) * 72)},`;
+          // (Its key is made only now: most of a map grows nothing.)
+          let q = 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) kk[q++] = Math.round(at(x + dx, y + dy) * 72);
           // (A hedge joins those beside it.)
-          if (cv === COVER.hedge) for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) ck += x + dx >= 0 && y + dy >= 0 && x + dx < W && y + dy < g.h && g.veg.cover[idx(g, x + dx, y + dy)] === COVER.hedge ? "h" : "-";
+          let joins = 0;
+          if (cv === COVER.hedge) for (const [dx, dy] of HEDGE_SIDES) joins = joins * 2 + (x + dx >= 0 && y + dy >= 0 && x + dx < W && y + dy < g.h && g.veg.cover[idx(g, x + dx, y + dy)] === COVER.hedge ? 1 : 0);
+          kk[q++] = joins;
           // (What is built on a cell takes what grew there: a building, a deck, a main.)
-          ck += `${g.paved[i]}|${g.pool[i] > 0}|${g.structureAt[i] >= 0}|${g.deck[i]}|${g.main[i]}|${g.terrain[i]}|${g.veg.cover[i]},${g.veg.density[i]},${ageStep(g.veg.age[i])},${g.veg.health[i] >> 5}|${drawnCorner(g, x, y, 0, 0)},${drawnCorner(g, x, y, 1, 0)},${drawnCorner(g, x, y, 1, 1)},${drawnCorner(g, x, y, 0, 1)}`;
-          seen.add(i);
-          const was = cells.get(i);
-          if (was?.key === ck) continue;
+          kk[q++] = g.paved[i]; kk[q++] = g.pool[i] > 0 ? 1 : 0; kk[q++] = g.structureAt[i] >= 0 ? 1 : 0; kk[q++] = g.deck[i]; kk[q++] = g.main[i]; kk[q++] = g.terrain[i];
+          kk[q++] = g.veg.cover[i]; kk[q++] = g.veg.density[i]; kk[q++] = ageStep(g.veg.age[i]); kk[q++] = g.veg.health[i] >> 5;
+          kk[q++] = drawnCorner(g, x, y, 0, 0); kk[q++] = drawnCorner(g, x, y, 1, 0); kk[q++] = drawnCorner(g, x, y, 1, 1); kk[q++] = drawnCorner(g, x, y, 0, 1);
+          seen[i] = 1;
+          const was = cells.get(i), o = i * KEY;
+          let same = was !== undefined;
+          for (let k = 0; k < KEY && same; k++) same = keys[o + k] === kk[k];
+          if (same) continue;
+          keys.set(kk, o);
           changed = true;
           if (was) touch(was.trees);
           const b = bandOf(x, y);
@@ -294,10 +309,10 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
               band: b, shade: shadeBand(S.sheet, w.kind, w.turn, w.size, w.u, w.v, b),
             };
           });
-          cells.set(i, { key: ck, trees });
+          cells.set(i, { trees });
           touch(trees);
         }
-        for (const [i, c] of cells) if (!seen.has(i)) { changed = true; touch(c.trees); cells.delete(i); }
+        for (const [i, c] of cells) if (!seen[i]) { changed = true; touch(c.trees); cells.delete(i); }
         });
         // WHAT SOMETHING ELSE PLANTED: a street's trees, a park's. Each its own tint and sway, by where it stands.
         if (sown.rev !== plantedSeen) {
