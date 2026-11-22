@@ -127,4 +127,5 @@ export function createCarGlow(stage: Container, zIndex: number): CarGlow {
 }
 
 /** Whether a mover has lamps lit at night: on the road, not parked. */
-const lit = (m: Mover) => m.kind !== "person" && !!m.drive && !m.park;
+/** Whether a mover has its lamps on at night: what drives, and is not parked. */
+export const lit = (m: Mover) => m.kind !== "person" && !!m.drive && !m.park;

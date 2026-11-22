@@ -148,6 +148,11 @@ const deskTint = (share: number) => {
 const CPU_SOLVE_MS = 8;
 /** How many frames the water waits unstepped for the device's solver to be built for a new field. @see solverDue */
 const SOLVER_WAIT = 10;
+/**
+ * How bright each kind of light is to the map's own light (@see render/gi): a lamp and a headlight are small and
+ * must be very bright to light a street; a lit building is a whole wall of light, and need only glow.
+ */
+const GI_LAMP = 9, GI_HEAD = 12, GI_SIGN = 2, GI_WINDOW = 0.05;
 /** How long a frame spends on a map's new lanes, ms. @see pumpLanes */
 const LANES_MS = 3;
 /** Whether the device's solver is what should be stepping the water: a device held and not lost, and the toggle on. */
@@ -287,9 +292,10 @@ import { createSignals, type Signals } from "./render/signals";
 import { boundBatchBinds } from "./render/batch-binds";
 import { freeGraphicsContexts } from "./render/graphics-free";
 import { createBusStops, type BusStops } from "./render/bus-stops";
-import { createCarGlow, type CarGlow } from "./render/car-glow";
+import { createCarGlow, lit as lampsLit, type CarGlow } from "./render/car-glow";
+import { createGi, giOptions, giVersion, type Gi, type GiLight } from "./render/gi";
 import { shopName } from "./agents/shop-names";
-import { createLights, type Lights } from "./render/lights";
+import { createLights, lightsOf, type Lights } from "./render/lights";
 import { keystone, notable } from "../game/machine";
 import { inAiDistrictNow } from "./ai/district";
 import { serviceOf } from "./agents/services";
@@ -632,6 +638,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const nightKey = useRef("");
   const lightsRef = useRef<Lights | null>(null);
   const carGlowRef = useRef<CarGlow | null>(null);
+  /** The night's light worked out on the map, where it is asked for; the lights that stand still, as last listed; and the night's grade this frame. @see render/gi */
+  const giRef = useRef<{ gi: Gi; w: number; h: number } | null>(null);
+  const giStill = useRef<{ key: string; lights: GiLight[] }>({ key: "", lights: [] });
+  const gradeRef = useRef(0xffffff);
   const lightsAt = useRef<{ grid: unknown; rev: number; crunch: boolean }>({ grid: null, rev: -1, crunch: false });
   // AND RAIN over it while a flood is coming or here. @see drawRain
   const rain = useRef<Graphics | null>(null);
@@ -660,6 +670,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       lightsRef.current = null;
       carGlowRef.current?.destroy();
       carGlowRef.current = null;
+      giRef.current?.gi.destroy();
+      giRef.current = null;
       rain.current = null;
     };
   }, [app]);
@@ -3981,6 +3993,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const dry = playing ? useWorldStore.getState().events.find((e) => (e.kind === "heatwave" || e.kind === "drought") && e.phase !== "over") : undefined;
         const warm = dry ? (dry.phase === "active" ? 1 : 0.5) : 0;
         const colour = mixColour(mixColour(mixColour(0xffffff, HEAT_GRADE, warm), NIGHT_GRADE, nightNow), STAGE_COLOUR.overseer, tint);
+        gradeRef.current = colour;
         // Redrawn only when it changes: a colour a step at a time, or the screen's size.
         const key = `${colour}|${app.screen.width}x${app.screen.height}`;
         if (key !== nightKey.current) {
@@ -4100,6 +4113,44 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           dressPaved(plRef.current, blRef.current, st.grid, dress);
         }
       }
+      // THE NIGHT'S OWN LIGHT, where it is asked for: worked out on the map from every lamp, lit building and
+      // headlight, and the night's grade laid through it — the flat sheet and, unless asked for, the glows put by.
+      // A spike. @see render/gi
+      let glowNight = nightNow;
+      {
+        const o = giOptions(), gm = tlRef.current?.ground, st = useWorldStore.getState();
+        let laid = false;
+        if (o.on && gm && blNow && nightNow > 0.02) {
+          if (giRef.current && (giRef.current.w !== st.grid.w || giRef.current.h !== st.grid.h)) { giRef.current.gi.destroy(); giRef.current = null; }
+          if (!giRef.current) { const gi = createGi(app.renderer, app.stage, 1e9, st.grid.w, st.grid.h, scale); if (gi) giRef.current = { gi, w: st.grid.w, h: st.grid.h }; }
+          if (giRef.current) {
+            const rgb = (hex: number, k: number) => ({ r: (((hex >> 16) & 255) / 255) * k, g: (((hex >> 8) & 255) / 255) * k, b: ((hex & 255) / 255) * k });
+            // What stands still, listed again when the map or the options change.
+            const key = `${st.revision}|${giVersion()}`;
+            if (giStill.current.key !== key) {
+              const list: GiLight[] = [];
+              for (const l of lightsOf(st.grid)) {
+                const x = (l.x + l.w / 2) * 4, y = (l.y + l.h / 2) * 4;
+                if (l.kind === "lamp") { if (o.lamps) list.push({ x, y, hx: 1.8, hy: 1.8, ...rgb(0xffe2a0, GI_LAMP), solid: 0 }); }
+                else if (l.kind === "window") { if (o.windows) list.push({ x, y, hx: l.w * 2 * 0.8, hy: l.h * 2 * 0.8, ...rgb(l.violet ? 0xb44aff : l.crunch ? 0xd8ecff : 0xffc46b, GI_WINDOW), solid: 1 }); }
+                else if (o.windows) list.push({ x, y, hx: 1.5, hy: 1.5, ...rgb(l.tint ?? 0xffffff, l.neon ? GI_SIGN * 1.6 : GI_SIGN), solid: 1 });
+              }
+              giStill.current = { key, lights: list };
+            }
+            let lights = giStill.current.lights;
+            if (o.headlights) {
+              lights = lights.slice();
+              for (const m of getTown().movers) {
+                if (!lampsLit(m)) continue;
+                lights.push({ x: (m.x + 0.5 + Math.cos(m.heading) * 0.8) * 4, y: (m.y + 0.5 + Math.sin(m.heading) * 0.8) * 4, hx: 2.4, hy: 2.4, ...rgb(0xfff0c8, GI_HEAD), solid: 0 });
+              }
+            }
+            laid = giRef.current.gi.tick(lights, gm.casts, gm.shadeRev, gradeRef.current, nightNow, blNow.root.worldTransform);
+          }
+        } else if (giRef.current && blNow) giRef.current.gi.tick([], new Float32Array(0), 0, 0xffffff, 0, blNow.root.worldTransform);
+        if (night.current) night.current.visible = !laid;
+        if (laid && !o.glows) glowNight = 0;
+      }
       if (lightsRef.current && blNow) {
         // Put where the map is now whenever it has changed — whichever of the
         // scene and the lights was made first. @see createLights
@@ -4112,9 +4163,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           lightsRef.current.sync(st.grid, scale, crunch);
           e();
         }
-        lightsRef.current.tick(nightNow, blNow.root.worldTransform, now / 1000);
+        lightsRef.current.tick(glowNight, blNow.root.worldTransform, now / 1000);
       }
-      if (carGlowRef.current && blNow) carGlowRef.current.tick(getTown(), nightNow, blNow.root.worldTransform, scale);
+      if (carGlowRef.current && blNow) carGlowRef.current.tick(getTown(), glowNight, blNow.root.worldTransform, scale);
       // THE AI ON THE MAP. @see createAiLayer
       const ai = aiLayerRef.current;
       // In development, `__aiPreview` shows it in the editor at any stage.
