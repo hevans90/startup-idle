@@ -7,7 +7,7 @@
  * the roads and under what stands on them, as that same shade and nothing else — multiplied into what is there,
  * by the same tint at the same strength: the one shadow, across grass and road alike. @see light
  */
-import { oncePerRender } from "./frame-uniforms";
+import { oncePerRender, syncOnce } from "./frame-uniforms";
 import { Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup } from "pixi.js";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { VOID, idx, type Grid } from "../grid";
@@ -126,7 +126,7 @@ export function createRoadShade(bands: BandLayer, gm: GroundMesh): RoadShade {
     }),
     gl: GlProgram.from({ vertex: GLSL_VERTEX, fragment: GLSL_FRAGMENT, name: "road-shade" }),
   };
-  const shader = new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { roadShade: uniforms, uShade: gm.shadeSource } });
+  const shader = syncOnce(new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { roadShade: uniforms, uShade: gm.shadeSource } }));
   const meshes = new Map<number, { mesh: Mesh<Geometry, Shader>; key: string }>();
   let seenRev = -1, seenShade = -1, seenOf: Grid | null = null;
 

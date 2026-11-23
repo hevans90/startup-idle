@@ -10,7 +10,8 @@
  *
  * Painter's order is kept: a band's mesh in its band, its trees back to front. @see world/calendar, dev/bake-trees.ts
  */
-import { oncePerRender } from "./frame-uniforms";
+import { deviceLost } from "./device";
+import { oncePerRender, syncOnce } from "./frame-uniforms";
 import { Assets, Buffer, BufferImageSource, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup, type Texture, type TextureSource } from "pixi.js";
 
 import { leafColour, treeTurn, type TreeState } from "../calendar";
@@ -246,6 +247,8 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
     sync(g, palette, rev, scale, snow = 0, grown) {
       const S = sheetNow();
       if (!S) return;
+      // (The device gone, the canvas with it: a buffer asked of it throws — "too large", of all things — every frame.)
+      if (deviceLost() !== null) return;
       const t = useCalendarStore.getState().now();
       // THE WIND AND THE YEAR, every frame: uniforms only.
       const u = uniforms.uniforms.uYear as Float32Array, pg = uniforms.uniforms.uPages as Float32Array;
@@ -450,7 +453,7 @@ function treeShader(S: Sheet, uniforms: UniformGroup): Shader {
   };
   // (A page the sheet has not: the first again, never read.)
   const p = (k: number) => S.pages[k] ?? S.pages[0];
-  return new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { trees: uniforms, uPage0: p(0), uPage1: p(1), uSampler: p(0).style, uRamp: S.ramp, uPage2: p(2), uPage3: p(3) } });
+  return syncOnce(new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { trees: uniforms, uPage0: p(0), uPage1: p(1), uSampler: p(0).style, uRamp: S.ramp, uPage2: p(2), uPage3: p(3) } }));
 }
 
 /*

@@ -239,3 +239,23 @@ export function destroyBandLayer(layer: BandLayer) {
   layer.dynamicOf.length = 0;
   layer.sewerOf.length = 0;
 }
+
+/** The bands whose movers' tier has ever held anything, by layer. @see hideUnusedMovers */
+const moversUsed = new WeakMap<BandLayer, Uint8Array>();
+
+/**
+ * THE MOVERS' TIERS NOTHING HAS EVER BEEN IN, NOT DRAWN. Each is a render group, and an empty one is still set up
+ * and torn down every frame — the view's numbers pushed and popped for nothing — which over the open country round
+ * a town was more than half of them. One that has never held anything is hidden; shown when something is first put
+ * in it, and after that for good: hidden again whenever it emptied, each car passing would rebuild the draw list of
+ * the chunk it is in. Called once a frame, before the frame is drawn. @see BandLayer.dynamicOf
+ */
+export function hideUnusedMovers(layer: BandLayer): void {
+  let used = moversUsed.get(layer);
+  if (!used) moversUsed.set(layer, (used = new Uint8Array(layer.dynamicOf.length)));
+  for (let b = 0; b < used.length; b++) {
+    const dyn = layer.dynamicOf[b];
+    if (dyn.children.length > 0) { if (!used[b]) { used[b] = 1; dyn.visible = true; } }
+    else if (!used[b] && dyn.visible) dyn.visible = false;
+  }
+}

@@ -21,7 +21,7 @@
  * It draws every cell with ground on it but the pit under a building that
  * clears it. @see groundDraws
  */
-import { oncePerRender } from "./frame-uniforms";
+import { oncePerRender, syncOnce } from "./frame-uniforms";
 import { BufferImageSource, Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
@@ -844,7 +844,7 @@ export function groundShader(gm: GroundMesh, cacheU: UniformGroup = gm.cacheU): 
     }),
     gl: GlProgram.from({ vertex: GLSL_VERTEX, fragment: GLSL_FRAGMENT, name: "ground" }),
   };
-  return new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source, uEdges: gm.edgeSource, uShade: gm.shadeSource, uTint: gm.tintSource, gcache: cacheU, uCache: gm.blank, uCount: gm.blank } });
+  return syncOnce(new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source, uEdges: gm.edgeSource, uShade: gm.shadeSource, uTint: gm.tintSource, gcache: cacheU, uCache: gm.blank, uCount: gm.blank } }));
 }
 
 /*

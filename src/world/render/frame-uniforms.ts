@@ -35,7 +35,28 @@ export function markUniforms(): void {
   groups.length = kept;
 }
 
-type Host = { runners?: { prerender?: { add: (o: { prerender: () => void }) => void } }; __uniformsHooked?: boolean };
+/**
+ * AND A SHADER'S OWN GROUPS LOOKED OVER ONCE A RENDER. Before each draw Pixi walks every resource of every bind
+ * group of the shader to find the uniform groups in it and send what changed; for a shader given here that walk is
+ * made at its first draw of a render, and its other draws go without. Only for a shader whose uniforms are written
+ * between renders and never between two of its draws — ours; not Pixi's own, which it writes a mesh at a time.
+ */
+export function syncOnce<T extends object>(shader: T): T {
+  (shader as { __syncOnce?: boolean }).__syncOnce = true;
+  return shader;
+}
+
+type BindGroupLike = object;
+type ShaderLike = { gpuProgram?: { autoAssignGlobalUniforms: boolean; autoAssignLocalUniforms: boolean }; groups: Record<number, BindGroupLike>; __syncOnce?: boolean; __synced?: number };
+type MeshLike = { _shader?: ShaderLike | null; _geometry: unknown; state: unknown };
+type MeshPipeLike = { localUniforms: unknown };
+type Host = {
+  runners?: { prerender?: { add: (o: { prerender: () => void }) => void } }; __uniformsHooked?: boolean;
+  tick: number;
+  globalUniforms?: { bindGroup: BindGroupLike };
+  encoder?: { _syncBindGroup?: (g: BindGroupLike) => void; draw: (o: object) => void };
+  renderPipes?: { mesh?: { _adaptor?: { execute: (pipe: MeshPipeLike, mesh: MeshLike) => void } }; uniformBatch?: { getUniformBindGroup: (u: unknown, d: boolean) => BindGroupLike } };
+};
 
 /** Have a renderer mark them before each of its renders; once a renderer. */
 export function hookUniforms(renderer: unknown): void {
@@ -43,4 +64,22 @@ export function hookUniforms(renderer: unknown): void {
   if (r.__uniformsHooked || !r.runners?.prerender) return;
   r.__uniformsHooked = true;
   r.runners.prerender.add({ prerender: markUniforms });
+  // (WebGPU only, and only a Pixi whose insides are as they were: anything else is left to draw as it always did.)
+  const adaptor = r.renderPipes?.mesh?._adaptor, enc = r.encoder, batch = r.renderPipes?.uniformBatch;
+  if (!adaptor || !enc?._syncBindGroup || !batch || !r.globalUniforms) return;
+  const execute = adaptor.execute.bind(adaptor);
+  adaptor.execute = (pipe, mesh) => {
+    const shader = mesh._shader, program = shader?.gpuProgram;
+    if (!shader || !program || !shader.__syncOnce || !program.autoAssignGlobalUniforms || !program.autoAssignLocalUniforms) { execute(pipe, mesh); return; }
+    const groups = shader.groups;
+    groups[0] = r.globalUniforms!.bindGroup;
+    groups[1] = batch.getUniformBindGroup(pipe.localUniforms, true);
+    // (The view's own numbers, which Pixi writes as it goes: looked at every time. The mesh's are a buffer, not a group.)
+    enc._syncBindGroup!(groups[0]);
+    if (shader.__synced !== r.tick) {
+      shader.__synced = r.tick;
+      for (const i in groups) if (Number(i) > 1) enc._syncBindGroup!(groups[i]);
+    }
+    enc.draw({ geometry: mesh._geometry, shader, state: mesh.state, skipSync: true });
+  };
 }

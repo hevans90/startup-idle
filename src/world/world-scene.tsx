@@ -58,7 +58,7 @@ import { perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
 import { stepGrowth, stepHarbour, stepPeople, stepPlumbing, stepSites, worksClock, type WorksSeen } from "./step-world";
 import {
-  bandShown, createBandLayer, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
+  bandShown, createBandLayer, hideUnusedMovers, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
   type BandLayer,
 } from "./render/bands";
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
@@ -4451,6 +4451,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const { lo, hi } = visibleBandRange(grid, scale, vp.top, vp.bottom);
     let e = section("tick: band cull");
     setVisibleBands(bl, lo, hi);
+    hideUnusedMovers(bl);
     e();
     if (lo !== bandRange.current.lo || hi !== bandRange.current.hi) {
       bandRange.current = { lo, hi };
