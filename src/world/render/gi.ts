@@ -830,21 +830,31 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
           sceneBytes[o + 2] = deck ? Math.max(1, Math.min(255, Math.round((f.decks!.z[tile] - f.low) * k))) : 0;
           if (deck) deckTop = Math.max(deckTop, f.decks!.z[tile]);
         }
-        // THE HIGHEST THING NEAR each quarter-tile, its fourth number: over the five before it and the one after,
-        // each way — what a tile of a line of sight ending there can meet. @see highNear
-        if (high.length !== SW * SH) { high = new Uint8Array(SW * SH); highRow = new Uint8Array(SW * SH); }
-        for (let i = 0, o = 0; i < SW * SH; i++, o += 4) high[i] = Math.min(255, sceneBytes[o] + sceneBytes[o + 1]);
-        for (let y = 0; y < SH; y++) for (let x = 0, r = y * SW; x < SW; x++) {
-          let m = 0;
-          for (let a = Math.max(0, x - 5), b = Math.min(SW - 1, x + 1); a <= b; a++) { const v = high[r + a]; if (v > m) m = v; }
-          highRow[r + x] = m;
-        }
+        // THE HIGHEST THING NEAR each quarter-tile, its fourth number: over the two tiles before its own and the one
+        // after, each way — more than what a tile of a line of sight ending there can meet (five quarter-tiles
+        // before it and one after), and a tile at a time so a town's worth is a millisecond when a building changes
+        // and not ten. @see highNear
+        const TW = SW / Q, TH = SH / Q;
+        if (high.length !== TW * TH) { high = new Uint8Array(TW * TH); highRow = new Uint8Array(TW * TH); }
+        high.fill(0);
         for (let y = 0; y < SH; y++) {
-          const y0 = Math.max(0, y - 5), y1 = Math.min(SH - 1, y + 1);
-          for (let x = 0; x < SW; x++) {
+          const row = (y >> 2) * TW;
+          for (let x = 0, o = y * SW * 4; x < SW; x++, o += 4) {
+            const v = sceneBytes[o] + sceneBytes[o + 1], t = row + (x >> 2);
+            if (v > high[t]) high[t] = v > 255 ? 255 : v;
+          }
+        }
+        for (let ty = 0; ty < TH; ty++) for (let tx = 0, r = ty * TW; tx < TW; tx++) {
+          let m = 0;
+          for (let a = Math.max(0, tx - 2), b = Math.min(TW - 1, tx + 1); a <= b; a++) { const v = high[r + a]; if (v > m) m = v; }
+          highRow[r + tx] = m;
+        }
+        for (let ty = 0; ty < TH; ty++) {
+          const y0 = Math.max(0, ty - 2), y1 = Math.min(TH - 1, ty + 1);
+          for (let tx = 0; tx < TW; tx++) {
             let m = 0;
-            for (let a = y0; a <= y1; a++) { const v = highRow[a * SW + x]; if (v > m) m = v; }
-            sceneBytes[(y * SW + x) * 4 + 3] = m;
+            for (let a = y0; a <= y1; a++) { const v = highRow[a * TW + tx]; if (v > m) m = v; }
+            for (let dy = 0; dy < Q; dy++) for (let dx = 0, o = (((ty * Q + dy) * SW) + tx * Q) * 4 + 3; dx < Q; dx++, o += 4) sceneBytes[o] = m;
           }
         }
         device.queue.writeTexture({ texture: sceneGpu }, sceneBytes, { bytesPerRow: SW * 4 }, [SW, SH]);
