@@ -48,6 +48,9 @@ export { rendererAsked } from "./render/use-gpu";
 let foundedKey: string | null = null;
 let generatedKey: string | null = null;
 
+/** `?noaa` in the address: no multisampling. For measuring it against the look. */
+const NO_AA = typeof location !== "undefined" && /[?&]noaa\b/.test(location.search);
+
 export function useFoundWorld(slot: SaveSlot, play: boolean): void {
   /**
    * THE SAVED MAP, BEFORE ANYTHING DRAWS.
@@ -200,7 +203,8 @@ export function WorldCanvas({
   return (
     <Application
       resizeTo={wrapperRef}
-      antialias
+      // (`?noaa` draws without it, to see what it costs: four samples a pixel, resolved every frame.)
+      antialias={!NO_AA}
       autoDensity
       // Pixi skips its own device when handed one. @see openDevice
       {...(gpu ? { gpu } : {})}
