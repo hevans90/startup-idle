@@ -90,6 +90,34 @@ export function onDeviceLost(fn: (why: string) => void): () => void {
   return () => mourners.delete(fn);
 }
 
+/** The least time between two reloads for a lost device, ms: one that goes again at once is not reloaded for twice. */
+export const RELOAD_GAP = 60_000;
+const RELOADED_AT = "gpu-lost-reloaded-at";
+
+/** Whether a loss now is to be answered with a reload, given when the last one was (ms; null, never). */
+export const mayReload = (now: number, last: number | null) => last === null || now - last >= RELOAD_GAP;
+
+/**
+ * THE PAGE LOADED AGAIN, since nothing less brings the canvas back: the game is saved as the page goes (the stores
+ * as they change, the map on `pagehide`) and comes up where it was. Once the tab is showing — a device taken from a
+ * tab in the background is not given back to it there — and not twice within a minute, so a machine that cannot
+ * keep a device is left with the message and not a page loading for ever. `?noreload` in the address leaves it be.
+ */
+function reloadForLoss(): void {
+  if (typeof window === "undefined" || typeof location === "undefined" || typeof document === "undefined") return;
+  if (/[?&]noreload\b/.test(location.search)) return;
+  let last: number | null = null;
+  try { const v = sessionStorage.getItem(RELOADED_AT); last = v === null ? null : Number(v); } catch { /* no storage: reload all the same */ }
+  if (!mayReload(Date.now(), last)) return;
+  const go = () => {
+    try { sessionStorage.setItem(RELOADED_AT, String(Date.now())); } catch { /* as above */ }
+    location.reload();
+  };
+  if (!document.hidden) { go(); return; }
+  const shown = () => { if (document.hidden) return; document.removeEventListener("visibilitychange", shown); go(); };
+  document.addEventListener("visibilitychange", shown);
+}
+
 /** Say it once, to everyone, and remember it for whoever asks later. */
 function mourn(why: string) {
   if (lost !== null) return;
@@ -104,12 +132,13 @@ function mourn(why: string) {
   console.error(
     "GPU: the device was lost —", why,
     "\nThe water has gone back to the host solver. The CANVAS is on the same "
-    + "device and cannot come back without a reload.",
+    + "device and cannot come back without a reload: the page reloads itself, once the tab is showing.",
   );
   for (const fn of [...mourners]) {
     try { fn(why); } catch { /* a listener that throws is not the device's problem */ }
   }
   mourners.clear();
+  reloadForLoss();
 }
 
 /**
