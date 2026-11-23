@@ -175,7 +175,7 @@ import { createTownLayer, type LampsOver, type TownLayer } from "./agents/town-r
 import { seatsByCell, trafficOf, type Seat } from "./agents/town";
 import { moveOut } from "./agents/arrivals";
 import { liveBeauty } from "./agents/beauty";
-import { WORKPLACES, liveSeating, workplaceKind } from "./agents/commute";
+import { WORKPLACES, liveSeating, setSeatingPace, workplaceKind } from "./agents/commute";
 import { liveMoods, moodTint, setFlooded, setFouled, setSludged, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
 import { loadPriceMult, setConvoyIn, setStrike } from "./events/convoy";
@@ -2903,6 +2903,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    * reading ON. Coming back for real means rebuilding every Pixi resource on a
    * new device, which is its own piece of work.
    */
+  // WHO SITS WHERE, found again at most every four seconds when only people have moved. @see setSeatingPace
+  useEffect(() => { setSeatingPace(4000); return () => setSeatingPace(0); }, []);
   useEffect(() => onDeviceLost(() => {
     if (useWorldStore.getState().gpuWater) useWorldStore.getState().setGpuWater(false);
   }), []);
@@ -4163,6 +4165,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             if (posts !== giPosts.current) { giPosts.current = posts; giPostsRev.current++; }
             const key = `${st.revision}|${giVersion()}|${giPostsRev.current}`;
             if (giStill.current.key !== key) {
+              const eStill = section("night: the lights that stand still, listed");
               const list: GiLight[] = [], lit = new Map<number, { colour: number; bias: number }>();
               // THE STREETS' LAMPS: the lanterns of their lamp posts — a light that hangs where it is seen to.
               if (o.lamps) for (const q of posts) list.push({ x: (q.x + 0.5) * 4, y: (q.y + 0.5) * 4, hx: 1.2, hy: 1.2, ...rgb(0xffe2a0, GI_LAMP * 1.5), solid: 0, z: q.z });
@@ -4179,6 +4182,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
                 else if (o.windows) list.push({ x, y, hx: 1.5, hy: 1.5, ...rgb(l.tint ?? 0xffffff, l.neon ? GI_SIGN * 1.6 : GI_SIGN), solid: 1, z: 1.5 });
               }
               giStill.current = { key, lights: list, lit };
+              eStill();
             }
             let lights = giStill.current.lights;
             if (o.headlights) {
@@ -4193,15 +4197,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             }
             // THE LIT BUILDINGS' OWN WINDOWS, each by its own hours, where what stands in front does not hide them:
             // and every one of them a light of its own, at its own height, for the map's light to carry.
+            let eNight = section("night: windows");
             if (o.floors && litRef.current) litRef.current.sync(st.grid, gm, giStill.current.lit, scale, `${key}|${gm.shadeRev}`);
+            const emitted = o.floors && litRef.current ? litRef.current.emitters(GI_SPILL) : undefined;
+            eNight(); eNight = section("night: the light worked out");
             laid = giRef.current.gi.tick({
-              lights, windows: o.floors && litRef.current ? litRef.current.emitters(GI_SPILL) : undefined,
+              lights, windows: emitted,
               heights: gm.heights, casts: gm.casts, sceneRev: gm.shadeRev, low: st.grid.minHeight, top: st.grid.maxHeight + gm.castTop,
               // (The water as the solver has it on the GPU, where it does: for what it gives back of the light.)
               water: gpuRef.current ? { depth: gpuRef.current.sources[0], bed: gpuRef.current.sources[1] } : null,
               decks: { on: st.grid.deck, z: st.grid.deckZ },
               grade: gradeRef.current, night: nightNow, clock: litClock, share: litNow,
             });
+            eNight();
           }
         } else if (giRef.current) giRef.current.gi.rest();
         if (night.current) night.current.visible = !laid;

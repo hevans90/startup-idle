@@ -86,13 +86,19 @@ const PAID_PUMPS = {
  */
 export function stepPlumbing(g: Grid, field: WaterField, dt: number, playing: boolean, springs = true): void {
   // (A simulation that steps the water's flow less often than its pipes runs the springs only when it does.)
+  let e = section("plumbing: sources");
   if (springs) runSources(field, g, dt);
   const roads = getNetwork();
+  e(); e = section("plumbing: seating");
+  const desks = playing && roads ? liveSeating(g, roads).desks : null;
+  e(); e = section("plumbing: pipes");
   stepPipes(g, field, dt, {
     pumps: playing ? PAID_PUMPS : undefined,
-    slop: playing && roads ? { desks: liveSeating(g, roads).desks, perCoder: slopRate() } : null,
+    slop: desks ? { desks, perCoder: slopRate() } : null,
   });
+  e(); e = section("plumbing: pollution");
   stepPollution(field, dt);
+  e();
 }
 
 /**

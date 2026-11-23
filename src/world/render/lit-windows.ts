@@ -315,6 +315,9 @@ const F = 13;
 /** How far a window's glow reaches past its pane: of its own size, and at least so much, tiles and half steps. */
 const HALO = 0.55, HALO_MIN = 0.035, HALO_MIN_Z = 0.16;
 
+/** The most of a frame given to working windows out, ms: what is left is owed to the frames after. */
+const BUDGET_MS = 3;
+
 /** The lit windows, as `world`'s child — the map's own container — so they sit on their windows through every pan and zoom, in the frame the map moves. */
 export function createLitWindows(world: Container, zIndex: number): LitWindows {
   const none = () => ({ value: new Float32Array([-1, -1, -1, -1]), type: "vec4<f32>" as const });
@@ -341,49 +344,175 @@ export function createLitWindows(world: Container, zIndex: number): LitWindows {
   mesh.visible = false;
   world.addChild(mesh);
   let seen = "", shown = 0, hidden = 0;
-  let lights: number[] = [], rev = 0;
+  let lights: ArrayLike<number> = [], rev = 0;
+  /** Each lit building's windows as last worked out, and what they were worked out from. @see sync */
+  const built = new Map<number, { sig: string; verts: Float32Array; lights: Float32Array; shown: number; hidden: number }>();
+  /** The map as it stood then: the ground and what is built, a quarter-tile; the decks, a tile. */
+  let was = { heights: new Float32Array(0), casts: new Float32Array(0), deck: new Uint8Array(0), deckZ: new Int8Array(0), w: 0 };
+  /** The tiles changed since the last time, summed from the corner. @see sync */
+  let dirty = new Int32Array(0);
+  /** The buildings whose windows are still to be worked out again: a few milliseconds' worth a frame. @see BUDGET_MS */
+  const owed = new Set<number>();
+  /** How many windows the index buffer was last written for. */
+  let quads = -1;
   let packed: { k: number; rev: number; data: Float32Array; n: number } | null = null;
   return {
     sync(g, gm, lit, scale, key) {
-      if (key === seen) return;
+      // (Nothing new, and nothing left over from last time to work out.)
+      const fresh = key !== seen;
+      if (!fresh && owed.size === 0) return;
       seen = key; rev++;
-      const v: number[] = [];
-      shown = 0; hidden = 0; lights = [];
-      const S = SHADE_PER_TILE;
+      const S = SHADE_PER_TILE, W = gm.w * S;
+      // WHERE THE MAP HAS CHANGED since the last time, tiles: what is built and the ground under it, a quarter-tile
+      // at a time, and the bridges' decks. A building's windows are worked out again only if it is itself another
+      // than it was, or the change lies in what could stand between its windows and the eye — every window of a
+      // town asked again whether it is hidden, for one shop opening across the river, was a tenth of a second.
+      // (Which tiles, counted up from the map's corner so that any box of them is asked in one sum: two sites at
+      // either end of a town are those two places, and not everything between them.)
+      const TW = g.w + 1, TH = g.h + 1;
+      if (dirty.length !== TW * TH) dirty = new Int32Array(TW * TH);
+      dirty.fill(0);
+      let any = false;
+      /** The changed tiles themselves, while they are few. */
+      const where: number[] = [];
+      const all = fresh && (was.heights.length !== gm.heights.length || was.deck.length !== g.deck.length || was.w !== gm.w);
+      if (all) {
+        was = { heights: gm.heights.slice(), casts: gm.casts.slice(), deck: g.deck.slice(), deckZ: g.deckZ.slice(), w: gm.w };
+        built.clear(); owed.clear();
+      } else if (fresh) {
+        const hs = gm.heights, cs = gm.casts, ph = was.heights, pc = was.casts;
+        for (let i = 0; i < hs.length; i++) {
+          if (hs[i] === ph[i] && cs[i] === pc[i]) continue;
+          ph[i] = hs[i]; pc[i] = cs[i];
+          const x = Math.min(g.w - 1, ((i % W) / S) | 0), y = Math.min(g.h - 1, (((i / W) | 0) / S) | 0);
+          const o = (y + 1) * TW + x + 1;
+          if (!dirty[o]) { dirty[o] = 1; where.push(y * g.w + x); }
+          any = true;
+        }
+        const dk = g.deck, dz = g.deckZ, pd = was.deck, pz = was.deckZ;
+        for (let i = 0; i < dk.length; i++) {
+          if (dk[i] === pd[i] && dz[i] === pz[i]) continue;
+          pd[i] = dk[i]; pz[i] = dz[i];
+          const o = (((i / g.w) | 0) + 1) * TW + (i % g.w) + 1;
+          if (!dirty[o]) { dirty[o] = 1; where.push(i); }
+          any = true;
+        }
+        if (any) for (let y = 1; y < TH; y++) for (let x = 1, o = y * TW + 1; x < TW; x++, o++) dirty[o] += dirty[o - 1] + dirty[o - TW] - dirty[o - TW - 1];
+      }
+      /** Whether anything changed in the tiles from (ax, ay) to (bx, by), ends and all. */
+      const changedIn = (ax: number, ay: number, bx: number, by: number) => {
+        if (!any) return false;
+        const xa = Math.max(0, Math.floor(ax)), ya = Math.max(0, Math.floor(ay)), xb = Math.min(g.w - 1, Math.floor(bx)), yb = Math.min(g.h - 1, Math.floor(by));
+        if (xb < xa || yb < ya) return false;
+        return dirty[(yb + 1) * TW + xb + 1] - dirty[ya * TW + xb + 1] - dirty[(yb + 1) * TW + xa] + dirty[ya * TW + xa] > 0;
+      };
+      /**
+       * Whether any of the change could stand between a building's windows and the eye: in the box of tiles that
+       * reaches from it toward the eye — and, the changed tiles being few, on the diagonals its windows look along
+       * (a tile along both axes for each step toward the eye: a tile off to one side is in nobody's way). Eighteen
+       * tiles changed about a town was nine hundred buildings by the box alone.
+       */
+      const inTheWay = (b: Structure) => {
+        if (!changedIn(b.x - 2, b.y - 2, b.x + b.w + 11, b.y + b.h + 11)) return false;
+        if (where.length > 512) return true;
+        const lo = b.x - b.y - b.h - 3, hi = b.x - b.y + b.w + 3;
+        for (const t of where) {
+          const cx = t % g.w, cy = (t / g.w) | 0, d = cx - cy;
+          if (d >= lo && d <= hi && cx >= b.x - 2 && cx <= b.x + b.w + 11 && cy >= b.y - 2 && cy <= b.y + b.h + 11) return true;
+        }
+        return false;
+      };
+      const decks = { on: g.deck, z: g.deckZ };
+      const live = new Set<number>();
+      if (import.meta.env?.DEV) { const c = (globalThis as { __litCheck?: { calls?: number; redone?: number; log?: unknown[] } }).__litCheck; if (c) { c.calls = (c.calls ?? 0) + 1; c.redone ??= 0; let n = 0; if (any) for (let y = 1; y < TH; y++) for (let x = 1; x < TW; x++) { const o = y * TW + x; if (dirty[o] - dirty[o - 1] - dirty[o - TW] + dirty[o - TW - 1] > 0) n++; } (c.log ??= []).push([all ? 'all' : n, c.redone]); } }
+      let floats = 0, glows = 0;
+      shown = 0; hidden = 0;
+      // A FEW MILLISECONDS OF THEM A FRAME, and the rest owed to the frames after: a town's worth at dusk, or the
+      // few hundred behind a row of new houses, was a frame of a twentieth of a second and more. Till its turn a
+      // building keeps the windows it had, or has none yet.
+      const t0 = performance.now();
+      let spent = false;
       for (const [id, { colour, bias }] of lit) {
         const s = g.structures.get(id);
         if (!s || !inBounds(g, s.x, s.y)) continue;
+        live.add(id);
+        let e = built.get(id);
+        let sig = "";
         const ground = g.height[idx(g, s.x, s.y)];
-        const r = ((colour >> 16) & 255) / 255, gr = ((colour >> 8) & 255) / 255, b = (colour & 255) / 255;
-        for (const w of windowsOf(s)) {
-          const seed = seedOf(id, w);
-          const am = (w.a0 + w.a1) / 2;
-          // ITS LIGHT, whether the eye sees it or not: just outside the wall it is in, as long as it is wide, at
-          // its own height over the building's ground. Quarter-tiles, a cell's corner at its whole number.
-          {
-            // (No smaller than the light's own grid can see: a light finer than that is found by some of its probes
-            // and missed by the rest, and a row of windows was a row of scallops on the pavement.)
-            const out = (w.at + 0.5 + 0.3) * S, mid = (am + 0.5) * S, half = Math.max(1.1, ((w.a1 - w.a0) / 2) * S * 1.4);
-            if (w.face === 0) lights.push(out, mid, 1.1, half, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
-            else lights.push(mid, out, half, 1.1, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
+        if (fresh || owed.has(id)) {
+          const def = structureDef(s.def);
+          sig = `${s.def}|${s.x}|${s.y}|${s.w}|${s.h}|${s.build ? 1 : 0}|${def && def.render.kind === "tiles" ? floorsFor(def, s, true) : hasYard(s) ? "y" : ""}|${ground}|${colour}|${bias}|${scale}`;
+          if (fresh && (!e || e.sig !== sig || inTheWay(s))) owed.add(id);
+        }
+        // (In development, asked for from the console: every building kept is worked out again and held against
+        // what was kept — that nothing left alone was out of date.)
+        const check = import.meta.env?.DEV ? (globalThis as { __litCheck?: { kept: number; bad: number; redone?: number } }).__litCheck : undefined;
+        const due = owed.has(id) && !spent;
+        const keptWas = check && fresh && e && !owed.has(id) ? e : null;
+        if (due && check) check.redone = (check.redone ?? 0) + 1;
+        if (due || keptWas) {
+          const v: number[] = [], l: number[] = [];
+          let nShown = 0, nHidden = 0;
+          const r = ((colour >> 16) & 255) / 255, gr = ((colour >> 8) & 255) / 255, b = (colour & 255) / 255;
+          for (const w of windowsOf(s)) {
+            const seed = seedOf(id, w);
+            const am = (w.a0 + w.a1) / 2;
+            // ITS LIGHT, whether the eye sees it or not: just outside the wall it is in, as long as it is wide, at
+            // its own height over the building's ground. Quarter-tiles, a cell's corner at its whole number.
+            {
+              // (No smaller than the light's own grid can see: a light finer than that is found by some of its probes
+              // and missed by the rest, and a row of windows was a row of scallops on the pavement.)
+              const out = (w.at + 0.5 + 0.3) * S, mid = (am + 0.5) * S, half = Math.max(1.1, ((w.a1 - w.a0) / 2) * S * 1.4);
+              if (w.face === 0) l.push(out, mid, 1.1, half, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
+              else l.push(mid, out, half, 1.1, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
+            }
+            if (windowHidden(gm, w, ground, decks)) { nHidden++; continue; }
+            nShown++;
+            // The pane and its glow round it: a quad on the wall's own plane, past the pane's edges.
+            const ha = (w.a1 - w.a0) / 2, hz = (w.z1 - w.z0) / 2, pa = Math.max(HALO_MIN, ha * HALO), pz = Math.max(HALO_MIN_Z, hz * HALO);
+            const core = [ha / (ha + pa), hz / (hz + pz)];
+            for (const [ua, uz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+              const a = am + ua * (ha + pa), z = ground + (w.z0 + w.z1) / 2 + uz * (hz + pz), pu = w.face === 0 ? w.at : a, pv = w.face === 0 ? a : w.at;
+              v.push((pu - pv) * HW * scale, ((pu + pv) * HH - z * HEIGHT_UNIT) * scale, ua, uz, core[0], core[1], seed, bias, r, gr, b, id, w.floor);
+            }
           }
-          if (windowHidden(gm, w, ground, { on: g.deck, z: g.deckZ })) { hidden++; continue; }
-          shown++;
-          // The pane and its glow round it: a quad on the wall's own plane, past the pane's edges.
-          const ha = (w.a1 - w.a0) / 2, hz = (w.z1 - w.z0) / 2, pa = Math.max(HALO_MIN, ha * HALO), pz = Math.max(HALO_MIN_Z, hz * HALO);
-          const core = [ha / (ha + pa), hz / (hz + pz)];
-          for (const [ua, uz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-            const a = am + ua * (ha + pa), z = ground + (w.z0 + w.z1) / 2 + uz * (hz + pz), pu = w.face === 0 ? w.at : a, pv = w.face === 0 ? a : w.at;
-            v.push((pu - pv) * HW * scale, ((pu + pv) * HH - z * HEIGHT_UNIT) * scale, ua, uz, core[0], core[1], seed, bias, r, gr, b, id, w.floor);
+          const made = { sig, verts: new Float32Array(v), lights: new Float32Array(l), shown: nShown, hidden: nHidden };
+          if (keptWas && check) {
+            check.kept++;
+            let same = keptWas.verts.length === made.verts.length && keptWas.lights.length === made.lights.length;
+            for (let k = 0; same && k < made.verts.length; k++) same = keptWas.verts[k] === made.verts[k];
+            if (!same) check.bad++;
+          } else {
+            built.set(id, (e = made));
+            owed.delete(id);
+            if (performance.now() - t0 > BUDGET_MS) spent = true;
           }
         }
+        if (!e) continue;
+        floats += e.verts.length; glows += e.lights.length;
+        shown += e.shown; hidden += e.hidden;
       }
-      const n = v.length / (F * 4);
+      for (const id of owed) if (!live.has(id)) owed.delete(id);
+      for (const id of built.keys()) if (!live.has(id)) built.delete(id);
+      // ALL OF THEM, one after another, as the buildings were given.
+      const n = floats / (F * 4);
+      const verts = new Float32Array(Math.max(floats, F * 4)), glow = new Float32Array(glows);
+      let vo = 0, lo = 0;
+      for (const id of lit.keys()) {
+        const e = live.has(id) ? built.get(id) : undefined;
+        if (!e) continue;
+        verts.set(e.verts, vo); vo += e.verts.length;
+        glow.set(e.lights, lo); lo += e.lights.length;
+      }
+      lights = glow;
       // (Never empty: a buffer of nothing is not a buffer. One window of no size, where there are none.)
-      vb.data = n ? new Float32Array(v) : new Float32Array(F * 4);
-      const ix = new Uint32Array(Math.max(1, n) * 6);
-      for (let q = 0; q < n; q++) ix.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3], q * 6);
-      ib.data = ix;
+      vb.data = verts;
+      if (n !== quads) {
+        quads = n;
+        const ix = new Uint32Array(Math.max(1, n) * 6);
+        for (let q = 0; q < n; q++) { const o = q * 6, a = q * 4; ix[o] = a; ix[o + 1] = a + 1; ix[o + 2] = a + 2; ix[o + 3] = a; ix[o + 4] = a + 2; ix[o + 5] = a + 3; }
+        ib.data = ix;
+      }
     },
     tick(night, t, share, cut) {
       mesh.visible = night > 0.02 && shown > 0;

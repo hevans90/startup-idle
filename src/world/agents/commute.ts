@@ -276,6 +276,12 @@ function seatKey(g: Grid, places: readonly Place[]): string {
   return `${roadsKey(g)}|${g.structures.size}|${a}|${b}|${f}`;
 }
 
+/** The least time between two seatings for people moving alone, ms (0: at once, as a simulation wants it), and when the last was. */
+let pace = 0, seatedAt = 0, lookedAt = 0;
+/** Paced, the least time between two looks at who lives where, ms. */
+const LOOK_EVERY = 250;
+/** Have people moving in or out reseat the town no oftener than this: the scene's, where a frame is what it costs. */
+export const setSeatingPace = (ms: number) => { pace = ms; };
 let memo: { g: Grid | null; rev: number; sites: number; people: string; deck: number; closures: number; what: string; value: Seating } = {
   g: null, rev: -1, sites: -1, people: "", deck: -1, closures: -1, what: "", value: { commutes: new Map(), desks: new Map(), home: {} },
 };
@@ -287,6 +293,13 @@ let memo: { g: Grid | null; rev: number; sites: number; people: string; deck: nu
  * which asks every tick, and the labels. @see Grid.rev
  */
 export function liveSeating(g: Grid, net: Network): Seating {
+  // (Paced, the town is not even gone over to see whether anyone has moved but four times a second: every house
+  // counted every frame was a share of each. @see setSeatingPace)
+  if (pace > 0 && memo.g === g && memo.rev === g.rev) {
+    const now = performance.now();
+    if (now - lookedAt < LOOK_EVERY) return memo.value;
+    lookedAt = now;
+  }
   // And the sites still going up: one opening is a new workplace, though
   // finishing a build is not an edit of the map.
   let sites = 0, a = 0, b = 0;
@@ -302,6 +315,9 @@ export function liveSeating(g: Grid, net: Network): Seating {
   // (While the map's new lanes are being built, and the frames after that have their own work, who sat where: a
   // road laid is nobody's way to work in the frame it is laid. @see lanes/graph lanesSettle)
   if (memo.g === g && memo.rev !== g.rev && memo.sites === sites && memo.people === people && memo.deck === deck && memo.closures === closures && lanesSettle(g) > SETTLE_SEATS) return memo.value;
+  // (And where only who lives where has changed, no oftener than the pace asked for: in a town filling up somebody
+  // moves in every second or two, and everyone's way to work found again each time was two frames dropped each time.)
+  if (pace > 0 && memo.g === g && memo.rev === g.rev && memo.sites === sites && memo.deck === deck && memo.closures === closures && memo.people !== people && performance.now() - seatedAt < pace) return memo.value;
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.people !== people || memo.deck !== deck || memo.closures !== closures) {
     // AN EDIT THAT TOUCHES NONE OF WHAT IT IS READ FROM leaves everyone sitting where they sat: the roads, the
     // doors on them, the buildings and the ferries. A tile of grass raised in a field was every house's way to
@@ -309,6 +325,7 @@ export function liveSeating(g: Grid, net: Network): Seating {
     const places = placesOf(g, net), what = seatKey(g, places);
     const same = memo.g === g && memo.what === what && memo.sites === sites && memo.people === people && memo.deck === deck && memo.closures === closures;
     memo = { g, rev: g.rev, sites, people, deck, closures, what, value: same ? memo.value : seat(g, places) };
+    seatedAt = performance.now();
   }
   return memo.value;
 }
