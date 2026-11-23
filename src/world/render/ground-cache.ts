@@ -31,6 +31,8 @@ import {
 } from "pixi.js";
 import { cacheUniforms, groundShader, type GroundMesh } from "./ground-mesh";
 
+/** The least time between two copies made for the year's and the weather's small steps alone, ms. @see GroundMesh.drift */
+const DRIFT_EVERY = 10000;
 /** Frames a view must hold before it is copied: a pan's pause is not a stop. */
 const STILL = 2;
 
@@ -80,6 +82,7 @@ export function createGroundCache(renderer: Renderer, ground: () => GroundMesh |
     return { step: () => {}, says: () => ({ made: 0, reading: false }), destroy: () => {} };
   }
   let copy: Copy | null = null;
+  let driftSeen = -1, driftAt = -1e9;
   let filling = false;
   let made = 0;
   let reading = false;
@@ -158,7 +161,14 @@ export function createGroundCache(renderer: Renderer, ground: () => GroundMesh |
     now[0] = t?.a ?? 0; now[1] = t?.b ?? 0; now[2] = t?.c ?? 0; now[3] = t?.d ?? 0;
     now[4] = t?.tx ?? 0; now[5] = t?.ty ?? 0;
     now[6] = renderer.screen.width; now[7] = renderer.screen.height; now[8] = renderer.resolution;
-    now[9] = gm.rev; now[10] = gm.uniforms._dirtyId;
+    // (A uniform written is counted by the ground itself: not read off the group's own dirty mark, which is set
+    // before every render now and cleared at the first draw — it changed with how many renders a frame had.)
+    // THE YEAR'S AND THE WEATHER'S SMALL STEPS, taken up no oftener than every few seconds: each is too small to
+    // see, they come every second or two, and a copy made again for each was the ground worked out in full for
+    // three frames of every sixty.
+    const clock = performance.now();
+    if (gm.drift !== driftSeen && clock - driftAt >= DRIFT_EVERY) { driftSeen = gm.drift; driftAt = clock; }
+    now[9] = gm.rev; now[10] = driftSeen;
     now[11] = 0;
   };
 

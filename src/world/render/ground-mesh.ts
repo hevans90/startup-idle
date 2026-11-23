@@ -200,6 +200,11 @@ export type GroundMesh = {
   shader: Shader;
   /** Counts up whenever what the ground would draw changes: a texel, a uniform, a band's quads. @see ground-cache.ts */
   rev: number;
+  /**
+   * Counts up when the year or the weather moves the ground's look by a step too small to see — a 128th of a
+   * season, a 64th of the wet: the still view's copy is made again for these too, but not at every one. @see ground-cache.ts
+   */
+  drift: number;
   /** Called when this is destroyed, by whatever hung something on it. */
   gone: (() => void)[];
   meshes: Mesh<Geometry, Shader>[];
@@ -482,7 +487,7 @@ function makeGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale: numb
   const shade = new Uint8Array(grid.w * SHADE * grid.h * SHADE);
   const shadeSource = new BufferImageSource({ resource: shade, width: grid.w * SHADE, height: grid.h * SHADE, format: "r8unorm", scaleMode: "nearest" });
   const tintSource = new BufferImageSource({ resource: bakeTint(grid.w, grid.h), width: grid.w * SHADE, height: grid.h * SHADE, format: "rgba8unorm", scaleMode: "nearest" });
-  const gm: GroundMesh = { cells, source, edges, edgeSource, grid, heights: new Float32Array(shade.length), shade, casts: new Float32Array(shade.length), tops: new Float32Array(grid.w * grid.h), cast: new Map(), castTop: 0, shadeRev: 0, shadeTop: NaN, shadeSource, tintSource, stale: [0, 0, grid.w - 1, grid.h - 1], uniforms, cacheU: cacheUniforms(), blank: new BufferImageSource({ resource: new Uint8Array(4), width: 1, height: 1, format: "rgba8unorm", scaleMode: "nearest" }), shader: null as unknown as Shader, rev: 0, gone: [], meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
+  const gm: GroundMesh = { cells, source, edges, edgeSource, grid, heights: new Float32Array(shade.length), shade, casts: new Float32Array(shade.length), tops: new Float32Array(grid.w * grid.h), cast: new Map(), castTop: 0, shadeRev: 0, shadeTop: NaN, shadeSource, tintSource, stale: [0, 0, grid.w - 1, grid.h - 1], uniforms, cacheU: cacheUniforms(), blank: new BufferImageSource({ resource: new Uint8Array(4), width: 1, height: 1, format: "rgba8unorm", scaleMode: "nearest" }), shader: null as unknown as Shader, rev: 0, drift: 0, gone: [], meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
   for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) writeCell(gm, grid, palette, x, y);
   source.update();
   edgeSource.update();
@@ -744,8 +749,20 @@ export function canopyGround(gm: GroundMesh, grid: Grid, palette: Palette, cells
     any = true;
   }
   if (!any) return;
-  withCorners(grid, FINE, () => { for (let i = 0; i < due.length; i++) if (due[i]) writeEdges(gm, grid, i % grid.w, (i / grid.w) | 0, palette); });
-  gm.edgeSource.update();
+  // (Sent, and the still view's copy of the ground thrown away, only if a texel came out other than it was: most
+  // growth is a wood a little denser, which the ground does not draw — and it was sent every two seconds.)
+  let moved = false;
+  const was = new Float32Array(8);
+  withCorners(grid, FINE, () => {
+    for (let i = 0; i < due.length; i++) {
+      if (!due[i]) continue;
+      const o = i * 8;
+      for (let k = 0; k < 8; k++) was[k] = gm.edges[o + k];
+      writeEdges(gm, grid, i % grid.w, (i / grid.w) | 0, palette);
+      for (let k = 0; k < 8 && !moved; k++) moved = !Object.is(was[k], gm.edges[o + k]);
+    }
+  });
+  if (moved) gm.edgeSource.update();
 }
 
 /** The whole ground again, every cell written once: for a map that changed all over. @see markGround, which is for one cell */
@@ -779,20 +796,26 @@ function flushed(gm: GroundMesh, grid: Grid, palette: Palette) {
   gm.edgeSource.update();
   bakeShade(gm, grid);
   const map = gm.uniforms.uniforms.uMap as Float32Array;
-  if (map[3] !== grid.maxHeight + 2) { map[3] = grid.maxHeight + 2; gm.uniforms.update(); }
+  if (map[3] !== grid.maxHeight + 2) { map[3] = grid.maxHeight + 2; gm.uniforms.update(); gm.rev++; }
 }
 
 /** THE YEAR on the ground, each frame, and the weather's wet and frost on it: on the continuous surface only. @see world/calendar groundSeason, world/weather groundAt */
 export function seasonGround(gm: GroundMesh, s: { bloom: number; dry: number; brown: number; snow: number } | null, yearShare = 0.3, wet = 0, frost = 0) {
   const m = gm.uniforms.uniforms.uMode as Float32Array;
   // (The year's share, for the fields: a step a day; the ground's wet and frost in 64ths: so the uniforms are not sent each frame.)
-  const ys = Math.floor(yearShare * 120) / 120, wq = Math.round(wet * 64) / 64, fq = Math.round(frost * 64) / 64;
-  if (m[1] !== ys || m[2] !== wq || m[3] !== fq) { m[1] = ys; m[2] = wq; m[3] = fq; gm.uniforms.update(); }
+  // (The year's share as the array will hold it: a 120th is no exact single-precision number, and held against
+  // the longer one it was never the same — the uniforms were sent, and the ground's copy thrown away, every frame.)
+  const ys = Math.fround(Math.floor(yearShare * 120) / 120), wq = Math.round(wet * 64) / 64, fq = Math.round(frost * 64) / 64;
+  if (m[1] !== ys || m[2] !== wq || m[3] !== fq) { m[1] = ys; m[2] = wq; m[3] = fq; gm.uniforms.update(); gm.drift++; }
   const u = gm.uniforms.uniforms.uSeason as Float32Array;
-  const b = s ? s.bloom : 0, d = s ? s.dry : 0, r = s ? s.brown : 0, w = s ? s.snow : 0;
+  // (In 128ths, as the wet and the frost are: the year moves them every frame by less than can be seen, and each
+  // move is the still view's copy of the ground thrown away. @see ground-cache.ts)
+  const q = (v: number) => Math.round(v * 128) / 128;
+  const b = s ? q(s.bloom) : 0, d = s ? q(s.dry) : 0, r = s ? q(s.brown) : 0, w = s ? q(s.snow) : 0;
   if (u[0] === b && u[1] === d && u[2] === r && u[3] === w) return;
   u[0] = b; u[1] = d; u[2] = r; u[3] = w;
   gm.uniforms.update();
+  gm.drift++;
 }
 
 export function destroyGroundMesh(gm: GroundMesh) {
