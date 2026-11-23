@@ -462,7 +462,39 @@ fn fs(v: V) -> @location(0) vec4<f32> {
 `;
 // THE WATER'S SHEET: at each pixel, the point of the water seen there, what the map has for it — looked up a little
 // aside, by the ripples — and nothing where a building or a bridge's deck stands between it and the eye.
+// WHERE THERE IS LIT WATER TO BE SEEN, on the plane the sheet lies on, a tile a texel: every small square of the
+// field that is wet and has light on it, drawn as a point where a line of sight meets the plane after it — as far
+// back along both axes as its water stands high. The screen asks this first, one look, and most of it has neither
+// water nor light: it was finding that out a pixel at a time, eight looks each.
+const MASK_WGSL = /* wgsl */ `
+// The field's size, texels; the map's, tiles; and the water's rows of columns.
+struct U { field: vec2<f32>, map: vec2<f32>, rows: vec4<f32> };
+@group(0) @binding(0) var<uniform> u: U;
+@group(0) @binding(1) var uField : texture_2d<f32>;
+@group(0) @binding(2) var uDepth : texture_2d<f32>;
+fn wet(c: vec2<i32>) -> f32 {
+  let size = vec2<i32>(textureDimensions(uDepth));
+  if (c.x < 0 || c.y < 0 || c.x >= size.x || c.y >= i32(u.rows.x)) { return 0.0; }
+  return textureLoad(uDepth, c, 0).r;
+}
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+  let fw = u32(u.field.x);
+  let c = vec2<i32>(i32(i % fw), i32(i / fw));
+  let f = textureLoad(uField, c, 0);
+  // (Where it is, tiles; and the four columns of water round it: any of them deep enough to give light back.)
+  let p = (vec2<f32>(c) + vec2<f32>(0.5)) / u.field * u.map;
+  let d = vec2<i32>(floor(p * ${Q}.0 - vec2<f32>(0.5)));
+  let deep = max(max(wet(d), wet(d + vec2<i32>(1, 0))), max(wet(d + vec2<i32>(0, 1)), wet(d + vec2<i32>(1, 1))));
+  if (max(f.r, max(f.g, f.b)) <= 0.0005 || deep < 0.04) { return vec4<f32>(-4.0, -4.0, 0.0, 1.0); }
+  let g = clamp(floor(p - vec2<f32>(f.a / 4.0)), vec2<f32>(0.0), u.map - vec2<f32>(1.0)) + vec2<f32>(0.5);
+  return vec4<f32>(g.x / u.map.x * 2.0 - 1.0, 1.0 - g.y / u.map.y * 2.0, 0.0, 1.0);
+}
+@fragment
+fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1.0); }
+`;
 const GLINT_WGSL = SHEET_COMMON + /* wgsl */ `
+@group(2) @binding(7) var uMask : texture_2d<f32>;
 @group(2) @binding(4) var uDepth : texture_2d<f32>;
 @group(2) @binding(5) var uField : texture_2d<f32>;
 // How strong (unused here: the map's texture has it), the clock, and the highest deck's height.
@@ -482,6 +514,9 @@ fn fieldAt(q: vec2<f32>) -> vec4<f32> { return textureSampleLevel(uField, uLight
 fn mainFragment(in: VSOutput) -> @location(0) vec4<f32> {
   let g = in.vGround;
   let low = sheet.uScene.z;
+  // (No lit water within a tile of here, on the map's own word: nothing more to ask. Blended between the four
+  // texels round the point, so one of them marked is enough. @see MASK_WGSL)
+  if (textureSampleLevel(uMask, uLightSampler, g / sheet.uScene.xy, 0.0).r <= 0.0) { return vec4<f32>(0.0); }
   // WHERE THE LINE OF SIGHT MEETS THE WATER'S FACE: a tile along both axes for every four half steps up, so as far
   // along as the face there is high — found by going to where the last guess says, and asking again.
   var t = 0.0;
@@ -508,19 +543,32 @@ fn mainFragment(in: VSOutput) -> @location(0) vec4<f32> {
   // WHAT STANDS BETWEEN IT AND THE EYE: on up the line from the water, the ground and what is built on it as high
   // as the line, or a bridge's deck at the height the line is at.
   var cover = 0.0;
-  var u = t + 0.2;
+  let u0 = t + 0.2;
   let size = vec2<f32>(textureDimensions(uSceneTex));
-  for (var k = 0; k < 60; k++) {
-    if (u > sheet.uMap.z) { break; }
-    let q = g + vec2<f32>(u);
-    let s = sceneLin(q);
-    cover = max(cover, smoothstep(-0.4, 0.4, (s.g + s.r) * ${HEIGHT_SPAN}.0 + low - 4.0 * u));
-    if (4.0 * u <= glint.uGlint.z + 1.0) {
-      let db = textureLoad(uSceneTex, vec2<i32>(clamp(q / sheet.uScene.xy * size, vec2<f32>(0.0), size - vec2<f32>(1.0))), 0).b;
-      if (db > 0.0 && abs(db * ${HEIGHT_SPAN}.0 + low - 4.0 * u) <= 0.6) { cover = 1.0; }
+  // A TILE OF THE LINE AT A TIME: where nothing near stands as high as the line (the scene's fourth number), its
+  // four quarters are not looked at. Up a tower's height of open air over a harbour that was most of the looks.
+  for (var j = 0; j < 15; j++) {
+    let lo = u0 + f32(j);
+    if (lo > sheet.uMap.z) { break; }
+    if (highNear(g + vec2<f32>(lo + 1.0)) < 4.0 * lo - 0.45) { continue; }
+    for (var k = 0; k < 4; k++) {
+      let u = lo + f32(k) * 0.25;
+      if (u > sheet.uMap.z) { break; }
+      let s = sceneLin(g + vec2<f32>(u));
+      cover = max(cover, smoothstep(-0.4, 0.4, (s.g + s.r) * ${HEIGHT_SPAN}.0 + low - 4.0 * u));
     }
     if (cover > 0.98) { return vec4<f32>(0.0); }
-    u += 0.25;
+  }
+  // A BRIDGE'S DECK at the height the line is at: only as high as the highest deck, and only where there are any.
+  if (glint.uGlint.z > -500.0) {
+    var u = u0;
+    for (var k = 0; k < 60; k++) {
+      if (u > sheet.uMap.z || 4.0 * u > glint.uGlint.z + 1.0) { break; }
+      let q = g + vec2<f32>(u);
+      let db = textureLoad(uSceneTex, vec2<i32>(clamp(q / sheet.uScene.xy * size, vec2<f32>(0.0), size - vec2<f32>(1.0))), 0).b;
+      if (db > 0.0 && abs(db * ${HEIGHT_SPAN}.0 + low - 4.0 * u) <= 0.6) { return vec4<f32>(0.0); }
+      u += 0.25;
+    }
   }
   return vec4<f32>(l * (1.0 - cover), 0.0);
 }
@@ -613,6 +661,12 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
   ] });
   const fieldMod = device.createShaderModule({ code: FIELD_WGSL });
   const fieldPipe = device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [fieldLayout] }), vertex: { module: fieldMod, entryPoint: "vs" }, fragment: { module: fieldMod, entryPoint: "fs", targets: [{ format: fmt }] } });
+  const maskMod = device.createShaderModule({ code: MASK_WGSL });
+  const maskPipe = device.createRenderPipeline({
+    layout: "auto", primitive: { topology: "point-list" },
+    vertex: { module: maskMod, entryPoint: "vs" }, fragment: { module: maskMod, entryPoint: "fs", targets: [{ format: "r8unorm" }] },
+  });
+  const maskU = ubuf(32);
   const glareMod = device.createShaderModule({ code: GLARE_WGSL });
   const glarePipe = device.createRenderPipeline({
     layout: "auto",
@@ -646,6 +700,8 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
     glint: Mesh<Geometry, Shader> | null; glintU: UniformGroup; glintOf: unknown;
     /** What the water gives back, on the map: Pixi's texture, written here. @see FIELD_WGSL */
     field: BufferImageSource | null; fieldView: GPUTextureView | null; fieldBind: GPUBindGroup | null;
+    /** Where there is lit water to be seen, a tile a texel: Pixi's texture, written here. @see MASK_WGSL */
+    mask: BufferImageSource | null; maskView: GPUTextureView | null; maskBind: GPUBindGroup | null;
   };
   let sized: Sized | null = null;
   const unsize = () => {
@@ -732,7 +788,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
     world.addChild(mesh);
     seenWalls = options.walls;
     const glintU = new UniformGroup({ uGlint: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } });
-    return (sized = { key, count, px, py, heights, chain, layers, light, lightView, mesh, sheetU, glint: null, glintU, glintOf: null, field: null, fieldView: null, fieldBind: null });
+    return (sized = { key, count, px, py, heights, chain, layers, light, lightView, mesh, sheetU, glint: null, glintU, glintOf: null, field: null, fieldView: null, fieldBind: null, mask: null, maskView: null, maskBind: null });
   };
 
   // HOW LONG IT TOOK, where the device can say: the first pass's start to the last's end.
@@ -832,19 +888,26 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       // THE WATER GIVES THE LIGHT BACK: a second sheet over the first, added, where there is water to read.
       if (water && s.glintOf !== water.depth) {
         s.glint?.parent?.removeChild(s.glint); s.glint?.destroy();
-        const oldField = s.field;
-        if (oldField) setTimeout(() => oldField.destroy(), 500);
+        const oldField = s.field, oldMask = s.mask;
+        if (oldField) setTimeout(() => { oldField.destroy(); oldMask?.destroy(); }, 500);
         const field = new BufferImageSource({ resource: new Uint16Array(FW * FH * 4), width: FW, height: FH, format: "rgba16float", scaleMode: "linear" });
         s.field = field; s.fieldView = sys.texture!.getGpuSource(field).createView();
         s.fieldBind = device.createBindGroup({ layout: fieldLayout, entries: [
           { binding: 0, resource: { buffer: fieldU } }, { binding: 1, resource: s.lightView }, { binding: 2, resource: linear },
           { binding: 3, resource: sceneGpu.createView() }, { binding: 4, resource: sys.texture!.getGpuSource(water.depth as TextureSource).createView() }, { binding: 5, resource: sys.texture!.getGpuSource(water.bed as TextureSource).createView() },
         ] });
+        const mask = new BufferImageSource({ resource: new Uint8Array(w * h), width: w, height: h, format: "r8unorm", scaleMode: "linear" });
+        s.mask = mask; s.maskView = sys.texture!.getGpuSource(mask).createView();
+        s.maskBind = device.createBindGroup({ layout: maskPipe.getBindGroupLayout(0), entries: [
+          { binding: 0, resource: { buffer: maskU } }, { binding: 1, resource: s.fieldView },
+          { binding: 2, resource: sys.texture!.getGpuSource(water.depth as TextureSource).createView() },
+        ] });
+        device.queue.writeBuffer(maskU, 0, new Float32Array([FW, FH, w, h, h * Q, 0, 0, 0]));
         fieldFresh = true;
         const shader = new Shader({
           gpuProgram: GpuProgram.from({
             vertex: { source: GLINT_WGSL, entryPoint: "mainVertex" }, fragment: { source: GLINT_WGSL, entryPoint: "mainFragment" }, name: "gi-glint",
-            layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { sheet: 0, uLight: 1, uLightSampler: 2, uSceneTex: 3, uDepth: 4, uField: 5, glint: 6 }],
+            layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { sheet: 0, uLight: 1, uLightSampler: 2, uSceneTex: 3, uDepth: 4, uField: 5, glint: 6, uMask: 7 }],
             gpuLayout: [
               [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
               [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
@@ -856,10 +919,11 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
                 { binding: 4, visibility: 2, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
                 { binding: 5, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
                 { binding: 6, visibility: 2, buffer: { type: "uniform" } },
+                { binding: 7, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
               ],
             ],
           }),
-          resources: { sheet: s.sheetU, uLight: s.light, uLightSampler: s.light.style, uSceneTex: scene, uDepth: water.depth, uField: field, glint: s.glintU },
+          resources: { sheet: s.sheetU, uLight: s.light, uLightSampler: s.light.style, uSceneTex: scene, uDepth: water.depth, uField: field, glint: s.glintU, uMask: mask },
         });
         const g2 = new Mesh<Geometry, Shader>({ geometry: s.mesh.geometry, shader });
         g2.eventMode = "none"; g2.blendMode = "add"; g2.zIndex = zIndex + 0.5;
@@ -912,6 +976,12 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
         if (n) { fp.setVertexBuffer(0, lightBuf); fp.draw(6, n); }
         if (wins && windowBuf && windowN) { fp.setVertexBuffer(0, windowBuf); fp.draw(6, windowN); }
         fp.end();
+        // AND WHERE THE LIT WATER IS, for the screen to ask first: a point for each square of the field. @see MASK_WGSL
+        if (s.maskView && s.maskBind) {
+          const mp = pass(s.maskView);
+          mp.setPipeline(maskPipe); mp.setBindGroup(0, s.maskBind); mp.draw(FW * FH);
+          mp.end();
+        }
       }
       if (timed) { enc.resolveQuerySet(timed.set, 0, 2, timed.resolve, 0); enc.copyBufferToBuffer(timed.resolve, 0, timed.read, 0, 16); }
       device.queue.submit([enc.finish()]);
