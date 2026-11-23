@@ -1545,6 +1545,16 @@ fn mainFragment(@builtin(position) vAt: vec4<f32>, @location(0) vGround: vec2<f3
   var col: vec3<f32>;
   // A top's second word is the light on its slope, 0 on the level.
   if (vWall.x < 0.5) {
+    // THE SNOW, FIRST: where it lies whole — a winter's day, most of the map — it replaces whatever the ground
+    // would have been, and that is the dear part. All of it was worked out under the snow, a pixel at a time, and
+    // then snow laid over every pixel of it. (None on a bed under standing water: it would show through.)
+    let wetHere = i32(textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).w + 0.5) % 4 == 2;
+    var snowCover = 0.0;
+    if (ground.uSeason.w > 0.0 && !wetHere) {
+      let lie = ground.uSeason.w * 1.3 - 0.3 + (fbm(vGround * 1.3 + 5.0) - 0.5) * 0.7 + vWall.y * 0.008;
+      snowCover = smoothstep(0.0, 0.12, lie) * (1.0 - smoothstep(2.2, 4.8, steep));
+    }
+    let buried = snowCover >= 1.0;
     // THE BEACH: by standing water, ground within a little of its level is sand, and wet where the water has it.
     // WORKED OUT FIRST, because where it is all beach — every bed under water — it replaces whatever the land
     // would have been, and the land is the dear part: the grass, the wood's floor, the heather. A flooded map
@@ -1553,7 +1563,7 @@ fn mainFragment(@builtin(position) vAt: vec4<f32>, @location(0) vGround: vec2<f3
     var beach = 0.0;
     var over = 0.0;
     var sandy = 0.0;
-    if (level > -900.0) {
+    if (level > -900.0 && !buried) {
       // (Blended between the cells round the point — one that was told none taken as a little lower than this one —
       // so the sand's line does not step at a cell's edge.)
       let lq = vGround - 0.5; let lc = vec2<i32>(floor(lq)); let lf = lq - floor(lq);
@@ -1569,7 +1579,7 @@ fn mainFragment(@builtin(position) vAt: vec4<f32>, @location(0) vGround: vec2<f3
       beach = 1.0 - smoothstep(mix(-0.08, 0.15, sandy), rim, over);
     }
     col = vec3<f32>(0.0);
-    if (beach < 1.0) {
+    if (beach < 1.0 && !buried) {
       col = topColour(vGround, fp);
       // A STEEP BANK IS BARE: the grass gives out to earth as the ground steepens, in patches.
       if (steep > 1.2) {
@@ -1604,21 +1614,15 @@ fn mainFragment(@builtin(position) vAt: vec4<f32>, @location(0) vGround: vec2<f3
       if (sandy < 0.999) { stuff = stuff + dirtAt(vGround, fp) * 0.8 * (1.0 - sandy); }
       col = mix(col, stuff * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
     }
-    // SNOW where it lies: patchy as it comes and as it goes, more the higher, none on a slope too steep to hold it.
-    // (None on a bed under standing water: it would show through.)
-    let wetHere = i32(textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).w + 0.5) % 4 == 2;
     // AFTER RAIN (uMode.z how wet): the ground darker, the wetter. (No water of its own: standing water is the
     // water simulation's.) FROST (uMode.w) whitening it on a cold still morning. @see world/weather groundAt
     let soaked = ground.uMode.z;
-    if (soaked > 0.01 && !wetHere) { col = col * (1.0 - 0.16 * soaked); }
-    if (ground.uMode.w > 0.01 && !wetHere) {
+    if (soaked > 0.01 && !wetHere && !buried) { col = col * (1.0 - 0.16 * soaked); }
+    if (ground.uMode.w > 0.01 && !wetHere && !buried) {
       col = mix(col, vec3<f32>(0.84, 0.88, 0.93), ground.uMode.w * 0.5 * (0.6 + 0.4 * vnoise(vGround * 9.0)) * (1.0 - smoothstep(2.2, 4.8, steep)));
     }
-    if (ground.uSeason.w > 0.0 && !wetHere) {
-      let lie = ground.uSeason.w * 1.3 - 0.3 + (fbm(vGround * 1.3 + 5.0) - 0.5) * 0.7 + vWall.y * 0.008;
-      let cover = smoothstep(0.0, 0.12, lie) * (1.0 - smoothstep(2.2, 4.8, steep));
-      if (cover > 0.0) { col = mix(col, snowAt(vGround, fp), cover); }
-    }
+    // SNOW where it lies: patchy as it comes and as it goes, more the higher, none on a slope too steep to hold it.
+    if (snowCover > 0.0) { col = mix(col, snowAt(vGround, fp), snowCover); }
     col = relit(col * (1.0 + vWall.x), vGround, vWall.y, ground.uMode.x < 0.5);
   } else {
     col = wallColour(vGround, vWall.x, vWall.y, fp);
