@@ -270,7 +270,7 @@ const TOWN_FULL = 80;
 import { HOLO_SAVING, createHolograms, partsOf, type HoloSpec, type Holograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
-import { deviceLost, deviceWhy, onDeviceLost } from "./render/device";
+import { deviceLost, deviceWhy, onDeviceLost, sayLoad } from "./render/device";
 import { rendererAsked } from "./render/use-gpu";
 import { roomForUniforms } from "./render/uniform-room";
 import {
@@ -4474,7 +4474,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       e();
     }
   };
-  useTick(() => { cullBandsRef.current?.(); groundCacheRef.current?.step(); });
+  useTick(() => { cullBandsRef.current?.(); groundCacheRef.current?.step(); if (useWorldStore.getState().drawnBands > 0) sayLoad(); });
 
   // ROADS IN DETAIL CLOSE UP: the cells on screen painted at the resolution the
   // zoom shows them at, a few new ones a frame. Asked again only when the zoom

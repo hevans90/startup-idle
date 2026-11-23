@@ -201,6 +201,54 @@ function report(message: string) {
 const whyWanted = () =>
   typeof location !== "undefined" && new URLSearchParams(location.search).has("gpuwhy");
 
+/** How many shaders and pipelines have been asked for, and when the first and the last were, ms from the page's start. */
+const asked = { modules: 0, pipelines: 0, first: 0, last: 0, opened: 0, said: false };
+
+/** Count them: two additions a call. @see sayLoad */
+function countPipelines(device: GPUDevice) {
+  asked.opened = performance.now();
+  const proto = Object.getPrototypeOf(device) as Record<string, unknown>;
+  for (const name of ["createShaderModule", "createRenderPipeline", "createComputePipeline", "createRenderPipelineAsync", "createComputePipelineAsync"]) {
+    const real = proto[name] as ((this: GPUDevice, d: unknown) => unknown) | undefined;
+    if (!real) continue;
+    proto[name] = function (this: GPUDevice, desc: unknown) {
+      const t = performance.now();
+      if (name === "createShaderModule") asked.modules++; else asked.pipelines++;
+      if (!asked.first) asked.first = t;
+      asked.last = t;
+      return real.call(this, desc);
+    };
+  }
+}
+
+/**
+ * WHERE A MAP'S FIRST LOAD WENT, said once in the console when the first frame of it has been drawn AND the GPU has
+ * done everything asked of it up to then. A pipeline asked for costs this thread nothing — it is built in the GPU's
+ * process, and on Direct3D that is each shader compiled, one after another, while the map waits unseen: a load of
+ * two seconds here was ten on Windows, and nothing on this side of it said where they went.
+ */
+export function sayLoad(): void {
+  const h = held;
+  if (asked.said || !h) return;
+  asked.said = true;
+  const drawn = performance.now(), r = (v: number) => Math.round(v);
+  // (Once nothing more has been asked for in a second and a half: the water's passes are asked for after the
+  // first frame of the ground is drawn.)
+  const wait = setInterval(() => {
+    if (performance.now() - asked.last < 1500) return;
+    clearInterval(wait);
+    const from = performance.now();
+    void h.device.queue.onSubmittedWorkDone().then(() => {
+      const done = performance.now();
+      console.info(
+        `LOAD: device opened at ${r(asked.opened)} ms · first frame handed over at ${r(drawn)} ms · ${asked.modules} shaders and ${asked.pipelines} pipelines `
+        + `asked for from ${r(asked.first)} to ${r(asked.last)} ms · the GPU had built and run them all by ${r(done)} ms`
+        + `${done - from > 50 ? "" : " or sooner (it was idle when asked)"} — ${adapterName ?? "adapter hidden"}`,
+      );
+    }).catch(() => { /* the device went */ });
+  }, 250);
+}
+
 function watchCreation(device: GPUDevice) {
   const calls = [
     "createShaderModule", "createRenderPipeline", "createComputePipeline",
@@ -325,6 +373,7 @@ export function openDevice(): Promise<HeldGpu | null> {
         report((e as GPUUncapturedErrorEvent).error.message);
       });
       if (whyWanted()) watchCreation(device);
+      countPipelines(device);
       held = { adapter, device };
       const info = (adapter as unknown as { info?: { vendor?: string; architecture?: string; description?: string } }).info;
       adapterName = [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(" ") || null;
