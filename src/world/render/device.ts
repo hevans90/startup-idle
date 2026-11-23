@@ -232,6 +232,9 @@ export function sayLoad(): void {
   if (asked.said || !h) return;
   asked.said = true;
   const drawn = performance.now(), r = (v: number) => Math.round(v);
+  // (When the GPU had done everything asked of it up to that first frame — the pipelines' shaders compiled among it.)
+  let shown = 0;
+  void h.device.queue.onSubmittedWorkDone().then(() => { shown = performance.now(); }).catch(() => { /* the device went */ });
   // (Once nothing more has been asked for in a second and a half: the water's passes are asked for after the
   // first frame of the ground is drawn.)
   const wait = setInterval(() => {
@@ -251,7 +254,7 @@ export function sayLoad(): void {
           + `adapter asked for at ${r(asked.called)} ms, given at ${r(asked.adapter)} · `;
       } catch { /* no timings here */ }
       console.info(
-        `LOAD: ${page}device opened at ${r(asked.opened)} ms · first frame handed over at ${r(drawn)} ms · ${asked.modules} shaders and ${asked.pipelines} pipelines `
+        `LOAD: ${page}device opened at ${r(asked.opened)} ms · first frame handed over at ${r(drawn)} ms and done by the GPU at ${r(shown)} · ${asked.modules} shaders and ${asked.pipelines} pipelines `
         + `asked for from ${r(asked.first)} to ${r(asked.last)} ms · the GPU had built and run them all by ${r(done)} ms`
         + `${done - from > 50 ? "" : " or sooner (it was idle when asked)"} — ${adapterName ?? "adapter hidden"}`,
       );
