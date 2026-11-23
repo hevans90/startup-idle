@@ -18,7 +18,7 @@
  * and cars are not lit by it as themselves. WebGPU only; without it, or switched off, the night is as it was.
  * @see light.ts, ground-mesh castGround, lights.ts lightsOf
  */
-import { BufferImageSource, Buffer, BufferUsage, Geometry, GpuProgram, Mesh, Shader, UniformGroup, type Container, type Renderer } from "pixi.js";
+import { BufferImageSource, Buffer, BufferUsage, Geometry, GpuProgram, Mesh, Shader, UniformGroup, type Container, type Renderer, type TextureSource } from "pixi.js";
 import { HH, HW } from "../iso";
 
 /** What the spike can be asked for, live. @see setGi */
@@ -81,6 +81,8 @@ export type GiLight = { x: number; y: number; hx: number; hy: number; r: number;
 export const LAYER_HEIGHTS = [0, 5, 11, 20] as const;
 /** How strongly the water gives the light back. @see GLINT_WGSL */
 const GLINT = 1.1;
+/** How strong a lit window's glare on the water is, for its colour as the cascades are given it; and any other light's, for its colour at full strength. */
+const GLARE_WINDOW = 0.15, GLARE_LIGHT = 0.24;
 /** How what is built is sent to the GPU: half steps to a full byte. @see scene */
 const HEIGHT_SPAN = 64;
 
@@ -335,115 +337,159 @@ fn mainFragment(in: VSOutput) -> @location(0) vec4<f32> {
   return vec4<f32>(mix(lit, min(l, vec3<f32>(1.0)), sheet.uGrade.a), 1.0);
 }
 `;
-const GLINT_WGSL = SHEET_COMMON + /* wgsl */ `
-// THE WATER, as the solver has it: how deep and its bed, half steps, a quarter-tile; and how strong a reflection is, the clock, and the highest deck's height.
-@group(2) @binding(4) var uDepth : texture_2d<f32>;
-@group(2) @binding(5) var uBed : texture_2d<f32>;
-struct Glint { uGlint: vec4<f32> };
-@group(2) @binding(6) var<uniform> glint : Glint;
-// The ground and what is built at a point, as sceneAt gives them — in one look: for a look along a ray, where one will do.
-fn sceneNear(q: vec2<f32>) -> vec2<f32> {
-  let uv = q / sheet.uScene.xy;
-  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { return vec2<f32>(sheet.uScene.z, 0.0); }
-  // (Between the quarter-tiles round it, in the one look: a wall's edge is then a slope a ripple slides along, where
-  // read from the one it is in it was a step, and the light on the water went on and off in specks as ripples crossed it.)
-  let s = textureSampleLevel(uSceneTex, uLightSampler, uv, 0.0);
-  return vec2<f32>(s.g * ${HEIGHT_SPAN}.0 + sheet.uScene.z, s.r * ${HEIGHT_SPAN}.0);
+// THE LIGHT THE WATER GIVES BACK, WORKED OUT ON THE MAP and not on the screen: a texel for each small square of
+// the map, and at each what a line of sight leaving the water there goes on to meet. The screen has many times the
+// pixels the map has squares, and asking this of each of them was three times the cost of everything else drawn.
+const FIELD_WGSL = /* wgsl */ `
+// The light's reach in tiles, how many heights, how strong a reflection is; the heights; the map in tiles and its lowest ground.
+struct F { map: vec4<f32>, heights: vec4<f32>, scene: vec4<f32> };
+@group(0) @binding(0) var<uniform> u: F;
+@group(0) @binding(1) var uLight : texture_2d<f32>;
+@group(0) @binding(2) var uSamp : sampler;
+@group(0) @binding(3) var uSceneTex : texture_2d<f32>;
+@group(0) @binding(4) var uDepth : texture_2d<f32>;
+@group(0) @binding(5) var uBed : texture_2d<f32>;
+struct V { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> V {
+  var p = array<vec2<f32>, 3>(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+  var o: V;
+  o.pos = vec4<f32>(p[i], 0.0, 1.0);
+  o.uv = vec2<f32>(p[i].x * 0.5 + 0.5, 0.5 - p[i].y * 0.5);
+  return o;
 }
 fn waterCol(c: vec2<i32>, size: vec2<i32>, rows: i32) -> vec2<f32> {
   if (c.x < 0 || c.y < 0 || c.x >= size.x || c.y >= rows) { return vec2<f32>(0.0); }
   return vec2<f32>(textureLoad(uDepth, c, 0).r, textureLoad(uBed, c, 0).r);
 }
-// How deep the water is at a point of the map, and its bed: between the four columns round the point, so its face
-// is one face and not a stair of quarter-tiles — which the light lay on in teeth.
+// How deep the water is at a point of the map, and its bed: between the four columns round the point, so its face is one face
+// and not a stair of quarter-tiles — which the light lay on in teeth.
 fn waterAt(q: vec2<f32>) -> vec2<f32> {
   let size = vec2<i32>(textureDimensions(uDepth));
   // (The ground storey's rows: the first of them, as many as the map is deep in quarter-tiles.)
-  let rows = i32(sheet.uScene.y * ${Q}.0);
+  let rows = i32(u.scene.y * ${Q}.0);
   let g = q * ${Q}.0 - vec2<f32>(0.5);
   let c = vec2<i32>(floor(g)); let f = g - floor(g);
-  let a = waterCol(c, size, rows); let b = waterCol(c + vec2<i32>(1, 0), size, rows);
-  let d = waterCol(c + vec2<i32>(0, 1), size, rows); let e = waterCol(c + vec2<i32>(1, 1), size, rows);
-  return mix(mix(a, b, f.x), mix(d, e, f.x), f.y);
+  return mix(mix(waterCol(c, size, rows), waterCol(c + vec2<i32>(1, 0), size, rows), f.x), mix(waterCol(c + vec2<i32>(0, 1), size, rows), waterCol(c + vec2<i32>(1, 1), size, rows), f.x), f.y);
 }
-// The light at a height over a point, as lightOver gives it, from the two heights it lies between: the others' share
-// of it is small, and every look along a ray asking all four was most of what the water's light cost.
-fn lightTwo(q: vec2<f32>, up: f32) -> vec3<f32> {
-  let n = i32(sheet.uMap.w);
-  var i = 0;
-  for (var k = 1; k < n - 1; k++) { if (up >= sheet.uHeights[k]) { i = k; } }
-  let j = min(i + 1, n - 1);
-  let a = abs(up - sheet.uHeights[i]) / 2.5;
-  var l = layerAt(q, f32(i)) / (1.0 + a * a);
-  if (j != i) { let b = abs(up - sheet.uHeights[j]) / 2.5; l += layerAt(q, f32(j)) / (1.0 + b * b); }
-  return l;
+@fragment
+fn fs(v: V) -> @location(0) vec4<f32> {
+  // (A point of the water's face, as the map has it.)
+  let p = v.uv * u.scene.xy;
+  let w0 = waterAt(p);
+  let depth = w0.x;
+  // (With the light, how high the water's face is there — or the ground, where it is dry: the screen finds by it
+  // which point of the map a pixel shows.)
+  let level = w0.y + depth;
+  // (The light on it is drawn over this, a light at a time. @see GLARE_WGSL)
+  return vec4<f32>(0.0, 0.0, 0.0, level);
 }
-fn grain(c: vec2<f32>) -> f32 { return fract(sin(dot(c, vec2<f32>(12.9898, 78.233))) * 43758.5453); }
+`;
+// A LIGHT'S GLARE ON THE WATER, drawn on the map a light at a time — every lamp, lit window and headlamp the
+// cascades are given: a soft streak where its image would lie on flat water — as far toward the eye from its foot
+// as it is high — drawn out along the line of sight as ripples draw it, the longer the higher the light.
+const GLARE_WGSL = /* wgsl */ `
+// The map's size, quarter-tiles; how strong a window's glare is, and any other light's; the clock, s, and how many windows are lit.
+struct U { scene: vec2<f32>, gain: vec2<f32>, clock: vec4<f32> };
+@group(0) @binding(0) var<uniform> u: U;
+struct V { @builtin(position) pos: vec4<f32>, @location(0) at: vec2<f32>, @location(1) col: vec3<f32> };
+fn roll(a: f32, b: f32) -> f32 { return fract(sin(a * 127.1 + b * 311.7) * 43758.5453); }
+@vertex
+fn vs(@builtin(vertex_index) i: u32, @location(0) box: vec4<f32>, @location(1) col: vec4<f32>, @location(2) more: vec4<f32>) -> V {
+  var c = array<vec2<f32>, 6>(vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0));
+  let q = c[i];
+  // A WINDOW'S HOURS, as the window itself is drawn by them. (A light with no number is always lit.) @see lit-windows
+  var on = 1.0;
+  var gain = u.gain.y / max(0.001, max(col.r, max(col.g, col.b)));
+  if (more.y >= 0.0) {
+    let seed = more.y;
+    let ph = u.clock.x / ${150}.0 + seed * 13.0; let slot = floor(ph); let f = ph - slot;
+    let share = clamp(u.clock.y + more.z, 0.0, 1.0);
+    let now = step(roll(seed, slot), share); let was = step(roll(seed, slot - 1.0), share);
+    on = mix(was, now, smoothstep(0.0, ${1.5} / ${150}.0, f)) * (0.55 + 0.6 * roll(seed, 3.7));
+    gain = u.gain.x;
+  }
+  // (How high it is over the water, half steps — the water taken to lie a little under the ground the light stands on.)
+  let h = max(0.0, more.x) + 1.5;
+  let along = vec2<f32>(0.7071, 0.7071) * (2.4 + 0.8 * h);
+  let across = vec2<f32>(0.7071, -0.7071) * clamp(max(box.z, box.w), 1.4, 3.0);
+  let p = box.xy + vec2<f32>(h) + q.x * across + q.y * along;
+  var o: V;
+  o.pos = vec4<f32>(p.x / u.scene.x * 2.0 - 1.0, 1.0 - p.y / u.scene.y * 2.0, 0.0, 1.0);
+  // (Not lit, or not a light but a lit area — a building's glow on its own ground: drawn nowhere.)
+  if (on <= 0.0 || col.a > 0.5 || max(box.z, box.w) > 8.0) { o.pos = vec4<f32>(-4.0, -4.0, 0.0, 1.0); }
+  o.at = q; o.col = col.rgb * gain * on;
+  return o;
+}
+@fragment
+fn fs(v: V) -> @location(0) vec4<f32> {
+  let a = max(0.0, 1.0 - v.at.x * v.at.x); let b = max(0.0, 1.0 - v.at.y * v.at.y);
+  return vec4<f32>(v.col * a * a * b * b, 0.0);
+}
+`;
+// THE WATER'S SHEET: at each pixel, the point of the water seen there, what the map has for it — looked up a little
+// aside, by the ripples — and nothing where a building or a bridge's deck stands between it and the eye.
+const GLINT_WGSL = SHEET_COMMON + /* wgsl */ `
+@group(2) @binding(4) var uDepth : texture_2d<f32>;
+@group(2) @binding(5) var uField : texture_2d<f32>;
+// How strong (unused here: the map's texture has it), the clock, and the highest deck's height.
+struct Glint { uGlint: vec4<f32> };
+@group(2) @binding(6) var<uniform> glint : Glint;
+fn sceneLin(q: vec2<f32>) -> vec4<f32> { return textureSampleLevel(uSceneTex, uLightSampler, q / sheet.uScene.xy, 0.0); }
+// How deep the water is in the column a point is in, as the solver has it.
+fn depthNear(q: vec2<f32>) -> f32 {
+  let size = vec2<i32>(textureDimensions(uDepth));
+  let c = vec2<i32>(floor(q * ${Q}.0));
+  if (c.x < 0 || c.y < 0 || c.x >= size.x || c.y >= i32(sheet.uScene.y * ${Q}.0)) { return 0.0; }
+  return textureLoad(uDepth, c, 0).r;
+}
+// What the map has for a point: the light the water gives back there, and how high its face is — or the ground, dry.
+fn fieldAt(q: vec2<f32>) -> vec4<f32> { return textureSampleLevel(uField, uLightSampler, q / sheet.uScene.xy, 0.0); }
 @fragment
 fn mainFragment(in: VSOutput) -> @location(0) vec4<f32> {
-  // ONLY WHERE WATER IS WHAT IS SEEN: not a building standing in front of it, nor dry ground.
-  let s = seen(in.vGround);
-  let w0 = waterAt(s.at);
-  if (s.built > 0.5 || w0.x < 0.04) { return vec4<f32>(0.0); }
-  // The water's face is over its bed: the line of sight meets it that much nearer the eye.
-  let p = s.at + vec2<f32>(w0.x / 4.0);
-  let level = s.ground + w0.x;
-  // NOR WHERE A BRIDGE'S DECK IS WHAT IS SEEN, the water under it: on up the line of sight from the water, as high
-  // as the highest deck there is, a deck met at the height the line is at. (No bridges: no looks.)
-  var dt = s.t + w0.x / 4.0 + 0.125;
-  let dsize = vec2<f32>(textureDimensions(uSceneTex));
-  for (var k = 0; k < 9; k++) {
-    if (4.0 * dt > glint.uGlint.z + 1.0) { break; }
-    let duv = (in.vGround + vec2<f32>(dt)) / sheet.uScene.xy;
-    let db = textureLoad(uSceneTex, vec2<i32>(clamp(duv * dsize, vec2<f32>(0.0), dsize - vec2<f32>(1.0))), 0).b;
-    if (db > 0.0 && abs(db * ${HEIGHT_SPAN}.0 + sheet.uScene.z - 4.0 * dt) <= 1.0) { return vec4<f32>(0.0); }
-    dt += 0.5;
-  }
-  // ITS RIPPLES, which break a light's image into streaks: two slow swells crossing, by where and when.
+  let g = in.vGround;
+  let low = sheet.uScene.z;
+  // WHERE THE LINE OF SIGHT MEETS THE WATER'S FACE: a tile along both axes for every four half steps up, so as far
+  // along as the face there is high — found by going to where the last guess says, and asking again.
+  var t = 0.0;
+  t = fieldAt(g + vec2<f32>(t)).a / 4.0;
+  t = fieldAt(g + vec2<f32>(t)).a / 4.0;
+  t = fieldAt(g + vec2<f32>(t)).a / 4.0;
+  let p = g + vec2<f32>(t);
+  // (No water there, or the guesses never settled — a cliff: nothing.)
+  // (How deep, between the four columns round the point: read from the one it is in, the glare's fade up the
+  // shallows — and its edge at the bank — was a stair of quarter-tiles.)
+  let dg = p * ${Q}.0 - vec2<f32>(0.5); let df = dg - floor(dg); let dc = (floor(dg) + vec2<f32>(0.5)) / ${Q}.0;
+  let depth = mix(mix(depthNear(dc), depthNear(dc + vec2<f32>(${1 / Q}, 0.0)), df.x), mix(depthNear(dc + vec2<f32>(0.0, ${1 / Q})), depthNear(dc + vec2<f32>(${1 / Q})), df.x), df.y);
+  if (depth < 0.04 || abs(fieldAt(p).a - 4.0 * t) > 0.4) { return vec4<f32>(0.0); }
+  // ITS RIPPLES: two slow swells crossing, by where and when, that set the glare swaying.
   let c = glint.uGlint.y;
   let rip = vec2<f32>(sin(p.x * 9.0 + p.y * 3.1 + c * 1.3) + sin(p.x * 4.3 - p.y * 7.7 - c * 0.9), sin(p.y * 8.3 - p.x * 2.7 + c * 1.1) + sin(p.x * 6.1 + p.y * 5.3 + c * 0.7)) * 0.5;
-  // THE WAYS THE EYE'S LINE GOES ON from the water: away from the eye and up. Flat water sends it one way — a tile
-  // along both axes for every four half steps up — and gives back only what stands that steeply over it; but the
-  // water is not flat, and its ripples' far slopes send it lower, out over the map to a lamp on the far bank and a
-  // window streets away: which is why a light lies on water as a streak toward the eye. So a few ways, steep to
-  // shallow, the shallow ones fainter; along each the brightest thing met, the nearer the brighter — and where it
-  // meets a wall, that wall's light, and no further.
-  var l = vec3<f32>(0.0);
-  // (Two ways, six looks along each, and what stands there read at its nearest quarter-tile: as many again of each
-  // was four times the work on a screen full of water, for a picture no different to the eye.)
-  // (Each look begun a little nearer or further by where the pixel is: six looks along a ray are six bands on
-  // still water, and broken up they are a grain the ripples carry.)
-  // (The grain smooth from one cell of it to the next: cut at the cells' edges it was a mosaic of diamonds.)
-  let jc = floor(p * 31.0); let jf = smoothstep(vec2<f32>(0.0), vec2<f32>(1.0), p * 31.0 - jc);
-  let jit = 0.75 + 0.5 * mix(mix(grain(jc), grain(jc + vec2<f32>(1.0, 0.0)), jf.x), mix(grain(jc + vec2<f32>(0.0, 1.0)), grain(jc + vec2<f32>(1.0)), jf.x), jf.y);
-  for (var r = 0; r < 2; r++) {
-    let rise = select(1.4, 4.0, r == 0);
-    let share = select(0.6, 1.0, r == 0);
-    var got = vec3<f32>(0.0);
-    var through = 1.0;
-    var d = 0.3 * jit;
-    for (var k = 0; k < 6; k++) {
-      let q = p - vec2<f32>(d) + rip * d * (0.1 + 0.07 * f32(r));
-      let sc = sceneNear(q);
-      let h = level + rise * d;
-      // (A light a long way off lies fainter on the water.)
-      let fall = 1.0 / (1.0 + d * d * 0.12);
-      // HOW MUCH OF A WALL IS IN THE WAY: none where the ray clears the roof, all of it a storey under the eaves —
-      // by degrees, or a building's image on the water has an edge cut with a knife, and ripples make floes of it.
-      let wall = smoothstep(0.0, 2.2, sc.x + sc.y - h) * smoothstep(0.15, 0.9, sc.y);
-      let up = max(0.0, h - sc.x);
-      // A lit wall is given back; the glow of the open air over the water, hardly.
-      // (One look at the light for both: a wall's read a little out from its face.)
-      got += through * mix(0.06, 1.0, wall) * lightTwo(q + vec2<f32>(0.14 * wall), up) * fall;
-      through *= 1.0 - wall;
-      if (through < 0.03) { break; }
-      d *= 1.75;
+  // (Fading out up the shallows: a hand's depth of water over the bank is not a mirror.)
+  // (Blurred on the water's face: five looks, the middle one and four round it a quarter-tile off, swayed a little by the ripples — a little, or its edge is a zigzag.)
+  let fp = p + rip * 0.03;
+  let l = (fieldAt(fp).rgb * 2.0 + fieldAt(fp + vec2<f32>(0.3, 0.12)).rgb + fieldAt(fp - vec2<f32>(0.3, 0.12)).rgb
+    + fieldAt(fp + vec2<f32>(-0.12, 0.3)).rgb + fieldAt(fp - vec2<f32>(-0.12, 0.3)).rgb) / 6.0 * smoothstep(0.04, 0.7, depth);
+  // (Dark water — most of it: nothing more to ask.)
+  if (max(l.r, max(l.g, l.b)) < 0.006) { return vec4<f32>(0.0); }
+  // WHAT STANDS BETWEEN IT AND THE EYE: on up the line from the water, the ground and what is built on it as high
+  // as the line, or a bridge's deck at the height the line is at.
+  var cover = 0.0;
+  var u = t + 0.2;
+  let size = vec2<f32>(textureDimensions(uSceneTex));
+  for (var k = 0; k < 60; k++) {
+    if (u > sheet.uMap.z) { break; }
+    let q = g + vec2<f32>(u);
+    let s = sceneLin(q);
+    cover = max(cover, smoothstep(-0.4, 0.4, (s.g + s.r) * ${HEIGHT_SPAN}.0 + low - 4.0 * u));
+    if (4.0 * u <= glint.uGlint.z + 1.0) {
+      let db = textureLoad(uSceneTex, vec2<i32>(clamp(q / sheet.uScene.xy * size, vec2<f32>(0.0), size - vec2<f32>(1.0))), 0).b;
+      if (db > 0.0 && abs(db * ${HEIGHT_SPAN}.0 + low - 4.0 * u) <= 0.6) { cover = 1.0; }
     }
-    l += got * share;
+    if (cover > 0.98) { return vec4<f32>(0.0); }
+    u += 0.25;
   }
-  // (Shallow water over a bright bed gives less of it back than deep.)
-  let deep = clamp(w0.x / 1.2, 0.25, 1.0);
-  return vec4<f32>(l * glint.uGlint.x * deep, 0.0);
+  return vec4<f32>(l * (1.0 - cover), 0.0);
 }
 `;
 
@@ -523,6 +569,35 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
   const finalMod = device.createShaderModule({ code: FINAL_WGSL });
   const finalPipe = device.createRenderPipeline({ layout: "auto", vertex: { module: finalMod, entryPoint: "vs" }, fragment: { module: finalMod, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] } });
   const ubuf = (size: number) => device.createBuffer({ size, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  // THE WATER'S LIGHT ON THE MAP. (Its layout said outright: the solver's depths are a texture that cannot be filtered.)
+  const fieldLayout = device.createBindGroupLayout({ entries: [
+    { binding: 0, visibility: 2, buffer: { type: "uniform" } },
+    { binding: 1, visibility: 2, texture: { sampleType: "float" } },
+    { binding: 2, visibility: 2, sampler: { type: "filtering" } },
+    { binding: 3, visibility: 2, texture: { sampleType: "float" } },
+    { binding: 4, visibility: 2, texture: { sampleType: "unfilterable-float" } },
+    { binding: 5, visibility: 2, texture: { sampleType: "unfilterable-float" } },
+  ] });
+  const fieldMod = device.createShaderModule({ code: FIELD_WGSL });
+  const fieldPipe = device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [fieldLayout] }), vertex: { module: fieldMod, entryPoint: "vs" }, fragment: { module: fieldMod, entryPoint: "fs", targets: [{ format: fmt }] } });
+  const glareMod = device.createShaderModule({ code: GLARE_WGSL });
+  const glarePipe = device.createRenderPipeline({
+    layout: "auto",
+    vertex: {
+      module: glareMod, entryPoint: "vs",
+      buffers: [{
+        arrayStride: FLOATS * 4, stepMode: "instance",
+        attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }, { shaderLocation: 1, offset: 16, format: "float32x4" }, { shaderLocation: 2, offset: 32, format: "float32x4" }],
+      }],
+    },
+    // (Added to the light; the water's height, which is the texture's fourth number, left as it is.)
+    fragment: { module: glareMod, entryPoint: "fs", targets: [{ format: fmt, blend: { color: { srcFactor: "one", dstFactor: "one" }, alpha: { srcFactor: "zero", dstFactor: "one" } } }] },
+  });
+  const glareU = ubuf(32);
+  const glareBind = device.createBindGroup({ layout: glarePipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: glareU } }] });
+  // (As many texels a tile as keeps it to some hundreds a side: eight on a small map.)
+  const FT = Math.max(2, Math.min(8, Math.floor(640 / Math.max(w, h)))), FW = w * FT, FH = h * FT;
+  const fieldU = ubuf(48);
 
   /**
    * What is sized by the options. ONE CHAIN OF CASCADES, gone through once for each height: the heights differ in
@@ -536,6 +611,8 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
     light: BufferImageSource; lightView: GPUTextureView; mesh: Mesh<Geometry, Shader>; sheetU: UniformGroup;
     /** The water's reflections: a second sheet, added. Made when there is water to read. */
     glint: Mesh<Geometry, Shader> | null; glintU: UniformGroup; glintOf: unknown;
+    /** What the water gives back, on the map: Pixi's texture, written here. @see FIELD_WGSL */
+    field: BufferImageSource | null; fieldView: GPUTextureView | null; fieldBind: GPUBindGroup | null;
   };
   let sized: Sized | null = null;
   const unsize = () => {
@@ -547,7 +624,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
     setTimeout(() => {
       for (const c of s.chain) c.texture.destroy();
       for (const l of s.layers) { l.emitU.destroy(); l.finalU.destroy(); for (const v of l.levels) v.u.destroy(); }
-      s.glint?.destroy();
+      s.glint?.destroy(); s.field?.destroy();
       const geo = s.mesh.geometry; s.mesh.destroy(); geo.destroy(true); s.light.destroy();
     }, 500);
   };
@@ -622,7 +699,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
     world.addChild(mesh);
     seenWalls = options.walls;
     const glintU = new UniformGroup({ uGlint: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } });
-    return (sized = { key, count, px, py, heights, chain, layers, light, lightView, mesh, sheetU, glint: null, glintU, glintOf: null });
+    return (sized = { key, count, px, py, heights, chain, layers, light, lightView, mesh, sheetU, glint: null, glintU, glintOf: null, field: null, fieldView: null, fieldBind: null });
   };
 
   // HOW LONG IT TOOK, where the device can say: the first pass's start to the last's end.
@@ -635,7 +712,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
 
   let seenScene = -1, seenWalls: boolean | null = null, frame = 0;
   // (The decks as they were last sent, and the highest of them: looked at again twice a second, there being nothing that counts their changes.)
-  let seenDecks = 0, deckTop = -1e3;
+  let seenDecks = 0, deckTop = -1e3, fieldFresh = false;
   let fresh = "", freshScene = -1, freshWindows = -2, freshWalls: boolean | null = null;
   return {
     rest() { if (sized) { sized.mesh.visible = false; if (sized.glint) sized.glint.visible = false; } },
@@ -691,6 +768,48 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
         device.queue.writeBuffer(l.finalU, 0, new Float32Array([options.gain * f.night, li * s.px, 0, 0]));
       });
 
+      // THE WATER GIVES THE LIGHT BACK: a second sheet over the first, added, where there is water to read.
+      const water = options.water ? f.water : null;
+      if (water && s.glintOf !== water.depth) {
+        s.glint?.parent?.removeChild(s.glint); s.glint?.destroy();
+        const oldField = s.field;
+        if (oldField) setTimeout(() => oldField.destroy(), 500);
+        const field = new BufferImageSource({ resource: new Uint16Array(FW * FH * 4), width: FW, height: FH, format: "rgba16float", scaleMode: "linear" });
+        s.field = field; s.fieldView = sys.texture!.getGpuSource(field).createView();
+        s.fieldBind = device.createBindGroup({ layout: fieldLayout, entries: [
+          { binding: 0, resource: { buffer: fieldU } }, { binding: 1, resource: s.lightView }, { binding: 2, resource: linear },
+          { binding: 3, resource: sceneGpu.createView() }, { binding: 4, resource: sys.texture!.getGpuSource(water.depth as TextureSource).createView() }, { binding: 5, resource: sys.texture!.getGpuSource(water.bed as TextureSource).createView() },
+        ] });
+        fieldFresh = true;
+        const shader = new Shader({
+          gpuProgram: GpuProgram.from({
+            vertex: { source: GLINT_WGSL, entryPoint: "mainVertex" }, fragment: { source: GLINT_WGSL, entryPoint: "mainFragment" }, name: "gi-glint",
+            layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { sheet: 0, uLight: 1, uLightSampler: 2, uSceneTex: 3, uDepth: 4, uField: 5, glint: 6 }],
+            gpuLayout: [
+              [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
+              [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
+              [
+                { binding: 0, visibility: 2, buffer: { type: "uniform" } },
+                { binding: 1, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+                { binding: 2, visibility: 2, sampler: { type: "filtering" } },
+                { binding: 3, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+                { binding: 4, visibility: 2, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
+                { binding: 5, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+                { binding: 6, visibility: 2, buffer: { type: "uniform" } },
+              ],
+            ],
+          }),
+          resources: { sheet: s.sheetU, uLight: s.light, uLightSampler: s.light.style, uSceneTex: scene, uDepth: water.depth, uField: field, glint: s.glintU },
+        });
+        const g2 = new Mesh<Geometry, Shader>({ geometry: s.mesh.geometry, shader });
+        g2.eventMode = "none"; g2.blendMode = "add"; g2.zIndex = zIndex + 0.5;
+        world.addChild(g2);
+        s.glint = g2; s.glintOf = water.depth;
+      }
+      // (Every other frame: the ripples that move it are the screen's, and a light on the water a frame late is not seen to be.)
+      const fieldDue = !!water && !options.only && !!s.fieldBind && (fieldFresh || frame % 2 === 0);
+      if (fieldDue) device.queue.writeBuffer(fieldU, 0, new Float32Array([(s.px * options.spacing) / Q, (s.py * options.spacing) / Q, s.heights.length, GLINT, s.heights[0] ?? 0, s.heights[1] ?? 0, s.heights[2] ?? 0, s.heights[3] ?? 0, w, h, f.low, 0]));
+      if (fieldDue) device.queue.writeBuffer(glareU, 0, new Float32Array([SW, SH, GLARE_WINDOW, GLARE_LIGHT, f.clock, f.share, 0, 0]));
       const enc = device.createCommandEncoder();
       const timed = stamps && !stamps.busy && frame % 30 === 0 ? stamps : null;
       const pass = (view: GPUTextureView, load = false, first = false, last = false) => enc.beginRenderPass({
@@ -720,11 +839,20 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
           p.end();
         }
         // (Its own stretch written over; the others' kept as they were last worked out.)
-        const fin = pass(s.lightView, !(all && li === 0), false, li === lastDue);
+        const fin = pass(s.lightView, !(all && li === 0), false, li === lastDue && !fieldDue);
         fin.setViewport(li * s.px, 0, s.px, s.py, 0, 1);
         fin.setPipeline(finalPipe); fin.setBindGroup(0, l.finalBind); fin.draw(3);
         fin.end();
       });
+      if (fieldDue) {
+        fieldFresh = false;
+        const fp = pass(s.fieldView!, false, false, true);
+        fp.setPipeline(fieldPipe); fp.setBindGroup(0, s.fieldBind!); fp.draw(3);
+        fp.setPipeline(glarePipe); fp.setBindGroup(0, glareBind);
+        if (n) { fp.setVertexBuffer(0, lightBuf); fp.draw(6, n); }
+        if (wins && windowBuf && windowN) { fp.setVertexBuffer(0, windowBuf); fp.draw(6, windowN); }
+        fp.end();
+      }
       if (timed) { enc.resolveQuerySet(timed.set, 0, 2, timed.resolve, 0); enc.copyBufferToBuffer(timed.resolve, 0, timed.read, 0, 16); }
       device.queue.submit([enc.finish()]);
       if (timed) {
@@ -744,35 +872,6 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       (s.sheetU.uniforms.uScene as Float32Array)[2] = f.low;
       s.sheetU.update();
       s.mesh.visible = true;
-      // THE WATER GIVES THE LIGHT BACK: a second sheet over the first, added, where there is water to read.
-      const water = options.water ? f.water : null;
-      if (water && s.glintOf !== water.depth) {
-        s.glint?.parent?.removeChild(s.glint); s.glint?.destroy();
-        const shader = new Shader({
-          gpuProgram: GpuProgram.from({
-            vertex: { source: GLINT_WGSL, entryPoint: "mainVertex" }, fragment: { source: GLINT_WGSL, entryPoint: "mainFragment" }, name: "gi-glint",
-            layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { sheet: 0, uLight: 1, uLightSampler: 2, uSceneTex: 3, uDepth: 4, uBed: 5, glint: 6 }],
-            gpuLayout: [
-              [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
-              [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
-              [
-                { binding: 0, visibility: 2, buffer: { type: "uniform" } },
-                { binding: 1, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
-                { binding: 2, visibility: 2, sampler: { type: "filtering" } },
-                { binding: 3, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
-                { binding: 4, visibility: 2, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
-                { binding: 5, visibility: 2, texture: { sampleType: "unfilterable-float", viewDimension: "2d", multisampled: false } },
-                { binding: 6, visibility: 2, buffer: { type: "uniform" } },
-              ],
-            ],
-          }),
-          resources: { sheet: s.sheetU, uLight: s.light, uLightSampler: s.light.style, uSceneTex: scene, uDepth: water.depth, uBed: water.bed, glint: s.glintU },
-        });
-        const g2 = new Mesh<Geometry, Shader>({ geometry: s.mesh.geometry, shader });
-        g2.eventMode = "none"; g2.blendMode = "add"; g2.zIndex = zIndex + 0.5;
-        world.addChild(g2);
-        s.glint = g2; s.glintOf = water.depth;
-      }
       if (s.glint) {
         s.glint.visible = !!water && !options.only;
         const u = s.glintU.uniforms.uGlint as Float32Array;
