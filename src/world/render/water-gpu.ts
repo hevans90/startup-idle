@@ -3247,6 +3247,8 @@ function createCornerPass(
   });
   const say = new Float32Array(24);
   const names = [...FLOAT_FIELDS, ...BYTE_FIELDS, ...UINT_FIELDS, "uShore"];
+  /** The group as last made, and the textures it was made over. */
+  let bound: GPUBindGroup | null = null, boundTo: GPUTexture[] = [];
   return {
     encode: (enc) => {
       const m = wl.meshes[0];
@@ -3256,23 +3258,29 @@ function createCornerPass(
       say.set(u.uGrid, 0); say.set(u.uIso, 4); say.set(u.uBand, 8); say.set(u.uList, 12); say.set(u.uSlots, 16);
       say.set([1, wl.cornerRow, 0, 0], 20);
       device.queue.writeBuffer(uniform, 0, say);
-      // (Bound afresh each frame: a texture Pixi re-creates — the ground's, when the map is edited — would leave a
-      // group made once reading the old one.)
-      const group = device.createBindGroup({
-        layout,
-        entries: [
-          { binding: 0, resource: { buffer: uniform } },
-          ...names.map((n, k) => ({ binding: 1 + k, resource: get(res[n] as TextureSource).createView() })),
-          { binding: 20, resource: { buffer: out } },
-          { binding: 21, resource: { buffer: spare } },
-          { binding: 22, resource: { buffer: spareN } },
-          { binding: 23, resource: { buffer: spareAt } },
-          { binding: 24, resource: { buffer: need } },
-          { binding: 25, resource: { buffer: deckAt } },
-          { binding: 26, resource: { buffer: deckMeta } },
-          { binding: 28, resource: { buffer: deckOut } },
-        ],
-      });
+      // (Bound afresh when any texture is another than it was: one Pixi re-creates — the ground's, when the map is
+      // edited — would leave a group made once reading the old one. Not every frame: fourteen views and a group
+      // made sixty times a second to bind what was bound already.)
+      const textures = names.map((n) => get(res[n] as TextureSource));
+      if (!bound || textures.some((t, k) => t !== boundTo[k])) {
+        boundTo = textures;
+        bound = device.createBindGroup({
+          layout,
+          entries: [
+            { binding: 0, resource: { buffer: uniform } },
+            ...textures.map((t, k) => ({ binding: 1 + k, resource: t.createView() })),
+            { binding: 20, resource: { buffer: out } },
+            { binding: 21, resource: { buffer: spare } },
+            { binding: 22, resource: { buffer: spareN } },
+            { binding: 23, resource: { buffer: spareAt } },
+            { binding: 24, resource: { buffer: need } },
+            { binding: 25, resource: { buffer: deckAt } },
+            { binding: 26, resource: { buffer: deckMeta } },
+            { binding: 28, resource: { buffer: deckOut } },
+          ],
+        });
+      }
+      const group = bound;
       enc.clearBuffer(spareN);
       const writes = stampsNow()?.take("corners");
       const pass = enc.beginComputePass(writes ? { label: "corners", timestampWrites: writes } : { label: "corners" });
