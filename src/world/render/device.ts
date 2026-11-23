@@ -202,7 +202,7 @@ const whyWanted = () =>
   typeof location !== "undefined" && new URLSearchParams(location.search).has("gpuwhy");
 
 /** How many shaders and pipelines have been asked for, and when the first and the last were, ms from the page's start. */
-const asked = { modules: 0, pipelines: 0, first: 0, last: 0, opened: 0, said: false };
+const asked = { modules: 0, pipelines: 0, first: 0, last: 0, opened: 0, said: false, called: 0, adapter: 0 };
 
 /** Count them: two additions a call. @see sayLoad */
 function countPipelines(device: GPUDevice) {
@@ -240,8 +240,18 @@ export function sayLoad(): void {
     const from = performance.now();
     void h.device.queue.onSubmittedWorkDone().then(() => {
       const done = performance.now();
+      // (And what came before the device: the page and its scripts fetched, and the adapter asked for and given.)
+      let page = "";
+      try {
+        const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+        const res = (performance.getEntriesByType("resource") as PerformanceResourceTiming[]).filter((e) => e.responseEnd <= asked.first);
+        const scripts = res.filter((e) => e.initiatorType === "script" || e.name.endsWith(".js"));
+        const kb = Math.round(scripts.reduce((t, e) => t + (e.transferSize || 0), 0) / 1024);
+        page = `page fetched by ${r(nav?.responseEnd ?? 0)} ms, parsed by ${r(nav?.domInteractive ?? 0)} · ${scripts.length} scripts (${kb} KB over the wire) in by ${r(Math.max(0, ...scripts.map((e) => e.responseEnd)))} ms · `
+          + `adapter asked for at ${r(asked.called)} ms, given at ${r(asked.adapter)} · `;
+      } catch { /* no timings here */ }
       console.info(
-        `LOAD: device opened at ${r(asked.opened)} ms · first frame handed over at ${r(drawn)} ms · ${asked.modules} shaders and ${asked.pipelines} pipelines `
+        `LOAD: ${page}device opened at ${r(asked.opened)} ms · first frame handed over at ${r(drawn)} ms · ${asked.modules} shaders and ${asked.pipelines} pipelines `
         + `asked for from ${r(asked.first)} to ${r(asked.last)} ms · the GPU had built and run them all by ${r(done)} ms`
         + `${done - from > 50 ? "" : " or sooner (it was idle when asked)"} — ${adapterName ?? "adapter hidden"}`,
       );
@@ -312,7 +322,13 @@ export function openDevice(): Promise<HeldGpu | null> {
       return null;
     }
     try {
-      const adapter = await gpu.requestAdapter();
+      // (The one the page asked for as it loaded, if it did: @see index.html. Asked for here otherwise.)
+      const early = window as unknown as { __adapter?: Promise<GPUAdapter | null>; __adapterAt?: number; __adapterGot?: number };
+      asked.called = early.__adapter ? early.__adapterAt ?? performance.now() : performance.now();
+      let adapter = early.__adapter ? await early.__adapter.catch(() => null) : null;
+      if (early.__adapter && adapter) asked.adapter = early.__adapterGot ?? performance.now();
+      early.__adapter = undefined;
+      if (!adapter) { adapter = await gpu.requestAdapter(); asked.adapter = performance.now(); }
       if (!adapter) {
         noDevice = "the browser offered no GPU adapter (requestAdapter() gave null: WebGPU blocked for this GPU or driver, or chrome://gpu says it is disabled)";
         console.warn("GPU:", noDevice);

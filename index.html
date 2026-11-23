@@ -41,6 +41,20 @@
         } catch (e) {}
       })();
     </script>
+    <script>
+      // THE GPU ASKED FOR WITH THE PAGE, before a line of the game has been fetched: opening the adapter starts the
+      // browser's GPU process and its drivers, which on Windows is seconds, and it was not asked for until the
+      // game's own scripts had loaded and the map's canvas was mounted. @see openDevice
+      (function () {
+        try {
+          if (navigator.gpu && !/[?&]webgl\b/.test(location.search)) {
+            window.__adapterAt = performance.now();
+            window.__adapter = navigator.gpu.requestAdapter();
+            window.__adapter.then(function () { window.__adapterGot = performance.now(); }, function () {});
+          }
+        } catch (e) {}
+      })();
+    </script>
     <title>Startup idle</title>
     <script>
       // THE THEME, BEFORE THE FIRST PAINT: the theme store's saved choice (JSON under "theme"), or the system's.
