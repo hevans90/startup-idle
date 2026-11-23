@@ -5,6 +5,7 @@
  * reconciled directly, with React only mounting the container. Same pattern as
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
+import { hookUniforms } from "./render/frame-uniforms";
 import { fouledHouses, pollutionOf } from "./water/pollution";
 import { POLLUTED } from "../game/pollution";
 import { weatherDry } from "./vegetation/stress";
@@ -43,6 +44,7 @@ import { liveDesireMaps } from "./agents/desirability";
 import { canAcquire, offerPremium, pendingEquity } from "../game/acquisition";
 import { heldHidden } from "./render/hold";
 import type { Renderer } from "pixi.js";
+import { BindGroup } from "pixi.js";
 import { nappeStepsAt } from "./render/nappe";
 import { extend, useApplication, useTick } from "@pixi/react";
 import {
@@ -157,6 +159,8 @@ const GI_LAMP = 13, GI_HEAD = 34, GI_SIGN = 1.6, GI_WINDOW = 0.05, GI_SPILL = 0.
 /** How long a frame spends on a map's new lanes, ms. @see pumpLanes */
 const LANES_MS = 3;
 /** Whether the device's solver is what should be stepping the water: a device held and not lost, and the toggle on. */
+/** Seconds between the town's steps of growing: moods, houses growing and declining, what it opens. @see stepGrowth */
+const GROWTH_EVERY = 0.25;
 const solverDue = () => heldDevice() !== null && deviceLost() === null && useWorldStore.getState().gpuWater;
 /**
  * A damaged building's tint, by what did it: mud from a flood, scorched warm
@@ -419,6 +423,9 @@ function structureHitAt(sl: StructureLayer | null, gx: number, gy: number, only?
 function stopGarbageCollection(renderer: unknown) {
   const r = renderer as { gc?: { enabled: boolean } };
   if (r.gc) r.gc.enabled = false;
+  // AND NOTHING STAMPED FOR IT: every bind group set stamps each of its textures and buffers with the time, which
+  // only the collector reads — a walk of every resource of every draw, a third of a millisecond of a big town's frame.
+  (BindGroup.prototype as unknown as { _touch: () => void })._touch = () => {};
 }
 
 /** How well the Data Centre is cooled and how full its tank, for the AI layer. @see AiView */
@@ -724,7 +731,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // Reproduced by setting `renderer.gc.maxUnusedTime` low and calling
       // `renderer.gc.run()`. Everything here is destroyed explicitly when it
       // goes, so there is nothing for a collector to do. @see stopGarbageCollection
-      if (app?.renderer) { stopGarbageCollection(app.renderer); boundBatchBinds(app.renderer); freeGraphicsContexts(); }
+      if (app?.renderer) { stopGarbageCollection(app.renderer); boundBatchBinds(app.renderer); hookUniforms(app.renderer); freeGraphicsContexts(); }
       // And room for a big map's uniforms on WebGPU. @see roomForUniforms
       if (app?.renderer) roomForUniforms(app.renderer);
       const fl = water && !onGpu ? createWaterLayer(water.columns, bl, scale) : null;
@@ -3073,6 +3080,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
    */
   /** The band cull, as the tick runs it and the bench calls it. */
   const cullBandsRef = useRef<(() => void) | null>(null);
+  /** The time not yet given to the town's growing, s. @see GROWTH_EVERY */
+  const growthDt = useRef(0);
   // THE GROUND'S COPY OF A STILL VIEW. @see ground-cache.ts
   const groundCacheRef = useRef<GroundCache | null>(null);
   useEffect(() => {
@@ -3804,8 +3813,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         const sMood = section("tick: mood, evolution");
         // PEOPLE LEAVING MISERABLE HOUSES, THE TOWN EVOLVING, and what it
         // opens and closes, in the game. @see stepGrowth
-        if (st.playing) {
-          const changed = stepGrowth(st.grid, net, unrestRef.current, dt);
+        // (Four times a second, with the time since: all of it is counted in seconds, and going over every house
+        // of a big town every frame was a millisecond of each.)
+        growthDt.current += st.playing ? dt : 0;
+        if (st.playing && growthDt.current >= GROWTH_EVERY) {
+          const changed = stepGrowth(st.grid, net, unrestRef.current, growthDt.current);
+          growthDt.current = 0;
           // A SHOP OPENED: its pop, and its name floating up. @see Juice.opened
           const juice = juiceRef.current, bands = blRef.current;
           for (const e of changed) {

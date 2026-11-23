@@ -34,7 +34,9 @@ export const setCleanupAway = (n: number) => { away = n; };
 export const cleanupAway = () => away;
 
 /** Live state: the crew out, and when the next walker may set off. Not saved. */
-export type Cleanup = { away: number; untilSend: number };
+export type Cleanup = { away: number; untilSend: number; /** The tiles under sludge as last looked for, and how long ago, s. @see WET_EVERY */ wet?: { x: number; y: number }[]; wetAge?: number };
+/** Seconds between looks for the tiles under sludge: it spreads and dries over seconds, and every tile near every workplace asked each frame was half a millisecond of it. */
+const WET_EVERY = 0.2;
 export const createCleanup = (): Cleanup => ({ away: 0, untilSend: 0 });
 
 /** Tiles near the vibe workplaces — `around` — with sludge on them. @see nearAny */
@@ -78,7 +80,9 @@ export function stepCleanup(
   c: Cleanup, town: Town, g: Grid, net: Network, field: WaterField, around: readonly Structure[],
   owned: number, workplaces: readonly number[], dt: number, perTile = CLEANERS_PER_TILE,
 ): number {
-  const wet = wetTiles(field, g, around);
+  c.wetAge = (c.wetAge ?? Infinity) + dt;
+  if (!c.wet || c.wetAge >= WET_EVERY) { c.wet = wetTiles(field, g, around); c.wetAge = 0; }
+  const wet = c.wet;
   // Whose job it is, for the walkers' records: the first workplace that spills.
   const site = around[0]?.id ?? -1;
   c.away = Math.min(owned, Math.ceil(wet.length * perTile));

@@ -10,6 +10,7 @@
  *
  * Painter's order is kept: a band's mesh in its band, its trees back to front. @see world/calendar, dev/bake-trees.ts
  */
+import { oncePerRender } from "./frame-uniforms";
 import { Assets, Buffer, BufferImageSource, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup, type Texture, type TextureSource } from "pixi.js";
 
 import { leafColour, treeTurn, type TreeState } from "../calendar";
@@ -190,12 +191,12 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
   /** The trees of each part, back to front: made again when the map changes. */
   let parts = new Map<number, Tree[]>();
   const dirty = new Set<number>();
-  const uniforms = new UniformGroup({
+  const uniforms = oncePerRender(new UniformGroup({
     // The year (as years since the calendar began); the wind's clock, s, and its strength; and the snow lying, 0–1.
     uYear: { value: new Float32Array([0, 0, 1, 0]), type: "vec4<f32>" },
     uPages: { value: new Float32Array([2048, 2048, 2048, 2048]), type: "vec4<f32>" },
     uPages2: { value: new Float32Array([2048, 2048, 2048, 2048]), type: "vec4<f32>" },
-  });
+  }));
   let shader: Shader | null = null;
   let key = "", lastT = NaN, scaleNow = 1;
   /** The trees something else planted, as last stood up, and the count they were stood up for. @see planted */

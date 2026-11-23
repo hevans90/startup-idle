@@ -85,6 +85,8 @@ const GLINT = 1.1;
 const GLARE_WINDOW = 0.15, GLARE_LIGHT = 0.24;
 /** How what is built is sent to the GPU: half steps to a full byte. @see scene */
 const HEIGHT_SPAN = 64;
+/** The least time between two workings-out of the light, ms: a little under a frame at sixty a second. */
+const WORK_EVERY = 15;
 
 /** Quarter-tiles a tile: the grid the ground's shade and what is built are kept on. @see ground-mesh SHADE_PER_TILE */
 const Q = 4;
@@ -272,6 +274,20 @@ fn sceneAt(q: vec2<f32>) -> vec2<f32> {
   let built = min(min(s00.r, s10.r), min(s01.r, s11.r));
   return vec2<f32>(ground * ${HEIGHT_SPAN}.0 + sheet.uScene.z, built * ${HEIGHT_SPAN}.0);
 }
+// The ground and what is built on it at a point, half steps, both blended between the quarter-tiles round it, in
+// one look: as much as sceneAt gives or more (what is built is there the least of the four), and a little over
+// for the blend's own coarseness.
+fn blendAt(q: vec2<f32>) -> f32 {
+  let s = textureSampleLevel(uSceneTex, uLightSampler, clamp(q / sheet.uScene.xy, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
+  return (s.g + s.r) * ${HEIGHT_SPAN}.0 + sheet.uScene.z + 0.3;
+}
+// The highest that anything stands — ground and what is built on it, half steps — within a tile back along the
+// line of sight from a point, and a quarter-tile all round that: never less than what sceneAt gives anywhere there.
+fn highNear(q: vec2<f32>) -> f32 {
+  let size = vec2<i32>(textureDimensions(uSceneTex));
+  let c = clamp(vec2<i32>(floor(q / sheet.uScene.xy * vec2<f32>(size))), vec2<i32>(0), size - vec2<i32>(1));
+  return textureLoad(uSceneTex, c, 0).a * ${HEIGHT_SPAN}.0 + sheet.uScene.z;
+}
 // One height's light at a point of the map, tiles: its own stretch of the texture, side by side with the others'.
 fn layerAt(q: vec2<f32>, l: f32) -> vec3<f32> {
   let n = sheet.uMap.w;
@@ -294,17 +310,34 @@ fn seen(g: vec2<f32>) -> Seen {
   let dt = 0.2;
   var t = reach;
   var hit = low;
-  for (var k = 0; k < 72; k++) {
+  var found = false;
+  // A TILE OF THE LINE AT A TIME, and only the tiles where something stands as high as the line are gone over in
+  // fifths: the rest are passed in one look at the highest thing near (the scene's fourth number). Every pixel
+  // of the screen going over its whole line in fifths, four looks a fifth, was most of what the night cost.
+  for (var j = 0; j < 16; j++) {
     if (t < low) { break; }
-    let s = sceneAt(g + vec2<f32>(t));
-    if (s.x + s.y >= 4.0 * t) { hit = t; break; }
-    t -= dt;
+    if (highNear(g + vec2<f32>(t)) >= 4.0 * (t - 1.0) - 0.01) {
+      var u = t;
+      for (var k = 0; k < 5; k++) {
+        if (u < low) { break; }
+        // (One blended look first: it is never under what the four give, and where it is under the line they are not asked.)
+        if (blendAt(g + vec2<f32>(u)) >= 4.0 * u) {
+          let s = sceneAt(g + vec2<f32>(u));
+          if (s.x + s.y >= 4.0 * u) { hit = u; found = true; break; }
+        }
+        u -= dt;
+      }
+      if (found) { break; }
+    }
+    t -= 1.0;
   }
   // (Its edge found a little finer: a wall's top is not a stair of fifths of a tile.)
   var lo = hit; var hi = min(hit + dt, reach);
   for (var k = 0; k < 3; k++) {
-    let m = (lo + hi) * 0.5; let s = sceneAt(g + vec2<f32>(m));
-    if (s.x + s.y >= 4.0 * m) { lo = m; } else { hi = m; }
+    let m = (lo + hi) * 0.5;
+    var at = false;
+    if (blendAt(g + vec2<f32>(m)) >= 4.0 * m) { let s = sceneAt(g + vec2<f32>(m)); at = s.x + s.y >= 4.0 * m; }
+    if (at) { lo = m; } else { hi = m; }
   }
   var o: Seen;
   o.at = g + vec2<f32>(lo);
@@ -713,6 +746,9 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
   let seenScene = -1, seenWalls: boolean | null = null, frame = 0;
   // (The decks as they were last sent, and the highest of them: looked at again twice a second, there being nothing that counts their changes.)
   let seenDecks = 0, deckTop = -1e3, fieldFresh = false;
+  let high = new Uint8Array(0), highRow = new Uint8Array(0);
+  /** When the light was last worked out, ms, and how many times it has been. @see WORK_EVERY */
+  let worked = -1e9, turns = 0;
   let fresh = "", freshScene = -1, freshWindows = -2, freshWalls: boolean | null = null;
   return {
     rest() { if (sized) { sized.mesh.visible = false; if (sized.glint) sized.glint.visible = false; } },
@@ -737,7 +773,23 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
           const deck = tile >= 0 && f.decks!.on[tile] !== 0;
           sceneBytes[o + 2] = deck ? Math.max(1, Math.min(255, Math.round((f.decks!.z[tile] - f.low) * k))) : 0;
           if (deck) deckTop = Math.max(deckTop, f.decks!.z[tile]);
-          sceneBytes[o + 3] = 255;
+        }
+        // THE HIGHEST THING NEAR each quarter-tile, its fourth number: over the five before it and the one after,
+        // each way — what a tile of a line of sight ending there can meet. @see highNear
+        if (high.length !== SW * SH) { high = new Uint8Array(SW * SH); highRow = new Uint8Array(SW * SH); }
+        for (let i = 0, o = 0; i < SW * SH; i++, o += 4) high[i] = Math.min(255, sceneBytes[o] + sceneBytes[o + 1]);
+        for (let y = 0; y < SH; y++) for (let x = 0, r = y * SW; x < SW; x++) {
+          let m = 0;
+          for (let a = Math.max(0, x - 5), b = Math.min(SW - 1, x + 1); a <= b; a++) { const v = high[r + a]; if (v > m) m = v; }
+          highRow[r + x] = m;
+        }
+        for (let y = 0; y < SH; y++) {
+          const y0 = Math.max(0, y - 5), y1 = Math.min(SH - 1, y + 1);
+          for (let x = 0; x < SW; x++) {
+            let m = 0;
+            for (let a = y0; a <= y1; a++) { const v = highRow[a * SW + x]; if (v > m) m = v; }
+            sceneBytes[(y * SW + x) * 4 + 3] = m;
+          }
         }
         device.queue.writeTexture({ texture: sceneGpu }, sceneBytes, { bytesPerRow: SW * 4 }, [SW, SH]);
       }
@@ -745,6 +797,15 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
         seenWalls = options.walls;
         for (const l of s.layers) for (const v of l.levels) device.queue.writeBuffer(v.u, 32, new Float32Array([options.walls ? 1 : 0]));
       }
+      const water = options.water ? f.water : null;
+      // NO OFTENER THAN SIXTY TIMES A SECOND, however fast the frames come: the light lies in its texture between
+      // times, and worked out at every frame of two hundred a second it was three times the work for nothing seen.
+      // At once, all the same, when what it is made from has changed. @see all
+      const now = performance.now();
+      const stale = fresh !== s.key || freshScene !== f.sceneRev || freshWindows !== (options.floors && f.windows ? f.windows.rev : windowRev) || freshWalls !== options.walls || (!!water && s.glintOf !== water.depth);
+      work: {
+      if (!stale && now - worked < WORK_EVERY) break work;
+      worked = now; turns++;
       const n = Math.min(f.lights.length, MAX_LIGHTS);
       for (let i = 0; i < n; i++) {
         const l = f.lights[i], o = i * FLOATS;
@@ -769,7 +830,6 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       });
 
       // THE WATER GIVES THE LIGHT BACK: a second sheet over the first, added, where there is water to read.
-      const water = options.water ? f.water : null;
       if (water && s.glintOf !== water.depth) {
         s.glint?.parent?.removeChild(s.glint); s.glint?.destroy();
         const oldField = s.field;
@@ -807,11 +867,11 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
         s.glint = g2; s.glintOf = water.depth;
       }
       // (Every other frame: the ripples that move it are the screen's, and a light on the water a frame late is not seen to be.)
-      const fieldDue = !!water && !options.only && !!s.fieldBind && (fieldFresh || frame % 2 === 0);
+      const fieldDue = !!water && !options.only && !!s.fieldBind && (fieldFresh || turns % 2 === 0);
       if (fieldDue) device.queue.writeBuffer(fieldU, 0, new Float32Array([(s.px * options.spacing) / Q, (s.py * options.spacing) / Q, s.heights.length, GLINT, s.heights[0] ?? 0, s.heights[1] ?? 0, s.heights[2] ?? 0, s.heights[3] ?? 0, w, h, f.low, 0]));
       if (fieldDue) device.queue.writeBuffer(glareU, 0, new Float32Array([SW, SH, GLARE_WINDOW, GLARE_LIGHT, f.clock, f.share, 0, 0]));
       const enc = device.createCommandEncoder();
-      const timed = stamps && !stamps.busy && frame % 30 === 0 ? stamps : null;
+      const timed = stamps && !stamps.busy && turns % 30 === 0 ? stamps : null;
       const pass = (view: GPUTextureView, load = false, first = false, last = false) => enc.beginRenderPass({
         colorAttachments: [{ view, loadOp: load ? "load" : "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }],
         ...(timed && (first || last) ? { timestampWrites: { querySet: timed.set, ...(first ? { beginningOfPassWriteIndex: 0 } : {}), ...(last ? { endOfPassWriteIndex: 1 } : {}) } } : {}),
@@ -822,7 +882,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       // a frame. All of them at once when anything they are made from has changed: what is built, the options.
       const all = fresh !== s.key || freshScene !== f.sceneRev || freshWindows !== windowRev || freshWalls !== options.walls;
       fresh = s.key; freshScene = f.sceneRev; freshWindows = windowRev; freshWalls = options.walls;
-      const turn = s.layers.length > 1 ? 1 + (frame % (s.layers.length - 1)) : 0;
+      const turn = s.layers.length > 1 ? 1 + (turns % (s.layers.length - 1)) : 0;
       const due = s.layers.map((_l, li) => all || li === 0 || li === turn);
       const firstDue = due.indexOf(true), lastDue = due.lastIndexOf(true);
       s.layers.forEach((l, li) => {
@@ -863,6 +923,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
           lastMs = Number(t[1] - t[0]) / 1e6;
         }).catch(() => { timed.busy = false; });
       }
+      }
 
       const g = s.sheetU.uniforms.uGrade as Float32Array;
       if (options.only) { g[0] = 0; g[1] = 0; g[2] = 0; g[3] = 1; }
@@ -873,7 +934,8 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       s.sheetU.update();
       s.mesh.visible = true;
       if (s.glint) {
-        s.glint.visible = !!water && !options.only;
+        // (Nothing lit, nothing given back: the sheet is not drawn over the screen to find that out a pixel at a time.)
+        s.glint.visible = !!water && !options.only && (f.lights.length > 0 || (options.floors && windowN > 0));
         const u = s.glintU.uniforms.uGlint as Float32Array;
         u[0] = GLINT; u[1] = f.clock; u[2] = deckTop;
         s.glintU.update();

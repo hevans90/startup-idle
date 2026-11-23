@@ -7,6 +7,7 @@
  * the roads and under what stands on them, as that same shade and nothing else — multiplied into what is there,
  * by the same tint at the same strength: the one shadow, across grass and road alike. @see light
  */
+import { oncePerRender } from "./frame-uniforms";
 import { Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup } from "pixi.js";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { VOID, idx, type Grid } from "../grid";
@@ -112,7 +113,7 @@ function shaded(gm: GroundMesh, x: number, y: number): boolean {
 }
 
 export function createRoadShade(bands: BandLayer, gm: GroundMesh): RoadShade {
-  const uniforms = new UniformGroup({ uMap: { value: new Float32Array([gm.w, gm.h, 0.5, 0]), type: "vec4<f32>" } });
+  const uniforms = oncePerRender(new UniformGroup({ uMap: { value: new Float32Array([gm.w, gm.h, 0.5, 0]), type: "vec4<f32>" } }));
   program ??= {
     gpu: GpuProgram.from({
       vertex: { source: WGSL, entryPoint: "mainVertex" }, fragment: { source: WGSL, entryPoint: "mainFragment" }, name: "road-shade",

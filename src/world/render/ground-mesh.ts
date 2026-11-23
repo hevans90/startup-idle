@@ -21,6 +21,7 @@
  * It draws every cell with ground on it but the pit under a building that
  * clears it. @see groundDraws
  */
+import { oncePerRender } from "./frame-uniforms";
 import { BufferImageSource, Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
@@ -468,7 +469,7 @@ export function createGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, sc
 function makeGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale: number): GroundMesh {
   const cells = new Uint8Array(grid.w * grid.h * 4);
   const source = new BufferImageSource({ resource: cells, width: grid.w, height: grid.h, format: "rgba8unorm", scaleMode: "nearest" });
-  const uniforms = new UniformGroup({
+  const uniforms = oncePerRender(new UniformGroup({
     // The map's size; world px to screen-shaped units, where a cell's diamond is 2 across; and the highest ground
     // there is, half steps: nothing higher can throw a shadow. @see shadowAt
     uMap: { value: new Float32Array([grid.w, grid.h, 1 / (HW * scale), grid.maxHeight + 2]), type: "vec4<f32>" },
@@ -476,7 +477,7 @@ function makeGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale: numb
     uMode: { value: new Float32Array([groundMode() === "smooth" ? 1 : 0, 0, 0, 0]), type: "vec4<f32>" },
     // THE YEAR on the ground: spring's flowers, summer's straw, the grass gone over, the snow. @see seasonGround
     uSeason: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" },
-  });
+  }));
   const { data: edges, source: edgeSource } = surfaceOf(grid);
   const shade = new Uint8Array(grid.w * SHADE * grid.h * SHADE);
   const shadeSource = new BufferImageSource({ resource: shade, width: grid.w * SHADE, height: grid.h * SHADE, format: "r8unorm", scaleMode: "nearest" });
@@ -814,7 +815,7 @@ export function destroyGroundMesh(gm: GroundMesh) {
 let program: { gpu: GpuProgram; gl: GlProgram } | null = null;
 
 /** The mode word of {@link GroundMesh.cacheU}: 0 worked out, 1 the copy being made, 2 read from the copy, 3 the count being made. */
-export const cacheUniforms = () => new UniformGroup({ uCacheMode: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } });
+export const cacheUniforms = () => oncePerRender(new UniformGroup({ uCacheMode: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } }));
 
 /** The ground's shader over `gm`'s textures, its colour taken as `cacheU` says (the mesh's own, unless given). @see ground-cache.ts */
 export function groundShader(gm: GroundMesh, cacheU: UniformGroup = gm.cacheU): Shader {

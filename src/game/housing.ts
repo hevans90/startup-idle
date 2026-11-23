@@ -99,12 +99,18 @@ export const isLot = (defId: string) => defId.startsWith("kit:") && housedBy(def
  */
 export function housedBy(defId: string): { id: GeneratorId; slots: number } | null {
   if (CAMPUS_LINE.has(defId)) return { id: "10x_dev", slots: CAMPUS_BEDS };
-  const m = /^kit:(intern|vibe_coder|10x_dev)\.(t0|t1|t2|landmark)$/.exec(defId);
-  if (!m) return null;
+  // (A kit's name is read once: every house of a town is asked this many times a frame.)
+  let k = kitsRead.get(defId);
+  if (k === undefined) {
+    const m = /^kit:(intern|vibe_coder|10x_dev)\.(t0|t1|t2|landmark)$/.exec(defId);
+    kitsRead.set(defId, (k = m ? { id: m[1] as GeneratorId, beds: SLOTS_BY_TIER[m[2]] ?? 0 } : null));
+  }
+  if (!k) return null;
   // Company Housing: two to a bed, or three. @see CARDS
-  const id = m[1] as GeneratorId;
-  return { id, slots: Math.round((SLOTS_BY_TIER[m[2]] ?? 0) * cultureNow(id).beds) };
+  return { id: k.id, slots: Math.round(k.beds * cultureNow(k.id).beds) };
 }
+/** What each def's name says of whom it houses and its beds before the culture's say; null, nobody. @see housedBy */
+const kitsRead = new Map<string, { id: GeneratorId; beds: number } | null>();
 
 /** Beds on this map, per generator. */
 export function housingCapacity(grid: Grid): Record<GeneratorId, number> {

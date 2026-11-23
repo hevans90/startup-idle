@@ -51,6 +51,7 @@
  * gathering allocates for what is actually there rather than the worst case.
  * @see createSheet, gatherQuads
  */
+import { oncePerRender } from "./frame-uniforms";
 import { holdShown } from "./hold";
 import { fieldWater } from "./water-mode";
 import { groundMode } from "./ground-mode";
@@ -102,7 +103,7 @@ import { createFoam, stepFoam, type FoamField } from "./foam";
  * HOW THE WATER IS LIT this frame — its clock and the night — ONE group for every band and for the falls, so a frame
  * is one upload and a fall runs on the same clock as the pool it leaves. @see waterLook, falls-gpu
  */
-export const waterLookGroup = new UniformGroup({ uLook: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } });
+export const waterLookGroup = oncePerRender(new UniformGroup({ uLook: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } }));
 
 export function waterOnGpu(): boolean {
   if (typeof location === "undefined") return true;
@@ -2890,7 +2891,9 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       uSlots: { value: new Float32Array([layers, 0, 0, 0]), type: "vec4<f32>" },
       // AND THE CORNER TABLE: whether to read it, and its row width. Last, after uSlots, as the struct has it.
       uTable: { value: new Float32Array([0, cornerRow, 0, 0]), type: "vec4<f32>" },
-    });
+    // (Static: sent when one of its numbers is written and said so — `update()`, as every writer below does — and
+    // not at every draw of the band, every frame, to say the same again.)
+    }, { isStatic: true });
 
     // Its own index buffer, exactly as long as the band is: the vertex buffer
     // is shared and sized for the widest diagonal, and how much of it a band
@@ -2933,7 +2936,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
       uList: { value: new Float32Array([list.second + list.offsets[b], LIST_W, fieldWater() ? 1 : 0, groundMode() === "smooth" ? 1 : 0]), type: "vec4<f32>" },
       uSlots: { value: new Float32Array([layers, 1, 0, 0]), type: "vec4<f32>" },
       uTable: { value: new Float32Array([0, cornerRow, 0, 0]), type: "vec4<f32>" },
-    });
+    }, { isStatic: true });
     const underGeom = new Geometry({
       attributes: { aVertexId: { buffer: idBuffer, format: "float32", stride: 4, offset: 0 } },
       indexBuffer: idxBuffer,
