@@ -11,7 +11,7 @@
  * So a Graphics that owns its context destroys it, whatever it was told.
  * @see plans/ai-mode-rebuild.md, the play-through
  */
-import { Graphics } from "pixi.js";
+import { Graphics, GraphicsContext } from "pixi.js";
 
 type Owner = { _ownedContext?: { destroyed?: boolean; destroy: () => void } | null };
 type Patched = { __frees?: boolean };
@@ -26,5 +26,24 @@ export function freeGraphicsContexts(): void {
     const own = this._ownedContext;
     destroy.call(this, options);
     if (own && !own.destroyed) own.destroy();
+  };
+}
+
+type Clearable = { instructions: unknown[]; _activePath?: { instructions?: unknown[] }; resetTransform: () => void };
+
+/**
+ * AN EMPTY GRAPHICS CLEARED IS LEFT AS IT WAS. Pixi marks a context changed at every `clear()`, drawn on or not,
+ * and a changed Graphics that batches has the draw list of the render group it is in built again. The layers that
+ * clear every frame before drawing what there is to draw — the holograms' scan, the AI's plans, the mains' water,
+ * the overlays — mostly have nothing, and the map's own group was rebuilt every frame for them. Once.
+ */
+export function quietEmptyClears(): void {
+  const proto = GraphicsContext.prototype as unknown as Patched & { __quiet?: boolean; clear: () => unknown };
+  if (proto.__quiet) return;
+  proto.__quiet = true;
+  const clear = proto.clear;
+  proto.clear = function (this: Clearable) {
+    if (this.instructions.length === 0 && this._activePath?.instructions?.length === 0) { this.resetTransform(); return this; }
+    return clear.call(this);
   };
 }

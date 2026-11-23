@@ -19,7 +19,7 @@
  * @see setHousingReader
  */
 import type { GeneratorId } from "../state/generators.store";
-import { cultureNow } from "./culture-now";
+import { cultureNow, cultureVersion } from "./culture-now";
 import type { Grid, Structure } from "../world/grid";
 
 /**
@@ -128,10 +128,25 @@ export function housingCapacity(grid: Grid): Record<GeneratorId, number> {
  * or placed in the editor — as many as it has beds.
  */
 export function residentsIn(s: Structure): number {
-  const h = housedBy(s.def);
+  const slots = bedsOf(s.def);
   // A SITE houses nobody yet; nor does a Campus nobody has moved into.
-  if (!h || s.build) return 0;
-  return Math.min(h.slots, s.residents ?? (Number.isFinite(h.slots) ? h.slots : 0));
+  if (slots < 0 || s.build) return 0;
+  return Math.min(slots, s.residents ?? (Number.isFinite(slots) ? slots : 0));
+}
+
+/** Each def's beds as the culture stands, kept till it changes. @see bedsOf */
+const bedsKept = new Map<string, number>();
+let bedsAt = -1;
+/**
+ * How many a def houses now, or -1 if it houses nobody — {@link housedBy}'s count with nothing made to carry it:
+ * every house of a town is asked this several times a frame.
+ */
+export function bedsOf(defId: string): number {
+  const v = cultureVersion();
+  if (v !== bedsAt) { bedsAt = v; bedsKept.clear(); }
+  let n = bedsKept.get(defId);
+  if (n === undefined) { const h = housedBy(defId); bedsKept.set(defId, (n = h ? h.slots : -1)); }
+  return n;
 }
 
 /** People living on this map, per generator: arrived and moved in. */

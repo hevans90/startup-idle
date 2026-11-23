@@ -22,7 +22,7 @@
  *
  * People living off the map work remotely, and lose nothing.
  */
-import { housedBy, residentsIn } from "../../game/housing";
+import { bedsOf, housedBy, residentsIn } from "../../game/housing";
 import { NEIGHBOUR } from "../../iso/dir";
 import type { GeneratorId } from "../../state/generators.store";
 import { idx, type Grid } from "../grid";
@@ -292,7 +292,7 @@ export function liveSeating(g: Grid, net: Network): Seating {
   let sites = 0, a = 0, b = 0;
   for (const st of g.structures.values()) {
     if (st.build) sites++;
-    if (housedBy(st.def)) { const n = residentsIn(st); a += n; b = (b * 31 + n * st.id) | 0; }
+    if (bedsOf(st.def) >= 0) { const n = residentsIn(st); a += n; b = (b * 31 + n * st.id) | 0; }
   }
   const people = `${a}:${b}`;
   // And the culture deck, which moves desks, commutes and who stays home.
