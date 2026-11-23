@@ -13,15 +13,15 @@
     "preview": "vite preview",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "bake:cars": "bun run dev/bake-cars.ts",
+    "bake:cars": "bun run dev/bake-cars.ts && bun run dev/to-webp.ts",
     "wording": "bun run src/game/wording-audit.ts",
-    "bake:people": "bun run dev/bake-people.ts",
-    "bake:props": "bun run dev/bake-props.ts",
-    "bake:trees": "bun run dev/bake-trees.ts",
-    "bake:houses": "bun run dev/bake-houses.ts",
-    "bake:landmarks": "bun run dev/bake-landmarks.ts",
-    "bake:boats": "bun run dev/bake-boats.ts",
-    "bake:cranes": "bun run dev/bake-cranes.ts"
+    "bake:people": "bun run dev/bake-people.ts && bun run dev/to-webp.ts",
+    "bake:props": "bun run dev/bake-props.ts && bun run dev/to-webp.ts",
+    "bake:trees": "bun run dev/bake-trees.ts && bun run dev/to-webp.ts",
+    "bake:houses": "bun run dev/bake-houses.ts && bun run dev/to-webp.ts",
+    "bake:landmarks": "bun run dev/bake-landmarks.ts && bun run dev/to-webp.ts",
+    "bake:boats": "bun run dev/bake-boats.ts && bun run dev/to-webp.ts",
+    "bake:cranes": "bun run dev/bake-cranes.ts && bun run dev/to-webp.ts"
   },
   "dependencies": {
     "@arwes/animated": "1.0.0-next.25020502",

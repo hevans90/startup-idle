@@ -103,7 +103,7 @@ for (const b of baked) {
 
 mkdirSync(OUT_DIR, { recursive: true });
 // Pages from a bake that needed more of them.
-for (const f of readdirSync(OUT_DIR)) if (/^cars_\d+\.png$/.test(f)) rmSync(join(OUT_DIR, f));
+for (const f of readdirSync(OUT_DIR)) if (/^cars_\d+\.(png|webp)$/.test(f)) rmSync(join(OUT_DIR, f));
 // The last page only as tall as what is on it, rounded up for its mips.
 const last = pages[pages.length - 1], used = Math.ceil((y + shelf) / 64) * 64;
 if (used < PAGE) pages[pages.length - 1] = { w: PAGE, h: used, px: last.px.slice(0, PAGE * used * 4) };

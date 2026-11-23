@@ -92,12 +92,13 @@ React 19 + TypeScript (Vite, SWC); Tailwind CSS v4 with the console's tokens (`s
 | `bun run lint` | ESLint |
 | `bun run preview` | Preview the build |
 | `bun run tauri:dev` / `tauri:build` | Desktop app |
-| `bun run bake:cars` | Bake vehicle models (`agents/cars/models.ts`) into `derived/cars_*.png` + `cars.json`: 32 headings level, and leant at a ramp's four slopes for a road's four ways (`poseOf`); ~2.5 min. `dev/preview-cars.ts out.png [RES] [ids] [PITCH]` draws a gallery |
-| `bun run bake:landmarks` | Bake the company's own building, tier by tier, with its yard (`landmarks/models.ts`) into `derived/landmarks_*.png` + `landmarks.json`; `dev/bake-landmarks.ts --preview out.png [id] [res]` draws them |
-| `bun run bake:houses` | Bake the house kits (`houses/models.ts`), with their shop ground floors, into `derived/houses_*.png` + `houses.json` (3 layers: walls, shop paint, the rest); `dev/preview-houses.ts out.png [res]` draws a gallery (`CH=` cell height) |
+| `bun run bake:cars` | Bake vehicle models (`agents/cars/models.ts`) into `derived/cars_*.webp` + `cars.json`: 32 headings level, and leant at a ramp's four slopes for a road's four ways (`poseOf`); ~2.5 min. `dev/preview-cars.ts out.png [RES] [ids] [PITCH]` draws a gallery |
+| `bun run bake:landmarks` | Bake the company's own building, tier by tier, with its yard (`landmarks/models.ts`) into `derived/landmarks_*.webp` + `landmarks.json`; `dev/bake-landmarks.ts --preview out.png [id] [res]` draws them |
+| `bun run bake:houses` | Bake the house kits (`houses/models.ts`), with their shop ground floors, into `derived/houses_*.webp` + `houses.json` (3 layers: walls, shop paint, the rest); `dev/preview-houses.ts out.png [res]` draws a gallery (`CH=` cell height) |
 | `bun run bake:props` | Bake trees and furniture (`props/models.ts`) into `derived/props_0.png` + `props.json`; `dev/preview-props.ts out.png` draws a gallery |
 | `bun run bake:trees` | Bake each tree kind in leaf, bud, thinning, bare and snow (`props/tree-models.ts`) into `derived/trees_*.png` + `trees.json` |
 | `bun run bake:people` | Bake figures (`agents/people/figures.ts`) into `derived/people_*.png` + `people.json`; `dev/preview-people.ts out.png` draws a gallery |
+| `bun run dev/to-webp.ts` | Every bake's last step: the sheets' PNGs to lossless WebP, pixel for pixel, at half the bytes (needs `cwebp`: `brew install webp`); the JSON told the new names |
 
 ## Project structure
 
@@ -145,7 +146,7 @@ src/
 
 ## Dev tools
 
-- **Editor:** `?world=1`. **Flags:** `?fixture=<name>` (an unsaved test map; `singularity` plays the AI as the Model, `ascension` the end of book 1 at 100%, `&shutdowns=N` shut down so often, `&book=2`/`3` (`&legacy=`) the end of that book, `bigtown&crowd=2000` is the stress town), `?nosave`, `?cpuwater`, `?webgl`, `?gpucheck`, `?perf`, `?hitches` (`__hitches()`); the console says `LOAD:` once a map is up — when its shaders and pipelines were asked for and when the GPU had built them (`sayLoad` in `render/device.ts`), `?noaa` (no multisampling: about a millisecond of GPU a frame at full size, edges a little rougher), `?noreload` (a lost GPU device reloads the page once the tab shows, at most once a minute — `render/device.ts`; this leaves it be).
+- **Editor:** `?world=1`. **Flags:** `?fixture=<name>` (an unsaved test map; `singularity` plays the AI as the Model, `ascension` the end of book 1 at 100%, `&shutdowns=N` shut down so often, `&book=2`/`3` (`&legacy=`) the end of that book, `bigtown&crowd=2000` is the stress town), `?nosave`, `?cpuwater`, `?webgl`, `?gpucheck`, `?perf`, `?hitches` (`__hitches()`); **load:** the GPU asked for and the houses' pictures preloaded in `index.html`, shaders' comments stripped and React in its own chunk by `vite.config.ts`; the console says `LOAD:` once a map is up — when its shaders and pipelines were asked for and when the GPU had built them (`sayLoad` in `render/device.ts`), `?noaa` (no multisampling: about a millisecond of GPU a frame at full size, edges a little rougher), `?noreload` (a lost GPU device reloads the page once the tab shows, at most once a minute — `render/device.ts`; this leaves it be).
 - **Window hooks (dev):** `__world`, `__town()`, `__structures`, `__net`, `__waterBench(n, true)`, `__fakeHires`, `__eventNow`, `__aiPreview`. Use these, not `import()` (a second module copy).
 - **A hidden tab pauses `requestAnimationFrame`**; its frame numbers mean nothing.
 - **Labeller** (`dev/roadlabel.html`) authors `building-kits.json`, `road-labels.json`, `slope-labels.json`: hand-authored, never overwritten by code.

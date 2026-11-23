@@ -121,7 +121,7 @@ for (const a of [...all].sort((p, q) => q.piece.img.h - p.piece.img.h)) {
   a.set([at.page, at.x, at.y, img.w, img.h, ox, oy]);
 }
 mkdirSync(OUT_DIR, { recursive: true });
-for (const f of readdirSync(OUT_DIR)) if (/^landmarks_\d+\.png$/.test(f)) rmSync(join(OUT_DIR, f));
+for (const f of readdirSync(OUT_DIR)) if (/^landmarks_\d+\.(png|webp)$/.test(f)) rmSync(join(OUT_DIR, f));
 const last = pages[pages.length - 1], used = Math.ceil((y + shelf) / 64) * 64;
 if (used < PAGE) pages[pages.length - 1] = { w: PAGE, h: used, px: last.px.slice(0, PAGE * used * 4) };
 pages.forEach((p, k) => {
