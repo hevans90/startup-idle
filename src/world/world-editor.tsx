@@ -50,7 +50,7 @@ export function WorldEditor() {
         <PerfHud />
         {/* CPU or device, on the water in front of you. A real switch — see
             `gpu-water-toggle`, and the cost note in `gpu/solver`. */}
-        {import.meta.env.DEV && <GpuWaterToggle />}
+        <GpuWaterToggle />
         {/* Which compute passes agree with the CPU, on THIS map — behind
             `?gpucheck`. Not a CPU/GPU switch; see `gpu-check-hud`. */}
         {import.meta.env.DEV && GPU_CHECK && <GpuCheckHud />}
