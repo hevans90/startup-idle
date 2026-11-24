@@ -837,7 +837,7 @@ export function destroyGroundMesh(gm: GroundMesh) {
 
 let program: { gpu: GpuProgram; gl: GlProgram } | null = null;
 
-/** The mode word of {@link GroundMesh.cacheU}: 0 worked out, 1 the copy being made, 2 read from the copy, 3 the count being made. */
+/** The mode word of {@link GroundMesh.cacheU}: 0 worked out, 1 the copy being made, 2 read from the copy. */
 export const cacheUniforms = () => oncePerRender(new UniformGroup({ uCacheMode: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } }));
 
 /** The ground's shader over `gm`'s textures, its colour taken as `cacheU` says (the mesh's own, unless given). @see ground-cache.ts */
@@ -849,7 +849,7 @@ export function groundShader(gm: GroundMesh, cacheU: UniformGroup = gm.cacheU): 
       name: "ground",
       // Written out, not left to Pixi, which would have every texture filterable: the drawn surface is floats,
       // fetched and never filtered, and a filterable binding will not take it. @see water-gpu.ts gpuLayout
-      layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { ground: 0, uCells: 1, uEdges: 2, uShade: 3, uTint: 4, gcache: 5, uCache: 6, uCount: 7 }],
+      layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { ground: 0, uCells: 1, uEdges: 2, uShade: 3, uTint: 4, gcache: 5, uCache: 6 }],
       gpuLayout: [
         [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
         [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
@@ -861,13 +861,12 @@ export function groundShader(gm: GroundMesh, cacheU: UniformGroup = gm.cacheU): 
           { binding: 4, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
           { binding: 5, visibility: 2, buffer: { type: "uniform" } },
           { binding: 6, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
-          { binding: 7, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
         ],
       ],
     }),
     gl: GlProgram.from({ vertex: GLSL_VERTEX, fragment: GLSL_FRAGMENT, name: "ground" }),
   };
-  return syncOnce(new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source, uEdges: gm.edgeSource, uShade: gm.shadeSource, uTint: gm.tintSource, gcache: cacheU, uCache: gm.blank, uCount: gm.blank } }));
+  return syncOnce(new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source, uEdges: gm.edgeSource, uShade: gm.shadeSource, uTint: gm.tintSource, gcache: cacheU, uCache: gm.blank } }));
 }
 
 /*
@@ -908,7 +907,6 @@ struct Ground { uMap: vec4<f32>, uMode: vec4<f32>, uSeason: vec4<f32> };
 struct GCache { uCacheMode: vec4<f32> };
 @group(2) @binding(5) var<uniform> gcache : GCache;
 @group(2) @binding(6) var uCache : texture_2d<f32>;
-@group(2) @binding(7) var uCount : texture_2d<f32>;
 
 struct VSOutput {
   @builtin(position) position: vec4<f32>,
@@ -1518,8 +1516,19 @@ fn wallColour(p: vec2<f32>, kind: f32, depth: f32, fp: f32) -> vec3<f32> {
   return col;
 }
 
+// THE COPY BEING MADE keeps its count in its own fourth channel, which is ADDED UP sample by sample while the colour
+// is laid over (@see ground-cache.ts, the blend): a solid face that is whole adds 0.6 to each sample it covers and
+// anything else adds 1. So a sample under exactly one solid face holds 153 of 255, one under two or under a fringe
+// 255, a bare one 0 — and no four of those average to 153 but four 153s.
 @fragment
 fn mainFragment(@builtin(position) vAt: vec4<f32>, @location(0) vGround: vec2<f32>, @location(1) vWall: vec2<f32>, @location(2) vTint: vec4<f32>, @location(3) vWorld: vec2<f32>, @location(4) vSteep: f32) -> @location(0) vec4<f32> {
+  let c = groundColour(vAt, vGround, vWall, vTint, vWorld, vSteep);
+  let cm = gcache.uCacheMode.x;
+  if (cm > 0.5 && cm < 1.5) { return vec4<f32>(c.rgb, select(1.0, 0.6, vWall.x <= 2.5 && c.a > 0.999)); }
+  return c;
+}
+
+fn groundColour(vAt: vec4<f32>, vGround: vec2<f32>, vWall: vec2<f32>, vTint: vec4<f32>, vWorld: vec2<f32>, vSteep: f32) -> vec4<f32> {
   gScreen = vWorld * ground.uMap.z;
   let fs = fwidth(gScreen);
   gScreenFp = max(fs.x, fs.y) * 1.5;
@@ -1531,9 +1540,8 @@ fn mainFragment(@builtin(position) vAt: vec4<f32>, @location(0) vGround: vec2<f3
   let steep = vSteep;
   // THE STILL VIEW'S COPY (after the widths above: a derivative may not follow a branch). Only what is SOLID is
   // copied — tops and walls — and it is copied sample by sample and averaged, as the window is. It is read back
-  // only where every sample of the pixel is under exactly one solid face: the count says so (each face adds a
-  // quarter to the samples it covers, so one face each is a quarter), and the copy being solid there says none
-  // was left bare. Two faces side by side then both lay the pixel's one averaged colour, which is what their own
+  // only where every sample of the pixel is under exactly one solid face and nothing else: the copy's fourth
+  // channel says so (@see mainFragment). Two faces side by side then both lay the pixel's one averaged colour, which is what their own
   // two would have averaged to. Where one face lies over another — a crest against the ground behind — each is
   // worked out as ever. The fringe and the water's cut face are laid over whatever is behind them: always worked
   // out, and so is the ground under any pixel they touch (they are counted too, apart), since what they lay over
@@ -1541,15 +1549,10 @@ fn mainFragment(@builtin(position) vAt: vec4<f32>, @location(0) vGround: vec2<f3
   let cm = gcache.uCacheMode.x;
   if (cm > 0.5) {
     let solid = vWall.x <= 2.5;
-    if (cm > 2.5) { return select(vec4<f32>(0.0, 0.25, 0.0, 0.0), vec4<f32>(0.25, 0.0, 0.0, 0.0), solid); }
     if (cm > 1.5) {
       if (solid) {
-        let at = vec2<i32>(vAt.xy);
-        let n = textureLoad(uCount, at, 0);
-        if (abs(n.r * 255.0 - 64.0) < 0.5 && n.g == 0.0) {
-          let c = textureLoad(uCache, at, 0);
-          if (c.a > 0.999) { return c; }
-        }
+        let c = textureLoad(uCache, vec2<i32>(vAt.xy), 0);
+        if (abs(c.a * 255.0 - 153.0) < 0.5) { return vec4<f32>(c.rgb, 1.0); }
       }
     } else if (!solid) { return vec4<f32>(0.0); }
   }

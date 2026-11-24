@@ -15,11 +15,14 @@
  * a pixel two faces share side by side — a top and the wall under it — holds
  * what the two would have averaged to, and both can lay it.
  *
- * A SECOND TEXTURE COUNTS the solid faces over each sample. Where one face
- * lies over another — a crest against the ground behind it — a band's trees
- * may stand between the two, and one colour for both would be wrong. So the
- * copy is read only where every sample of a pixel is under exactly one face,
- * and the rest is worked out as it always was.
+ * ITS FOURTH CHANNEL COUNTS the faces over each sample. Where one face lies
+ * over another — a crest against the ground behind it — a band's trees may
+ * stand between the two, and one colour for both would be wrong. So the copy
+ * is read only where every sample of a pixel is under exactly one solid face,
+ * and the rest is worked out as it always was. In the copy's own texture, by
+ * a blend that lays the colour over and adds the count up ({@link COPY_BLEND}):
+ * a texture of its own for the count was the window's size again, four
+ * samples a pixel, and the ground drawn a second time for every copy.
  *
  * WHAT MAKES IT STALE is anything the ground draws from: the view, the
  * window, a texel, a uniform, a band's quads, which bands show and how
@@ -27,7 +30,7 @@
  * difference and that frame is worked out in full.
  */
 import {
-  Container, Matrix, Mesh, RenderTexture, RendererType, type Geometry, type Renderer, type Shader,
+  Container, GpuBlendModesToPixi, Matrix, Mesh, RenderTexture, RendererType, type BLEND_MODES, type Geometry, type Renderer, type Shader,
 } from "pixi.js";
 import { cacheUniforms, groundShader, type GroundMesh } from "./ground-mesh";
 
@@ -36,6 +39,13 @@ const DRIFT_EVERY = 10000;
 /** Frames a view must hold before it is copied: a pan's pause is not a stop. */
 const STILL = 2;
 
+/** The copy's blend: the colour laid over what is there, the fourth channel added to it. @see ground-mesh.ts mainFragment */
+const COPY_BLEND = "ground-copy";
+(GpuBlendModesToPixi as Record<string, GPUBlendState>)[COPY_BLEND] = {
+  color: { srcFactor: "one", dstFactor: "zero", operation: "add" },
+  alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
+};
+
 let wanted = true;
 /** Whether the ground may be copied at all; off, every frame is worked out. For measuring one against the other. */
 export const setGroundCache = (on: boolean) => { wanted = on; };
@@ -43,11 +53,9 @@ export const setGroundCache = (on: boolean) => { wanted = on; };
 type Copy = {
   gm: GroundMesh;
   colour: RenderTexture | null;
-  count: RenderTexture | null;
-  /** The meshes again, over the same quads, drawing the copy and the count. */
-  fill: Container; tally: Container;
-  fillOf: Mesh<Geometry, Shader>[]; tallyOf: Mesh<Geometry, Shader>[];
-  fillU: Float32Array; tallyU: Float32Array;
+  /** The meshes again, over the same quads, drawing the copy. */
+  fill: Container;
+  fillOf: Mesh<Geometry, Shader>[];
   /** What the copy was made of, what the last frame was drawn from, and this frame's. @see signature */
   made: Float64Array; seen: Float64Array; now: Float64Array;
   valid: boolean;
@@ -95,12 +103,11 @@ export function createGroundCache(renderer: Renderer, ground: () => GroundMesh |
     // Out of the ground's shader before they go, if the ground is still there. @see sized
     if (c.gm.meshes.length && c.gm.shader.groups?.[2]?.resources) {
       c.gm.shader.resources.uCache = c.gm.blank;
-      c.gm.shader.resources.uCount = c.gm.blank;
     }
     // The quads are the ground's own: the meshes go, the geometry stays.
-    for (const m of [...c.fillOf, ...c.tallyOf]) { m.parent?.removeChild(m); m.destroy(); }
-    c.fill.destroy(); c.tally.destroy();
-    c.colour?.destroy(true); c.count?.destroy(true);
+    for (const m of c.fillOf) { m.parent?.removeChild(m); m.destroy(); }
+    c.fill.destroy();
+    if (c.colour) { giveBack(c.colour); c.colour.destroy(true); }
   };
 
   const setMode = (gm: GroundMesh, mode: number) => {
@@ -111,24 +118,20 @@ export function createGroundCache(renderer: Renderer, ground: () => GroundMesh |
   };
 
   const adopt = (gm: GroundMesh): Copy => {
-    const fillGroup = cacheUniforms(), tallyGroup = cacheUniforms();
-    const fillU = fillGroup.uniforms.uCacheMode as Float32Array;
-    const tallyU = tallyGroup.uniforms.uCacheMode as Float32Array;
-    fillU[0] = 1; tallyU[0] = 3;
-    const fillShader = groundShader(gm, fillGroup), tallyShader = groundShader(gm, tallyGroup);
-    const fill = new Container(), tally = new Container();
-    const fillOf: Mesh<Geometry, Shader>[] = [], tallyOf: Mesh<Geometry, Shader>[] = [];
+    const fillGroup = cacheUniforms();
+    (fillGroup.uniforms.uCacheMode as Float32Array)[0] = 1;
+    const fillShader = groundShader(gm, fillGroup);
+    const fill = new Container();
+    const fillOf: Mesh<Geometry, Shader>[] = [];
     for (const real of gm.meshes) {
       const a = new Mesh<Geometry, Shader>({ geometry: real.geometry, shader: fillShader });
-      const b = new Mesh<Geometry, Shader>({ geometry: real.geometry, shader: tallyShader });
-      // ADDED UP: a quarter a face on every sample it covers.
-      b.blendMode = "add";
-      fill.addChild(a); tally.addChild(b);
-      fillOf.push(a); tallyOf.push(b);
+      a.blendMode = COPY_BLEND as BLEND_MODES;
+      fill.addChild(a);
+      fillOf.push(a);
     }
     const n = 12 + gm.meshes.length;
     const c: Copy = {
-      gm, colour: null, count: null, fill, tally, fillOf, tallyOf, fillU, tallyU,
+      gm, colour: null, fill, fillOf,
       made: new Float64Array(n), seen: new Float64Array(n), now: new Float64Array(n),
       valid: false, still: 0, solid: false, at: new Matrix(),
     };
@@ -197,21 +200,44 @@ export function createGroundCache(renderer: Renderer, ground: () => GroundMesh |
   };
   renderer.runners.prerender.add(guard);
 
+  // DRAWN THROUGH THE WINDOW'S OWN SAMPLES. A texture drawn sample by sample keeps a second one four times its
+  // size to draw into, used only while it is drawn — and the window has one exactly like it, which holds nothing
+  // between two frames (a frame clears it) and a copy is made between two frames. So the copy's is destroyed and
+  // the window's stands in for it: the window's size, four samples a pixel, not held twice. Taken out again
+  // before the copy is destroyed, or the window's would go with it. With no samples on the window (`?noaa`), or
+  // a window of another size for a moment, the copy keeps its own.
+  type Samples = { pixelWidth: number; pixelHeight: number; destroy: () => void };
+  type Target = { msaaTextures: Samples[] };
+  const targets = renderer.renderTarget as unknown as { getGpuRenderTarget: (t: unknown) => Target; getRenderTarget: (t: unknown) => unknown };
+  const lent = new WeakSet<RenderTexture>();
+  const borrow = (t: RenderTexture) => {
+    if (lent.has(t)) return;
+    const own = targets.getGpuRenderTarget(targets.getRenderTarget(t)), view = targets.getGpuRenderTarget(renderer.view.renderTarget);
+    const mine = own.msaaTextures[0], theirs = view.msaaTextures[0];
+    if (!mine || !theirs || own.msaaTextures.length !== 1 || mine === theirs) return;
+    if (mine.pixelWidth !== theirs.pixelWidth || mine.pixelHeight !== theirs.pixelHeight) return;
+    mine.destroy();
+    own.msaaTextures[0] = theirs;
+    lent.add(t);
+  };
+  const giveBack = (t: RenderTexture) => {
+    if (!lent.delete(t)) return;
+    targets.getGpuRenderTarget(targets.getRenderTarget(t)).msaaTextures.length = 0;
+  };
+
   const sized = (c: Copy) => {
     const w = renderer.screen.width, h = renderer.screen.height, resolution = renderer.resolution;
     const fits = (t: RenderTexture | null) =>
       !!t && t.width === w && t.height === h && t.source.resolution === resolution;
-    if (fits(c.colour) && fits(c.count)) return;
-    const old = [c.colour, c.count];
-    // BOTH SAMPLE BY SAMPLE, as the window is drawn: an edge is then the part of a pixel it is, in the colour and
-    // in the count.
+    if (fits(c.colour)) return;
+    const old = c.colour;
+    // SAMPLE BY SAMPLE, as the window is drawn: an edge is then the part of a pixel it is, in the colour and in
+    // the count.
     c.colour = RenderTexture.create({ width: w, height: h, resolution, antialias: true, scaleMode: "nearest" });
-    c.count = RenderTexture.create({ width: w, height: h, resolution, antialias: true, scaleMode: "nearest" });
     c.gm.shader.resources.uCache = c.colour.source;
-    c.gm.shader.resources.uCount = c.count.source;
-    // THE OLD ONES AFTER THE NEW ARE IN: a texture destroyed while a shader still holds it takes the shader's
+    // THE OLD ONE AFTER THE NEW IS IN: a texture destroyed while a shader still holds it takes the shader's
     // whole set of bindings with it.
-    for (const t of old) t?.destroy(true);
+    if (old) { giveBack(old); old.destroy(true); }
   };
 
   return {
@@ -223,22 +249,22 @@ export function createGroundCache(renderer: Renderer, ground: () => GroundMesh |
       // Held, and not the picture the copy is of.
       if (!same(c.now, c.seen) || (c.valid && same(c.now, c.made))) return;
       sized(c);
+      // (Asked before every copy till it is had: the window's own are not its new size till it has drawn at it.)
+      borrow(c.colour!);
       for (let b = 0; b < c.gm.meshes.length; b++) {
         const shown = c.now[12 + b] >= 0;
-        if (c.fillOf[b].visible !== shown) { c.fillOf[b].visible = shown; c.tallyOf[b].visible = shown; }
+        const m = c.fillOf[b];
+        if (m.visible !== shown) m.visible = shown;
         if (!shown) continue;
         const rel = c.gm.meshes[b].relativeGroupTransform;
-        for (const m of [c.fillOf[b], c.tallyOf[b]]) {
-          // A shift alone is set as one, so nothing is taken apart and put together again.
-          if (rel.a === 1 && rel.b === 0 && rel.c === 0 && rel.d === 1) {
-            if (m.position.x !== rel.tx || m.position.y !== rel.ty) m.position.set(rel.tx, rel.ty);
-          } else m.setFromMatrix(rel);
-        }
+        // A shift alone is set as one, so nothing is taken apart and put together again.
+        if (rel.a === 1 && rel.b === 0 && rel.c === 0 && rel.d === 1) {
+          if (m.position.x !== rel.tx || m.position.y !== rel.ty) m.position.set(rel.tx, rel.ty);
+        } else m.setFromMatrix(rel);
       }
       filling = true;
       try {
         renderer.render({ container: c.fill, target: c.colour!, clear: true, clearColor: [0, 0, 0, 0], transform: c.at });
-        renderer.render({ container: c.tally, target: c.count!, clear: true, clearColor: [0, 0, 0, 0], transform: c.at });
       } finally { filling = false; }
       c.made.set(c.now);
       c.valid = true;
