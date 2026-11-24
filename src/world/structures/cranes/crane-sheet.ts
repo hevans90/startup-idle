@@ -4,6 +4,7 @@
  * over it, and a mask of its lights for the night, at the frame for the way
  * it faces. @see dev/bake-cranes.ts, models.ts
  */
+import "../../render/ktx";
 import { Assets, Container, Rectangle, Sprite, Texture } from "pixi.js";
 
 import { CRANE_GAP, type CraneFrame, type CranesSheet } from "./crane-format";

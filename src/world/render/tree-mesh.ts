@@ -10,6 +10,7 @@
  *
  * Painter's order is kept: a band's mesh in its band, its trees back to front. @see world/calendar, dev/bake-trees.ts
  */
+import "./ktx";
 import { deviceLost } from "./device";
 import { oncePerRender, syncOnce } from "./frame-uniforms";
 import { Assets, Buffer, BufferImageSource, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup, type Texture, type TextureSource } from "pixi.js";

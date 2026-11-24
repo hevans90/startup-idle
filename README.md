@@ -92,13 +92,14 @@ React 19 + TypeScript (Vite, SWC); Tailwind CSS v4 with the console's tokens (`s
 | `bun run lint` | ESLint |
 | `bun run preview` | Preview the build |
 | `bun run tauri:dev` / `tauri:build` | Desktop app |
-| `bun run bake:cars` | Bake vehicle models (`agents/cars/models.ts`) into `derived/cars_*.webp` + `cars.json`: 32 headings level, and leant at a ramp's four slopes for a road's four ways (`poseOf`); ~2.5 min. `dev/preview-cars.ts out.png [RES] [ids] [PITCH]` draws a gallery |
-| `bun run bake:landmarks` | Bake the company's own building, tier by tier, with its yard (`landmarks/models.ts`) into `derived/landmarks_*.webp` + `landmarks.json`; `dev/bake-landmarks.ts --preview out.png [id] [res]` draws them |
+| `bun run bake:cars` | Bake vehicle models (`agents/cars/models.ts`) into `derived/cars_*.ktx2` + `cars.json`: 32 headings level, and leant at a ramp's four slopes for a road's four ways (`poseOf`); ~2.5 min. `dev/preview-cars.ts out.png [RES] [ids] [PITCH]` draws a gallery |
+| `bun run bake:landmarks` | Bake the company's own building, tier by tier, with its yard (`landmarks/models.ts`) into `derived/landmarks_*.ktx2` + `landmarks.json`; `dev/bake-landmarks.ts --preview out.png [id] [res]` draws them |
 | `bun run bake:houses` | Bake the house kits (`houses/models.ts`), with their shop ground floors, into `derived/houses_*.webp` + `houses.json` (3 layers: walls, shop paint, the rest); `dev/preview-houses.ts out.png [res]` draws a gallery (`CH=` cell height) |
 | `bun run bake:props` | Bake trees and furniture (`props/models.ts`) into `derived/props_0.png` + `props.json`; `dev/preview-props.ts out.png` draws a gallery |
 | `bun run bake:trees` | Bake each tree kind in leaf, bud, thinning, bare and snow (`props/tree-models.ts`) into `derived/trees_*.png` + `trees.json` |
 | `bun run bake:people` | Bake figures (`agents/people/figures.ts`) into `derived/people_*.png` + `people.json`; `dev/preview-people.ts out.png` draws a gallery |
-| `bun run dev/to-webp.ts` | Every bake's last step: the sheets' PNGs to lossless WebP, pixel for pixel, at half the bytes (needs `cwebp`: `brew install webp`); the JSON told the new names |
+| `bun run dev/to-webp.ts` | The houses' bake's last step: their PNGs to lossless WebP, pixel for pixel, at half the bytes (needs `cwebp`: `brew install webp`) — the first frame waits for them, and a WebP needs no transcoder |
+| `bun run dev/to-ktx2.ts cars …` | Every other bake's last step: the sheets to KTX2 (UASTC, mipmaps, colour times alpha), which the GPU keeps as BC7 — a quarter of the memory, about 2.6× a WebP's bytes to fetch, not pixel for pixel (needs `basisu`: `brew install basis_universal`, and `dwebp`). Loaded by `render/ktx.ts` with the transcoder under `public/transcoders/ktx` (a copy of Pixi's, held to it by `ktx.test.ts`); the cars' 22 pages come a few at a time (`fetchPages` in `car-sheet.ts`) |
 
 ## Project structure
 

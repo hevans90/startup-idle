@@ -73,7 +73,7 @@ for (const b of baked.sort((p, q) => tall(q) - tall(p))) {
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
-for (const f of readdirSync(OUT_DIR)) if (/^boats_\d+\.(png|webp)$/.test(f)) rmSync(join(OUT_DIR, f));
+for (const f of readdirSync(OUT_DIR)) if (/^boats_\d+\.(png|webp|ktx2)$/.test(f)) rmSync(join(OUT_DIR, f));
 const last = pages[pages.length - 1], used = Math.ceil((y + shelf) / 64) * 64;
 if (used < PAGE) pages[pages.length - 1] = { w: PAGE, h: used, px: last.px.slice(0, PAGE * used * 4) };
 pages.forEach((p, k) => {

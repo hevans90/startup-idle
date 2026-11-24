@@ -5,6 +5,7 @@
  * heading and their step. `?people=boxes` keeps the old drawn people.
  * @see dev/bake-people.ts, town-render
  */
+import "../../render/ktx";
 import { Assets, Rectangle, Texture, type Sprite } from "pixi.js";
 
 import { headingIndex } from "../cars/car-sheet";

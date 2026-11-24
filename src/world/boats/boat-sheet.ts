@@ -4,6 +4,7 @@
  * rest over it, and three masks of its lights for the night, at the frame for
  * its heading. `?boats=drawn` keeps the old drawn boat. @see dev/bake-boats.ts
  */
+import "../render/ktx";
 import { Assets, Rectangle, Texture } from "pixi.js";
 
 import { BOAT_GAP, type BoatFrame, type BoatsSheet } from "./boats-format";

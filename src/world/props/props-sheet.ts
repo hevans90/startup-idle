@@ -5,6 +5,7 @@
  * that stands props about: the streets, the woods, the parks.
  * @see dev/bake-props.ts
  */
+import "../render/ktx";
 import { Assets, Container, Rectangle, Sprite, Texture } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";

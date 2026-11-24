@@ -5,6 +5,7 @@
  * own tile's band and whatever stands beside any part of the building is in
  * front of or behind that part as it should be. @see dev/bake-landmarks.ts
  */
+import "../render/ktx";
 import { Assets, Rectangle, Texture } from "pixi.js";
 
 import type { LandmarkPiece, LandmarksSheet } from "./landmarks-format";

@@ -7,7 +7,8 @@
  * sheared so its nose rises by the pitch, rather than baked again for every
  * slope. `?cars=boxes` keeps the old box cars. @see town-render
  */
-import { Assets, Matrix, Rectangle, Texture } from "pixi.js";
+import "../../render/ktx";
+import { Assets, Matrix, Rectangle, Texture, type TextureSource } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
 import { TILES_PER_M } from "./models";
@@ -41,11 +42,45 @@ export type CarSprites = { res: number; headings: number; pitches: number[]; pit
 export const bakedCars = () =>
   typeof document !== "undefined" && !(typeof location !== "undefined" && /[?&]cars=boxes\b/.test(location.search));
 
+/** Each page's picture once it is in, and the frames cut from it before it was. @see loadCarSprites */
+const pageNow: (TextureSource | undefined)[] = [];
+const waiting: (Texture[] | undefined)[] = [];
+let fetching = false;
+/** How many pages are fetched at a time. */
+const PAGES_AT_ONCE = 3;
+/** Fetch the pages, once, a few at a time; each handed to the frames waiting for it as it comes. */
+function fetchPages(names: readonly string[]): void {
+  if (fetching) return;
+  fetching = true;
+  let next = 0;
+  const one = async (): Promise<void> => {
+    const i = next++;
+    if (i >= names.length) return;
+    try {
+      const tex: Texture = await Assets.load({ src: `${BASE}/${names[i]}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } });
+      pageNow[i] = tex.source;
+      for (const t of waiting[i] ?? []) { t.source = tex.source; t.update(); }
+      waiting[i] = undefined;
+    } catch (e) { console.warn(`cars: page ${names[i]} would not load`, e); }
+    return one();
+  };
+  for (let k = 0; k < PAGES_AT_ONCE; k++) void one();
+}
+
 /** Load the sheet and cut its frames. */
 export async function loadCarSprites(): Promise<CarSprites> {
   const sheet: CarSheet = await Assets.load({ src: `${BASE}/cars.json`, loadParser: "loadJson" });
-  const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
-    Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } })));
+  // ITS PAGES AS THEY COME, and not all of them before a vehicle is seen: there are twenty-two, tens of megabytes,
+  // and on a slow line the streets stood empty for half a minute waiting for the last. A frame is cut at once
+  // from an empty picture and given its page when that is in — a few at a time, in the sheet's order.
+  const pages = sheet.pages.map((_p, i) => ({ get source() { return pageNow[i] ?? Texture.EMPTY.source; } }));
+  /** A frame of a page: drawn from the page once it has come. */
+  const frameOf = (page: number, rect: Rectangle) => {
+    const t = new Texture({ source: pages[page].source, frame: rect, dynamic: true });
+    if (!pageNow[page]) (waiting[page] ??= []).push(t);
+    return t;
+  };
+  fetchPages(sheet.pages);
   const looks = new Map<string, CarLook>();
   /** A run of frames cut from the pages: each layer's texture and anchor, and its lamps. */
   const cut = (frames: CarFrame[]): CarPoses => {
@@ -55,15 +90,14 @@ export async function loadCarSprites(): Promise<CarSprites> {
       const mine: CarPoses["lamps"][number] = [];
       for (let k = 0; k + 6 < ls.length; k += 7) {
         const [lp, lx, ly, lw, lh, lox, loy] = ls.slice(k, k + 7);
-        mine.push(lw ? { tex: new Texture({ source: pages[lp].source, frame: new Rectangle(lx, ly, lw, lh) }), anchor: { x: lox / lw, y: loy / lh } } : { tex: Texture.EMPTY, anchor: { x: 0, y: 0 } });
+        mine.push(lw ? { tex: frameOf(lp, new Rectangle(lx, ly, lw, lh)), anchor: { x: lox / lw, y: loy / lh } } : { tex: Texture.EMPTY, anchor: { x: 0, y: 0 } });
       }
       // (The last of them are not lamps: the layers over its occupants.)
       over.push(nOver ? mine.splice(mine.length - nOver, nOver) : []);
       lamps.push(mine);
-      const source = pages[page].source;
       // A livery has no paint: an empty texture, so the paint sprite draws nothing.
-      paint.push(pw ? new Texture({ source, frame: new Rectangle(x, y, pw, ph) }) : Texture.EMPTY);
-      trim.push(new Texture({ source, frame: new Rectangle(x + pw + CAR_GAP, y, tw, th) }));
+      paint.push(pw ? frameOf(page, new Rectangle(x, y, pw, ph)) : Texture.EMPTY);
+      trim.push(frameOf(page, new Rectangle(x + pw + CAR_GAP, y, tw, th)));
       paintAnchor.push(pw ? { x: pox / pw, y: poy / ph } : { x: 0, y: 0 });
       trimAnchor.push({ x: tox / tw, y: toy / th });
     }
