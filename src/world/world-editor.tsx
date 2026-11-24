@@ -47,7 +47,7 @@ export function WorldEditor() {
         <PortIncome />
         {/* anchored HTML — inside the wrapper but pointer-events-none, so it
             can never intercept a pick */}
-        {import.meta.env.DEV && <PerfHud />}
+        <PerfHud />
         {/* CPU or device, on the water in front of you. A real switch — see
             `gpu-water-toggle`, and the cost note in `gpu/solver`. */}
         {import.meta.env.DEV && <GpuWaterToggle />}

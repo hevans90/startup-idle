@@ -58,6 +58,13 @@ const ring = (): Ring => ({ at: 0, n: 0, of: new Float64Array(WINDOW) });
 const rings: Record<string, Ring> = {
   solve: ring(), build: ring(), present: ring(), town: ring(), fx: ring(), frame: ring(), draws: ring(), gfx: ring(),
 };
+/**
+ * Whether frames are measured: in development, and in the editor (`?world=1`) whatever the build, a deployed one
+ * being where another machine's numbers are read. Not in a player's game: the renderer is wrapped to do it. @see PerfHud
+ */
+export const MEASURED = !!import.meta.env?.DEV
+  || (typeof location !== "undefined" && new URLSearchParams(location.search).get("world") === "1");
+
 /** This frame's totals, gathered until `endFrame` files them. */
 const now: Record<PerfSlot | PerfCount, number> = { solve: 0, build: 0, present: 0, town: 0, fx: 0, draws: 0, gfx: 0 };
 let last = 0;

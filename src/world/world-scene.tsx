@@ -56,7 +56,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { demolishLifts, mainWet, drainDirty, playRules, startedOnFixture, startFixture, lotLine, getExports, getFleet, getNetwork, getTown, getTraffic, getWorks, useWorldStore } from "../state/world.store";
-import { perfAdd, perfCount, perfFrame } from "./debug/perf";
+import { MEASURED, perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
 import { stepGrowth, stepHarbour, stepPeople, stepPlumbing, stepSites, worksClock, type WorksSeen } from "./step-world";
 import {
@@ -4361,7 +4361,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // blocks on the compositor, so a quiet frame spends it idle. That is why it
   // is called present and is kept out of the `js` total.
   useEffect(() => {
-    if (!import.meta.env.DEV || !app?.renderer || !app?.ticker) return;
+    if (!MEASURED || !app?.renderer || !app?.ticker) return;
     const renderer = app.renderer as unknown as { render: (...a: unknown[]) => unknown };
     const real = renderer.render.bind(renderer);
     // AND INSIDE IT, with `?hitches`: a render group's draw list built again
