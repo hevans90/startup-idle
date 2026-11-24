@@ -50,11 +50,11 @@ export function GpuWaterToggle() {
   // BESIDE THE FRAME READOUT, not under it. Under it is where this used to
   // sit, and the readout is a hundred and ten pixels tall against a hundred
   // and twelve of clearance — so the two overlapped the moment a number grew a
-  // digit, which is exactly when somebody is looking at both. `left-36` clears
+  // digit, which is exactly when somebody is looking at both. `left-44` clears
   // its widest row with room to spare.
   return (
     <div
-      className="absolute left-36 top-2 z-10 rounded border border-line
+      className="absolute left-44 top-2 z-10 rounded border border-line
         bg-surface-1/80 px-2 py-1.5 font-mono text-[11px] leading-tight
         text-fg
         "

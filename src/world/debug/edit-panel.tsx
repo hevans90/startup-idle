@@ -11,7 +11,6 @@ import {
   DEFAULT_SIZE, getFleet, useWorldStore,
 } from "../../state/world.store";
 import { deserializeWorld, serializeWorld, toJSON } from "../io/serialize";
-import type { FixtureId } from "./fixtures";
 import { waterMetaRead } from "./water-meta";
 import { housingCapacity } from "../../game/housing";
 import { giMs, giOptions, setGi, type GiOptions } from "../render/gi";
@@ -19,41 +18,6 @@ import { giMs, giOptions, setGi, type GiOptions } from "../render/gi";
 const BTN = "cursor-pointer rounded border px-2 py-1 font-mono leading-none";
 const ON = "border-good bg-good/20 text-good";
 const OFF = "border-line bg-surface-1 text-fg-muted hover:bg-surface-2 hover:text-fg";
-/** Awkward terrain on demand, so a picking bug is reproducible. */
-const FIXTURES: [FixtureId, string][] = [
-  ["flat", "flat"],
-  ["ziggurat", "ziggurat"],
-  ["occluder", "occluder"],
-  ["rampFan", "ramp fan"],
-  ["roadShapes", "road shapes"],
-  ["avenue", "avenue"],
-  ["plaza", "plaza"],
-  ["splitTrap", "split trap"],
-  // The river fixture worth looking at: fed the way a map's rivers are now —
-  // over the boundary, at a level — and built on the slack grade and the deep
-  // channel that generated maps actually have. Named for what it is rather
-  // than inheriting "river", so the button and the fixture agree; the old
-  // `river` is still there for `?fixture=river` and still has its own tests.
-  // @see buildInlet
-  ["inlet", "inlet"],
-  // Both storeys running at once: a road over a river. @see buildCrossing
-  ["crossing", "crossing"],
-  ["cascade", "cascade"],
-  // Farms, hedges, rows, beds, stumps: what the player does to what grows. @see buildFarms
-  ["farms", "farms"],
-  // The farms with their wood dry and sick, and a farm against it: a wildfire waiting to happen. @see buildWildfire
-  ["wildfire", "wildfire"],
-  ["ground", "ground"],
-  ["lake", "lake"],
-  ["islands", "islands"],
-  ["plunge", "plunge"],
-  ["waterfall", "waterfall"],
-  ["brink", "brink (5²)"],
-  ["terrain", "terrain"],
-  ["rough", "rough"],
-  // A dock basin with lit quays: for looking at the night, its windows and the water. @see buildWaterfront
-  ["waterfront", "waterfront"],
-];
 /** A section's heading, and what follows it laid out in a wrapping row. */
 export function Section({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
   return (
@@ -184,11 +148,11 @@ export function LightSection() {
   );
 }
 
-/** THE MAP ITSELF: kept and brought back, made blank at a size, or set up as one of the fixtures. */
+/** THE MAP ITSELF: kept and brought back, or made blank at a size. */
 export function MapTab() {
   const fileRef = useRef<HTMLInputElement>(null);
-  const { palette, grid, loadGrid, resize, applyFixture, getWaterField, setGenParam } = useWorldStore(useShallow((s) => ({
-    palette: s.palette, grid: s.grid, loadGrid: s.loadGrid, resize: s.resize, applyFixture: s.applyFixture, getWaterField: s.getWaterField, setGenParam: s.setGenParam,
+  const { palette, grid, loadGrid, resize, getWaterField, setGenParam } = useWorldStore(useShallow((s) => ({
+    palette: s.palette, grid: s.grid, loadGrid: s.loadGrid, resize: s.resize, getWaterField: s.getWaterField, setGenParam: s.setGenParam,
   })));
 
   const save = () => {
@@ -246,13 +210,6 @@ export function MapTab() {
             <button key={n} type="button" onClick={() => { resize(n, n); setGenParam("size", n); }} className={`${BTN} ${grid.w === n ? ON : OFF}`}>{n}²</button>
           ))}
         </Row>
-      </Section>
-      <Section title="fixtures">
-        <div className="grid grid-cols-3 gap-1">
-          {FIXTURES.map(([id, label]) => (
-            <button key={id} type="button" title={label} onClick={() => applyFixture(id)} className={`${BTN} truncate ${OFF}`}>{label}</button>
-          ))}
-        </div>
       </Section>
     </>
   );

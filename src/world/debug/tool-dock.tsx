@@ -8,17 +8,17 @@
  * What there is comes from the toolbox, as the keys do. @see edit/toolbox
  */
 import {
-  IconAdjustmentsHorizontal, IconArrowBackUp, IconArrowBigDownLines, IconArrowBigUpLines, IconArrowForwardUp,
+  IconAdjustmentsHorizontal, IconBuildingCommunity, IconFlask, IconFolder, IconArrowBackUp, IconArrowBigDownLines, IconArrowBigUpLines, IconArrowForwardUp,
   IconBackhoe, IconBrush, IconBuildingMonument, IconBuildingSkyscraper, IconBulldozer, IconDroplet, IconDropletOff,
   IconEraser, IconFlower, IconFountain, IconLine, IconMap, IconMountain, IconPlayerPlayFilled, IconPlugConnected, IconPoint,
   IconPointer, IconRipple, IconRoad, IconRoadOff, IconSearch, IconShip, IconSquareDashed, IconStairs, IconStairsDown,
   IconSubtask, IconTree, IconTrees, IconWaveSine, IconArrowBarToDown, IconMinus, IconPlant2,
 } from "@tabler/icons-react";
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 import { useShallow } from "zustand/shallow";
 
-import { useWorldStore, VOID_MATERIAL } from "../../state/world.store";
+import { startFixture, useWorldStore, VOID_MATERIAL } from "../../state/world.store";
 import { GROUPS, TOOLS, groupOf, pickGroup, pickTool, type GroupId } from "../edit/toolbox";
 import type { BrushId, ToolId } from "../edit/tools";
 import { workplaceKind } from "../agents/commute";
@@ -32,6 +32,8 @@ import { PLANTINGS, type Planting } from "../vegetation/tend";
 import { fluidChoices } from "../water/materials";
 import { Beds, Networks, Sources, WaterMeta } from "./edit-panel";
 import type { PanelId } from "./editor-panels";
+import { FIXTURES, fixtureAddress, type FixtureKind } from "./fixture-list";
+import { FIXTURE_SIZE } from "./fixtures";
 
 type IconOf = typeof IconBrush;
 const TOOL_ICON: Partial<Record<ToolId, IconOf>> = {
@@ -57,6 +59,7 @@ const GROUND: Record<string, [string, string]> = {
 const GROUND_NAME: Record<string, string> = { wood1: "Light wood", wood2: "Wood", wood3: "Deep wood" };
 
 const GLASS = "border border-line bg-surface-0/85 shadow-2xl backdrop-blur-xl";
+const TRAY = twMerge("dock-tray-in pointer-events-auto flex max-w-full rounded-2xl p-2.5", GLASS, "shadow-[0_-1px_0_0_var(--tone)_inset,0_20px_40px_-12px_rgb(0_0_0/0.5)]");
 const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-tone";
 const toned = (tone: string) => ({ "--tone": tone }) as CSSProperties;
 
@@ -253,6 +256,31 @@ function Picture({ def }: { def: StructureDef }) {
   return url ? <img src={url} alt="" draggable={false} className="h-10 w-full object-contain drop-shadow-md" /> : <IconBuildingMonument size={26} stroke={1.2} className="h-10 text-fg-faint" />;
 }
 
+/** The head of a picker: what to find, and its tabs. */
+function PickerHead<T extends string>({ tabs, tab, setTab, find, setFind, what }: { tabs: readonly T[]; tab: T; setTab: (t: T) => void; find: string; setFind: (s: string) => void; what: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <label className="flex h-6 shrink-0 items-center gap-1 rounded-lg bg-surface-1 px-2 text-fg-muted focus-within:shadow-[inset_0_0_0_1px_var(--tone)]">
+        <IconSearch size={13} />
+        <input value={find} onChange={(e) => setFind(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setFind(""); e.currentTarget.blur(); } }}
+          aria-label={what} className="w-20 bg-transparent text-[11px] text-fg outline-none" />
+      </label>
+      <div className="dock-scroll flex min-w-0 gap-0.5 overflow-x-auto">
+        {tabs.map((k) => (
+          <button key={k} type="button" aria-pressed={!find.trim() && tab === k} onClick={() => { setFind(""); setTab(k); }}
+            className={twMerge("h-6 cursor-pointer rounded-lg px-2 text-[11px] whitespace-nowrap", FOCUS, !find.trim() && tab === k ? "bg-tone-fill text-fg" : "text-fg-muted hover:bg-surface-2 hover:text-fg")}>{k}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+/** And its row, which a wheel runs along. */
+const PickerRow = ({ children }: { children: ReactNode }) => (
+  <div className="dock-scroll flex gap-1 overflow-x-auto overflow-y-hidden pb-1" onWheel={(e) => { if (!e.deltaX) e.currentTarget.scrollLeft += e.deltaY; }}>{children}</div>
+);
+const CARD = "relative flex h-[68px] w-21 shrink-0 cursor-pointer flex-col items-center justify-end gap-0.5 rounded-xl border px-1 pb-1 text-[10px] transition-all active:scale-95";
+const CARD_ON = "border-tone bg-tone-fill text-fg shadow-[0_0_18px_-4px_var(--tone)]", CARD_OFF = "border-line-quiet bg-surface-1 text-fg-muted hover:border-line-strong hover:text-fg";
+
 function BuildPart() {
   const { chosen, setChosen, tool } = useWorldStore(useShallow((s) => ({ chosen: s.structureDefId, setChosen: s.setStructureDef, tool: s.tool })));
   // (Homes by whose they are, then how grown: the table has them in neither order.)
@@ -263,36 +291,61 @@ function BuildPart() {
   const shown = defs.filter((d) => (q ? nameOf(d).toLowerCase().includes(q) || d.id.includes(q) : kindOf(d) === tab));
   return (
     <Part title="Buildings" note={<Beds />} className="w-[46rem] shrink">
-      <div className="flex min-w-0 items-center gap-1">
-        <label className="flex h-6 shrink-0 items-center gap-1 rounded-lg bg-surface-1 px-2 text-fg-muted focus-within:shadow-[inset_0_0_0_1px_var(--tone)]">
-          <IconSearch size={13} />
-          <input value={find} onChange={(e) => setFind(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setFind(""); e.currentTarget.blur(); } }}
-            aria-label="find a building" className="w-20 bg-transparent text-[11px] text-fg outline-none" />
-        </label>
-        <div className="dock-scroll flex min-w-0 gap-0.5 overflow-x-auto">
-          {KINDS.map(([k]) => (
-            <button key={k} type="button" aria-pressed={!q && tab === k} onClick={() => { setFind(""); setTab(k); }}
-              className={twMerge("h-6 cursor-pointer rounded-lg px-2 text-[11px] whitespace-nowrap", FOCUS, !q && tab === k ? "bg-tone-fill text-fg" : "text-fg-muted hover:bg-surface-2 hover:text-fg")}>{k}</button>
-          ))}
-        </div>
-      </div>
-      {/* (A wheel runs along the row.) */}
-      <div className="dock-scroll flex gap-1 overflow-x-auto overflow-y-hidden pb-1" onWheel={(e) => { if (!e.deltaX) e.currentTarget.scrollLeft += e.deltaY; }}>
+      <PickerHead tabs={KINDS.map(([k]) => k)} tab={tab} setTab={setTab} find={find} setFind={setFind} what="find a building" />
+      <PickerRow>
         {shown.map((d) => {
           const on = chosen === d.id && tool === "placeStructure";
           return (
             <button key={d.id} type="button" aria-pressed={on} title={`${nameOf(d)} · ${d.footprint.w}×${d.footprint.h}`}
               onClick={() => { setChosen(d.id); pickTool("placeStructure"); }}
-              className={twMerge("relative flex h-[68px] w-21 shrink-0 cursor-pointer flex-col items-center justify-end gap-0.5 rounded-xl border px-1 pb-1 text-[10px] transition-all active:scale-95", FOCUS,
-                on ? "border-tone bg-tone-fill text-fg shadow-[0_0_18px_-4px_var(--tone)]" : "border-line-quiet bg-surface-1 text-fg-muted hover:border-line-strong hover:text-fg")}>
+              className={twMerge(CARD, FOCUS, on ? CARD_ON : CARD_OFF)}>
               {d.render.kind === "tiles" ? <Block def={d} /> : <Picture def={d} />}
               <span className="max-w-full truncate">{nameOf(d)}</span>
               <span className="absolute top-0.5 right-1 font-mono text-[9px] text-fg-faint">{d.footprint.w}×{d.footprint.h}</span>
             </button>
           );
         })}
-      </div>
+      </PickerRow>
     </Part>
+  );
+}
+
+const FIXTURE_TONE = "#e0709a";
+const FIXTURE_ICON: Record<FixtureKind, IconOf> = {
+  Towns: IconBuildingCommunity, Water: IconRipple, Harbours: IconShip, Roads: IconRoad, Land: IconMountain, Works: IconSubtask,
+};
+const FIXTURE_KINDS = Object.keys(FIXTURES) as FixtureKind[];
+
+/** THE FIXTURES, to open one; and from one, the editor's own map again. @see fixtureAddress */
+function FixtureTray() {
+  const now = startFixture();
+  const [tab, setTab] = useState<FixtureKind>(() => FIXTURE_KINDS.find((k) => FIXTURES[k].some(([id]) => id === now)) ?? "Towns");
+  const [find, setFind] = useState("");
+  const q = find.trim().toLowerCase();
+  const shown = FIXTURE_KINDS.flatMap((k) => FIXTURES[k].filter(([id, name]) => (q ? name.toLowerCase().includes(q) || id.toLowerCase().includes(q) : k === tab)).map(([id, name]) => ({ id, name, Icon: FIXTURE_ICON[k] })));
+  return (
+    <div style={toned(FIXTURE_TONE)} className={twMerge(TRAY, "max-xl:overflow-x-auto")}>
+      <Part title="Fixtures" className="w-[46rem] shrink">
+        <PickerHead tabs={FIXTURE_KINDS} tab={tab} setTab={setTab} find={find} setFind={setFind} what="find a fixture" />
+        <PickerRow>
+          {now && !q && (
+            <button type="button" onClick={() => location.assign(fixtureAddress(location.href, null))} className={twMerge(CARD, FOCUS, CARD_OFF, "border-dashed")}>
+              <IconFolder size={24} stroke={1.5} className="mb-1.5" /><span>My map</span>
+            </button>
+          )}
+          {shown.map(({ id, name, Icon }) => {
+            const on = id === now;
+            return (
+              <button key={id} type="button" aria-label={name} aria-pressed={on} onClick={() => location.assign(fixtureAddress(location.href, id))} className={twMerge(CARD, FOCUS, on ? CARD_ON : CARD_OFF)}>
+                <Icon size={24} stroke={1.5} className={twMerge("mb-1.5", on && "text-tone")} />
+                <span className="max-w-full truncate">{name}</span>
+                {FIXTURE_SIZE[id] && <span className="absolute top-0.5 right-1 font-mono text-[9px] text-fg-faint">{FIXTURE_SIZE[id]}²</span>}
+              </button>
+            );
+          })}
+        </PickerRow>
+      </Part>
+    </div>
   );
 }
 
@@ -301,7 +354,7 @@ function Tray({ id }: { id: GroupId }) {
   const tool = useWorldStore((s) => s.tool), g = GROUPS.find((x) => x.id === id)!;
   const tools = <div className="flex gap-0.5">{g.tools.map((t) => <ToolTile key={t} id={t} />)}</div>;
   return (
-    <div key={id} style={toned(g.tone)} className={twMerge("dock-tray-in pointer-events-auto flex max-w-full rounded-2xl p-2.5", GLASS, "shadow-[0_-1px_0_0_var(--tone)_inset,0_20px_40px_-12px_rgb(0_0_0/0.5)]",
+    <div key={id} style={toned(g.tone)} className={twMerge(TRAY,
       // (Bubbles stand out over its top, so nothing may clip it but a window too narrow.)
       "dock-scroll max-xl:overflow-x-auto")}>
       <Part title={g.name} note={id === "roads" ? <Networks /> : id === "water" ? <WaterNote /> : undefined}>{id === "nature" ? <PlantPart /> : tools}</Part>
@@ -348,13 +401,24 @@ export function ToolDock({ panel, setPanel }: { panel: PanelId | null; setPanel:
   const tool = useWorldStore((s) => s.tool), playing = useWorldStore((s) => s.playing), setPlaying = useWorldStore((s) => s.setPlaying);
   const g = groupOf(tool);
   const [shut, setShut] = useState(false);
+  const [fixtures, setFixtures] = useState(false);
   // A tool from another group, picked by its key, opens the tray it is in.
   const [was, setWas] = useState(g.id);
-  if (was !== g.id) { setWas(g.id); setShut(false); }
+  if (was !== g.id) { setWas(g.id); setShut(false); setFixtures(false); }
+  // Shift and 7, after the groups' own: the fixtures.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.shiftKey && e.code === "Digit7" && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); setFixtures((f) => !f); }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
   const toggle = (p: PanelId) => setPanel(panel === p ? null : p);
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex flex-col items-center gap-2 px-3 text-fg select-none">
-      {!shut && g.id !== "look" && <Tray id={g.id} />}
+      {fixtures ? <FixtureTray /> : !shut && g.id !== "look" && <Tray id={g.id} />}
       <div className={twMerge("pointer-events-auto flex max-w-full items-center rounded-2xl p-1.5", GLASS)} role="toolbar" aria-label="map tools">
         <History />
         <Rule />
@@ -362,18 +426,19 @@ export function ToolDock({ panel, setPanel }: { panel: PanelId | null; setPanel:
           const on = x.id === g.id, Icon = GROUP_ICON[x.id];
           return (
             <button key={x.id} type="button" aria-label={x.name} aria-pressed={on} style={toned(x.tone)}
-              onClick={() => { if (on) setShut(!shut); else pickGroup(x.id); }}
+              onClick={() => { if (fixtures) { setFixtures(false); setShut(false); if (!on) pickGroup(x.id); } else if (on) setShut(!shut); else pickGroup(x.id); }}
               className={twMerge("group/tip relative flex h-12 w-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] transition-all duration-150 active:scale-95 max-md:w-11", FOCUS,
                 on ? "-translate-y-0.5 bg-tone-fill text-fg" : "text-fg-muted hover:-translate-y-0.5 hover:bg-surface-2 hover:text-fg")}>
               <Icon size={21} stroke={1.7} className={on ? "text-tone drop-shadow-[0_0_6px_var(--tone)]" : "transition-colors group-hover/tip:text-tone"} />
               <span className="max-md:hidden">{x.name}</span>
               <span className={twMerge("absolute -bottom-px h-0.5 rounded-full bg-tone transition-all duration-200", on ? "w-8 shadow-[0_0_8px_var(--tone)]" : "w-0")} />
-              {(shut || x.id === "look" || !on) && <Tip name={x.name} k={`⇧${x.key}`} />}
+              {(shut || fixtures || x.id === "look" || !on) && <Tip name={x.name} k={`⇧${x.key}`} />}
             </button>
           );
         })}
         <Rule />
         <BarButton name="Play rules" hint="Housing needs a road and costs money; the night falls" on={playing} onClick={() => setPlaying(!playing)}><IconPlayerPlayFilled size={17} /></BarButton>
+        <BarButton name="Fixtures" k="⇧7" tone={FIXTURE_TONE} on={fixtures} onClick={() => setFixtures(!fixtures)}><IconFlask size={20} /></BarButton>
         <BarButton name="View" on={panel === "view"} onClick={() => toggle("view")}><IconAdjustmentsHorizontal size={20} /></BarButton>
         <BarButton name="Map" on={panel === "map"} onClick={() => toggle("map")}><IconMap size={20} /></BarButton>
         <Hover />
