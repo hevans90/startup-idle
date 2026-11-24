@@ -99,7 +99,7 @@ React 19 + TypeScript (Vite, SWC); Tailwind CSS v4 with the console's tokens (`s
 | `bun run bake:trees` | Bake each tree kind in leaf, bud, thinning, bare and snow (`props/tree-models.ts`) into `derived/trees_*.png` + `trees.json` |
 | `bun run bake:people` | Bake figures (`agents/people/figures.ts`) into `derived/people_*.png` + `people.json`; `dev/preview-people.ts out.png` draws a gallery |
 | `bun run dev/to-webp.ts` | The houses' bake's last step: their PNGs to lossless WebP, pixel for pixel, at half the bytes (needs `cwebp`: `brew install webp`) — the first frame waits for them, and a WebP needs no transcoder |
-| `bun run dev/to-ktx2.ts cars …` | Every other bake's last step: the sheets to KTX2 (UASTC, mipmaps, colour times alpha), which the GPU keeps as BC7 — a quarter of the memory, about 2.6× a WebP's bytes to fetch, not pixel for pixel (needs `basisu`: `brew install basis_universal`, and `dwebp`). Loaded by `render/ktx.ts` with the transcoder under `public/transcoders/ktx` (a copy of Pixi's, held to it by `ktx.test.ts`); the cars' 22 pages come a few at a time (`fetchPages` in `car-sheet.ts`) |
+| `bun run dev/to-ktx2.ts cars …` | Every other bake's last step: the sheets to KTX2 (UASTC, mipmaps, colour times alpha), which the GPU keeps as BC7 — a quarter of the memory, about 2.6× a WebP's bytes to fetch, not pixel for pixel (needs `basisu`: `brew install basis_universal`, and `dwebp`). Loaded by `render/ktx.ts` with the transcoder under `public/transcoders/ktx` (a copy of Pixi's, held to it by `ktx.test.ts`); the cars are baked a model to a page or two and a model's pages are fetched when it is first used (`Looks` in `car-sheet.ts`; `__carPages()` in dev) — a town of cars and buses wants 8–10 of the 26 |
 
 ## Project structure
 

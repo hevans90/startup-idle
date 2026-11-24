@@ -45,43 +45,69 @@ export const bakedCars = () =>
 /** Each page's picture once it is in, and the frames cut from it before it was. @see loadCarSprites */
 const pageNow: (TextureSource | undefined)[] = [];
 const waiting: (Texture[] | undefined)[] = [];
-let fetching = false;
+/** The pages' files, the ones asked for, and those still to be fetched, in the order asked. */
+let pageNames: readonly string[] = [];
+const asked = new Set<number>();
+const queue: number[] = [];
+let fetchingNow = 0;
 /** How many pages are fetched at a time. */
 const PAGES_AT_ONCE = 3;
-/** Fetch the pages, once, a few at a time; each handed to the frames waiting for it as it comes. */
-function fetchPages(names: readonly string[]): void {
-  if (fetching) return;
-  fetching = true;
-  let next = 0;
-  const one = async (): Promise<void> => {
-    const i = next++;
-    if (i >= names.length) return;
-    try {
-      const tex: Texture = await Assets.load({ src: `${BASE}/${names[i]}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } });
-      pageNow[i] = tex.source;
-      for (const t of waiting[i] ?? []) { t.source = tex.source; t.update(); }
-      waiting[i] = undefined;
-    } catch (e) { console.warn(`cars: page ${names[i]} would not load`, e); }
-    return one();
-  };
-  for (let k = 0; k < PAGES_AT_ONCE; k++) void one();
+/** Fetch the next of the pages asked for, a few at a time; each handed to the frames waiting for it as it comes. */
+function pump(): void {
+  while (fetchingNow < PAGES_AT_ONCE && queue.length) {
+    const i = queue.shift()!;
+    fetchingNow++;
+    void (async () => {
+      try {
+        const tex: Texture = await Assets.load({ src: `${BASE}/${pageNames[i]}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } });
+        pageNow[i] = tex.source;
+        for (const t of waiting[i] ?? []) { t.source = tex.source; t.update(); }
+        waiting[i] = undefined;
+      } catch (e) { console.warn(`cars: page ${pageNames[i]} would not load`, e); }
+      fetchingNow--;
+      pump();
+    })();
+  }
+}
+// (In development: `__carPages()` says which pages have been asked for, and which are in.)
+if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __carPages?: () => unknown }).__carPages = () => ({ of: pageNames.length, asked: [...asked].sort((a, b) => a - b), come: pageNow.map((p, i) => (p ? i : -1)).filter((i) => i >= 0) });
+/** Ask for pages: each once. */
+function wantPages(pages: readonly number[]): void {
+  for (const i of pages) if (!asked.has(i)) { asked.add(i); queue.push(i); }
+  pump();
+}
+
+/**
+ * The looks by model — and A MODEL'S PAGES ASKED FOR WHEN IT IS FIRST LOOKED UP, not before: the sheet is baked a
+ * model to a page or two, the works' plant and the buses are most of its twenty-six, and a town of cars was
+ * fetching every one of them. @see dev/bake-cars.ts
+ */
+class Looks extends Map<string, CarLook> {
+  readonly pagesOf = new Map<string, number[]>();
+  override get(id: string): CarLook | undefined {
+    const look = super.get(id);
+    if (look) { const pages = this.pagesOf.get(id); if (pages) { this.pagesOf.delete(id); wantPages(pages); } }
+    return look;
+  }
 }
 
 /** Load the sheet and cut its frames. */
 export async function loadCarSprites(): Promise<CarSprites> {
   const sheet: CarSheet = await Assets.load({ src: `${BASE}/cars.json`, loadParser: "loadJson" });
-  // ITS PAGES AS THEY COME, and not all of them before a vehicle is seen: there are twenty-two, tens of megabytes,
-  // and on a slow line the streets stood empty for half a minute waiting for the last. A frame is cut at once
-  // from an empty picture and given its page when that is in — a few at a time, in the sheet's order.
+  // ITS PAGES AS THEY ARE WANTED, and not all of them before a vehicle is seen: there are twenty-six, tens of
+  // megabytes. A frame is cut at once from an empty picture and given its page when that is in.
   const pages = sheet.pages.map((_p, i) => ({ get source() { return pageNow[i] ?? Texture.EMPTY.source; } }));
   /** A frame of a page: drawn from the page once it has come. */
   const frameOf = (page: number, rect: Rectangle) => {
     const t = new Texture({ source: pages[page].source, frame: rect, dynamic: true });
     if (!pageNow[page]) (waiting[page] ??= []).push(t);
+    used.add(page);
     return t;
   };
-  fetchPages(sheet.pages);
-  const looks = new Map<string, CarLook>();
+  pageNames = sheet.pages;
+  /** The pages the frames being cut have named so far: gathered a model at a time. */
+  let used = new Set<number>();
+  const looks = new Looks();
   /** A run of frames cut from the pages: each layer's texture and anchor, and its lamps. */
   const cut = (frames: CarFrame[]): CarPoses => {
     const paint: Texture[] = [], trim: Texture[] = [], paintAnchor: { x: number; y: number }[] = [], trimAnchor: typeof paintAnchor = [];
@@ -104,7 +130,9 @@ export async function loadCarSprites(): Promise<CarSprites> {
     return { paint, trim, paintAnchor, trimAnchor, lamps, over };
   };
   for (const [id, m] of Object.entries(sheet.models)) {
+    used = new Set<number>();
     looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, ...cut(m.frames), tilted: (m.tilted ?? []).map(cut) });
+    looks.pagesOf.set(id, [...used]);
   }
   return { res: sheet.res, headings: sheet.headings, pitches: sheet.pitches ?? [], pitchHeadings: sheet.pitchHeadings ?? 0, looks };
 }

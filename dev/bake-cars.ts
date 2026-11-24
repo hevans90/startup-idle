@@ -67,7 +67,7 @@ function crop(img: Image, ox: number, oy: number): { img: Image; ox: number; oy:
 const OVER = 2;
 const sheet: CarSheet = { res: CAR_RES, headings: CAR_HEADINGS, pitches: [...CAR_PITCHES], pitchHeadings: PITCH_HEADINGS, over: OVER, pages: [], models: {} };
 const t0 = performance.now();
-// Baked first and packed tallest first, so a shelf wastes little over its frames.
+// Baked first, then packed.
 // (`p`: which pitch, −1 level; `h`: which heading — of all of them level, of a road's four ways on a slope.)
 const poses = [
   ...Array.from({ length: CAR_HEADINGS }, (_, h) => ({ p: -1, h, heading: (h / CAR_HEADINGS) * Math.PI * 2, pitch: 0 })),
@@ -82,19 +82,28 @@ const baked = MODELS.flatMap((m) => poses.map(({ p, h, heading, pitch }) => {
 }));
 for (const m of MODELS) sheet.models[m.id] = { length: m.length, width: m.width, frames: [], tilted: CAR_PITCHES.map(() => []) };
 const frameOf = (b: { m: (typeof MODELS)[number]; p: number; h: number }) => (b.p < 0 ? sheet.models[b.m.id].frames : sheet.models[b.m.id].tilted![b.p]);
-for (const { m, p: pi, h, paint: p, trim: t } of baked.sort((a, b) => Math.max(b.paint.img.h, b.trim.img.h) - Math.max(a.paint.img.h, a.trim.img.h))) {
-  const at = place(p.img.w + GAP + t.img.w, Math.max(p.img.h, t.img.h));
-  blit(pages[at.page], p.img, at.x, at.y);
-  blit(pages[at.page], t.img, at.x + p.img.w + GAP, at.y);
-  frameOf({ m, p: pi, h })[h] = [at.page, at.x, at.y, p.img.w, p.img.h, p.ox, p.oy, t.img.w, t.img.h, t.ox, t.oy];
-}
-// THE LAMPS after them, each packed by itself: an indicator's runs the car's length, mostly clear.
-const lamps = baked.flatMap((b) => b.lamps.map((l, k) => ({ b, k, l }))).sort((a, b) => b.l.img.h - a.l.img.h);
+// A MODEL AT A TIME, in the order they are listed — the cars, their variants, the vans, the services, the buses,
+// the works' plant: each model's frames and lamps lie together on a page or two, so the game need fetch only the
+// pages of the vehicles a town has. Packed all together by height, every model was spread over nine to seventeen
+// of the twenty-two pages, and one hatchback wanted most of the sheet.
 const spots = new Map<string, number[]>();
-for (const { b, k, l } of lamps) {
-  const at = l.img.w ? place(l.img.w, l.img.h) : { page: 0, x: 0, y: 0 };
-  if (l.img.w) blit(pages[at.page], l.img, at.x, at.y);
-  spots.set(`${b.m.id}|${b.p}|${b.h}|${k}`, [at.page, at.x, at.y, l.img.w, l.img.h, l.ox, l.oy]);
+for (const model of MODELS) {
+  const mine = baked.filter((b) => b.m === model);
+  // (Tallest first within the model, so a shelf wastes little over its frames.)
+  for (const { m, p: pi, h, paint: p, trim: t } of [...mine].sort((a, b) => Math.max(b.paint.img.h, b.trim.img.h) - Math.max(a.paint.img.h, a.trim.img.h))) {
+    const at = place(p.img.w + GAP + t.img.w, Math.max(p.img.h, t.img.h));
+    blit(pages[at.page], p.img, at.x, at.y);
+    blit(pages[at.page], t.img, at.x + p.img.w + GAP, at.y);
+    frameOf({ m, p: pi, h })[h] = [at.page, at.x, at.y, p.img.w, p.img.h, p.ox, p.oy, t.img.w, t.img.h, t.ox, t.oy];
+  }
+  // THE LAMPS after them, each packed by itself: an indicator's runs the car's length, mostly clear.
+  const lamps = mine.flatMap((b) => b.lamps.map((l, k) => ({ b, k, l }))).sort((a, b) => b.l.img.h - a.l.img.h);
+  for (const { b, k, l } of lamps) {
+    // (One with nothing in it is on the page its vehicle is: a frame names no page it has no picture on.)
+    const at = l.img.w ? place(l.img.w, l.img.h) : { page: frameOf(b)[b.h][0], x: 0, y: 0 };
+    if (l.img.w) blit(pages[at.page], l.img, at.x, at.y);
+    spots.set(`${b.m.id}|${b.p}|${b.h}|${k}`, [at.page, at.x, at.y, l.img.w, l.img.h, l.ox, l.oy]);
+  }
 }
 for (const b of baked) {
   const frame = frameOf(b)[b.h];
