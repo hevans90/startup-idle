@@ -6,6 +6,7 @@
  */
 import { sceneryLoad } from "../../load-progress";
 import "../../render/ktx";
+import { keepOnGpuOnly } from "../../render/sheet-copies";
 import { Assets, Container, Rectangle, Sprite, Texture } from "pixi.js";
 
 import { CRANE_GAP, type CraneFrame, type CranesSheet } from "./crane-format";
@@ -20,6 +21,7 @@ export async function loadCraneSprites(): Promise<CraneSprites> {
   const sheet: CranesSheet = await Assets.load({ src: `${BASE}/cranes.json`, loadParser: "loadJson" });
   const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
     sceneryLoad(Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } }))));
+  for (const p of pages) keepOnGpuOnly(p.source);
   const cut = (f: CraneFrame): CraneLook => {
     const source = pages[f[0]].source, tex: Texture[] = [], anchor: CraneLook["anchor"] = [];
     let x = f[1];

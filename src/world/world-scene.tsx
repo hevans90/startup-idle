@@ -7,6 +7,7 @@
  */
 import { loadFrameDrawn, loadWaterReady } from "./load-progress";
 import { hookUniforms } from "./render/frame-uniforms";
+import { adoptSheets, shedSheetCopies } from "./render/sheet-copies";
 import { fouledHouses, pollutionOf } from "./water/pollution";
 import { POLLUTED } from "../game/pollution";
 import { weatherDry } from "./vegetation/stress";
@@ -732,7 +733,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // Reproduced by setting `renderer.gc.maxUnusedTime` low and calling
       // `renderer.gc.run()`. Everything here is destroyed explicitly when it
       // goes, so there is nothing for a collector to do. @see stopGarbageCollection
-      if (app?.renderer) { stopGarbageCollection(app.renderer); boundBatchBinds(app.renderer); hookUniforms(app.renderer); freeGraphicsContexts(); quietEmptyClears(); }
+      if (app?.renderer) { stopGarbageCollection(app.renderer); boundBatchBinds(app.renderer); hookUniforms(app.renderer); adoptSheets(app.renderer); freeGraphicsContexts(); quietEmptyClears(); }
       // And room for a big map's uniforms on WebGPU. @see roomForUniforms
       if (app?.renderer) roomForUniforms(app.renderer);
       const fl = water && !onGpu ? createWaterLayer(water.columns, bl, scale) : null;
@@ -4479,7 +4480,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       e();
     }
   };
-  useTick(() => { cullBandsRef.current?.(); groundCacheRef.current?.step(); if (useWorldStore.getState().drawnBands > 0) { sayLoad(); loadFrameDrawn(); } });
+  useTick(() => { shedSheetCopies(app.renderer); cullBandsRef.current?.(); groundCacheRef.current?.step(); if (useWorldStore.getState().drawnBands > 0) { sayLoad(); loadFrameDrawn(); } });
 
   // ROADS IN DETAIL CLOSE UP: the cells on screen painted at the resolution the
   // zoom shows them at, a few new ones a frame. Asked again only when the zoom

@@ -7,6 +7,7 @@
  */
 import { sceneryLoad } from "../load-progress";
 import "../render/ktx";
+import { keepOnGpuOnly } from "../render/sheet-copies";
 import { Assets, Rectangle, Texture } from "pixi.js";
 
 import type { LandmarkPiece, LandmarksSheet } from "./landmarks-format";
@@ -22,6 +23,7 @@ export async function loadLandmarkSprites(): Promise<LandmarkSprites> {
   const sheet: LandmarksSheet = await Assets.load({ src: `${BASE}/landmarks.json`, loadParser: "loadJson" });
   const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
     sceneryLoad(Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } }))));
+  for (const p of pages) keepOnGpuOnly(p.source);
   const cut = (t: LandmarkPiece): LandmarkTile => (t && t[3] > 0 ? { tex: new Texture({ source: pages[t[0]].source, frame: new Rectangle(t[1], t[2], t[3], t[4]) }), anchor: { x: t[5] / t[3], y: t[6] / t[4] } } : null);
   const marks: LandmarkSprites["marks"] = new Map();
   for (const [id, m] of Object.entries(sheet.marks)) {

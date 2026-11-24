@@ -1565,6 +1565,12 @@ export type RoadPainter = {
    */
   keep(lod: number, used: Set<string>): void;
   /**
+   * The look a texture of the map's own level holds now, if any. So {@link keep} can be told what the sprites SHOW
+   * while they are still being changed over (the snow coming: every look painted anew), and the looks already
+   * left behind give their places to the new ones — not a second set of pages filled beside the first.
+   */
+  keyOf(tex: Texture): string | undefined;
+  /**
    * Drop a closer level's pages and textures: destroyed, a few a second.
    * Nothing may still draw them. Whether there were any.
    */
@@ -1595,6 +1601,8 @@ const CELL_W = 132 + 2 * PAD, CELL_H = RAMP_PAD + 99 + PAD;
 export function createRoadPainter(renderer: Renderer): RoadPainter {
   type Set_ = { pages: Page[]; cache: Map<string, Slot> };
   const tiers = LOD_RES.map(() => ({ pages: [] as Page[], cache: new Map<string, Slot>(), idle: new Set<string>() }));
+  /** What each of the map's own level's textures holds. @see RoadPainter.keyOf */
+  const held = new Map<Texture, string>();
   let flushing = false;
   // PAGES LET GO, destroyed one a while: destroying a page is the GPU letting
   // go of a texture, and a level let go destroyed them all in one frame —
@@ -1841,8 +1849,10 @@ export function createRoadPainter(renderer: Renderer): RoadPainter {
       DETAIL = 0;
       if (!flushing) { flushing = true; queueMicrotask(flush); }
       tier.cache.set(key, slot);
+      if (lod === 0) held.set(slot.tex, key);
       return slot.tex;
     },
+    keyOf: (tex) => held.get(tex),
     peek(key, lod) {
       const hit = tiers[lod].cache.get(key);
       if (hit) tiers[lod].idle.delete(key);

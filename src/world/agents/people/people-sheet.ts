@@ -6,6 +6,7 @@
  * @see dev/bake-people.ts, town-render
  */
 import "../../render/ktx";
+import { keepOnGpuOnly } from "../../render/sheet-copies";
 import { Assets, Rectangle, Texture, type Sprite } from "pixi.js";
 
 import { headingIndex } from "../cars/car-sheet";
@@ -28,6 +29,7 @@ export async function loadPeopleSprites(): Promise<PeopleSprites> {
   const sheet: PeopleSheet = await Assets.load({ src: `${BASE}/people.json`, loadParser: "loadJson" });
   const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
     Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } })));
+  for (const p of pages) keepOnGpuOnly(p.source);
   const cut = (f: PersonFrame): PersonLook => {
     const source = pages[f[0]].source, tex: Texture[] = [], anchor: PersonLook["anchor"] = [];
     let x = f[1];

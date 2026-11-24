@@ -14,22 +14,23 @@ import type { RoadPainter } from "./road-paint";
 
 /** A painter that paints nothing: one texture a key, and the keys it was asked for. */
 function standIn() {
-  const made = new Map<string, Texture>(), snowOf = new Map<string, number>();
+  const made = new Map<string, Texture>(), snowOf = new Map<string, number>(), kept: Set<string>[] = [];
   const painter = {
     textureFor(key: string, _c: unknown, _r: boolean, _l = 0, snow = 0) { let t = made.get(key); if (!t) { made.set(key, (t = new Texture({ source: Texture.WHITE.source }))); snowOf.set(key, snow); } return t; },
     peek: (key: string) => made.get(key),
-    keep() {}, flush() {}, evict: () => false,
+    keep(_l: number, used: Set<string>) { kept.push(new Set(used)); }, flush() {}, evict: () => false,
+    keyOf: (t: Texture) => { for (const [k, v] of made) if (v === t) return k; return undefined; },
   } as unknown as RoadPainter;
-  return { painter, made, snowOf };
+  return { painter, made, snowOf, kept };
 }
 
 const setup = (w = 12, h = 12, paints = true) => {
   const grid = createGrid(w, h);
   fillTerrain(grid, 1);
   const bl = createBandLayer(w, h);
-  const { painter, made, snowOf } = standIn();
+  const { painter, made, snowOf, kept } = standIn();
   const pl = createPavedLayer(grid, 1, undefined, paints ? painter : null);
-  return { grid, bl, pl, made, snowOf };
+  return { grid, bl, pl, made, snowOf, kept };
 };
 
 describe("the paved overlay", () => {
@@ -103,5 +104,20 @@ describe("snow on the roads", () => {
     setPaved(grid, 4, 4, 1);
     buildPaved(pl, bl, grid);
     expect(() => snowPaved(pl, grid, 4)).not.toThrow();
+  });
+
+  test("while it is still coming, the looks no road shows any more are let go by what the roads show", () => {
+    const { grid, bl, pl, kept } = setup();
+    for (let y = 2; y <= 8; y++) setPaved(grid, 5, y, 1);
+    buildPaved(pl, bl, grid);
+    snowPaved(pl, grid, 3);
+    // No time to paint any: every road still shows its bare tile, and that is what is kept.
+    expect(lodPaved(pl, grid, 0, view, -1)).toBe(false);
+    const shown = kept.at(-1)!;
+    expect(shown.size).toBeGreaterThan(0);
+    expect([...shown].some((k) => k.includes("❄"))).toBe(false);
+    // All painted: what is kept is the snowy looks, the bare ones free to be painted over.
+    expect(lodPaved(pl, grid, 0, view, 1e9)).toBe(true);
+    expect([...kept.at(-1)!].every((k) => k.includes("❄"))).toBe(true);
   });
 });

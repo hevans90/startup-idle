@@ -6,6 +6,7 @@
  */
 import { sceneryLoad } from "../load-progress";
 import "../render/ktx";
+import { keepOnGpuOnly } from "../render/sheet-copies";
 import { Assets, Rectangle, Texture } from "pixi.js";
 
 import { BOAT_GAP, type BoatFrame, type BoatsSheet } from "./boats-format";
@@ -20,6 +21,7 @@ export async function loadBoatSprites(): Promise<BoatSprites> {
   const sheet: BoatsSheet = await Assets.load({ src: `${BASE}/boats.json`, loadParser: "loadJson" });
   const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
     sceneryLoad(Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } }))));
+  for (const p of pages) keepOnGpuOnly(p.source);
   const cut = (f: BoatFrame): BoatLook => {
     const source = pages[f[0]].source, tex: Texture[] = [], anchor: BoatLook["anchor"] = [];
     let x = f[1];

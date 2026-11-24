@@ -7,6 +7,7 @@
  */
 import { sceneryLoad } from "../load-progress";
 import "../render/ktx";
+import { keepOnGpuOnly } from "../render/sheet-copies";
 import { Assets, Container, Rectangle, Sprite, Texture } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../iso";
@@ -22,6 +23,7 @@ export async function loadPropSprites(): Promise<PropSprites> {
   const sheet: PropsSheet = await Assets.load({ src: `${BASE}/props.json`, loadParser: "loadJson" });
   const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
     sceneryLoad(Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } }))));
+  for (const p of pages) keepOnGpuOnly(p.source);
   const cut = (f: PropFrame): PropLook => {
     const source = pages[f[0]].source, tex: Texture[] = [], anchor: PropLook["anchor"] = [];
     let x = f[1];

@@ -8,6 +8,7 @@
  * slope. `?cars=boxes` keeps the old box cars. @see town-render
  */
 import "../../render/ktx";
+import { keepOnGpuOnly } from "../../render/sheet-copies";
 import { Assets, Matrix, Rectangle, Texture, type TextureSource } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
@@ -61,6 +62,7 @@ function pump(): void {
       try {
         const tex: Texture = await Assets.load({ src: `${BASE}/${pageNames[i]}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } });
         pageNow[i] = tex.source;
+        keepOnGpuOnly(tex.source);
         for (const t of waiting[i] ?? []) { t.source = tex.source; t.update(); }
         waiting[i] = undefined;
       } catch (e) { console.warn(`cars: page ${pageNames[i]} would not load`, e); }

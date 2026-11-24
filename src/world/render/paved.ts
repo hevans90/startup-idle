@@ -319,7 +319,21 @@ export function lodPaved(pl: PavedLayer, grid: Grid, want: number, view: View, b
       else pl.lodIdle[l] ??= performance.now();
     }
     pl.snowing = false;
-  } else pl.lodIdle[want] = undefined;
+  } else {
+    pl.lodIdle[want] = undefined;
+    // THE SNOW STILL COMING: the looks no sprite shows any more are let go as it goes, by what the sprites show
+    // and not what they are to — else every look is painted beside the one it replaces, and the level's pages,
+    // which are never given back, are twice what the town needs for good. @see RoadPainter.keyOf
+    if (pl.snowing) {
+      const shown = new Set<string>();
+      for (const s of pl.sprites) {
+        const k = s ? P.keyOf(s.texture) : undefined;
+        if (k) shown.add(k);
+      }
+      if (pl.ghost) for (const k of pl.ghost) shown.add(k);
+      P.keep(0, shown);
+    }
+  }
   // Painted this frame, shown this frame. @see RoadPainter.flush
   P.flush();
   return done;
