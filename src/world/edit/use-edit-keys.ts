@@ -7,26 +7,9 @@
 import { useEffect } from "react";
 
 import { useWorldStore } from "../../state/world.store";
-import type { BrushId, ToolId } from "./tools";
+import { GROUPS, TOOL_KEYS, pickGroup, pickTool } from "./toolbox";
+import type { BrushId } from "./tools";
 
-const TOOL_KEYS: Record<string, ToolId> = {
-  b: "paintTerrain", e: "erase", v: "inspect",
-  // r/f rather than +/−: the height tools are modes like the others, and the
-  // step size is a separate control
-  r: "raise", f: "lower",
-  p: "paintRoad", o: "eraseRoad",
-  // n/x, not g/d: g already toggles the grid overlay, and d is free but pairs
-  // badly with "demolish" sitting next to "draw"
-  n: "placeStructure", x: "demolish",
-  // j/k for fluid: adjacent, and everything nearer the obvious letters is taken
-  j: "pourWater", k: "drainWater",
-  // l/; carry on the same row: a spring and a drain are the running versions
-  // of the two beside them
-  l: "spring", ";": "sink", "'": "pipe",
-  // h for a boat: free, and next to the water row
-  h: "boat",
-  u: "slope", i: "unslope",
-};
 const BRUSH_KEYS: Record<string, BrushId> = { "1": "point", "2": "rect", "3": "line" };
 
 export function useEditKeys() {
@@ -50,7 +33,14 @@ export function useEditKeys() {
       if (ev.key === "Escape") { st.cancelStroke(); return; }
       if (meta) return;                       // leave other shortcuts alone
 
-      if (TOOL_KEYS[k]) { ev.preventDefault(); st.setTool(TOOL_KEYS[k]); return; }
+      if (ev.altKey) return;
+      // Shift and a number: that group of tools, as it was last left. (By the key and not what it types: ⇧2 is @ or ".)
+      if (ev.shiftKey && /^Digit\d$/.test(ev.code)) {
+        const g = GROUPS.find((x) => x.key === ev.code.slice(5));
+        if (g) { ev.preventDefault(); pickGroup(g.id); }
+        return;
+      }
+      if (TOOL_KEYS[k]) { ev.preventDefault(); pickTool(TOOL_KEYS[k]); return; }
       if (BRUSH_KEYS[ev.key]) { ev.preventDefault(); st.setBrush(BRUSH_KEYS[ev.key]); return; }
       // [ and ] step the brush size, the usual editor convention
       if (ev.key === "[") { ev.preventDefault(); st.setBrushRadius(Math.max(0, st.brushRadius - 1)); return; }

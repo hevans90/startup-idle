@@ -1,6 +1,6 @@
 /**
- * Editing chrome — tool, brush, material, history and file controls: the pieces the editor's sidebar is made of,
- * a tab's worth each, and what stands in its head. @see editor-sidebar
+ * Editing chrome — what the editor's View and Map panels are made of, and the map's figures that the tool bar
+ * shows beside the tools that change them. @see EditorPanels, ToolDock
  *
  * React, per the Pixi/React boundary: none of this lives in world space.
  */
@@ -8,37 +8,17 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/shallow";
 
 import {
-  DEFAULT_SIZE, getFleet, useWorldStore, VOID_MATERIAL,
+  DEFAULT_SIZE, getFleet, useWorldStore,
 } from "../../state/world.store";
 import { deserializeWorld, serializeWorld, toJSON } from "../io/serialize";
 import type { FixtureId } from "./fixtures";
 import { waterMetaRead } from "./water-meta";
-import type { BrushId, ToolId } from "../edit/tools";
-import { allStructureDefs } from "../structures/def";
-import { fluidChoices } from "../water/materials";
 import { housingCapacity } from "../../game/housing";
-import { buildCost } from "../../game/build-cost";
 import { giMs, giOptions, setGi, type GiOptions } from "../render/gi";
-
-/** A building's price for its tooltip, as play rules would charge it. @see buildCost */
-const priceOf = (defId: string) => {
-  const p = buildCost(defId);
-  return p ? ` · $${Math.round(p.toNumber()).toLocaleString()} in play` : " · not for sale in play";
-};
 
 const BTN = "cursor-pointer rounded border px-2 py-1 font-mono leading-none";
 const ON = "border-good bg-good/20 text-good";
 const OFF = "border-line bg-surface-1 text-fg-muted hover:bg-surface-2 hover:text-fg";
-const DEAD = "cursor-default rounded border px-2 py-1 font-mono leading-none border-line-quiet bg-surface-1 text-fg-faint";
-
-/** Every tool by what it is called here and the key that picks it: the header says which is in hand. @see use-edit-keys */
-const TOOL_NAMES: Partial<Record<ToolId, [string, string?]>> = {
-  paintTerrain: ["paint", "b"], erase: ["erase", "e"], inspect: ["look", "v"],
-  raise: ["raise", "r"], lower: ["lower", "f"], flatten: ["flatten"], smooth: ["smooth"],
-  paintRoad: ["pave", "p"], eraseRoad: ["unpave", "o"], slope: ["slope", "u"], unslope: ["unslope", "i"],
-  pourWater: ["pour", "j"], drainWater: ["drain", "k"], spring: ["spring", "l"], sink: ["sink", ";"], pipe: ["pipe", "'"], boat: ["boat", "h"],
-  placeStructure: ["build", "n"], demolish: ["demolish", "x"],
-};
 /** Awkward terrain on demand, so a picking bug is reproducible. */
 const FIXTURES: [FixtureId, string][] = [
   ["flat", "flat"],
@@ -74,22 +54,6 @@ const FIXTURES: [FixtureId, string][] = [
   // A dock basin with lit quays: for looking at the night, its windows and the water. @see buildWaterfront
   ["waterfront", "waterfront"],
 ];
-const STEPS: [number, string][] = [
-  [1, "×0.5"],
-  [2, "×1"],
-];
-// (Rect and line need a DRAG: a single click leaves anchor === head and covers one cell — said in the tooltip.)
-const BRUSHES: [BrushId, string, string][] = [
-  ["point", "point", "1"],
-  ["rect", "rect", "2 · drag"],
-  ["line", "line", "3 · drag"],
-];
-const SIZES: [number, string][] = [
-  [0, "1"],
-  [1, "3"],
-  [2, "5"],
-];
-
 /** A section's heading, and what follows it laid out in a wrapping row. */
 export function Section({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
   return (
@@ -103,17 +67,6 @@ export function Section({ title, note, children }: { title: string; note?: React
   );
 }
 export const Row = ({ children }: { children: ReactNode }) => <div className="mb-1 flex flex-wrap items-center gap-1">{children}</div>;
-/** A tool's button: its name, its key small beside it, lit while it is the one in hand. */
-function Tool({ id, title }: { id: ToolId; title?: string }) {
-  const tool = useWorldStore((s) => s.tool), setTool = useWorldStore((s) => s.setTool);
-  const [name, key] = TOOL_NAMES[id] ?? [id];
-  return (
-    <button type="button" onClick={() => setTool(id)} title={title} className={`${BTN} ${tool === id ? ON : OFF}`}>
-      {name}{key && <span className="ml-1.5 opacity-50">{key}</span>}
-    </button>
-  );
-}
-
 /**
  * The wet count and the volume, POLLED.
  *
@@ -122,7 +75,7 @@ function Tool({ id, title }: { id: ToolId; title?: string }) {
  * whole sidebar. As store state this re-rendered all of it sixty times a
  * second after a single pour. @see waterMetaSaw
  */
-function WaterMeta() {
+export function WaterMeta() {
   const [m, setM] = useState(waterMetaRead);
   useEffect(() => {
     const t = setInterval(() => setM(waterMetaRead()), 250);
@@ -136,11 +89,11 @@ function WaterMeta() {
  * map's revision and the undo stack — so every stroke rendered all of it again, in the frame the stroke had the
  * map to redraw in. These read them; the panel does not.
  */
-function Networks() {
+export function Networks() {
   const n = useWorldStore((s) => s.netComponents);
   return <>{n} network{n === 1 ? "" : "s"}</>;
 }
-function Sources() {
+export function Sources() {
   const grid = useWorldStore((s) => s.grid), revision = useWorldStore((s) => s.revision);
   // Counted off the grid rather than mirrored into the store: a spring is an
   // ordinary layer write, so `revision` already says when it can have changed.
@@ -165,7 +118,7 @@ function Sources() {
     </>
   );
 }
-function Beds() {
+export function Beds() {
   const grid = useWorldStore((s) => s.grid), revision = useWorldStore((s) => s.revision);
   // Beds on the map, which is the ceiling on hiring. Off the grid for the same
   // reason the springs are: an edit mutates in place, so `revision` is the only
@@ -174,23 +127,6 @@ function Beds() {
   const beds = useMemo(() => housingCapacity(grid), [grid, revision]);
   return <span title="beds: intern · vibe coder · 10x dev">{beds.intern} · {beds.vibe_coder} · {beds["10x_dev"]} beds</span>;
 }
-/** Undo and redo, for the panel's head: each says what it would undo when hovered. */
-export function History() {
-  const { undoDepth, redoDepth, undoName, redoName, doUndo, doRedo } = useWorldStore(useShallow((s) => ({
-    undoDepth: s.undoDepth, redoDepth: s.redoDepth, undoName: s.undoName, redoName: s.redoName, doUndo: s.doUndo, doRedo: s.doRedo,
-  })));
-  return (
-    <>
-      <button type="button" onClick={doUndo} disabled={!undoDepth} title={undoName ? `undo: ${undoName} (⌘Z)` : "undo (⌘Z)"} className={undoDepth ? `${BTN} ${OFF}` : DEAD}>
-        undo{undoDepth ? <span className="ml-1.5 opacity-50">{undoDepth}</span> : null}
-      </button>
-      <button type="button" onClick={doRedo} disabled={!redoDepth} title={redoName ? `redo: ${redoName} (⇧⌘Z)` : "redo (⇧⌘Z)"} className={redoDepth ? `${BTN} ${OFF}` : DEAD}>
-        redo{redoDepth ? <span className="ml-1.5 opacity-50">{redoDepth}</span> : null}
-      </button>
-    </>
-  );
-}
-
 /**
  * THE NIGHT'S LIGHT, a spike, switched here: on or off, each kind of light, what stops it, how far and how finely
  * it is worked out, how strong it is — and the night itself, held at midnight to look at it. @see render/gi
@@ -244,130 +180,6 @@ export function LightSection() {
         <span className="w-6 text-center font-mono">{o.gain.toFixed(1)}</span>
         <button type="button" onClick={() => put({ gain: +(o.gain + 0.1).toFixed(2) })} className={`${BTN} ${OFF}`}>+</button>
       </Row>
-    </Section>
-  );
-}
-
-/** THE TOOL IN HAND, for the panel's head: whichever tab is open, it says what a click on the map will do. */
-export function ToolInHand() {
-  const tool = useWorldStore((s) => s.tool);
-  const [name, key] = TOOL_NAMES[tool] ?? [tool];
-  return <span className="font-mono text-good">{name}{key && <span className="ml-1.5 opacity-50">{key}</span>}</span>;
-}
-
-/** The game's rules or the editor's: on, a building needs a road and has to be paid for. @see playing */
-export function PlayRules() {
-  const playing = useWorldStore((s) => s.playing), setPlaying = useWorldStore((s) => s.setPlaying);
-  return (
-    <button type="button" onClick={() => setPlaying(!playing)} title="play rules: housing needs road frontage and costs money; the night falls"
-      className={`${BTN} ${playing ? ON : OFF}`}>play rules</button>
-  );
-}
-
-/** THE BRUSH, for the panel's head: its shape and its size, which every painting tool shares. */
-export function BrushBar() {
-  const { brush, brushRadius, setBrush, setBrushRadius } = useWorldStore(useShallow((s) => ({ brush: s.brush, brushRadius: s.brushRadius, setBrush: s.setBrush, setBrushRadius: s.setBrushRadius })));
-  return (
-    <div className="flex items-center gap-1">
-      <span className="mr-1 text-[10px] tracking-widest text-fg-faint uppercase">brush</span>
-      {BRUSHES.map(([id, label, hint]) => (
-        <button key={id} type="button" title={hint} onClick={() => setBrush(id)} className={`${BTN} ${brush === id ? ON : OFF}`}>{label}</button>
-      ))}
-      <span className="mx-0.5 text-fg-faint">·</span>
-      {SIZES.map(([r, label]) => (
-        <button key={r} type="button" title={`${label}×${label}`} onClick={() => setBrushRadius(r)} className={`${BTN} ${brushRadius === r ? ON : OFF}`}>{label}</button>
-      ))}
-    </div>
-  );
-}
-
-/** LAND: what it is made of, and how high it stands. */
-export function LandTab() {
-  const { material, palette, heightStep, setMaterial, setHeightStep } = useWorldStore(useShallow((s) => ({
-    material: s.material, palette: s.palette, heightStep: s.heightStep, setMaterial: s.setMaterial, setHeightStep: s.setHeightStep,
-  })));
-  return (
-    <>
-      <Section title="ground">
-        <Row><Tool id="paintTerrain" /><Tool id="erase" /><Tool id="inspect" /></Row>
-        <div className="grid grid-cols-3 gap-1">
-          {palette.map((frame, i) =>
-            i === VOID_MATERIAL ? null : (
-              <button key={i} type="button" onClick={() => setMaterial(i)}
-                className={`${BTN} truncate ${material === i ? ON : OFF}`}>
-                {frame?.replace(/^[A-Za-z]+_/, "").replace(/\.png$/, "") ?? "?"}
-              </button>
-            ),
-          )}
-        </div>
-      </Section>
-      <Section title="height">
-        <Row><Tool id="raise" /><Tool id="lower" /><Tool id="flatten" /><Tool id="smooth" /></Row>
-        <Row>
-          <span className="mr-1 text-fg-faint">step</span>
-          {STEPS.map(([n, label]) => (
-            <button key={n} type="button" onClick={() => setHeightStep(n)} className={`${BTN} ${heightStep === n ? ON : OFF}`}>{label}</button>
-          ))}
-        </Row>
-      </Section>
-    </>
-  );
-}
-
-/** ROADS: laid, taken up, and sloped. */
-export function RoadsTab() {
-  return (
-    <Section title="roads" note={<Networks />}>
-      <Row><Tool id="paintRoad" /><Tool id="eraseRoad" /></Row>
-      <Row><Tool id="slope" /><Tool id="unslope" /></Row>
-    </Section>
-  );
-}
-
-/** WATER: poured and drained, its springs and sinks, its pipes and boats, and what it is. */
-export function WaterTab() {
-  const { fluidMaterial, setFluidMaterial, openEdge, setOpenEdge } = useWorldStore(useShallow((s) => ({
-    fluidMaterial: s.fluidMaterial, setFluidMaterial: s.setFluidMaterial, openEdge: s.openEdge, setOpenEdge: s.setOpenEdge,
-  })));
-  return (
-    <>
-      <Section title="water" note={<><WaterMeta /><Sources /></>}>
-        <Row><Tool id="pourWater" /><Tool id="drainWater" /></Row>
-        <Row><Tool id="spring" /><Tool id="sink" /></Row>
-        <Row>
-          <Tool id="pipe" title="a water main: drag from water to a building that drinks" />
-          <Tool id="boat" title="click on water to put a boat on it; click a boat to take it off" />
-        </Row>
-      </Section>
-      <Section title="fluid">
-        <Row>
-          {fluidChoices().map(({ index, material }: { index: number; material: { name: string } }) => (
-            <button key={index} type="button" onClick={() => setFluidMaterial(index)} className={`${BTN} ${fluidMaterial === index ? ON : OFF}`}>{material.name}</button>
-          ))}
-        </Row>
-      </Section>
-      <Section title="map edge">
-        <Row>
-          <button type="button" onClick={() => setOpenEdge(!openEdge)} title="whether water runs off the edge of the map" className={`${BTN} ${openEdge ? ON : OFF}`}>open edge</button>
-        </Row>
-      </Section>
-    </>
-  );
-}
-
-/** BUILD: what stands on the map, put up and taken down. */
-export function BuildTab() {
-  const { structureDefId, setStructureDef } = useWorldStore(useShallow((s) => ({ structureDefId: s.structureDefId, setStructureDef: s.setStructureDef })));
-  return (
-    <Section title="buildings" note={<Beds />}>
-      <Row><Tool id="placeStructure" /><Tool id="demolish" /></Row>
-      <div className="grid grid-cols-2 gap-1">
-        {allStructureDefs().map((d) => (
-          <button key={d.id} type="button" onClick={() => setStructureDef(d.id)}
-            title={`${d.name} · ${d.footprint.w}×${d.footprint.h} · ${d.render.kind}${priceOf(d.id)}`}
-            className={`${BTN} truncate text-left ${structureDefId === d.id ? ON : OFF}`}>{d.name}</button>
-        ))}
-      </div>
     </Section>
   );
 }

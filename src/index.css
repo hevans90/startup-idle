@@ -158,6 +158,20 @@ html.ui-calm .card-lift:hover {
   transition: none;
 }
 
+/* THE EDITOR'S TOOL BAR: its tray and its panels arriving, and a tool's bubble. @see ToolDock */
+@keyframes dock-tray-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes dock-panel-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: none; }
+}
+.dock-tray-in { animation: dock-tray-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.dock-panel-in { animation: dock-panel-in 0.18s ease-out both; }
+html.ui-calm .dock-tray-in, html.ui-calm .dock-panel-in { animation: none; }
+.dock-scroll { scrollbar-width: thin; scrollbar-color: var(--ui-line) transparent; }
+
 /* THE NEGOTIATION. @see NegotiationScreen */
 /* A line of the talk, arriving. */
 @keyframes talk-line-in {

@@ -2,23 +2,24 @@
  * World v2 editor — the `?world=1` route.
  *
  * Layout follows the plan's Pixi/React boundary: world space is Pixi, chrome is
- * React. The control column is a SIBLING of the canvas wrapper rather than a
+ * React. The tool bar and the panels are SIBLINGS of the canvas wrapper, standing over it, rather than a
  * child, because `useDisableDOMZoom` preventDefaults wheel on the wrapper
  * without checking the target, which would kill scrolling in any panel nested
  * inside it.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useResizeToWrapper } from "../hooks/use-resize-to-wrapper";
 import { useWorldStore } from "../state/world.store";
 import { useFoundWorld, WorldCanvas } from "./world-canvas";
 import { BuildingLabels } from "./play/building-labels";
 import { PortIncome } from "./play/port-income";
 import { CellReadout } from "./debug/cell-readout";
-import { EditorSidebar } from "./debug/editor-sidebar";
+import { EditorPanels, type PanelId } from "./debug/editor-panels";
 import "./debug/expose-store";
 import { GpuCheckHud } from "./debug/gpu-check-hud";
 import { GpuWaterToggle } from "./debug/gpu-water-toggle";
 import { PerfHud } from "./debug/perf-hud";
+import { ToolDock } from "./debug/tool-dock";
 import { useEditKeys } from "./edit/use-edit-keys";
 
 /** @see GpuCheckHud — six comparisons and a copy of the field per run. */
@@ -36,8 +37,10 @@ export function WorldEditor() {
   const setTool = useWorldStore((s) => s.setTool);
   useEffect(() => { setTool("inspect"); }, [setTool]);
 
+  const [panel, setPanel] = useState<PanelId | null>(null);
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-surface-0 text-fg">
+    <div className="relative flex h-screen w-screen overflow-hidden bg-surface-0 text-fg">
       {/* canvas — min-width so the flex child can never collapse to zero,
           which is the failure mode that makes v1's map-harness look broken */}
       <div ref={setRef} className="relative min-h-0 min-w-[420px] flex-1">
@@ -60,8 +63,9 @@ export function WorldEditor() {
         {overlays.readout && <CellReadout />}
       </div>
 
-      {/* chrome — sibling of the wrapper, so wheel events are its own. @see EditorSidebar */}
-      <EditorSidebar />
+      {/* chrome — siblings of the wrapper, so wheel events are their own. */}
+      <EditorPanels open={panel} close={() => setPanel(null)} />
+      <ToolDock panel={panel} setPanel={setPanel} />
     </div>
   );
 }
