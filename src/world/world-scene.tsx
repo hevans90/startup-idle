@@ -78,6 +78,7 @@ import { harvestPay } from "../game/vegetation-cost";
 import { groundSeason, yearPart, YEAR_SECONDS } from "./calendar";
 import { groundAt, weatherAt, type Lying } from "./weather";
 import { catchment, stepRain, type Catchment } from "./water/rain";
+import { LOOK_SECONDS, SOAK_SECONDS, createStranded, findStranded, soakStranded, strandedAt, type Stranded } from "./water/stranded";
 import { useCalendarStore } from "../state/calendar.store";
 import { CLIFF, drawnSampler } from "./render/drawn";
 import { groundMode } from "./render/ground-mode";
@@ -517,6 +518,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const wetAtRef = useRef(-Infinity);
   // THE WEATHER'S RUNOFF: where the land drains to, how lately, and the calendar's time when it last poured. @see water/rain
   const rainRef = useRef<{ c: Catchment | null; at: number; cAt: number; rev: number; t: number; lying: Lying }>({ c: null, at: -Infinity, cAt: -Infinity, rev: -1, t: NaN, lying: { snow: 0, wet: 0, melt: 0, frost: 0 } });
+  /** The water stranded on the land, soaking away: what it was found on, and how lately looked for and soaked, ms. @see water/stranded */
+  const strandedRef = useRef<{ s: Stranded; of: Grid; lookAt: number; soakAt: number } | null>(null);
   /** The traffic lights at the lights junctions. @see createSignals */
   const signalsRef = useRef<Signals | null>(null);
   /** The stops the bus routes call at, as last painted on the road. @see bayMarksOf */
@@ -4044,6 +4047,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         shopsRef.current.sync(useWorldStore.getState().grid, useWorldStore.getState().revision, scale);
         shopsRef.current.tick(now / 1000);
       }
+      // STRANDED WATER soaking away: not while a flood's own is (it has its own pace), nor in a drought, when the
+      // rivers are cut off from their heads and are rivers still. @see water/stranded
+      {
+        const st = useWorldStore.getState(), field = st.getWaterField();
+        if (field && st.grid.w * st.grid.h) {
+          let S = strandedRef.current;
+          if (!S || S.of.w !== st.grid.w || S.of.h !== st.grid.h) S = strandedRef.current = { s: createStranded(st.grid), of: st.grid, lookAt: now, soakAt: now };
+          const held = !!floodBase.current || (field.inflowRise ?? 0) < 0;
+          if (held) { S.s.cells.length = S.s.rates.length = 0; S.s.age.fill(0); S.lookAt = S.soakAt = now; }
+          else if (now - S.soakAt >= SOAK_SECONDS * 1000) {
+            // (A tab come back to soaks one soaking, not the hour it was away.)
+            soakStranded(S.s, field, Math.min(1, (now - S.soakAt) / 1000));
+            S.soakAt = now;
+            if (now - S.lookAt >= LOOK_SECONDS * 1000) { S.lookAt = now; const e = section("tick: stranded water"); findStranded(S.s, field, st.grid); e(); }
+          }
+        }
+      }
       // WHAT GROWS, through the calendar's years, where the ground is one surface: and the forest floor after it. @see vegetation/step
       if (groundMode() === "smooth") {
         const st = useWorldStore.getState(), V = st.grid.veg;
@@ -4059,7 +4079,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // (Again when the ground or the water has changed — the water at most every ten seconds.)
           const key = st.grid.rev * 1e6 + V.rev;
           if (!R.c || (R.rev !== key && (Math.floor(R.rev / 1e6) !== st.grid.rev || now - R.cAt > 10_000))) {
-            R.c = catchment(st.grid, (i) => st.grid.pool[i] > 0 || V.wet[i] === 1);
+            R.c = catchment(st.grid, (i) => (st.grid.pool[i] > 0 || V.wet[i] === 1) && !(strandedRef.current && strandedAt(strandedRef.current.s, i)));
             R.rev = key; R.cAt = now;
           }
           // (Time away is not poured: the water does not run while nobody is here either.)
