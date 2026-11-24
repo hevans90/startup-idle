@@ -4055,7 +4055,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           let S = strandedRef.current;
           if (!S || S.of.w !== st.grid.w || S.of.h !== st.grid.h) S = strandedRef.current = { s: createStranded(st.grid), of: st.grid, lookAt: now, soakAt: now };
           const held = !!floodBase.current || (field.inflowRise ?? 0) < 0;
-          if (held) { S.s.cells.length = S.s.rates.length = 0; S.s.age.fill(0); S.lookAt = S.soakAt = now; }
+          if (held) { S.s.cells.length = S.s.rates.length = 0; S.s.age.fill(0); S.s.deckAge.fill(0); S.lookAt = S.soakAt = now; }
           else if (now - S.soakAt >= SOAK_SECONDS * 1000) {
             // (A tab come back to soaks one soaking, not the hour it was away.)
             soakStranded(S.s, field, Math.min(1, (now - S.soakAt) / 1000));

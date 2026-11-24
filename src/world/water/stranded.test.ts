@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createGrid, fillTerrain, idx, setPaved, type Grid } from "../grid";
+import { createGrid, fillTerrain, idx, setDeck, setHeight, setPaved, type Grid } from "../grid";
 import { createWaterField, depthAt, pourAt, stepWater, type WaterField } from "./field";
 import { fluidIndexOf } from "./materials";
 import { createStranded, fillLevels, findStranded, LOOK_SECONDS, soakStranded, strandedAt, type Stranded } from "./stranded";
@@ -104,5 +104,64 @@ describe("stranded water", () => {
     pourAt(f, 12, 12, 6, water);
     for (let t = 0; t < 60 * 60; t++) { stepWater(f, 1 / 60); if (t % 15 === 0) soakStranded(s, f, 0.25); if (t % 120 === 0) findStranded(s, f, g); }
     expect(volume(f)).toBeLessThan(0.01);
+  });
+
+  const fill = (f: WaterField, x: number, y: number, d: number) => {
+    for (let k = 0; k < 16; k++) { const i = (y * 4 + (k >> 2)) * f.columns.nx + x * 4 + (k & 3); f.columns.depth[i] = d; f.columns.material[i] = water; }
+  };
+  /** A channel along y, banks at 10, with a deck over it at `x` 6–9, y 7–8. */
+  const span = (bed: number) => {
+    const g = flat();
+    for (let y = 0; y < 16; y++) for (let x = 6; x <= 9; x++) setHeight(g, x, y, bed);
+    for (let y = 7; y <= 8; y++) for (let x = 6; x <= 9; x++) setDeck(g, x, y, 1, 10);
+    const f = createWaterField(g);
+    return { g, f, s: createStranded(g), deck: () => { let v = 0; for (let k = f.columns.cells; k < f.columns.depth.length; k++) v += f.columns.depth[k]; return v; } };
+  };
+
+  test("water on a deck drains off it, kerbs or no, and the river under it stays", () => {
+    const { g, f, s, deck } = span(0);
+    g.inflow[idx(g, 7, 0)] = 1;
+    for (let y = 0; y < 16; y++) for (let x = 6; x <= 9; x++) fill(f, x, y, 3);
+    const river = volume(f);
+    pourAt(f, 7, 7, 0.8, water); pourAt(f, 8, 8, 0.8, fluidIndexOf("slop"));
+    expect(deck()).toBeGreaterThan(0);
+    looks(s, f, g, 2);
+    const before = deck();
+    looks(s, f, g, 12);
+    // (The slop is left.)
+    expect(deck()).toBeLessThan(before);
+    expect(deck()).toBeCloseTo(0.8 * 16, 3);
+    expect(volume(f) - deck()).toBeCloseTo(river, 2);
+  });
+
+  test("but not where a flood stands over the deck", () => {
+    const { g, f, s, deck } = span(0);
+    g.inflow[idx(g, 7, 0)] = 1;
+    for (let y = 0; y < 16; y++) if (y !== 7 && y !== 8) for (let x = 6; x <= 9; x++) fill(f, x, y, 12);
+    for (let x = 6; x <= 9; x++) pourAt(f, x, 7, 1, water);
+    const before = deck();
+    looks(s, f, g, 12);
+    expect(deck()).toBe(before);
+  });
+
+  test("nor is the road at the end of a deck fed by the river that runs under it", () => {
+    const { g, f, s, deck } = span(0);
+    g.inflow[idx(g, 7, 0)] = 1;
+    for (let y = 0; y < 16; y++) for (let x = 7; x <= 8; x++) fill(f, x, y, 3);
+    for (let x = 4; x <= 11; x++) { if (x < 6 || x > 9) { setPaved(g, x, 7, 1); fill(f, x, 7, 0.5); } else pourAt(f, x, 7, 0.5, water); }
+    looks(s, f, g, 16);
+    expect(deck()).toBe(0);
+    expect(depthAt(f, 4, 7)).toBeLessThan(0.3);
+    expect(depthAt(f, 11, 7)).toBeLessThan(0.3);
+  });
+
+  test("a spring on one bank feeds across the deck to the other", () => {
+    const { g, f, s, deck } = span(0);
+    g.source[idx(g, 2, 7)] = 8;
+    for (let x = 2; x <= 13; x++) { if (x < 6 || x > 9) fill(f, x, 7, 0.5); else pourAt(f, x, 7, 0.5, water); }
+    const before = deck();
+    looks(s, f, g, 12);
+    expect(deck()).toBe(before);
+    expect(depthAt(f, 13, 7)).toBe(0.5);
   });
 });
