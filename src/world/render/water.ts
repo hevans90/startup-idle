@@ -49,6 +49,20 @@ import type { BandLayer } from "./bands";
  * with, every one of them on raised ground.
  */
 export const SHOW_DEPTH = 0.14;
+/**
+ * How deep the water at a LIP has to be for anything to be drawn falling from it, and to be drawn falling in full.
+ *
+ * A fall is drawn whole however thin the water going over, so the last of a drained pool — a film a few hundredths
+ * deep, next to nothing on the level — hung a full fall down the face with nothing above it. Measured over the
+ * fixtures: a film left behind is under 0.05, and what can be seen running up to a lip is mostly over 0.07. @see fedOf
+ */
+export const FED_FROM = 0.04;
+export const FED_FULL = 0.1;
+/** How much of a fall the water at its lip feeds: 0 from a film, 1 from running water. */
+export function fedOf(d: number): number {
+  const t = Math.min(1, Math.max(0, (d - FED_FROM) / (FED_FULL - FED_FROM)));
+  return t * t * (3 - 2 * t);
+}
 /** Depth at which the surface is as opaque as it gets. */
 export const OPAQUE_DEPTH = 4;
 /**
@@ -525,6 +539,8 @@ export const DRAWDOWN = 0.55;
  * leaving, not because it is ending, and faded as though it were ending the
  * one place a sheet has to be continuous goes translucent.
  *
+ * ONLY SO FAR AS THE WATER IS RUNNING: a film left behind is ending, and fades like any other. @see fedOf
+ *
  * A FLOOR and not an override, so nothing deeper is touched, and the only
  * thing it changes past the fade is the opacity ramp's own term — by at most
  * `SHOW_DEPTH / OPAQUE_DEPTH`, which is six thousandths of an alpha.
@@ -536,7 +552,7 @@ export function shownDepth(columns: ColumnField, i: number, d: number): number {
     columns.nx, columns.ny, i % columns.cells, columns.ground, columns.depth,
     columns.params.dryDepth, FALL_MIN, a * columns.cells, columns.roof,
   );
-  const floor = SHOW_DEPTH * brink;
+  const floor = SHOW_DEPTH * brink * fedOf(d);
   return d > floor ? d : floor;
 }
 

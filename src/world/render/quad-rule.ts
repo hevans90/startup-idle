@@ -33,6 +33,7 @@
 import { FALL_STOP } from "../../fluid/falls";
 import { OPEN_SKY } from "../../fluid/slots";
 import type { Dialect } from "./corner-rule";
+import { FED_FROM, FED_FULL } from "./water";
 import { PIECE_STEP } from "./water-piece";
 
 /** How many columns up a face a lip can be and still pour down to this one. @see pouredAt */
@@ -145,21 +146,38 @@ ${wgsl
 }
 
 ${wgsl
-    ? "fn pouredFrom(cx: i32, cy: i32, dx: i32, dy: i32, a: i32) -> bool {"
-    : "bool pouredFrom(int cx, int cy, int dx, int dy, int a) {"}
+    ? "fn fedOf(d: f32) -> f32 {"
+    : "float fedOf(float d) {"}
+  // How much of a fall the water at its lip feeds. The twin of fedOf in water.ts.
+  return smoothstep(${FED_FROM}, ${FED_FULL}, d);
+}
+
+${wgsl
+    ? "fn pouredFrom(cx: i32, cy: i32, dx: i32, dy: i32, a: i32) -> f32 {"
+    : "float pouredFrom(int cx, int cy, int dx, int dy, int a) {"}
   // UP THE FACE from (cx, cy), against the way the water runs (dx, dy): every step a steep one, to a wet LIP — a
-  // column the brink rule says water is leaving over a drop. @see pouredAt
+  // column the brink rule says water is leaving over a drop — and HOW MUCH, off the water there: a film feeds
+  // nothing. @see pouredAt, fedOf
+  ${wgsl ? "var" : "float"} most = 0.0;
   ${wgsl ? "var" : "int"} px = cx;
   ${wgsl ? "var" : "int"} py = cy;
   for (${wgsl ? "var" : "int"} k = 0; k < ${POUR_REACH}; k++) {
     ${INT} ux = px - dx;
     ${INT} uy = py - dy;
-    if (!inside(ux, uy)) { return false; }
-    if (groundAt(ux, uy, a) - groundAt(px, py, a) < ${POUR_STEEP}) { return false; }
-    if (wet(depthAt(ux, uy, a)) && atBrink(ux, uy, a) > 0.01) { return true; }
+    if (!inside(ux, uy)) { return most; }
+    if (groundAt(ux, uy, a) - groundAt(px, py, a) < ${POUR_STEEP}) { return most; }
+    // (The deepest of the lip and the two columns behind it: water quickens as it goes over, and a sheet that can be
+    // seen running up to a lip is thinner than that at it.)
+    if (wet(depthAt(ux, uy, a)) && atBrink(ux, uy, a) > 0.01) {
+      ${wgsl ? "var" : "float"} deep = depthAt(ux, uy, a);
+      if (inside(ux - dx, uy - dy)) { deep = max(deep, depthAt(ux - dx, uy - dy, a)); }
+      if (inside(ux - dx * 2, uy - dy * 2)) { deep = max(deep, depthAt(ux - dx * 2, uy - dy * 2, a)); }
+      most = max(most, fedOf(deep));
+    }
+    if (most >= 1.0) { return most; }
     px = ux; py = uy;
   }
-  return false;
+  return most;
 }
 
 ${wgsl
@@ -171,8 +189,8 @@ ${wgsl
   // lip. A fall is drawn as the surface carried down the face instead, shaded as falling water. Ground storey only.
   // @see water-gpu's fieldCorner
   if (a != 0 || !skirtOn()) { return false; }
-  return pouredFrom(cx, cy, 1, 0, a) || pouredFrom(cx, cy, -1, 0, a)
-    || pouredFrom(cx, cy, 0, 1, a) || pouredFrom(cx, cy, 0, -1, a);
+  return pouredFrom(cx, cy, 1, 0, a) > 0.0 || pouredFrom(cx, cy, -1, 0, a) > 0.0
+    || pouredFrom(cx, cy, 0, 1, a) > 0.0 || pouredFrom(cx, cy, 0, -1, a) > 0.0;
 }
 
 ${wgsl

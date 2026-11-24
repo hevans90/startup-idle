@@ -746,7 +746,7 @@ fn cornerExtras(vx: i32, vy: i32, mine: i32) -> vec4<f32> {
       if (bitAt(mine, k * slots() + a) == 0) { continue; }
       // A lip is not a shoreline — see corner-rule's atBrink, and water.ts's
       // shownDepth, which is this.
-      d = d + max(dd, ${SHOW_DEPTH} * atBrink(cx, cy, a));
+      d = d + max(dd, ${SHOW_DEPTH} * atBrink(cx, cy, a) * fedOf(dd));
       // The wash is the WORLD'S, one per column: a tile carries one resting
       // pattern whatever is built over it. The foam is this SLOT'S, because a
       // deck's white is carried by the deck's own current. @see stepFoam
@@ -937,7 +937,7 @@ fn sidePart(cx: i32, cy: i32, axis: i32, corner: i32, fx0: f32, fy0: f32, step: 
   // and reads worse, because it puts the ground's colour through the top half
   // of every edge.
   // Floored at a brink, the same as the surface — see corner-rule's atBrink.
-  let sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy, a));
+  let sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy, a) * fedOf(d));
   let body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, sd / ${OPAQUE_DEPTH}.0)) * min(1.0, sd / ${SHOW_DEPTH});
   // HANDED OVER TO THE SHEET AT A LIP — see water.ts's sideFace, which is
   // this. A face is a pane of water, and a pane is only one of the three ways
@@ -1133,19 +1133,20 @@ fn fieldCorner(vx: i32, vy: i32, cx: i32, cy: i32, a: i32) -> FieldCorner {
   if (rise > ${POUR_FACE}) {
     let gx = gq[1] + gq[3] - gq[0] - gq[2];
     let gy = gq[2] + gq[3] - gq[0] - gq[1];
-    var pour = false;
+    var pour = 0.0;
     if (abs(gx) >= abs(gy)) {
       let dx = select(1, -1, gx > 0.0);
       let lx = select(vx, vx - 1, gx > 0.0);
-      pour = pouredFrom(lx, vy - 1, dx, 0, a) || pouredFrom(lx, vy, dx, 0, a);
+      pour = max(pouredFrom(lx, vy - 1, dx, 0, a), pouredFrom(lx, vy, dx, 0, a));
     } else {
       let dy = select(1, -1, gy > 0.0);
       let ly = select(vy, vy - 1, gy > 0.0);
-      pour = pouredFrom(vx - 1, ly, 0, dy, a) || pouredFrom(vx, ly, 0, dy, a);
+      pour = max(pouredFrom(vx - 1, ly, 0, dy, a), pouredFrom(vx, ly, 0, dy, a));
     }
-    if (pour && a == 0) {
-      o.d = max(o.d, ${POUR_FILM});
-      o.cover = 1.0 + ${POUR_FLAG};
+    // (So far as the lip feeds it: as that runs dry the pour thins, and its edge draws in, to nothing.)
+    if (pour > 0.0 && a == 0) {
+      o.d = max(o.d, ${POUR_FILM} * pour);
+      o.cover = mix(o.cover, 1.0, pour) + ${POUR_FLAG} * pour;
     }
   }
   return o;
@@ -1338,11 +1339,14 @@ fn stepLook(cx: i32, cy: i32, f: FieldFace, a: i32) -> StepLook {
   var o: StepLook;
   let mat = i32(textureLoad(uMaterial, vec2<i32>(cx, slotRow(cy, a)), 0).r * 255.0 + 0.5);
   let tint = fouled(textureLoad(uTint, vec2<i32>(0, mat), 0).rgb, cx, cy, a);
-  let pour = smoothstep(0.0, 0.05, f.fall);
-  o.rgb = mix(tint * vec3<f32>(0.2, 0.3, 0.42), tint, pour);
-  o.alpha = mix(0.86, 0.5, pour);
+  let fed = fedOf(f.d);
+  let over = smoothstep(0.0, 0.05, f.fall);
+  let pour = over * fed;
+  o.rgb = mix(tint * vec3<f32>(0.2, 0.3, 0.42), tint, over);
+  // (A film at a lip is not the body of any water, and hangs nothing: it goes to nothing with what feeds it.)
+  o.alpha = mix(0.86, 0.5, over) * mix(1.0, fed, over);
   o.cover = 1.0 + ${POUR_FLAG} * pour;
-  o.look = select(vec2<f32>(-1.0, 0.0), vec2<f32>(max(f.d, ${POUR_FILM}), f.foam), pour > 0.0);
+  o.look = select(vec2<f32>(-1.0, 0.0), vec2<f32>(max(f.d, ${POUR_FILM} * fed) * mix(1.0, fed, over), f.foam), over > 0.0);
   return o;
 }
 
@@ -2255,7 +2259,7 @@ vec4 cornerExtras(int vx, int vy, int mine) {
       if (bitAt(mine, k * slots() + a) == 0) { continue; }
       // A lip is not a shoreline — see corner-rule's atBrink, and water.ts's
       // shownDepth, which is this.
-      d += max(dd, ${SHOW_DEPTH} * atBrink(cx, cy, a));
+      d += max(dd, ${SHOW_DEPTH} * atBrink(cx, cy, a) * fedOf(dd));
       wash += texelFetch(uWash, ivec2(cx, cy), 0).r;
       foam += texelFetch(uFoam, ivec2(cx, slotRow(cy, a)), 0).r;
       vel += flowAt(cx, cy, dd, a);
@@ -2371,7 +2375,7 @@ Part sidePart(int cx, int cy, int axis, int corner, float fx0, float fy0, float 
   p.colour = fouled(aerated(mat, 0.08 + pace(cx, cy, d, a) * 0.14), cx, cy, a);
   // The same ramp the surface uses — see the WGSL twin.
   // Floored at a brink, the same as the surface — see the WGSL twin.
-  float sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy, a));
+  float sd = max(d, ${SHOW_DEPTH} * atBrink(cx, cy, a) * fedOf(d));
   float body = (${SOLID_FLOOR} + ${SOLID_RANGE} * min(1.0, sd / ${OPAQUE_DEPTH}.0)) * min(1.0, sd / ${SHOW_DEPTH});
   // HANDED OVER TO THE SHEET AT A LIP — see the WGSL twin.
   float beside = wetJ ? bedJ + depthAt(jx, jy, a) : bedJ;

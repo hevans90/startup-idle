@@ -64,7 +64,7 @@
  * is supposed to produce.
  */
 import { BRINK_REACH } from "../../world/render/corner-rule";
-import { DRAWDOWN, SHADES, SHOW_DEPTH } from "../../world/render/water";
+import { DRAWDOWN, FED_FROM, FED_FULL, SHADES, SHOW_DEPTH } from "../../world/render/water";
 import { DECK_THROW, LIP_BIAS, NAPPE_STEPS, sheetRuleSource } from "../../world/render/nappe";
 import { FALL_GRAVITY } from "../falls";
 import { groundMode } from "../../world/render/ground-mode";
@@ -183,7 +183,7 @@ fn brinkAt(ia: i32) -> f32 {
 fn shownOf(i: i32) -> f32 {
   let d = depthAt(i);
   if (d >= ${num(SHOW_DEPTH)}) { return d; }
-  return max(d, ${num(SHOW_DEPTH)} * brinkAt(i));
+  return max(d, ${num(SHOW_DEPTH)} * brinkAt(i) * smoothstep(${num(FED_FROM)}, ${num(FED_FULL)}, d));
 }
 
 /** The thickness the sheet hangs from, drawn down as the surface is. */

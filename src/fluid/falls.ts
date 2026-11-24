@@ -689,8 +689,12 @@ export function stepFalls(
         // plateau spilling all four ways, 0.269 of water stuck in the air on
         // the west lip against 0.065 moving through the east one.
         const sx = back || flat ? jx : ex, sy = back || flat ? jy : ey;
-        if (sx < region.x0 || sx > region.x1
-          || sy < region.y0 || sy > region.y1) continue;
+        // BUT A FALL ALREADY RUNNING IS FINISHED WHEREVER IT IS. The box is
+        // round the water there is, and a lip run dry is outside it: skipped,
+        // its sheet hung there for good with nothing above it.
+        if ((sx < region.x0 || sx > region.x1
+          || sy < region.y0 || sy > region.y1)
+          && s.front[k] <= 0 && s.air[k] <= 0) continue;
         // The smoothed launch is followed once a FRAME, in `markCliffs` —
         // see the note there on why not here.
         // AND THE SAME NUMBER AS AN F32, because `front` and `head` are f32

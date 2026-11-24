@@ -8,12 +8,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  FLOW_DEFAULTS, MAX_FLOW_SPEED, addWater, at, createColumnField, flowX, stepFlow,
+  FLOW_DEFAULTS, MAX_FLOW_SPEED, addWater, applyLandings, at, createColumnField, flowX, stepFlow,
   totalWater,
 } from "./columns";
 import {
   BREAK, FALL_GRAVITY, FALL_MIN, FALL_STOP, FALL_THROW, driftAt, dropAt, fallEdge,
-  fallExtent, landsAt, markCliffs, outward, throwOf, waterInAir,
+  fallExtent, landsAt, markCliffs, outward, stepFalls, throwOf, waterInAir,
 } from "./falls";
 import { DROP, dripRoom, waterInDrips } from "./drips";
 
@@ -407,6 +407,20 @@ describe("water takes time to come down", () => {
       }
     }
     expect(detached).toBe(true);
+  });
+
+  test("and is finished even where its lip is out of the box, which is only round the water there is", () => {
+    const f = cliff(24, 4);
+    run(f, 0.5);
+    for (let y = 0; y < 12; y++) for (let x = 0; x < 10; x++) f.depth[at(f, x, y)] = 0;
+    let hung = 0;
+    for (let i = 0; i < f.cells; i++) if (fallExtent(f, i, 0)) hung++;
+    expect(hung).toBeGreaterThan(0);
+    markCliffs(f);
+    const far = { x0: 16, y0: 0, x1: 19, y1: 11 };
+    for (let n = 0; n < 60 * 6; n++) { stepFalls(f, 1 / 60, far); applyLandings(f); }
+    for (let i = 0; i < f.cells; i++) expect(fallExtent(f, i, 0)).toBeNull();
+    expect(waterInAir(f)).toBeLessThan(1e-4);
   });
 });
 

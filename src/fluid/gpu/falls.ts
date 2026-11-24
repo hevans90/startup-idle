@@ -285,8 +285,10 @@ fn main(
   // backward fall's air in the air for ever.
   let sx = select(x, jx, other);
   let sy = select(y, jy, other);
-  if (sx < consts.box.x || sx > consts.box.z
-    || sy < consts.box.y || sy > consts.box.w) {
+  // But a fall already running is finished wherever it is. @see stepFalls
+  if ((sx < consts.box.x || sx > consts.box.z
+    || sy < consts.box.y || sy > consts.box.w)
+    && frontAt(k) <= 0.0 && airAt(k) <= 0.0) {
     return;
   }
 
