@@ -72,7 +72,9 @@ export function housePieces(look: HouseLook, kit: string, floors: number, seed: 
   });
   add((shop && look.shop?.[shop]) || look.ground, 0);
   const n = look.mids.length ? Math.max(1, floors) : 1;
-  for (let f = 1; f < n; f++) add(look.mids[(seed + f) % look.mids.length], (f - 1) * storey);
+  // (A hologram's id is below nought, and its remainder with it.)
+  const M = look.mids.length;
+  for (let f = 1; f < n; f++) add(look.mids[(((seed + f) % M) + M) % M], (f - 1) * storey);
   if (open) return out;
   add(look.roof, (n - 1) * storey);
   // (The snow alone is its second layer.)

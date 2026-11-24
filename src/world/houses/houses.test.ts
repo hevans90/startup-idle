@@ -69,6 +69,8 @@ describe("a house in the game", () => {
     expect(lifts(3).map((l) => Math.round(l * 1000) / 1000)).toEqual([0, 0, 1, 2]);
     // The walls first in each part, the rest over them.
     expect(housePieces(look, "intern.t2", 2, 0).map((p) => p.walls)).toEqual([true, false, true, false, true, false]);
+    // A hologram's, whose id is below nought.
+    for (let id = -7; id < 0; id++) expect(housePieces(look, "intern.t2", 4, id).length).toBe(housePieces(look, "intern.t2", 4, 1).length);
   });
 
   test("with a shop in it, its ground floor is the shop's, and the shop's paint is tinted apart from its walls", () => {

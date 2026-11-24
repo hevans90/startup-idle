@@ -553,7 +553,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): SeaportHandle {
       const at = [...spots].sort((p, q) => depthOf(p) - depthOf(q))
         .flatMap((sp) => Array.from({ length: tiers }, (_, t) => ({ ...sp, z: QUAY + t * tall, turn: t * spots.length + turnOf.get(sp)! })));
       const list = kind === "box" ? BOX_TINTS : CRATE_TINTS;
-      const tints = at.map((_, k) => list[(k * 5 + c * 3 + s.id) % list.length]);
+      const tints = at.map((_, k) => list[Math.abs(k * 5 + c * 3 + s.id) % list.length]);
       const made = at.map((p) => {
         const pc = makePiece(CP0, slot.stacks, kind, (fi * 8 + 8) % TURNS, tints[p.turn], sc);
         nodes.push(pc.c);
