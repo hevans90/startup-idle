@@ -5,6 +5,7 @@
  * own tile's band and whatever stands beside any part of the building is in
  * front of or behind that part as it should be. @see dev/bake-landmarks.ts
  */
+import { sceneryLoad } from "../load-progress";
 import "../render/ktx";
 import { Assets, Rectangle, Texture } from "pixi.js";
 
@@ -20,7 +21,7 @@ export type LandmarkSprites = { res: number; snowRes: number; marks: Map<string,
 export async function loadLandmarkSprites(): Promise<LandmarkSprites> {
   const sheet: LandmarksSheet = await Assets.load({ src: `${BASE}/landmarks.json`, loadParser: "loadJson" });
   const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
-    Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } })));
+    sceneryLoad(Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } }))));
   const cut = (t: LandmarkPiece): LandmarkTile => (t && t[3] > 0 ? { tex: new Texture({ source: pages[t[0]].source, frame: new Rectangle(t[1], t[2], t[3], t[4]) }), anchor: { x: t[5] / t[3], y: t[6] / t[4] } } : null);
   const marks: LandmarkSprites["marks"] = new Map();
   for (const [id, m] of Object.entries(sheet.marks)) {

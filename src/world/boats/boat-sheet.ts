@@ -4,6 +4,7 @@
  * rest over it, and three masks of its lights for the night, at the frame for
  * its heading. `?boats=drawn` keeps the old drawn boat. @see dev/bake-boats.ts
  */
+import { sceneryLoad } from "../load-progress";
 import "../render/ktx";
 import { Assets, Rectangle, Texture } from "pixi.js";
 
@@ -18,7 +19,7 @@ export type BoatSprites = { res: number; headings: number; layers: number; marks
 export async function loadBoatSprites(): Promise<BoatSprites> {
   const sheet: BoatsSheet = await Assets.load({ src: `${BASE}/boats.json`, loadParser: "loadJson" });
   const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
-    Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } })));
+    sceneryLoad(Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } }))));
   const cut = (f: BoatFrame): BoatLook => {
     const source = pages[f[0]].source, tex: Texture[] = [], anchor: BoatLook["anchor"] = [];
     let x = f[1];

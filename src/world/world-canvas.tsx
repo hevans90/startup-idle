@@ -7,6 +7,8 @@
  * map's lifetime — and differ only in what they put round it.
  * @see App, WorldEditor
  */
+import { loadDeviceOpen } from "./load-progress";
+import { MapLoading } from "./map-loading";
 import { Application } from "@pixi/react";
 import { useEffect, useState, type RefObject } from "react";
 
@@ -196,11 +198,14 @@ export function WorldCanvas({
 }) {
   const gpu = usePixiGpu();
   useDisableDOMZoom({ wrapperRef });
-  if (!size || gpu === undefined) return null;
+  // (The device asked and answered — one, or none to be had: either way no longer what the load waits for.)
+  useEffect(() => { if (gpu !== undefined) loadDeviceOpen(); }, [gpu]);
+  if (!size || gpu === undefined) return <MapLoading />;
   // NO GPU AT ALL — no WebGPU device and no WebGL: said, rather than the 2D canvas Pixi would fall back to, which
   // cannot draw the map and throws on its first frame.
   if (!gpu && !hasWebGl()) return <NoAcceleration />;
   return (
+    <>
     <Application
       resizeTo={wrapperRef}
       // (`?noaa` draws without it, to see what it costs: four samples a pixel, resolved every frame.)
@@ -217,6 +222,8 @@ export function WorldCanvas({
         <WorldScene screenSize={size} />
       </WorldViewport>
     </Application>
+    <MapLoading />
+    </>
   );
 }
 

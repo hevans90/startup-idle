@@ -1,3 +1,4 @@
+import { loadDeviceOpen } from "../load-progress";
 /**
  * The WebGPU device, made HERE rather than by Pixi.
  *
@@ -394,6 +395,7 @@ export function openDevice(): Promise<HeldGpu | null> {
       if (whyWanted()) watchCreation(device);
       countPipelines(device);
       held = { adapter, device };
+      loadDeviceOpen();
       const info = (adapter as unknown as { info?: { vendor?: string; architecture?: string; description?: string } }).info;
       adapterName = [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(" ") || null;
       console.info("GPU: WebGPU device opened —", adapterName ?? "adapter details hidden");

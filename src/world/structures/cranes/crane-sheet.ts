@@ -4,6 +4,7 @@
  * over it, and a mask of its lights for the night, at the frame for the way
  * it faces. @see dev/bake-cranes.ts, models.ts
  */
+import { sceneryLoad } from "../../load-progress";
 import "../../render/ktx";
 import { Assets, Container, Rectangle, Sprite, Texture } from "pixi.js";
 
@@ -18,7 +19,7 @@ export type CraneSprites = { res: number; layers: number; marks: number; parts: 
 export async function loadCraneSprites(): Promise<CraneSprites> {
   const sheet: CranesSheet = await Assets.load({ src: `${BASE}/cranes.json`, loadParser: "loadJson" });
   const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
-    Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } })));
+    sceneryLoad(Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } }))));
   const cut = (f: CraneFrame): CraneLook => {
     const source = pages[f[0]].source, tex: Texture[] = [], anchor: CraneLook["anchor"] = [];
     let x = f[1];

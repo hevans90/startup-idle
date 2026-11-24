@@ -10,6 +10,7 @@
  *
  * Painter's order is kept: a band's mesh in its band, its trees back to front. @see world/calendar, dev/bake-trees.ts
  */
+import { sceneryLoad } from "../load-progress";
 import "./ktx";
 import { deviceLost } from "./device";
 import { oncePerRender, syncOnce } from "./frame-uniforms";
@@ -44,7 +45,7 @@ async function load(): Promise<Sheet> {
   const sheet: TreesSheet = await Assets.load({ src: `${BASE}/trees.json`, loadParser: "loadJson" });
   if (sheet.pages.length > PAGES) throw new Error(`trees: ${sheet.pages.length} pages, the shader reads ${PAGES}`);
   const pages: TextureSource[] = await Promise.all(sheet.pages.map(async (p) =>
-    ((await Assets.load({ src: `${BASE}/${p.file}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } })) as Texture).source));
+    ((await sceneryLoad(Assets.load({ src: `${BASE}/${p.file}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } }))) as Texture).source));
   const px = new Uint8Array(RAMP * KINDS.length * 4);
   KINDS.forEach((k, row) => {
     for (let i = 0; i < RAMP; i++) {

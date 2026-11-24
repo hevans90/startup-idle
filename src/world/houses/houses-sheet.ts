@@ -4,6 +4,7 @@
  * a floor for each storey it has risen, its roof — each two sprites, the
  * walls tinted and the rest over them. @see dev/bake-houses.ts
  */
+import { sceneryLoad } from "../load-progress";
 import { Assets, Rectangle, Texture } from "pixi.js";
 
 import { HALF_STEPS_PER_M } from "../agents/cars/models";
@@ -21,7 +22,7 @@ export type HouseSprites = { res: number; kits: Map<string, HouseLook> };
 export async function loadHouseSprites(): Promise<HouseSprites> {
   const sheet: HousesSheet = await Assets.load({ src: `${BASE}/houses.json`, loadParser: "loadJson" });
   const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
-    Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } })));
+    sceneryLoad(Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } }))));
   const cut = (f: HouseFrame): HousePart => {
     const source = pages[f[0]].source, tex: Texture[] = [], anchor: HousePart["anchor"] = [];
     let x = f[1];

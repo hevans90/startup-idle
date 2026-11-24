@@ -5,6 +5,7 @@
  * reconciled directly, with React only mounting the container. Same pattern as
  * v1's `GroundRoadLayer`, but the state it draws from is mutable.
  */
+import { loadFrameDrawn, loadWaterReady } from "./load-progress";
 import { hookUniforms } from "./render/frame-uniforms";
 import { fouledHouses, pollutionOf } from "./water/pollution";
 import { POLLUTED } from "../game/pollution";
@@ -2948,6 +2949,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               : null);
     }
     if (!gpuWater || !field || !device || deviceLost() !== null) {
+      // (The water is the host's, or there is none to step: nothing of the GPU's for a first load to wait on.)
+      if (field) loadWaterReady();
       solverRef.current?.destroy();
       solverRef.current = null;
       gpuWaterSaw(null);
@@ -2995,9 +2998,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       noSolver.current = `the GPU solver failed to build: ${e instanceof Error ? e.message : String(e)}`;
       console.error("WATER: the GPU solver failed to build —", e);
       sayWaterSolver("cpu", noSolver.current);
+      loadWaterReady();
       return;
     }
     noSolver.current = null;
+    loadWaterReady();
     // AND THE GATHERING, which only runs while the device owns the water: it
     // reads the depth and ground TEXTURES, and those are only filled ahead of
     // it by the solver's own copy. @see gatherQuads
@@ -4474,7 +4479,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       e();
     }
   };
-  useTick(() => { cullBandsRef.current?.(); groundCacheRef.current?.step(); if (useWorldStore.getState().drawnBands > 0) sayLoad(); });
+  useTick(() => { cullBandsRef.current?.(); groundCacheRef.current?.step(); if (useWorldStore.getState().drawnBands > 0) { sayLoad(); loadFrameDrawn(); } });
 
   // ROADS IN DETAIL CLOSE UP: the cells on screen painted at the resolution the
   // zoom shows them at, a few new ones a frame. Asked again only when the zoom

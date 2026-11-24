@@ -5,6 +5,7 @@
  * that stands props about: the streets, the woods, the parks.
  * @see dev/bake-props.ts
  */
+import { sceneryLoad } from "../load-progress";
 import "../render/ktx";
 import { Assets, Container, Rectangle, Sprite, Texture } from "pixi.js";
 
@@ -20,7 +21,7 @@ export type PropSprites = { res: number; turns: number; props: Map<string, PropL
 export async function loadPropSprites(): Promise<PropSprites> {
   const sheet: PropsSheet = await Assets.load({ src: `${BASE}/props.json`, loadParser: "loadJson" });
   const pages: Texture[] = await Promise.all(sheet.pages.map((p) =>
-    Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } })));
+    sceneryLoad(Assets.load({ src: `${BASE}/${p}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } }))));
   const cut = (f: PropFrame): PropLook => {
     const source = pages[f[0]].source, tex: Texture[] = [], anchor: PropLook["anchor"] = [];
     let x = f[1];
