@@ -136,7 +136,10 @@ export function stepLegs(town: Town, g: Grid, dt: number): void {
     }
     if (leg.k >= leg.pts.length && leg.wait <= 0) {
       // (At the road: on to it when there is room — never down on top of what is driving there. Out of patience, it goes.)
-      if (leg.join && (leg.held ?? 0) < PATIENCE * 2 && !roomAt(town, leg.join, halfLength({ ...leg.join, colour: m.colour }), m)) { leg.held = (leg.held ?? 0) + dt; m.speed = 0; continue; }
+      // (Nor does it wait for one that has stopped behind where it joins, to let it out: each stood for the other.)
+      const j = leg.join, half = j ? halfLength({ ...j, colour: m.colour }) : 0;
+      const letting = (o: Mover) => !!j && o.speed < 0.05 && (o.x - j.x) * Math.cos(j.heading) + (o.y - j.y) * Math.sin(j.heading) < -(half + halfLength(o)) * 0.85;
+      if (j && (leg.held ?? 0) < PATIENCE * 2 && !roomAt(town, j, half, m, false, letting)) { leg.held = (leg.held ?? 0) + dt; m.speed = 0; continue; }
       town.legs = town.legs.filter((q) => q !== leg);
       m.speed = 0;
       leg.done?.();

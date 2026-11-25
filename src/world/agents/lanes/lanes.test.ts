@@ -154,8 +154,11 @@ describe("the lane graph", () => {
     expect(G.junctions[0].kind).toBe("roundabout");
     const ring = G.lanes.filter((l) => l.kind === "ring");
     expect(ring.length).toBe(8);
-    // Both lanes in onto it, and off it into the outer lane.
-    expect(G.lanes.filter((l) => l.kind === "entry").length).toBe(8);
+    // The inner lane onto it, and off it into the inner; the outer turns off at the next arm, not round it.
+    expect(G.lanes.filter((l) => l.kind === "entry").length).toBe(4);
+    const off = G.lanes.filter((l) => l.kind === "connector");
+    expect(off.length).toBe(4);
+    for (const x of off) expect([G.lanes.find((l) => l.next.includes(x.id))!.slot, G.lanes[x.next[0]].slot]).toEqual([1, 1]);
     expect(G.lanes.filter((l) => l.kind === "exit").length).toBe(4);
     // Each car coming on gives way to the ring where it joins.
     expect(G.zones.filter((z) => z.merge).length).toBeGreaterThanOrEqual(4);

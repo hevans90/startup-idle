@@ -35,7 +35,7 @@ import { connects, isPaved } from "../../roads/mask";
 import { roadsKey, streetsOf } from "../../roads/streets";
 import { groundMode } from "../../render/ground-mode";
 import {
-  add, arc, chaikin, cross, distToLine, dot, lengths, minRadius, norm, pointAt, right, sub, turnCurve, type Pt, FAR_TURN, KEEP, NEAR_TURN } from "./geometry";
+  add, arc, chaikin, cross, cubic, distToLine, dot, lengths, minRadius, norm, pointAt, right, sub, turnCurve, type Pt, FAR_TURN, KEEP, NEAR_TURN } from "./geometry";
 
 /** How far back of a crossing's middle a car's nose waits at a junction, tiles: clear of its stripes. @see render/road-paint stopLine */
 export const CROSS_HOLD = 0.3;
@@ -1017,9 +1017,13 @@ function cellByCell(g: Grid, J: Junction, region: Int32Array, p0: Pt, p1: Pt): P
  * on the offside — clockwise where traffic keeps left — and each arm a PORT on it, where
  * its lane in comes on just before the lane out goes off. The ring's lanes
  * run port to port; curves join each arm's lane in to the ring and the ring
- * to each arm's lane out.
+ * to each arm's lane out. An arm's outer lane turns off at the next arm without going round.
  */
 export const RING_OF = 0.62;
+/** A street as short as this, tiles, leaves no room to change lanes on: its outer lane goes onto the ring like the other. */
+const ROOM_TO_CHOOSE = 8;
+/** How far straight on the way round the corner outside a ring runs before it turns, tiles: little, or it swings into the ring. */
+const BY_THE_CORNER = 0.1;
 function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len" | "next" | "zones">) => Lane): Lane[] {
   const C = J.centre;
   const span = Math.sqrt(J.cells.length);
@@ -1047,12 +1051,29 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
     out.push(l);
     return l;
   });
+  // THE OUTER LANE TURNS OFF AT THE NEXT ARM BY A WAY OF ITS OWN, not onto the ring: it waits for no opening. What is
+  // on the ring goes off there into the lane beside it.
+  const slipped = new Set<Arm>(), fed = new Set<Arm>();
+  for (const A of J.arms) {
+    const h0: Pt = { x: -A.out.x, y: -A.out.y };
+    const B = J.arms.find((X) => X !== A && turnOf(h0, X.out) === NEAR_TURN);
+    if (!B || A.inLanes.length < 2 || B.outLanes.length < 2) continue;
+    const li = lanes[A.inLanes[A.inLanes.length - 1]], lo = lanes[B.outLanes[B.outLanes.length - 1]];
+    if (Math.min(li.len, lo.len) < ROOM_TO_CHOOSE) continue;
+    const p0 = li.pts[li.pts.length - 1], p1 = lo.pts[0];
+    const x = mk({ kind: "connector", pts: cubic(p0, add(p0, h0, BY_THE_CORNER), add(p1, B.out, -BY_THE_CORNER), p1, 10), turn: NEAR_TURN, arm: J.arms.indexOf(A) });
+    x.radius = minRadius(x.pts);
+    li.next.push(x.id);
+    x.next.push(lo.id);
+    out.push(x);
+    slipped.add(A); fed.add(B);
+  }
   ports.forEach((p, k) => {
     const into = pieces[k], from = pieces[(k - 1 + ports.length) % ports.length];
     from.next.push(into.id);
     if (p.kind === "on") {
-      // (Every lane on, at the port the outer lane turns right onto it at: their curves meet, and the zones take them one at a time.)
-      for (const id of p.arm.inLanes) {
+      // (Every lane on but one that turns off by its own way, at the port the outer lane turns right onto it at: their curves meet, and the zones take them one at a time.)
+      for (const id of slipped.has(p.arm) ? p.arm.inLanes.slice(0, -1) : p.arm.inLanes) {
         const li = lanes[id];
         const e = mk({ kind: "entry", pts: turnCurve(li.pts[li.pts.length - 1], heading(li), at(p.a), tangent(p.a), 8), turn: NEAR_TURN, arm: J.arms.indexOf(p.arm) });
         e.radius = minRadius(e.pts);
@@ -1061,7 +1082,7 @@ function ring(J: Junction, lanes: Lane[], mk: (l: Omit<Lane, "id" | "at" | "len"
         out.push(e);
       }
     } else {
-      for (const id of p.arm.outLanes.slice(-1)) {
+      for (const id of fed.has(p.arm) ? p.arm.outLanes.slice(-2, -1) : p.arm.outLanes.slice(-1)) {
         const lo = lanes[id];
         const x = mk({ kind: "exit", pts: turnCurve(at(p.a), tangent(p.a), lo.pts[0], p.arm.out, 8), turn: NEAR_TURN });
         x.radius = minRadius(x.pts);

@@ -125,3 +125,35 @@ describe("walkers at the crossings", () => {
     expect(r.under).toBe(0);
   });
 });
+
+describe("those who have stopped by a crossing hold nobody up", () => {
+  /** A crossroads, somebody who came over a crossing to a place right at its far kerb, and what they do there. */
+  const stood = (what: (m: Mover) => void) => {
+    const caps = { ...townCaps };
+    setTownCaps({ cars: 30, people: 0, every: 2 });
+    const g = crossroads(1, 1), net = createNetwork(g), t = createTown(), T = trafficOf(t, g);
+    const C = T.G.crossings.find((c) => c.junction >= 0)!, a = T.G.walk.nodes[C.a], b = T.G.walk.nodes[C.b], len = Math.hypot(b.x - a.x, b.y - a.y);
+    const m = {
+      id: t.next++, kind: "person", path: [{ x: Math.round(b.x), y: Math.round(b.y) }, { x: Math.round(b.x), y: Math.round(b.y) }], line: [a, b], at: new Float32Array([0, len]),
+      s: len, speed: 0, cruise: 0.45, x: b.x, y: b.y, z: 0, heading: 0, stuck: 0, colour: 0, phase: 0,
+      walk: { graph: T.G, crossings: [{ c: C.id, s0: 0, s1: len }], k: 0, on: true, waited: 0 },
+    } as unknown as Mover;
+    what(m);
+    t.movers.push(m);
+    let longest = 0, over = 0;
+    for (let k = 0; k < 120 * 20; k++) {
+      stepTown(t, g, net, 0, 1 / 20);
+      for (const c of t.movers) if (c.kind !== "person") longest = Math.max(longest, c.stuck);
+    }
+    for (const x of T.lanesOver.get(C.id) ?? []) over += T.over.get(x)!.length;
+    setTownCaps(caps);
+    expect(over).toBeGreaterThan(0);
+    return longest;
+  };
+  test("a builder put to work, where their way in ended at a crossing's kerb", () => {
+    expect(stood((m) => { m.s = 0; m.at = new Float32Array(1); m.line = [m.line[1]]; m.job = { site: 1, role: "working" }; })).toBeLessThan(25);
+  });
+  test("a cleaner at their work", () => {
+    expect(stood((m) => { m.s = 0; m.job = { site: 1, role: "cleaning" }; })).toBeLessThan(25);
+  });
+});

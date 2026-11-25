@@ -45,11 +45,11 @@ import {
   buildTraffic, CHANGE_LEN, groupOf, inside, isChange, lightOf, roomToChange, costOf, CHANGE_COST, lineOf, LANE_CLEAR, PATIENT, roadKey, roundTo, routeLanes, spotsAt, spotsUnderWay, stepSignals, walkOn, yieldsTo, zoneOn,
   type Spot, type Traffic,
 } from "./lanes/drive";
-import { pointAt } from "./lanes/geometry";
+import { FAR_TURN, pointAt } from "./lanes/geometry";
 import { walkBetween, type Kerbside, type Walk } from "./lanes/walk";
 import { riderId, shirtOf, SHIRTS } from "./people/cast";
 import { aboard, bayNear, carNear, heldBays, kerbOf, PARK_CAP, refile, RESIDENT_SHARE, STAY } from "./parking";
-import { SETTLE_BUSES, SETTLE_TRAFFIC, buildLaneGraph, lanesSettle, type LaneGraph } from "./lanes/graph";
+import { RING_OF, SETTLE_BUSES, SETTLE_TRAFFIC, buildLaneGraph, lanesSettle, type LaneGraph } from "./lanes/graph";
 import { NEIGHBOUR } from "../../iso/dir";
 import { structureAt } from "../grid";
 import type { Emergency } from "./emergency";
@@ -424,6 +424,8 @@ const MIN_TRIP = 3;
  */
 const START_CLEAR = 1;
 const ON_FOOT_CLEAR = 0.6;
+/** The least of their pace anybody keeps up out on a crossing. */
+const KEEP_ON = 0.6;
 /** How far short of a street lane's end a trip to there stops, tiles: clear of the junction. */
 const GOAL_BACK = 0.5;
 /** How far beyond the rim a car going off the map drives before it is gone. */
@@ -718,9 +720,12 @@ function trafficNow(T: Traffic, cars: readonly Mover[], walkers: readonly Mover[
   const foot = { on: new Map<number, Mover[]>(), waiting: new Set<number>(), patient: new Set<number>() };
   for (const m of walkers) {
     const w = m.walk;
-    if (!w || w.graph !== T.G || m.sit) continue;
+    // (One at work, or at a bus stop, is not crossing anything, though the last of the way there was over a crossing: a builder
+    // put to work at its kerb was out on it for as long as the job took, and the road stood shut.)
+    if (!w || w.graph !== T.G || m.sit || m.atStop || atWork(m)) continue;
     const x = w.crossings[w.k];
-    if (!x) continue;
+    // (Nor one stood talking at the kerb: the traffic waited for the end of it.)
+    if (!x || (m.pause && m.s < x.s0)) continue;
     // (Out on it from when they make up their mind to go: the last steps to the kerb too.)
     if (w.on) { const l = foot.on.get(x.c); if (l) l.push(m); else foot.on.set(x.c, [m]); }
     else if (!((m.wait ?? 0) > 0) && x.s0 - m.s < KERB_LOOK) { foot.waiting.add(x.c); if (w.waited > WALK_PATIENT && !T.signals.has(T.G.crossings[x.c].junction)) foot.patient.add(x.c); }
@@ -978,6 +983,8 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
   }
   // FOLLOWING: the nearest thing ahead on its own lanes, or one just gone
   // off the same lane onto another curve, still in the way.
+  // (Held short of a crossing on its own lane: not let into the junction past it, to hold that too.)
+  let afoot = false;
   for (let j = d.k; j < d.lanes.length && d.start[j] - m.s < FOLLOW; j++) {
     const yet = j > d.k && d.let < j && isChange(G, d.lanes[j - 1], d.lanes[j]);
     for (const o of now.on.get(d.lanes[j]) ?? []) {
@@ -1013,7 +1020,7 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
       // they let it out first — it stood there for people who were waiting for it. FOR THOSE OUT ON IT till they are past its lane.
       const J = G.crossings[x.c].junction, arm = T.signals.has(J) ? armOver(T, x.c) : -1;
       const let_ = !turn && !inside(G.lanes[d.lanes[d.k]]) && (arm < 0 || walkOn(T, J, arm, t.t)) && (patient || (now.foot.waiting.has(x.c) && zebraAt(t, T, x.c)));
-      if (let_ || inWay(G, now.foot.on.get(x.c), x.c, d.lanes[j], x.s)) follow(A, v, front - CROSS_STOP, 0, 0.02);
+      if (let_ || inWay(G, now.foot.on.get(x.c), x.c, d.lanes[j], x.s)) { if (j === d.k) afoot = true; follow(A, v, front - CROSS_STOP, 0, 0.02); }
     }
     // NOT ABREAST OF A LONG ONE THROUGH A JOG: a bus swings as it turns, into the lane beside. Whichever of the
     // two is behind keeps behind till the one ahead is through.
@@ -1079,7 +1086,7 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
     const toLine = d.start[q] - m.s;
     const stopping = (m.speed * m.speed) / (2 * BRAKE);
     if (toLine <= stopping + half + (G.lanes[d.lanes[d.k]].hold ?? STOP_BACK) + 1.2) {
-      if (mayEnter(t, T, m, q, toLine, stopping, now)) {
+      if (!afoot && mayEnter(t, T, m, q, toLine, stopping, now)) {
         const y = G.lanes[d.lanes[q]];
         for (const z of y.zones) {
           const c = T.claims.get(z);
@@ -1148,8 +1155,9 @@ function mayChange(m: Mover, c: number, now: ReturnType<typeof trafficNow>, self
   for (const o of now.on.get(d.lanes[c]) ?? []) {
     // (Not one at the kerb: it is out of the lane.)
     if (o.m === self || pulled(o.m)) continue;
+    // (One stood behind, to let it in, leaves what it leaves.)
     const at = d.start[c] + o.s, room = spacing(m, o.m) + 0.1;
-    if (at >= me ? at - me < room + Math.max(0, m.speed - o.m.speed) * 0.5 : me - at < room + o.m.speed * 0.8) return false;
+    if (at >= me ? at - me < room + Math.max(0, m.speed - o.m.speed) * 0.5 : me - at < (o.m.speed < 0.02 ? room - 0.1 : room) + o.m.speed * 0.8) return false;
   }
   return true;
 }
@@ -1173,10 +1181,13 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
   }
   if (held) {
     // Waited long enough, it asks for all of them: no more go in across it till it has.
-    // (At the lights, only on its green.)
+    // (At the lights, only on its green, and not soon: the stream of every lane would stop for one turning across it,
+    // which has the amber to go on — then it asks, and what is left of the stream waits. Off a road one lane each way it
+    // holds up everyone behind it, so it asks as soon as anybody.)
     const J = G.junctions[y.junction!];
-    const green = J.kind !== "signals" || y.arm === undefined || lightOf(T, J.id, y.arm, t.t) === "green";
-    if (d.waited >= PATIENT && green) for (const z of y.zones) T.hungry.set(z, { lane: y.id, at: t.t });
+    const light = J.kind === "signals" && y.arm !== undefined ? lightOf(T, J.id, y.arm, t.t) : null;
+    const long = light === null ? PATIENT : y.turn !== FAR_TURN ? LIT_PATIENT : light === "amber" ? PATIENT / 2 : G.lanes[d.lanes[d.k]].lanes === 1 ? PATIENT : TURN_PATIENT;
+    if (d.waited >= long && (light === null || light === "green" || (light === "amber" && y.turn === FAR_TURN))) for (const z of y.zones) T.hungry.set(z, { lane: y.id, at: t.t });
     return false;
   }
   // AN EMERGENCY VEHICLE coming: everyone else waits — unless it is behind them, and they are in its way.
@@ -1216,13 +1227,19 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
   }
   const J = G.junctions[y.junction!];
   // ONTO A ROUNDABOUT: nobody on the ring near its port, nor coming round to it soon.
+  // (Not the outer lane, turning off at the next arm: it does not go round.)
   if (J.kind === "roundabout") {
+    if (y.kind === "connector") return true;
     const port = Math.atan2(y.pts[y.pts.length - 1].y - J.centre.y, y.pts[y.pts.length - 1].x - J.centre.x), long = 2 * halfLength(m) > CAR_LONG;
+    // (How much of the ring those on it take up: full, it would be nose to tail all the way round, nobody getting to their way off.)
+    let taken = 2 * halfLength(m) + GAP;
     for (const [lane, list] of now.on) {
       const l = G.lanes[lane];
       if (l.junction !== J.id || (l.kind !== "ring" && l.kind !== "entry")) continue;
       for (const o of list) {
-        if (o.m === m || lane === y.id) continue;
+        if (o.m === m) continue;
+        taken += 2 * halfLength(o.m) + GAP;
+        if (lane === y.id) continue;
         // (One coming onto it at another port: as far round as that port is, past the rest of its way in —
         // though a bus, slow to be in, waits for anybody coming onto it anywhere.)
         const dist = l.kind === "entry" ? l.len - o.s + (long ? 0 : portTo(T, J, l.pts[l.pts.length - 1], port)) : roundTo(T, J.id, o.m, port);
@@ -1231,19 +1248,27 @@ function mayEnter(t: Town, T: Traffic, m: Mover, q: number, toLine: number, stop
         if (back < spacing(m, o.m) + 0.15 || dist < Math.max(1.4, o.m.speed * 2.5) + Math.max(0, 2 * halfLength(m) - CAR_LONG)) return false;
       }
     }
+    // (And those let on, still on their way up to it.)
+    for (const A of J.arms) for (const id of A.inLanes) for (const o of now.on.get(id) ?? []) {
+      const e = o.m.drive!;
+      if (o.m !== m && e.let > e.k && G.lanes[e.lanes[e.k + 1]]?.kind === "entry") taken += 2 * halfLength(o.m) + GAP;
+    }
+    if (taken > RING_FULL * Math.PI * Math.sqrt(J.cells.length) * RING_OF) return false;
     return true;
   }
   // ON A CALL: through the lights, and giving way to nobody.
   if (m.blues) return true;
   // THE LIGHTS.
+  let green = false;
   if (J.kind === "signals" && y.arm !== undefined) {
     const light = lightOf(T, J.id, y.arm, t.t);
     if (light === "red") return false;
-    // (On the amber, only one too near to stop — or one long waiting at the line for a gap to turn across, now the stream stops.)
-    if (light === "amber" && toLine > stopping + 0.1 && d.waited < PATIENT) return false;
+    // (On the amber, only one too near to stop — or one waiting to turn across the stream, now that it stops.)
+    if (light === "amber" && toLine > stopping + 0.1 && y.turn !== FAR_TURN) return false;
+    green = light === "green";
   }
-  // GIVING WAY to whoever has the right of it, coming on.
-  if (d.waited < PATIENT) {
+  // GIVING WAY to whoever has the right of it, coming on. (On a green for as long as it lasts: the amber is its turn.)
+  if (d.waited < PATIENT || green) {
     for (const z of y.zones) {
       const b = G.lanes[zoneOn(T, z, y.id).other];
       if (!yieldsTo(T, y, b)) continue;
@@ -1263,6 +1288,12 @@ const BIKE_OUT_LOOK = 0.8;
 
 /** About as long as a car, tiles: longer, a vehicle wants more room to get onto a roundabout. */
 const CAR_LONG = 0.6;
+
+/** How much of the way round a ring those on it may take up, as a share of it. */
+const RING_FULL = 0.7;
+
+/** Seconds at the lights before one asks for its way on a green; and one turning across the stream, which has every amber. @see mayEnter */
+const LIT_PATIENT = 16, TURN_PATIENT = 26;
 
 /** A street shorter than this between junctions, tiles, is a short block: no room on it, whoever is there. */
 const SHORT_BLOCK = 5;
@@ -1607,14 +1638,16 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
         if (x && !w.on) {
           const to = x.s0 - m.s;
           // (Set off from right at one, they look first like anybody: they stepped out under a car stood on it.)
-          if (to < -0.02 || (to < KERB_LOOK && mayCross(t, T, now, m, x))) w.on = true;
+          if (to < -0.02 || (to < KERB_LOOK && !m.pause && (m.cap ?? 1) > 1e-6 && mayCross(t, T, now, m, x))) w.on = true;
           else if (to < KERB_LOOK) {
             w.waited += h;
             limit = Math.min(limit, Math.sqrt(2 * BRAKE * Math.max(0, to - 0.04)));
           }
         }
       }
-      if (m.cap !== undefined) limit = Math.min(limit, m.cap);
+      // (Out on it, nobody stops for anybody: two crowds meeting on one stood there for good, each behind somebody in the other.)
+      const x = w && w.graph === T.G && w.on ? w.crossings[w.k] : undefined;
+      if (m.cap !== undefined) limit = Math.min(limit, x && m.s > x.s0 + 0.02 ? Math.max(m.cap, m.cruise * KEEP_ON) : m.cap);
       if (m.speed < limit) m.speed = Math.min(limit, m.speed + ACCEL * h);
       else m.speed = Math.max(limit, m.speed - BRAKE * h);
     }
