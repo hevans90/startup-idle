@@ -9,7 +9,7 @@
  * never moved: the riders in a fixed set of sprites, dealt out far to near
  * as the vehicle turns — nothing is re-ordered, only re-skinned.
  */
-import { Container, Sprite } from "pixi.js";
+import { Container, Rectangle, Sprite, Texture } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
 import { posePerson, type PeopleSprites } from "../people/people-sheet";
@@ -20,14 +20,14 @@ import { HALF_STEPS_PER_M, pitchAngle, TILES_PER_M, type Seat } from "./models";
 /** How high the seat is that a sitter is baked on, metres. @see figures SIT_HIP */
 const SEAT_Z = 0.45;
 
-export type Riders = { c: Container; riders: readonly Rider[]; slots: Sprite[][]; keys: string[]; over: Sprite[]; key: string };
+export type Riders = { c: Container; riders: readonly Rider[]; slots: Sprite[][]; keys: string[]; cuts: (number | null)[]; over: Sprite[]; key: string };
 
 export function makeRiders(riders: readonly Rider[]): Riders {
   const c = new Container();
   c.eventMode = "none";
   const slots = riders.map(() => Array.from({ length: 5 }, () => { const sp = new Sprite(); c.addChild(sp); return sp; }));
   const over = [0, 1].map(() => { const sp = new Sprite(); c.addChild(sp); return sp; });
-  return { c, riders, slots, keys: riders.map(() => ""), over, key: "" };
+  return { c, riders, slots, keys: riders.map(() => ""), cuts: riders.map(() => null), over, key: "" };
 }
 
 /** Where a seat's sitter stands in the vehicle's own picture: their feet, map pixels from its middle, and how near the camera they are. */
@@ -37,6 +37,32 @@ export function seatAt(seat: Seat, height: number, heading: number, lean: number
   const l = seat.l * Math.cos(th) - z * Math.sin(th), up = seat.l * Math.sin(th) + z * Math.cos(th);
   const u = (l * ch - seat.y * sh) * TILES_PER_M, v = (l * sh + seat.y * ch) * TILES_PER_M;
   return { x: (u - v) * HW * scale, y: (u + v) * HH * scale - up * HALF_STEPS_PER_M * HEIGHT_UNIT * scale, depth: u + v };
+}
+
+/** A low car's floor, metres up: what of a sitter hangs under it is under the car, and not drawn. */
+const FLOOR_Z = 0.32;
+/** How far below their feet's place a sitter in a seat `z` up may be drawn, map pixels at scale 1: to the shin where it meets the floor, or the hips if they are lower on the screen; null, all of them. */
+export function cutAt(seat: Seat, height: number, heading: number): number | null {
+  const z = seat.z - SEAT_Z * height;
+  if (z > FLOOR_Z - 0.03) return null;
+  const fwd = (Math.cos(heading) + Math.sin(heading)) * TILES_PER_M * HH;
+  const up = HALF_STEPS_PER_M * HEIGHT_UNIT;
+  // (Their shins are some half a metre ahead of their hips.)
+  return Math.max(0.5 * height * fwd - (FLOOR_Z - z) * up, -0.2 * height * Math.abs(fwd) - SEAT_Z * height * up);
+}
+/** Frames cut short, by the frame and the rows kept of it. */
+const short = new WeakMap<Texture, Map<number, Texture>>();
+/** A sprite's frame cut off `down` map pixels (at `scale`) below its anchor. */
+function cutShort(sp: Sprite, down: number): void {
+  const t = sp.texture, h = t.frame.height, at = sp.anchor.y * h;
+  const keep = Math.max(1, Math.min(h, Math.round(at + down / sp.scale.y)));
+  if (t === Texture.EMPTY || keep >= h) return;
+  let by = short.get(t);
+  if (!by) short.set(t, (by = new Map()));
+  let c = by.get(keep);
+  if (!c) by.set(keep, (c = new Texture({ source: t.source, frame: new Rectangle(t.frame.x, t.frame.y, t.frame.width, keep) })));
+  sp.texture = c;
+  sp.anchor.y = at / keep;
 }
 
 /**
@@ -51,7 +77,10 @@ export function poseRiders(R: Riders, P: PeopleSprites, seats: readonly Seat[], 
   placed.forEach(({ r, at }, j) => {
     const parts = R.slots[j];
     [r.skin, r.legs, r.top, r.hair, 0xffffff].forEach((t, q) => { if (parts[q].tint !== t) parts[q].tint = t; });
-    R.keys[j] = posePerson(parts, P, r.figure, "sit", heading, 0, scale, r.height, R.keys[j]);
+    const cut = cutAt(seats[r.seat], r.height, heading), was = R.cuts[j] === cut ? R.keys[j] : "";
+    R.cuts[j] = cut;
+    R.keys[j] = posePerson(parts, P, r.figure, "sit", heading, 0, scale, r.height, was);
+    if (cut !== null && R.keys[j] !== was) for (const sp of parts) cutShort(sp, cut * scale);
     for (const sp of parts) sp.position.set(at.x, at.y);
   });
   const o = from.at(k).over;

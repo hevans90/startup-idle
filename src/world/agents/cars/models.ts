@@ -1209,7 +1209,7 @@ export const CRANE_REACH = [3.6, 4.5, 5.4, 6.2, 6.9] as const;
 export const craneTip = (reach: number) => BOOM_PIN[1] + Math.sqrt(Math.max(0, BOOM_LEN ** 2 - (reach - BOOM_PIN[0]) ** 2));
 const craneUpper = (id: string, reach: number): Model => ({
   // (Its length is its body's, for its shadow and its place in the draw order: the boom overhangs it.)
-  id, length: 5.2, width: 2.6, overhang: 7.2, wheels: [], seats: [{ l: 0.75, y: 0.78, z: 1.75 }],
+  id, length: 5.2, width: 2.6, overhang: 7.2, wheels: [], seats: [{ l: 0.75, y: 0.78, z: 2.02 }],
   slabs: [
     { l0: 1.1, l1: -1.1, w: 0.95, z0: 1.3, z1: 1.55, mat: "trim" },
     { l0: 0.6, l1: -1.5, w: 0.7, z0: 1.55, z1: 2.5, mat: "paint" },

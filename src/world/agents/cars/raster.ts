@@ -92,6 +92,7 @@ function norm3(a: number[]): V3 { const n = Math.hypot(...a) || 1; return [a[0] 
 
 export const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 export const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 export const norm = (a: V3): V3 => { const n = Math.hypot(...a) || 1; return [a[0] / n, a[1] / n, a[2] / n]; };
 
 /** A face (a convex polygon) as triangles, its normal turned outward from `inside`. */
@@ -275,14 +276,46 @@ export function modelTris(m: Model): Tri[] {
  * texels to a world px at scale 1.
  */
 export function bakeFrame(m: Model, heading: number, res: number, pitch = 0): Baked {
-  const b = bakeTris(modelTris(m), heading, res, {
+  const tris = modelTris(m), shut = shutOf(m, tris);
+  const b = bakeTris(tris, heading, res, {
     pitch,
     layers: 2, layerOf: (mat) => (PAINTED.has(mat) ? 0 : 1),
     shadow: { hl: m.length / 2 - 0.25, hw: m.width / 2 - 0.25, edge: 0.08, soft: 0.4, strength: 0.42, reach: 0.35 },
     marks: { n: LAMPS.length, of: lampOf },
-    over: m.seats?.length ? { boxes: m.seats.map(seatBox), glass: OVER_GLASS } : undefined,
+    over: m.seats?.length ? { boxes: m.seats.map((s, k) => (shut[k] ? roomBox(s) : seatBox(s))), shut, glass: OVER_GLASS } : undefined,
   });
   return { paint: b.layers[0], trim: b.layers[1], lamps: b.marks, over: b.over, ox: b.ox, oy: b.oy };
+}
+
+/** Which of a model's seats are closed in: asked once a model, it is the same at every heading. */
+const shutSeats = new WeakMap<Model, boolean[]>();
+function shutOf(m: Model, tris: readonly Tri[]): boolean[] {
+  let shut = shutSeats.get(m);
+  if (!shut) shutSeats.set(m, (shut = (m.seats ?? []).map((s) => closedIn(tris, s))));
+  return shut;
+}
+/** Whether a ray from `o` along `d` meets any of the triangles. */
+function meets(tris: readonly Tri[], o: V3, d: V3): boolean {
+  for (const t of tris) {
+    const e1 = sub(t.p[1], t.p[0]), e2 = sub(t.p[2], t.p[0]), q = cross(d, e2), det = dot(e1, q);
+    if (Math.abs(det) < 1e-12) continue;
+    const s = sub(o, t.p[0]), u = dot(s, q) / det;
+    if (u < 0 || u > 1) continue;
+    const k = cross(s, e1), v = dot(d, k) / det;
+    if (v < 0 || u + v > 1) continue;
+    if (dot(e2, k) / det > 1e-6) return true;
+  }
+  return false;
+}
+/**
+ * Whether a seat is CLOSED IN — a roof over whoever is on it, and a side or a window every way they look: in a car
+ * or a cab, not in a convertible or under a canopy. Asked of a sitter's chest, which the lowest car has room for.
+ */
+export function closedIn(tris: readonly Tri[], s: { l: number; y: number; z: number }): boolean {
+  const o: V3 = [s.l + 0.013, s.y + 0.011, s.z + 0.55];
+  if (!meets(tris, o, [0.01, 0.007, 1])) return false;
+  for (let k = 0; k < 8; k++) { const a = (k / 8) * Math.PI * 2 + 0.1; if (!meets(tris, o, [Math.cos(a), Math.sin(a), 0.003])) return false; }
+  return true;
 }
 
 /**
@@ -316,13 +349,18 @@ export type BakeOpts = {
    * well as the layers, the same number again: every sample of the model that is NEARER THE CAMERA than a box it
    * covers — the near door, a pillar, the roof's edge — as it is in its layer; and glass among them at `glass` of
    * its strength, a tint to be seen through. Drawn over a person put in the vehicle, they are inside it. @see OVER
+   * A box that is `shut` in the model has ALL that is seen where it covers drawn over it: what is seen of a closed
+   * car is its outside, and they are in it. (Asked by depth, a box a head too high for a low roof, or its legs' length
+   * through a screen, stood nearer than the roof did, and its sitter was drawn on it.)
    */
-  over?: { boxes: readonly (readonly number[])[]; glass: number };
+  over?: { boxes: readonly (readonly number[])[]; shut?: readonly boolean[]; glass: number };
 };
 /** How much of glass is drawn over whoever sits behind it: enough to be glass, little enough to know them by. */
 export const OVER_GLASS = 0.42;
 /** The room somebody sat on a seat takes up, about the seat's middle: from behind their back to their feet, their shoulders' width, the floor to over their head. */
 export const seatBox = (s: { l: number; y: number; z: number }): number[] => [s.l - 0.42, s.l + 0.78, s.y - 0.32, s.y + 0.32, s.z - 0.55, s.z + 1.02];
+/** The same where they are closed in, with room all round for the tallest and for a slope: nothing is asked of its depth. @see closedIn */
+export const roomBox = (s: { l: number; y: number; z: number }): number[] => [s.l - 0.62, s.l + 0.85, s.y - 0.4, s.y + 0.4, s.z - 0.65, s.z + 1.2];
 
 /**
  * Bake triangles at `heading`, `res` texels to a world px, into layers. Each
@@ -360,7 +398,8 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
   const mark = opt.marks ? new Uint8Array(n) : null;
   // WHO IS IN IT: the depth of the nearest face of the room each takes up, where it covers; and which samples are glass.
   const occ = opt.over ? new Float32Array(n).fill(-Infinity) : null, glassAt = opt.over ? new Uint8Array(n) : null;
-  for (const b of opt.over?.boxes ?? []) {
+  for (const [n0, b] of (opt.over?.boxes ?? []).entries()) {
+    const inside = opt.over!.shut?.[n0] ?? false;
     const c = [0, 1, 2, 3, 4, 5, 6, 7].map((k): V3 => [b[k & 1], b[2 + ((k >> 1) & 1)], b[4 + ((k >> 2) & 1)]]);
     for (const [i0, i1, i2, i3] of [[0, 1, 3, 2], [4, 5, 7, 6], [0, 1, 5, 4], [2, 3, 7, 6], [0, 2, 6, 4], [1, 3, 7, 5]]) for (const tri of [[i0, i1, i2], [i0, i2, i3]]) {
       const g = tri.map((k) => ground(c[k])), q = g.map((v) => screen(v.u, v.v, v.up)), d = g.map((v) => v.u + v.v + v.up / 4);
@@ -373,7 +412,8 @@ export function bakeTris(tris: Tri[], heading: number, res: number, opt: BakeOpt
         const w0 = ((bx - px) * (cy - py) - (by - py) * (cx - px)) / area, w1 = ((cx - px) * (ay - py) - (cy - py) * (ax - px)) / area, w2 = 1 - w0 - w1;
         if (w0 < 0 || w1 < 0 || w2 < 0) continue;
         const z = w0 * d[0] + w1 * d[1] + w2 * d[2], i = y * SW + x;
-        if (z > occ![i]) occ![i] = z;
+        // (A finite depth behind everything: covered, and nothing seen is behind it.)
+        if (inside) { if (occ![i] === -Infinity) occ![i] = -1e9; } else if (z > occ![i]) occ![i] = z;
       }
     }
   }

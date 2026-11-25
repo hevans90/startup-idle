@@ -6,6 +6,8 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Mover } from "../town";
+import { bakeFrame, closedIn, modelTris } from "./raster";
+import { seatAt } from "./occupants";
 import { aboard } from "../parking";
 import { figureFor, heightOf, legsOf, riderId, shirtOf, skinOf, whoOf } from "../people/cast";
 import { figureById } from "../people/figures";
@@ -29,6 +31,18 @@ describe("every vehicle has seats, the driver's first", () => {
         expect(Math.abs(s.y), m.id).toBeLessThan(m.width / 2);
         expect(s.z, m.id).toBeGreaterThan(0.2);
       }
+    }
+  });
+  test("closed in, in a car or a cab; not in a convertible, nor under a canopy", () => {
+    const open = new Set(["convertible", "paver", "paver1", "paver2", "roller"]);
+    for (const m of MODELS) for (const s of m.seats ?? []) expect(closedIn(modelTris(m), s), m.id).toBe(!open.has(m.id));
+  });
+  test("a low car's roof is drawn over whoever is under it, at every heading", () => {
+    for (const id of ["estate", "saloon", "hotHatch", "limo"]) for (let h = 0; h < 8; h++) {
+      const m = modelById.get(id)!, hd = (h / 8) * Math.PI * 2, b = bakeFrame(m, hd, 2);
+      // The roof over the driver's head.
+      const s = m.seats![0], at = seatAt({ ...s, z: m.roof!.z }, 0, hd, 0, 2), i = (Math.round(b.oy + at.y) * b.paint.w + Math.round(b.ox + at.x)) * 4 + 3;
+      expect(Math.max(b.over[0].px[i], b.over[1].px[i]), `${id} ${h}`).toBeGreaterThan(200);
     }
   });
   test("the wheel is on the right — the side away from a bus's doors", () => {
