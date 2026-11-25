@@ -92,6 +92,8 @@ export function stepLineHaul(g: Grid, haul: { net: Network; town: Town }, dt: nu
     haul.town.arrived.splice(k, 1);
     const j = g.lineJobs.find((q) => q.id === m.job!.site);
     if (!j) { lorryLost(g, haul.town, m.id); continue; }
+    // (One the yard found no way for: its load counted in, and no lorry on the track to come back. @see stepYard)
+    if (m.id === undefined) { (j.ids ??= []).splice(j.gone ?? 0, 0, -1); j.delivered = Math.min(j.deliveries, j.delivered + 1); j.gone = Math.min(j.delivered, (j.gone ?? 0) + 1); changed = true; continue; }
     const of = trackRun(j, j.head ?? j.cells[0]) / TRACK_SPEED;
     (j.drive ??= []).push({ left: of, of, id: m.id, at: { x: m.x, y: m.y, heading: m.heading } });
     changed = true;

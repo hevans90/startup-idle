@@ -564,14 +564,15 @@ function driveWay(t: Town, g: Grid, from: Place, to: Place, after?: Mover, at?: 
     if (ahead.length) starts = ahead;
   }
   // Not from the very end of a lane: already at a junction's line, with no room to stop at it.
-  const roomy = starts.filter((sp) => T.G.lanes[sp.lane].len - sp.s > 0.6);
+  const all = starts, roomy = starts.filter((sp) => T.G.lanes[sp.lane].len - sp.s > 0.6);
   if (roomy.length) starts = roomy;
   // (Not to the very end of a street's lane either: stopped there, its nose would be out in the junction.)
   const goals = spots?.goal ? [spots.goal] : spotsAt(T, g, to, to.kind === "gateway" ? "end" : null).map((sp) => {
     const l = T.G.lanes[sp.lane];
     return l.kind === "street" && !l.sink ? { lane: sp.lane, s: Math.min(sp.s, Math.max(l.len / 2, l.len - GOAL_BACK)) } : sp;
   });
-  const r = routeLanes(T.G, starts, goals);
+  // (Unless that is the only way there: from a gate beside a junction, the lane with room may only lead away.)
+  const r = routeLanes(T.G, starts, goals) ?? (starts.length < all.length ? routeLanes(T.G, all, goals) : null);
   if (!r) return null;
   const { pts, start, enter } = lineOf(T.G, r);
   if (pts.length < 2) return null;

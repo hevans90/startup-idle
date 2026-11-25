@@ -344,7 +344,13 @@ export function stepWorks(
       else if (s && p) sendHome(w, town, g, placesOf(g, net), s, p, placesOf(g, net).find((pl) => pl.structure === s.id), false);
     }
   }
+  // (THE ROADS' AND LINES' LOADS ARE KEPT for them: the yard counts one it found no way for as come, after they have
+  // looked this frame — lost here, the same load was sent for, loaded and put back for ever. One whose job is gone is
+  // nobody's, and its lorry simply home.)
+  const kept = town.arrived.filter((m) => (m.job?.role === "road-load" && g.roadJobs.some((j) => j.id === m.job!.site)) || (m.job?.role === "line-load" && g.lineJobs.some((j) => j.id === m.job!.site)));
+  for (const m of town.arrived) if (m.fleet && (m.job?.role === "road-load" || m.job?.role === "line-load") && !kept.includes(m)) lorryLost(g, town, m.id);
   town.arrived.length = 0;
+  town.arrived.push(...kept);
 
   // LOADS BY AIR, landing. @see Airlift
   for (const a of [...w.airlifts]) {
