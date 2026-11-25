@@ -1,5 +1,8 @@
 // First, before any store reads the save: a fixture session works on a copy. @see fixture-sandbox
 import './fixture-sandbox'
+// A chunk gone from the site since this tab was opened. @see stale-build
+import { installStaleBuild } from './stale-build'
+installStaleBuild()
 // `?hitches`, in development: every timer and frame callback timed, by where it came from. @see hitches
 import { installHitches } from './hitches'
 if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('hitches')) installHitches()

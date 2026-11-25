@@ -31,7 +31,8 @@ import { loadCompanyMap } from "../world/play/company-map-loader";
  * STEP TWO of founding: choosing the land the company is founded on. In its
  * own chunk, with the map generator it runs. @see MapSetup
  */
-const MapSetup = lazy(() => import("../world/play/map-setup"));
+const loadMapSetup = () => import("../world/play/map-setup");
+const MapSetup = lazy(loadMapSetup);
 
 /**
  * THE MAP, MADE READY WHILE FOUNDING: its chunk fetched and the GPU device
@@ -41,8 +42,10 @@ const MapSetup = lazy(() => import("../world/play/map-setup"));
 const READY_AFTER_MS = 500;
 function useMapMadeReady(): void {
   useEffect(() => {
+    // (The next step's code, at once: fetched only when a founder was picked, it was found gone after a deploy.)
+    loadMapSetup().catch(() => {});
     const id = window.setTimeout(() => {
-      void loadCompanyMap();
+      loadCompanyMap().catch(() => {});
       void gpuForPixi();
     }, READY_AFTER_MS);
     return () => window.clearTimeout(id);

@@ -7,9 +7,11 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { staleCheck } from "../../stale-build";
 import { Glitch } from "./glitch";
 
-type State = { error: Error | null; stack: string };
+/** `wait`: it may be only that the page is older than the site, and about to be loaded again. @see stale-build */
+type State = { error: Error | null; stack: string; wait?: boolean };
 
 export class ErrorScreen extends Component<{ children: ReactNode }, State> {
   state: State = { error: null, stack: "" };
@@ -20,12 +22,15 @@ export class ErrorScreen extends Component<{ children: ReactNode }, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     this.setState({ stack: `${error.stack ?? error.message}\n${info.componentStack ?? ""}` });
+    const check = staleCheck();
+    if (check) { this.setState({ wait: true }); void check.then((gone) => { if (!gone) this.setState({ wait: false }); }); }
     console.error("The console fell over:", error, info.componentStack);
   }
 
   render() {
     const { error, stack } = this.state;
     if (!error) return this.props.children;
+    if (this.state.wait) return null;
     const details = `${error.name}: ${error.message}\n\n${stack}`;
     return (
       <div role="alert" className="flex h-full w-full items-center justify-center bg-surface-0 p-4 text-fg">
