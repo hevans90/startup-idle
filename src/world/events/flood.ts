@@ -52,21 +52,29 @@ export function riseAt(t: number, peak: number): number {
  */
 export function floodPeak(g: Grid): number {
   let surface = -Infinity;
-  const heads: number[] = [];
   for (let i = 0; i < g.inflow.length; i++) {
     if (g.inflow[i] <= 0) continue;
-    heads.push(i);
     surface = Math.max(surface, g.height[i] + g.inflow[i]);
   }
-  if (!heads.length) return 0;
+  if (surface === -Infinity) return 0;
+  // (Each cell asked once whether a head is near it, off a table of sums. Every head's neighbourhood looked over was
+  // a tenth of a second on a map with a sea of them, twice a second.)
+  const W = g.w + 1, sums = new Int32Array(W * (g.h + 1));
+  for (let y = 0; y < g.h; y++) {
+    let row = 0;
+    for (let x = 0; x < g.w; x++) {
+      if (g.inflow[idx(g, x, y)] > 0) row++;
+      sums[(y + 1) * W + x + 1] = sums[y * W + x + 1] + row;
+    }
+  }
   let bank = Infinity;
-  for (const h of heads) {
-    const hx = h % g.w, hy = (h / g.w) | 0;
-    for (let y = Math.max(0, hy - BANK_REACH); y <= Math.min(g.h - 1, hy + BANK_REACH); y++) {
-      for (let x = Math.max(0, hx - BANK_REACH); x <= Math.min(g.w - 1, hx + BANK_REACH); x++) {
-        const z = g.height[idx(g, x, y)];
-        if (z > surface && z < bank) bank = z;
-      }
+  for (let y = 0; y < g.h; y++) {
+    const y0 = Math.max(0, y - BANK_REACH), y1 = Math.min(g.h, y + BANK_REACH + 1);
+    for (let x = 0; x < g.w; x++) {
+      const z = g.height[idx(g, x, y)];
+      if (z <= surface || z >= bank) continue;
+      const x0 = Math.max(0, x - BANK_REACH), x1 = Math.min(g.w, x + BANK_REACH + 1);
+      if (sums[y1 * W + x1] - sums[y0 * W + x1] - sums[y1 * W + x0] + sums[y0 * W + x0] > 0) bank = z;
     }
   }
   const rise = Number.isFinite(bank) ? bank - surface + FLOOD_OVER : MIN_RISE;

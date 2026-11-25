@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { Graphics } from "pixi.js";
+import { Container, type Graphics, Sprite } from "pixi.js";
 
 import type { Mover } from "./town";
-import { HEADINGS, drawMover, lookOf, outfitOf } from "./town-render";
+import { HEADINGS, drawMover, lookOf, misordered, outfitOf } from "./town-render";
 
 /** A stand-in for a Graphics that remembers every circle and arc drawn. */
 function recorder() {
@@ -63,5 +63,22 @@ describe("a mover's look, drawn once", () => {
     expect([canon.x, canon.y, canon.z]).toEqual([0, 0, 0]);
     const step = (Math.PI * 2) / HEADINGS.vehicle;
     expect(canon.heading / step).toBeCloseTo(Math.round(canon.heading / step), 9);
+  });
+});
+
+describe("a band's movers are sorted again only where it would show", () => {
+  const at = (x: number, sorted: number, z: number, reach = 8) => { const c = new Container(); c.x = x; c.zIndex = sorted; return { c, z, reach }; };
+  test("one the wrong side of another it is by; not one a street away, nor one in order", () => {
+    expect(misordered([at(0, 0.1, 0.3), at(5, 0.2, 0.2)], [], 1)).toBe(true);
+    expect(misordered([at(0, 0.1, 0.3), at(500, 0.2, 0.2)], [], 1)).toBe(false);
+    expect(misordered([at(0, 0.1, 0.15), at(5, 0.2, 0.2)], [], 1)).toBe(false);
+  });
+  test("one past what stands in the band: a sprite near it, or anything that is not a sprite", () => {
+    const post = new Sprite(); post.x = 10; post.zIndex = 0.2;
+    expect(misordered([at(0, 0.1, 0.3)], [post], 1)).toBe(true);
+    post.x = 900;
+    expect(misordered([at(0, 0.1, 0.3)], [post], 1)).toBe(false);
+    const other = new Container(); other.x = 900; other.zIndex = 0.2;
+    expect(misordered([at(0, 0.1, 0.3)], [other], 1)).toBe(true);
   });
 });

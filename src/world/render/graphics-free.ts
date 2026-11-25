@@ -47,3 +47,50 @@ export function quietEmptyClears(): void {
     return clear.call(this);
   };
 }
+
+type Shape = {
+  indexOffset: number; indexSize: number; attributeOffset: number; attributeSize: number; baseColor: number; alpha: number;
+  topology: string; texture: { _source: unknown }; _batch?: unknown; _batcher?: unknown;
+};
+type GpuContext = { isBatchable: boolean; batches: Shape[]; geometryData: { indices: number[] } };
+type Drawn = { context: { dirty: boolean; _gpuData: Record<number, GpuContext | undefined> }; _ownedContext?: unknown; _gpuData: Record<number, { batches: Shape[] } | undefined> };
+type GraphicsPipeLike = {
+  renderer: { uid: number; graphicsContext: { updateGpuContext: (c: unknown) => GpuContext } };
+  validateRenderable: (g: Drawn) => boolean; __inPlace?: boolean;
+};
+
+/**
+ * Whether the shapes drawn now can be written where the last were: as many, as long, of the same textures, joined up
+ * the same way — moved and recoloured, and no more. If so they are, colours and all.
+ */
+export function sameShapes(was: Shape[], now: Shape[], wasIndices: readonly number[], indices: readonly number[]): boolean {
+  if (was.length !== now.length || !was.length || wasIndices.length !== indices.length) return false;
+  for (let i = 0; i < was.length; i++) {
+    const a = was[i], b = now[i];
+    if (!a._batch || !a._batcher || a.indexOffset !== b.indexOffset || a.indexSize !== b.indexSize || a.attributeOffset !== b.attributeOffset
+      || a.attributeSize !== b.attributeSize || a.topology !== b.topology || a.texture._source !== b.texture._source) return false;
+  }
+  for (let i = 0; i < indices.length; i++) if (wasIndices[i] !== indices[i]) return false;
+  for (let i = 0; i < was.length; i++) { was[i].baseColor = now[i].baseColor; was[i].alpha = now[i].alpha; was[i].texture = now[i].texture; }
+  return true;
+}
+
+/**
+ * A GRAPHICS REDRAWN THE SAME SHAPE IS WRITTEN OVER. Pixi builds the whole draw list of the render group again
+ * whenever a batched Graphics in it is drawn again, whatever was drawn; a shop's steam, a walker's lead, a sign's
+ * lamps are the same handful of shapes a little moved, and a street of them was its list made again every frame —
+ * every car, walker and prop in it packed afresh. Only a Graphics with a context of its own. Once a renderer.
+ */
+export function redrawInPlace(renderer: unknown): void {
+  const pipe = (renderer as { renderPipes?: { graphics?: GraphicsPipeLike } })?.renderPipes?.graphics;
+  if (!pipe || pipe.__inPlace || !pipe.renderer?.graphicsContext) return;
+  pipe.__inPlace = true;
+  const validate = pipe.validateRenderable;
+  pipe.validateRenderable = function (g) {
+    const uid = this.renderer.uid, context = g.context, had = context._gpuData[uid], drawn = g._gpuData[uid];
+    if (!context.dirty || !had?.isBatchable || !drawn?.batches.length || g._ownedContext !== context) return validate.call(this, g);
+    const indices = had.geometryData.indices.slice();
+    const now = this.renderer.graphicsContext.updateGpuContext(context);
+    return !(now.isBatchable && sameShapes(drawn.batches, now.batches, indices, now.geometryData.indices));
+  };
+}

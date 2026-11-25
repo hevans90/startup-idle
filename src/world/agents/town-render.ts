@@ -260,6 +260,10 @@ type Shown = {
   over?: { c: Container; lamps: Sprite[] };
   /** A baked vehicle's people, once there is a sheet to draw them from; null, one nobody is seen in. @see cars/occupants */
   riders?: Riders | null;
+  /** Its depth in its band, as last worked out: what it is sorted by may be older. @see misordered */
+  z: number;
+  /** How far to either side of its place it is drawn at most, map units at scale 1. */
+  reach: number;
 };
 
 /** The lamps lit: headlamps warm white, tail lamps and brake lights red, indicators amber. @see raster LAMPS */
@@ -354,7 +358,20 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       d.c.zIndex = z;
       bands.dynamicOf[band].addChild(d.c);
       d.band = band;
-    } else if (crosses(d.c, z)) d.c.zIndex = z;
+    }
+    d.z = z;
+    const l = filed.get(band);
+    if (l) l.push(d); else filed.set(band, [d]);
+  };
+  /** The movers of each band, as this frame files them. */
+  const filed = new Map<number, Shown[]>();
+  /** Bands sorted again where one has come to be drawn the wrong side of another it is by — and only there. */
+  const order = (scale: number) => {
+    for (const [band, l] of filed) {
+      if (misordered(l, bands.dynamicOf[band].children, scale)) for (const d of l) if (d.c.zIndex !== d.z) d.c.zIndex = d.z;
+      l.length = 0;
+    }
+    filed.clear();
   };
 
   /** Where a point is on the screen: `l` forward and `w` to the right of (x, y) facing `heading`, tiles, `up` metres over `z`. */
@@ -374,7 +391,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       const parts = Array.from({ length: 5 }, () => { const sp = new Sprite(); c.addChild(sp); return sp; });
       const [coat, marks] = DOGS[g.breed].coats[g.coat];
       parts[2].tint = coat; parts[3].tint = marks;
-      d = { c, parts, band: -1, key: "", baked: true, tilted: false };
+      d = { c, parts, band: -1, key: "", baked: true, tilted: false, z: 0, reach: PERSON_REACH };
       drawn.set(id, d);
     }
     d.key = posePerson(d.parts, people!, `dog-${g.breed}`, g.sniff > 0 ? "sniff" : "walk", g.heading, g.phase, scale, 1, d.key);
@@ -428,7 +445,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
           // Baked: skin, bottoms, top, hair and the rest; drawn: trousers, shirt, skin, hair.
           (fig ? [o.skin, o.legs, m.colour, o.hair, 0xffffff] : [o.legs, m.colour, o.skin, o.hair]).forEach((t, k) => { parts[k].tint = t; });
         }
-        d = { c, parts, band: -1, key: "", baked: !!car || !!fig, tilted: false };
+        d = { c, parts, band: -1, key: "", baked: !!car || !!fig, tilted: false, z: 0, reach: m.kind === "person" ? (m.dog ? PERSON_REACH * 3 : PERSON_REACH) : bike ? PERSON_REACH * 2 : HW };
         if (car) parts[0].tint = m.colour;
         // ITS LAMPS, over the trim, each lit by its alpha alone: nothing in the band's draw list changes.
         if (car && car.at(0).lamps.length) {
@@ -567,6 +584,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       d.over?.c.destroy({ children: true });
       drawn.delete(id);
     }
+    order(scale);
   };
 
   return {
@@ -580,6 +598,37 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
       glow?.destroy(true);
     },
   };
+}
+
+/** How far to either side of their place a walker is drawn at most, map units at scale 1. */
+const PERSON_REACH = 8;
+
+type Filed = { c: Container; z: number; reach: number };
+
+/**
+ * Whether a band's movers must be sorted again: one of them sorted the wrong side of another, or of something
+ * standing in the band, that it is near enough across the screen to be drawn over. Two a street apart may be drawn
+ * in either order — and each sort is the band's draw list made again, so a busy street's was, every frame.
+ */
+export function misordered(movers: readonly Filed[], children: readonly Container[], scale: number): boolean {
+  const mine = new Set<Container>();
+  for (const d of movers) mine.add(d.c);
+  for (const o of children) {
+    if (mine.has(o)) continue;
+    // (A sprite's place is where it is drawn; anything else may be drawn anywhere.)
+    const placed = o instanceof Sprite;
+    for (const d of movers) {
+      if (d.z !== o.zIndex && (d.z - o.zIndex) * (d.c.zIndex - o.zIndex) <= 0 && (!placed || Math.abs(o.x - d.c.x) < (d.reach + 2 * HW) * scale)) return true;
+    }
+  }
+  for (let i = 0; i < movers.length; i++) {
+    const a = movers[i];
+    for (let j = i + 1; j < movers.length; j++) {
+      const b = movers[j];
+      if (a.z !== b.z && (a.z - b.z) * (a.c.zIndex - b.c.zIndex) <= 0 && Math.abs(a.c.x - b.c.x) < (a.reach + b.reach) * scale) return true;
+    }
+  }
+  return false;
 }
 
 /**
