@@ -85,10 +85,12 @@ export function PortIncome() {
 
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {/* (A text's shadow and not a filter's: two dozen filters under a changing opacity were worked out again every
+          frame they rose. And each its own layer, so a frame only moves and fades what is drawn already.) */}
       {floats.map((f) => (
         <span key={f.key}
           ref={(el) => { if (el) els.current.set(f.key, el); else els.current.delete(f.key); }}
-          className="absolute left-0 top-0 whitespace-nowrap text-xs font-bold tabular-nums text-good opacity-0 drop-shadow">
+          className="absolute left-0 top-0 whitespace-nowrap text-xs font-bold tabular-nums text-good opacity-0 will-change-[transform,opacity] [text-shadow:0_1px_2px_rgb(0_0_0/0.1),0_1px_1px_rgb(0_0_0/0.06)]">
           +{formatCurrency(f.amount)}
         </span>
       ))}

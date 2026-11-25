@@ -30,7 +30,6 @@ export const CATALOGUES: Record<CatalogueId, () => Line[]> = {
   ],
   juice: () => JUICE_SHOP_UPGRADES.flatMap((u) => [
     { name: u.name, line: u.description },
-    ...(u.minigameDescription ? [{ name: `${u.name} (mini-game)`, line: u.minigameDescription }] : []),
   ]),
   mandates: () => MANDATES.map((m) => ({ name: m.name, line: m.description })),
   // Every row the business tree's nodes show, each saying once. The Machine's are its own.

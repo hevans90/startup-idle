@@ -15,7 +15,7 @@ import { orNone, PrestigeMods, prestigeRows, satRows } from "./utils";
 import { percent, times } from "../wording";
 
 export const NO_JUICE_ROW: BreakdownRow = {
-  source: "No juice yet: score milestones in the vape mini-game earn it",
+  source: "None yet: achievements earn juice for the vape shop",
   value: "—",
   tone: "neutral",
 };

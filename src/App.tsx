@@ -25,7 +25,6 @@ import { CompanyMap } from "./world/play/company-map-loader";
 import { SettingsPopover } from "./molecules/settings-popover";
 import { Sidebar } from "./molecules/sidebar";
 import { Toolbar } from "./molecules/toolbar";
-import { VapeMapWrapper } from "./molecules/vape-map-wrapper";
 import { useFounderStore } from "./state/founder.store";
 import { useGeneratorStore } from "./state/generators.store";
 import { useInnovationStore } from "./state/innovation.store";
@@ -37,8 +36,6 @@ import { listen, setLevel, setMix } from "./audio/sound";
 import { formatCurrency } from "./utils/money-utils";
 import { NoticeToast } from "./ui/comms/notice-toast";
 
-/** Vibe coders this run before the vape appears on the map. */
-const VAPE_UNLOCK_VIBE_CODERS = 50;
 
 
 const useDynamicTitle = (interval = 1000) => {
@@ -68,13 +65,6 @@ function App() {
 
   const getMoneyPerSecond = useGeneratorStore((s) => s.getMoneyPerSecond);
   const mps = getMoneyPerSecond();
-  const vibeCoderCount = useGeneratorStore(
-    (s) => s.generators.find((g) => g.id === "vibe_coder")?.amount ?? 0,
-  );
-  // THE VAPE comes with THIS company's vibe coders, not with an achievement:
-  // achievements outlive a run, so tying it to "Vibe army" put a clickable
-  // vape on the map of every new game after the first that earned it.
-  const vapeVisible = vibeCoderCount >= VAPE_UNLOCK_VIBE_CODERS;
 
   const founderId = useFounderStore((state) => state.selectedFounderId);
 
@@ -247,10 +237,6 @@ function App() {
 
                 <AscensionCard />
                 <NegotiationScreen />
-
-                <div className="absolute bottom-2 left-2 z-10 flex flex-col gap-1 items-start">
-                  {vapeVisible && <VapeMapWrapper />}
-                </div>
               </div>
             </div>
 

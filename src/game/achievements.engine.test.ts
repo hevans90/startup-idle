@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import Decimal from "break_infinity.js";
 import { useVapeAchievementsStore } from "../state/vape-achievements.store";
 import { ACHIEVEMENT_CATALOG } from "./achievements.catalog";
+import { JUICE_SHOP_UPGRADES } from "./achievements.juice-shop";
 import { achievementsNewlyMet } from "./achievements.engine";
-import { vapeTankFillRatio } from "./vape-display-utils";
 
 const zeroCtx = {
   internCount: 0,
@@ -56,17 +55,6 @@ describe("ACHIEVEMENT_CATALOG", () => {
   });
 });
 
-describe("vapeTankFillRatio", () => {
-  test("empty juice gives 0 fill", () => {
-    expect(vapeTankFillRatio(new Decimal(0), new Decimal(0), [])).toBe(0);
-  });
-
-  test("juice at cap gives 1", () => {
-    const cap = 100;
-    expect(vapeTankFillRatio(new Decimal(cap), new Decimal(0), [])).toBe(1);
-  });
-});
-
 describe("useVapeAchievementsStore", () => {
   test("recordAchievementUnlock is idempotent per id", () => {
     useVapeAchievementsStore.getState().reset();
@@ -77,16 +65,46 @@ describe("useVapeAchievementsStore", () => {
     expect(useVapeAchievementsStore.getState().vapeJuice.toNumber()).toBe(10);
   });
 
-  test("tryPurchaseJuiceUpgrade spends juice and applies bonus", () => {
-    useVapeAchievementsStore.getState().reset();
-    useVapeAchievementsStore.getState().recordAchievementUnlock("seed", 500);
-    const ok = useVapeAchievementsStore
-      .getState()
-      .tryPurchaseJuiceUpgrade("juice_coil_polish");
-    expect(ok).toBe(true);
+  const full = (id: string) => useVapeAchievementsStore.getState().purchasedJuiceUpgradeIds.includes(id);
+  const fresh = (juice: number) => { useVapeAchievementsStore.getState().clearAll(); useVapeAchievementsStore.getState().recordAchievementUnlock("seed", juice); return useVapeAchievementsStore.getState(); };
+
+  test("a vessel part-filled gives nothing, full its bonus", () => {
+    const s = fresh(500);
+    expect(s.pourJuice("juice_coil_polish", 30)).toBe(30);
+    expect(useVapeAchievementsStore.getState().juiceMpsMultBonus).toBe(0);
+    expect(s.pourJuice("juice_coil_polish", 30)).toBe(10);
     expect(useVapeAchievementsStore.getState().juiceMpsMultBonus).toBeCloseTo(0.08, 5);
-    expect(
-      useVapeAchievementsStore.getState().purchasedJuiceUpgradeIds,
-    ).toContain("juice_coil_polish");
+    expect(useVapeAchievementsStore.getState().vapeJuice.toNumber()).toBe(460);
+    expect(full("juice_coil_polish")).toBe(true);
+  });
+
+  test("one is poured into only with the one above it full, and drained only with those below it empty", () => {
+    const s = fresh(500);
+    expect(s.pourJuice("juice_deep_steep", 10)).toBe(0);
+    s.pourJuice("juice_coil_polish", 40);
+    expect(s.pourJuice("juice_deep_steep", 10)).toBe(10);
+    expect(s.drainJuice("juice_coil_polish", 40)).toBe(0);
+    expect(s.drainJuice("juice_deep_steep", 99)).toBe(10);
+    expect(s.drainJuice("juice_coil_polish", 40)).toBe(40);
+    expect(useVapeAchievementsStore.getState().vapeJuice.toNumber()).toBe(500);
+    expect(useVapeAchievementsStore.getState().juiceMpsMultBonus).toBe(0);
+  });
+
+  test("no more is poured than there is", () => {
+    const s = fresh(25);
+    expect(s.pourJuice("juice_coil_polish", 40)).toBe(25);
+    expect(s.pourJuice("juice_coil_polish", 40)).toBe(0);
+  });
+
+  test("a save from before the still: what was bought is full, its bonuses as they were", () => {
+    const merge = useVapeAchievementsStore.persist.getOptions().merge!;
+    const s = merge({ purchasedJuiceUpgradeIds: ["juice_coil_polish", "juice_triple_coil"] }, useVapeAchievementsStore.getState()) as ReturnType<typeof useVapeAchievementsStore.getState>;
+    expect(s.juiceFills).toEqual({ juice_coil_polish: 40, juice_triple_coil: 510 });
+    expect(s.juiceMpsMultBonus).toBeCloseTo(0.38, 5);
+  });
+
+  test("the upgrades compete: all of them come to far more than every achievement pays", () => {
+    const all = JUICE_SHOP_UPGRADES.reduce((n, u) => n + u.cost, 0), paid = ACHIEVEMENT_CATALOG.reduce((n, a) => n + a.juiceReward, 0);
+    expect(all).toBeGreaterThan(paid * 1.7);
   });
 });

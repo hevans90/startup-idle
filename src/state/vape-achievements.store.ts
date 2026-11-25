@@ -2,15 +2,18 @@ import Decimal from "break_infinity.js";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { coerceDecimal, decimalReplacer, decimalReviver } from "./_break_infinity.decimals";
-import { JUICE_SHOP_UPGRADES } from "../game/achievements.juice-shop";
+import { JUICE_SHOP_UPGRADES, drainBlock, isFull, juiceBonuses, juicePlace, pourBlock, type JuiceFills } from "../game/achievements.juice-shop";
 
 const STORAGE_KEY = "vape-achievements";
 
 export type VapeAchievementsState = {
   vapeJuice: Decimal;
   unlockedAchievementIds: string[];
-  /** Sum of juice granted from achievements (for tank capacity hint). */
+  /** Sum of juice granted from achievements. */
   lifetimeJuiceFromAchievements: Decimal;
+  /** The juice in each upgrade's vessel. */
+  juiceFills: JuiceFills;
+  /** Those full. */
   purchasedJuiceUpgradeIds: string[];
   /** Additive bonuses from juice shop (fraction, e.g. 0.08 => ×1.08). */
   juiceMpsMultBonus: number;
@@ -21,43 +24,40 @@ export type VapeAchievementsState = {
   /** Additive equity payout bonus (fraction, e.g. 0.10 => ×1.10). */
   juiceEquityMultBonus: number;
 
-  // ── Minigame bonuses ──────────────────────────────────────────────────────
-  /** Accumulated tap window width bonus (fraction). */
-  minigameTapWindowBonus: number;
-  /** Accumulated hold threshold reduction (fraction, subtracted from 0.60). */
-  minigameHoldThresholdReduction: number;
-  /** Accumulated innovation reward bonus (fraction). */
-  minigameRewardBonus: number;
-  /** Total missed tap zones forgiven per game (integer). */
-  minigameForgiveness: number;
-  /** Accumulated perfect-cloud threshold reduction (fraction, subtracted from 0.92). */
-  minigamePerfectThresholdReduction: number;
-
   /** Unlock + grant juice; returns true if newly unlocked. */
   recordAchievementUnlock: (id: string, juiceReward: number) => boolean;
-  spendJuice: (amount: number) => boolean;
-  tryPurchaseJuiceUpgrade: (id: string) => boolean;
+  /** Pour some of the flask's juice into an upgrade's vessel; how much went. */
+  pourJuice: (id: string, amount: number) => number;
+  /** Drain some of a vessel back into the flask; how much went. */
+  drainJuice: (id: string, amount: number) => number;
   /** Run reset: no-op — achievements and juice upgrades persist across prestiges. */
   reset: () => void;
   /** Full wipe only: clears everything including achievements and upgrades. */
   clearAll: () => void;
 };
 
+/** What follows from the vessels. */
+const filled = (juiceFills: JuiceFills) => ({
+  juiceFills,
+  purchasedJuiceUpgradeIds: JUICE_SHOP_UPGRADES.filter((u) => isFull(juiceFills, u)).map((u) => u.id),
+  ...juiceBonuses(juiceFills),
+});
+
+/** A save's vessels: from before there were any, each upgrade bought is full. */
+const savedFills = (fills: JuiceFills | undefined, bought: readonly string[]): JuiceFills =>
+  fills ?? Object.fromEntries(JUICE_SHOP_UPGRADES.filter((u) => bought.includes(u.id)).map((u) => [u.id, u.cost]));
+
 const initial = () => ({
   vapeJuice: new Decimal(0),
   unlockedAchievementIds: [] as string[],
   lifetimeJuiceFromAchievements: new Decimal(0),
+  juiceFills: {} as JuiceFills,
   purchasedJuiceUpgradeIds: [] as string[],
   juiceMpsMultBonus: 0,
   juiceInnovationMultBonus: 0,
   juiceValuationMultBonus: 0,
   juiceHireCostReduction: 0,
   juiceEquityMultBonus: 0,
-  minigameTapWindowBonus: 0,
-  minigameHoldThresholdReduction: 0,
-  minigameRewardBonus: 0,
-  minigameForgiveness: 0,
-  minigamePerfectThresholdReduction: 0,
 });
 
 export const useVapeAchievementsStore = create<VapeAchievementsState>()(
@@ -76,43 +76,22 @@ export const useVapeAchievementsStore = create<VapeAchievementsState>()(
         return true;
       },
 
-      spendJuice: (amount: number) => {
-        if (amount <= 0) return true;
-        const cost = new Decimal(amount);
-        const { vapeJuice } = get();
-        if (vapeJuice.lt(cost)) return false;
-        set({ vapeJuice: vapeJuice.sub(cost) });
-        return true;
+      pourJuice: (id, amount) => {
+        const { vapeJuice, juiceFills } = get(), at = juicePlace(id);
+        if (!at || pourBlock(juiceFills, id)) return 0;
+        const has = juiceFills[id] ?? 0, n = Math.min(Math.floor(amount), Math.floor(vapeJuice.toNumber()), at.def.cost - has);
+        if (!(n > 0)) return 0;
+        set({ vapeJuice: vapeJuice.sub(n), ...filled({ ...juiceFills, [id]: has + n }) });
+        return n;
       },
 
-      tryPurchaseJuiceUpgrade: (id: string) => {
-        const def = JUICE_SHOP_UPGRADES.find((u) => u.id === id);
-        if (!def) return false;
-        if (get().purchasedJuiceUpgradeIds.includes(id)) return false;
-        if (!get().spendJuice(def.cost)) return false;
-        set((s) => ({
-          purchasedJuiceUpgradeIds: [...s.purchasedJuiceUpgradeIds, id],
-          juiceMpsMultBonus: s.juiceMpsMultBonus + (def.mpsBonus ?? 0),
-          juiceInnovationMultBonus:
-            s.juiceInnovationMultBonus + (def.innovationBonus ?? 0),
-          juiceValuationMultBonus:
-            s.juiceValuationMultBonus + (def.valuationBonus ?? 0),
-          juiceHireCostReduction:
-            s.juiceHireCostReduction + (def.hireCostReduction ?? 0),
-          juiceEquityMultBonus:
-            s.juiceEquityMultBonus + (def.equityBonus ?? 0),
-          minigameTapWindowBonus:
-            s.minigameTapWindowBonus + (def.minigameTapWindowBonus ?? 0),
-          minigameHoldThresholdReduction:
-            s.minigameHoldThresholdReduction + (def.minigameHoldThresholdReduction ?? 0),
-          minigameRewardBonus:
-            s.minigameRewardBonus + (def.minigameRewardBonus ?? 0),
-          minigameForgiveness:
-            s.minigameForgiveness + (def.minigameForgiveness ?? 0),
-          minigamePerfectThresholdReduction:
-            s.minigamePerfectThresholdReduction + (def.minigamePerfectThresholdReduction ?? 0),
-        }));
-        return true;
+      drainJuice: (id, amount) => {
+        const { vapeJuice, juiceFills } = get();
+        if (drainBlock(juiceFills, id)) return 0;
+        const has = juiceFills[id], n = Math.min(Math.floor(amount), has);
+        if (!(n > 0)) return 0;
+        set({ vapeJuice: vapeJuice.add(n), ...filled({ ...juiceFills, [id]: has - n }) });
+        return n;
       },
 
       reset: () => {
@@ -134,17 +113,7 @@ export const useVapeAchievementsStore = create<VapeAchievementsState>()(
         vapeJuice: state.vapeJuice,
         unlockedAchievementIds: state.unlockedAchievementIds,
         lifetimeJuiceFromAchievements: state.lifetimeJuiceFromAchievements,
-        purchasedJuiceUpgradeIds: state.purchasedJuiceUpgradeIds,
-        juiceMpsMultBonus: state.juiceMpsMultBonus,
-        juiceInnovationMultBonus: state.juiceInnovationMultBonus,
-        juiceValuationMultBonus: state.juiceValuationMultBonus,
-        juiceHireCostReduction: state.juiceHireCostReduction,
-        juiceEquityMultBonus: state.juiceEquityMultBonus,
-        minigameTapWindowBonus: state.minigameTapWindowBonus,
-        minigameHoldThresholdReduction: state.minigameHoldThresholdReduction,
-        minigameRewardBonus: state.minigameRewardBonus,
-        minigameForgiveness: state.minigameForgiveness,
-        minigamePerfectThresholdReduction: state.minigamePerfectThresholdReduction,
+        juiceFills: state.juiceFills,
       }),
       merge: (persisted, current) => {
         const p = persisted as Partial<
@@ -153,17 +122,8 @@ export const useVapeAchievementsStore = create<VapeAchievementsState>()(
             | "vapeJuice"
             | "unlockedAchievementIds"
             | "lifetimeJuiceFromAchievements"
+            | "juiceFills"
             | "purchasedJuiceUpgradeIds"
-            | "juiceMpsMultBonus"
-            | "juiceInnovationMultBonus"
-            | "juiceValuationMultBonus"
-            | "juiceHireCostReduction"
-            | "juiceEquityMultBonus"
-            | "minigameTapWindowBonus"
-            | "minigameHoldThresholdReduction"
-            | "minigameRewardBonus"
-            | "minigameForgiveness"
-            | "minigamePerfectThresholdReduction"
           >
         > | null;
         if (!p) return current;
@@ -177,17 +137,7 @@ export const useVapeAchievementsStore = create<VapeAchievementsState>()(
             p.lifetimeJuiceFromAchievements,
             new Decimal(0),
           ),
-          purchasedJuiceUpgradeIds: p.purchasedJuiceUpgradeIds ?? [],
-          juiceMpsMultBonus: p.juiceMpsMultBonus ?? 0,
-          juiceInnovationMultBonus: p.juiceInnovationMultBonus ?? 0,
-          juiceValuationMultBonus: p.juiceValuationMultBonus ?? 0,
-          juiceHireCostReduction: p.juiceHireCostReduction ?? 0,
-          juiceEquityMultBonus: p.juiceEquityMultBonus ?? 0,
-          minigameTapWindowBonus: p.minigameTapWindowBonus ?? 0,
-          minigameHoldThresholdReduction: p.minigameHoldThresholdReduction ?? 0,
-          minigameRewardBonus: p.minigameRewardBonus ?? 0,
-          minigameForgiveness: p.minigameForgiveness ?? 0,
-          minigamePerfectThresholdReduction: p.minigamePerfectThresholdReduction ?? 0,
+          ...filled(savedFills(p.juiceFills, p.purchasedJuiceUpgradeIds ?? [])),
         };
       },
     },
