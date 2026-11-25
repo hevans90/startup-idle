@@ -3,9 +3,9 @@ import './fixture-sandbox'
 // A chunk gone from the site since this tab was opened. @see stale-build
 import { installStaleBuild } from './stale-build'
 installStaleBuild()
-// `?hitches`, in development: every timer and frame callback timed, by where it came from. @see hitches
+// `?hitches`, in deployed builds too: every timer and frame callback timed, by where it came from. @see hitches
 import { installHitches } from './hitches'
-if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('hitches')) installHitches()
+if (new URLSearchParams(window.location.search).has('hitches')) installHitches()
 // The GPU's device, asked for now and not when the map's canvas mounts: it is seconds on Windows. @see openDevice
 import { openDevice } from './world/render/device'
 if (!new URLSearchParams(window.location.search).has('webgl')) void openDevice()

@@ -1,5 +1,5 @@
 /**
- * `?hitches`, in development: WHAT BLOCKS THE MAIN THREAD, by name.
+ * `?hitches`, in deployed builds too: WHAT BLOCKS THE MAIN THREAD, by name.
  *
  * The frame meter averages, and drops the frames far out of character — so a
  * hitch of a third of a second five times a second is invisible on it while
