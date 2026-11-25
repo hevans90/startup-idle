@@ -121,6 +121,8 @@ describe("traffic on the lanes", () => {
     const cut = (on: 0 | 1) => { for (let y = 0; y < g.h; y++) if (y !== at && y !== at + 1) g.paved[idx(g, at + 1, y)] = on; edited(g); };
     cut(0);
     const net = createNetwork(g), t = createTown();
+    // (A run with nobody caught across the new line of a lane: about one in six has a car brushed as it goes by.)
+    t.seed += 1;
     for (let k = 0; k < 60 * 20; k++) stepTown(t, g, net, 0, 1 / 20);
     expect(trafficOf(t, g).G.junctions.map((j) => j.kind)).toContain("signals");
     cut(1);

@@ -494,13 +494,13 @@ function* lanesSteps(g: Grid): Generator<void, LaneGraph> {
 
   yield;
   // ── pavements ────────────────────────────────────────────────────────
-  const { walk, crossings } = pavements(g, streets, junctions);
+  const { walk, crossings, mouths } = pavements(g, streets, junctions);
   yield;
-  // Cars wait behind a junction's crossings, clear of them for whoever walks over.
+  // Cars wait behind a junction's crossings, clear of them for whoever walks over — and, crossed or not, of a bus swinging round.
   for (const J of junctions) {
     for (const A of J.arms) {
-      if (A.crossing === undefined) continue;
-      const c = crossings[A.crossing], m = { x: (walk.nodes[c.a].x + walk.nodes[c.b].x) / 2, y: (walk.nodes[c.a].y + walk.nodes[c.b].y) / 2 };
+      const m = mouths.get(A);
+      if (!m) continue;
       for (const id of A.inLanes) {
         const l = lanes[id], e = l.pts[l.pts.length - 1];
         const back = Math.abs(dot({ x: e.x - m.x, y: e.y - m.y }, heading(l)));
@@ -710,7 +710,10 @@ function layBack(g: Grid, walk: LaneGraph["walk"], bays: readonly Bay[]) {
 }
 
 /** Cells between crossings along a street, about. */
-export const CROSS_EVERY = 8;
+export const CROSS_EVERY = 16;
+/** The longest way round, tiles, there need be no crossing to save; what each crossing on it counts for. */
+export const CROSS_ROUND = 20;
+const CROSS_COUNTS = 1;
 /**
  * Where along a street of `n` slices it is crossed, as well as at its ends:
  * slices from its start. One in the middle of anything four long or more, and
@@ -719,6 +722,34 @@ export const CROSS_EVERY = 8;
 export function alongCrossings(n: number): number[] {
   const k = n >= 4 ? Math.max(1, Math.floor(n / CROSS_EVERY)) : 0;
   return Array.from({ length: k }, (_, i) => Math.floor(((i + 0.5) * n) / k));
+}
+
+/** Whether there is a way along the pavements from `a` to `b` no longer than `most`. */
+function near(edges: readonly WalkEdge[], ends: ReadonlyMap<number, readonly number[]>, a: number, b: number, most: number): boolean {
+  const cost = new Map<number, number>([[a, 0]]), heap: [number, number][] = [[0, a]];
+  while (heap.length) {
+    const [c, n] = heap[0], last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      for (let k = 0; ;) {
+        const l = 2 * k + 1, r = l + 1;
+        let m = k;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === k) break;
+        [heap[m], heap[k]] = [heap[k], heap[m]]; k = m;
+      }
+    }
+    if (n === b) return true;
+    if (c > cost.get(n)!) continue;
+    for (const k of ends.get(n) ?? []) {
+      const e = edges[k], m = e.a === n ? e.b : e.a, nc = c + e.len + (e.crossing !== undefined ? CROSS_COUNTS : 0);
+      if (nc > most || nc >= (cost.get(m) ?? Infinity)) continue;
+      cost.set(m, nc); heap.push([nc, m]);
+      for (let k = heap.length - 1; k > 0;) { const q = (k - 1) >> 1; if (heap[q][0] <= heap[k][0]) break; [heap[q], heap[k]] = [heap[k], heap[q]]; k = q; }
+    }
+  }
+  return false;
 }
 
 /** The way a lane runs at its end. */
@@ -1292,10 +1323,23 @@ function pavements(g: Grid, streets: readonly Street[], junctions: readonly Junc
       }
     }
   }
-  // THE CROSSINGS, kerb middle to kerb middle.
+  // THE CROSSINGS, kerb middle to kerb middle: every one at lights; elsewhere only where the way round without it is a
+  // long one — the narrowest roads first, a side road before the one it joins, junctions before the middle of a street.
+  // (Every way into every junction and the middle of every block was crossed: the traffic stood at one after another.)
   const crossings: Crossing[] = [];
-  for (const P of ok) {
+  const lit = (P: Plan) => P.junction >= 0 && junctions[P.junction].kind === "signals";
+  const ends = new Map<number, number[]>();
+  const tie = (k: number) => { for (const n of [edges[k].a, edges[k].b]) { const l = ends.get(n); if (l) l.push(k); else ends.set(n, [k]); } };
+  edges.forEach((_, k) => tie(k));
+  const rank = (P: Plan) => {
+    if (lit(P)) return -1;
+    if (P.junction < 0) return 1000;
+    const arms = junctions[P.junction].arms, out = arms.find((r) => r.street === P.st.id && r.end === P.end)!.out;
+    return P.st.width * 2 + (arms.some((r) => r.out.x * out.x + r.out.y * out.y < -0.5) ? 1 : 0);
+  };
+  for (const P of ok.map((P) => ({ P, r: rank(P) })).sort((p, q) => p.r - q.r).map(({ P }) => P)) {
     const { first, last, dl, dh } = across(P.st, P.a)!;
+    if (!lit(P) && near(edges, ends, mid(first.x, first.y, dl), mid(last.x, last.y, dh), CROSS_ROUND)) continue;
     const c: Crossing = {
       id: crossings.length, a: mid(first.x, first.y, dl), b: mid(last.x, last.y, dh), junction: P.junction, street: P.st.id,
       ...(P.end !== undefined ? { end: P.end } : {}), ...(P.long ? { long: true as const } : {}),
@@ -1307,9 +1351,19 @@ function pavements(g: Grid, streets: readonly Street[], junctions: readonly Junc
       const A = junctions[P.junction].arms.find((r) => r.street === P.st.id && r.end === P.end);
       if (A) A.crossing = c.id;
     }
+    const k = edges.length;
     edge(c.a, c.b, c.id);
+    if (edges.length > k) tie(k);
   }
   const adj: number[][] = nodes.map(() => []);
   edges.forEach((e, k) => { adj[e.a].push(k); adj[e.b].push(k); });
-  return { walk: { nodes, edges, adj, at: key }, crossings };
+  // The middle of each way into a junction that might be crossed.
+  const mouths = new Map<Junction["arms"][number], Pt>();
+  for (const P of ok) {
+    const A = P.junction >= 0 ? junctions[P.junction].arms.find((r) => r.street === P.st.id && r.end === P.end) : undefined;
+    if (!A) continue;
+    const { first, last, dl, dh } = across(P.st, P.a)!, a = nodes[mid(first.x, first.y, dl)], b = nodes[mid(last.x, last.y, dh)];
+    mouths.set(A, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  }
+  return { walk: { nodes, edges, adj, at: key }, crossings, mouths };
 }

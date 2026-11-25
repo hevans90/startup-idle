@@ -243,15 +243,22 @@ export const CHANGE_LEN = 1;
 /** Whether a route's step from `a` to `b` is a change of lane on one street. */
 export const isChange = (G: LaneGraph, a: number, b: number) => !!G.lanes[a].beside?.includes(b);
 
+/** Whether a lane has the road left past `s` along it to change out of it and settle. */
+export const roomToChange = (l: Lane, s: number) => l.len - s >= CHANGE_ROOM;
+
 /** What taking a lane costs on top of its length. */
-const costOf = (l: Lane) => (l.turn === "uturn" ? 6 : l.turn === "left" || l.turn === "right" ? 0.3 : 0);
+export const costOf = (l: Lane) => (l.turn === "uturn" ? 6 : l.turn === "left" || l.turn === "right" ? 0.3 : 0);
 
 /**
  * The cheapest way along the lanes from any of `starts` to any of `goals`, or
  * null if there is none. Ends nearer than `min` along one lane do not count:
  * a trip is somewhere to get to.
+ *
+ * `load`, what the traffic on a lane adds to the cost of leaving it by its end — or, with a point given, of getting to
+ * there: how a way round a queue, or the emptier of two lanes side by side, comes out the cheaper. Added as a lane is left and not as it is come
+ * to, so the lane a car changes out of costs it nothing. `cost`, where given, is told the best way's. `stay`: not changing out of the lane it starts on.
  */
-export function routeLanes(G: LaneGraph, starts: readonly Spot[], goals: readonly Spot[], min = 0.5): Route | null {
+export function routeLanes(G: LaneGraph, starts: readonly Spot[], goals: readonly Spot[], min = 0.5, load?: (lane: number, to?: number) => number, cost_?: { c: number }, stay = false): Route | null {
   const goalOn = new Map<number, number[]>();
   for (const g of goals) { const l = goalOn.get(g.lane); if (l) l.push(g.s); else goalOn.set(g.lane, [g.s]); }
   // Cost at the END of each lane, and the lane before it.
@@ -282,7 +289,8 @@ export function routeLanes(G: LaneGraph, starts: readonly Spot[], goals: readonl
   for (const st of starts) {
     const l = G.lanes[st.lane];
     for (const gs of goalOn.get(st.lane) ?? []) {
-      if (gs - st.s >= min && (!best || gs - st.s < best.c)) best = { c: gs - st.s, lane: st.lane, s1: gs, from: -1 };
+      const c0 = gs - st.s + (load?.(st.lane, gs) ?? 0);
+      if (gs - st.s >= min && (!best || c0 < best.c)) best = { c: c0, lane: st.lane, s1: gs, from: -1 };
     }
     const c = l.len - st.s;
     if (c < (cost.get(st.lane) ?? Infinity)) { cost.set(st.lane, c); startS.set(st.lane, st.s); prev.set(st.lane, -1); push(c, st.lane); }
@@ -296,24 +304,26 @@ export function routeLanes(G: LaneGraph, starts: readonly Spot[], goals: readonl
     // ACROSS to a lane beside it, if there is the road to do it in — and on
     // across the next, one after another, as far as the turn wants. (Never back.)
     const here = G.lanes[id], before = prev.get(id) ?? -1;
-    if (here.beside && here.len - (startS.get(id) ?? 0) >= CHANGE_ROOM * (1 + changesBefore(id))) {
+    if (here.beside && !(stay && before < 0) && here.len - (startS.get(id) ?? 0) >= CHANGE_ROOM * (1 + changesBefore(id))) {
       for (const n of here.beside) {
         if (n === before) continue;
         const nc = c + CHANGE_COST;
         if (nc < (cost.get(n) ?? Infinity)) { cost.set(n, nc); prev.set(n, id); startS.delete(n); push(nc, n); }
       }
     }
+    const left = c + (load?.(id) ?? 0);
     for (const n of G.lanes[id].next) {
       const ln = G.lanes[n];
       for (const gs of goalOn.get(n) ?? []) {
-        const total = c + costOf(ln) + gs;
+        const total = left + costOf(ln) + gs + (load?.(n, gs) ?? 0);
         if (!best || total < best.c) best = { c: total, lane: n, s1: gs, from: id };
       }
-      const nc = c + costOf(ln) + ln.len;
+      const nc = left + costOf(ln) + ln.len;
       if (nc < (cost.get(n) ?? Infinity)) { cost.set(n, nc); prev.set(n, id); startS.delete(n); push(nc, n); }
     }
   }
   if (!best) return null;
+  if (cost_) cost_.c = best.c;
   const lanes: number[] = [best.lane];
   if (best.from < 0) return { lanes, s0: startS.get(best.lane) ?? 0, s1: best.s1 };
   for (let at = best.from; at >= 0; at = prev.get(at) ?? -1) lanes.push(at);
@@ -413,7 +423,7 @@ export function waysFrom(G: LaneGraph, start: Spot, goals: readonly Spot[], min 
  * and where the vehicle comes onto each — for a change of lane, where it
  * starts across.
  */
-export function lineOf(G: LaneGraph, r: Route): { pts: Pt[]; start: number[]; enter: number[] } {
+export function lineOf(G: LaneGraph, r: Route, over?: number): { pts: Pt[]; start: number[]; enter: number[] } {
   const pts: Pt[] = [];
   const start: number[] = [], enter: number[] = [];
   let run = 0;
@@ -431,7 +441,9 @@ export function lineOf(G: LaneGraph, r: Route): { pts: Pt[]; start: number[]; en
     let b = k === r.lanes.length - 1 ? r.s1 : l.len;
     if (next !== undefined && isChange(G, id, next)) {
       // Across before the end, with room to settle in the new lane first.
-      b = Math.max(a + 0.2, Math.min(l.len - CHANGE_LEN - 1.6, l.len - 3));
+      // (Sooner, under way: `over`, where along its first lane it would like to.)
+      const last = Math.min(l.len - CHANGE_LEN - 1.6, l.len - 3);
+      b = Math.max(a + 0.2, k === 0 && over !== undefined ? Math.min(over, last) : last);
     }
     if (k > 0 && isChange(G, r.lanes[k - 1], id)) {
       // THE MOVE ACROSS: from the lane left, eased onto this one.

@@ -70,20 +70,20 @@ function levelOf(g: Grid, streets: Streets, b: Beauty, x: number, y: number): nu
  * pavement is relaid by, and a zebra where a street from level 2 meets a
  * junction. @see dressOf, render/road-paint
  */
-/** Where a long street is crossed along it, as its cells: a zebra there, on a fine enough street. @see agents/lanes/graph alongCrossings */
-function zebrasAlong(crossings: readonly Crossing[]): Set<number> {
-  const along = new Set<number>();
-  for (const c of crossings) if (c.long) for (const i of c.cells) along.add(i);
-  return along;
+/** Where the streets are crossed, at a junction or along a long one, as cells: a zebra there, on a fine enough street. @see agents/lanes/graph pavements */
+function zebrasOn(crossings: readonly Crossing[]): Set<number> {
+  const on = new Set<number>();
+  for (const c of crossings) if (c.long || c.junction >= 0) for (const i of c.cells) on.add(i);
+  return on;
 }
 
-export function roadDressOf(g: Grid, streets: Streets, b: Beauty, crossings: readonly Crossing[] = []): Uint8Array {
+export function roadDressOf(g: Grid, streets: Streets, b: Beauty, crossings?: readonly Crossing[]): Uint8Array {
   const out = new Uint8Array(g.w * g.h);
-  const along = zebrasAlong(crossings);
+  const zebras = crossings && zebrasOn(crossings), zebraAt = (x: number, y: number) => (zebras ? zebras.has(idx(g, x, y)) : endOfStreet(g, streets, x, y));
   for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
     if (!isPaved(g, x, y)) continue;
     const i = idx(g, x, y), level = Math.max(0, Math.min(3, levelOf(g, streets, b, x, y)));
-    out[i] = dressOf(level, streets.of[i] >= 0 && level >= 2 && (endOfStreet(g, streets, x, y) || along.has(i)));
+    out[i] = dressOf(level, streets.of[i] >= 0 && level >= 2 && zebraAt(x, y));
   }
   return out;
 }
@@ -93,9 +93,9 @@ export function roadDressOf(g: Grid, streets: Streets, b: Beauty, crossings: rea
  * each kerb — a side with no road beyond it — the tile's place along the
  * street, `(x + y)`, saying which. Pure, for tests.
  */
-export function streetPropsOf(g: Grid, streets: Streets, b: Beauty, crossings: readonly Crossing[] = [], bays: readonly Bay[] = []): { props: StreetProp[]; murals: Mural[] } {
+export function streetPropsOf(g: Grid, streets: Streets, b: Beauty, crossings?: readonly Crossing[], bays: readonly Bay[] = []): { props: StreetProp[]; murals: Mural[] } {
   const props: StreetProp[] = [];
-  const along = zebrasAlong(crossings);
+  const zebras = crossings && zebrasOn(crossings), zebraAt = (x: number, y: number) => (zebras ? zebras.has(idx(g, x, y)) : endOfStreet(g, streets, x, y));
   // (Nothing on the narrow pavement beside a lay-by.)
   const layby = new Set(bays.filter((q) => q.layby).map((q) => `${q.cell},${NEIGHBOUR[q.kerb].join(",")}`));
   const paved = (x: number, y: number) => inBounds(g, x, y) && isPaved(g, x, y);
@@ -111,9 +111,9 @@ export function streetPropsOf(g: Grid, streets: Streets, b: Beauty, crossings: r
       const k = x + y;
       // AT A STREET'S END, where it meets a junction: its zebra, painted on
       // the road (@see roadDressOf), and a beacon on a striped pole at either kerb.
-      // (Or along a long street, where its zebra is.)
-      const end = endOfStreet(g, streets, x, y) || along.has(i);
-      if (level >= 2 && end) {
+      // (Where it is crossed there; or along a long street.)
+      const zebra = zebraAt(x, y), end = zebra || endOfStreet(g, streets, x, y);
+      if (level >= 2 && zebra) {
         for (const side of Object.keys(SIDES) as StreetProp["side"][]) {
           const [dx, dy] = SIDES[side];
           if (!isPaved(g, x + dx, y + dy)) props.push({ kind: "beacon", x, y, side, level });

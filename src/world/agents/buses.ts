@@ -208,6 +208,16 @@ export function busArrives(t: Town, g: Grid, G: LaneGraph, m: Mover): Mover | nu
   const L = m.bus!, B = t.buses, r = B && B.G === G ? B.routes[L.route] : undefined;
   const here = r && stopOf(G, r, L.k);
   if (!r || !here) return null;
+  // THE ROADS CHANGED UNDER IT, and its stop is not where it was going: on to where the stop is now, from where it is.
+  const end = m.drive?.graph === G ? m.drive.end : null;
+  if (end && (end.lane !== here.lane || Math.abs(end.s - here.s) > 1)) {
+    const to = setOff(t, g, "bus", placeAt(g, here, 0), placeAt(g, here, 0), m.colour, m, { start: end, goal: { lane: here.lane, s: here.s } });
+    if (!to) return null;
+    to.bus = { ...L, from: 0, to: here.side };
+    to.id = m.id;
+    to.side = m.side; to.x = m.x; to.y = m.y; to.heading = m.heading;
+    return to;
+  }
   const n = r.stops.length, start = { start: { lane: here.lane, s: here.s } };
   let next = -1, on: Mover | null = null;
   for (let j = 1; j < n && !on; j++) {

@@ -42,9 +42,10 @@ import {
   outward, placesOf, roadHeightAt, routeBetween, walkLine, type Cell, type Place,
 } from "./roads";
 import {
-  buildTraffic, CHANGE_LEN, groupOf, inside, isChange, lightOf, lineOf, LANE_CLEAR, PATIENT, roadKey, roundTo, routeLanes, spotsAt, spotsUnderWay, stepSignals, walkOn, yieldsTo, zoneOn,
+  buildTraffic, CHANGE_LEN, groupOf, inside, isChange, lightOf, roomToChange, costOf, CHANGE_COST, lineOf, LANE_CLEAR, PATIENT, roadKey, roundTo, routeLanes, spotsAt, spotsUnderWay, stepSignals, walkOn, yieldsTo, zoneOn,
   type Spot, type Traffic,
 } from "./lanes/drive";
+import { pointAt } from "./lanes/geometry";
 import { walkBetween, type Kerbside, type Walk } from "./lanes/walk";
 import { riderId, shirtOf, SHIRTS } from "./people/cast";
 import { aboard, bayNear, carNear, heldBays, kerbOf, PARK_CAP, refile, RESIDENT_SHARE, STAY } from "./parking";
@@ -185,6 +186,9 @@ export type Drive = {
   waited: number;
   to: Place;
   end: Spot;
+  /** When its driver last looked for a better way, and the lane it was on. @see thinkAgain */
+  looked?: number;
+  lookedOn?: number;
 };
 
 /** A place on a bench: which bench and which place on it, where, facing which way. Set by the scene. @see street-props */
@@ -210,6 +214,8 @@ export type Town = {
   seats?: Map<number, Seat[]>;
   /** The lanes, and who holds which junction's zones. Built as the roads change. @see trafficOf */
   traffic?: Traffic;
+  /** When anybody last looked for a better way. @see thinkAgain */
+  lookedAt?: number;
   /** The grid's revision the lanes were last checked against: unchanged, they stand. @see trafficOf */
   trafficRev?: number;
   trafficGrid?: Grid;
@@ -417,6 +423,7 @@ const MIN_TRIP = 3;
  * lane too fast to stop for it.
  */
 const START_CLEAR = 1;
+const ON_FOOT_CLEAR = 0.6;
 /** How far short of a street lane's end a trip to there stops, tiles: clear of the junction. */
 const GOAL_BACK = 0.5;
 /** How far beyond the rim a car going off the map drives before it is gone. */
@@ -458,7 +465,7 @@ export function setOff(t: Town, g: Grid, kind: Mover["kind"], from: Place | Kerb
   let path: Cell[], line: Cell[], drive: Drive | undefined, walk: Mover["walk"];
   if (kind !== "person") {
     if (from.kind === "kerb" || to.kind === "kerb") return null;
-    const way = driveWay(t, g, from, to, after, undefined, spots);
+    const way = driveWay(t, g, from, to, after, undefined, spots, undefined, kind);
     if (!way) return null;
     ({ path, line, drive } = way);
   } else {
@@ -549,12 +556,12 @@ export function trafficOf(t: Town, g: Grid): Traffic {
  * going on from where another stopped — a bus from stop to stop — starts
  * where that one ended. Planned from where it is, `at`, when the roads change.
  */
-function driveWay(t: Town, g: Grid, from: Place, to: Place, after?: Mover, at?: { x: number; y: number; heading: number }, spots?: { start?: Spot; goal?: Spot }) {
+function driveWay(t: Town, g: Grid, from: Place, to: Place, after?: Mover, at?: { x: number; y: number; heading: number }, spots?: { start?: Spot; goal?: Spot }, under?: { than: number; over: number; load: (lane: number, to?: number) => number; stay?: boolean }, kind?: Mover["kind"]) {
   const T = trafficOf(t, g);
   const prior = spots?.start ? [spots.start] : after?.drive && after.drive.graph === T.G ? [after.drive.end] : null;
-  const under = at && !prior ? spotsUnderWay(T, at) : [];
-  let starts = prior ?? (under.length ? under : spotsAt(T, g, at ?? from, !at && from.kind === "gateway" ? "start" : null));
-  if (at && !under.length) {
+  const near = at && !prior ? spotsUnderWay(T, at) : [];
+  let starts = prior ?? (near.length ? near : spotsAt(T, g, at ?? from, !at && from.kind === "gateway" ? "start" : null));
+  if (at && !near.length) {
     // Planned again under way: the lanes going the way it is facing.
     const ahead = starts.filter((sp) => {
       const l = T.G.lanes[sp.lane], k = Math.min(l.pts.length - 1, 1);
@@ -572,9 +579,14 @@ function driveWay(t: Town, g: Grid, from: Place, to: Place, after?: Mover, at?: 
     return l.kind === "street" && !l.sink ? { lane: sp.lane, s: Math.min(sp.s, Math.max(l.len / 2, l.len - GOAL_BACK)) } : sp;
   });
   // (Unless that is the only way there: from a gate beside a junction, the lane with room may only lead away.)
-  const r = routeLanes(T.G, starts, goals) ?? (starts.length < all.length ? routeLanes(T.G, all, goals) : null);
+  // ROUND THE TRAFFIC as it stands, and in the emptier of the lanes there is a choice of. @see loadOf
+  // (Not a bus: it keeps to the lane it ever had. Across to an inner lane and back, it was slow onto roundabouts.)
+  const load = under?.load ?? (kind === "bus" ? undefined : loadOf(t, T)), cost = { c: Infinity };
+  const r = routeLanes(T.G, starts, goals, undefined, load, cost, under?.stay) ?? (starts.length < all.length ? routeLanes(T.G, all, goals, undefined, load, cost) : null);
   if (!r) return null;
-  const { pts, start, enter } = lineOf(T.G, r);
+  // (Under way: only if it is worth it.)
+  if (under && cost.c >= under.than) return null;
+  const { pts, start, enter } = lineOf(T.G, r, under?.over);
   if (pts.length < 2) return null;
   const line: Cell[] = pts.slice();
   let shift = 0;
@@ -703,15 +715,15 @@ function trafficNow(T: Traffic, cars: readonly Mover[], walkers: readonly Mover[
   }
   for (const list of parked.values()) list.sort((a, b) => a.s - b.s);
   // ON FOOT AT THE CROSSINGS: who is out on one, who waits at its kerb.
-  const foot = { on: new Set<number>(), waiting: new Set<number>(), patient: new Set<number>() };
+  const foot = { on: new Map<number, Mover[]>(), waiting: new Set<number>(), patient: new Set<number>() };
   for (const m of walkers) {
     const w = m.walk;
     if (!w || w.graph !== T.G || m.sit) continue;
     const x = w.crossings[w.k];
     if (!x) continue;
     // (Out on it from when they make up their mind to go: the last steps to the kerb too.)
-    if (w.on) foot.on.add(x.c);
-    else if (x.s0 - m.s < KERB_LOOK) { foot.waiting.add(x.c); if (w.waited > WALK_PATIENT && !T.signals.has(T.G.crossings[x.c].junction)) foot.patient.add(x.c); }
+    if (w.on) { const l = foot.on.get(x.c); if (l) l.push(m); else foot.on.set(x.c, [m]); }
+    else if (!((m.wait ?? 0) > 0) && x.s0 - m.s < KERB_LOOK) { foot.waiting.add(x.c); if (w.waited > WALK_PATIENT && !T.signals.has(T.G.crossings[x.c].junction)) foot.patient.add(x.c); }
   }
   const on = new Map<number, Onto[]>();
   const coming = new Map<number, { m: Mover; d: number }[]>();
@@ -743,6 +755,124 @@ function trafficNow(T: Traffic, cars: readonly Mover[], walkers: readonly Mover[
     letGo(T, m, false);
   }
   return { on, coming, blues, foot, parked, taken };
+}
+
+/** What each car on a lane costs a way along it, tiles of road: one moving, and as much again the slower it goes; one stood in a queue is a car's wait at the line. */
+const LOAD_MOVING = 0.35, LOAD_STOOD = 2.2;
+/** How much better another way must be to change to it under way, tiles; seconds between a vehicle's looks, and between anybody's. */
+const WORTH = 2, LOOK_EVERY = 2.5, LOOKS_GAP = 0.1;
+/** Seconds a vehicle stands waiting for a gap to change lane before it goes on without. */
+const CHANGE_PATIENCE = 4;
+/** The traffic on each lane, as of a moment ago: where along it each is, and what it costs whoever comes after. @see loadOf */
+type Loads = { at: number; G: LaneGraph; on: Map<number, { id: number; s: number; w: number }[]> };
+const loadsKept = new WeakMap<Town, Loads>();
+function loadsNow(t: Town, T: Traffic): Loads {
+  const was = loadsKept.get(t);
+  if (was && was.G === T.G && t.t - was.at < 0.5 && t.t >= was.at) return was;
+  const on: Loads["on"] = new Map();
+  for (const m of t.movers) {
+    const d = m.drive;
+    if (!d || d.graph !== T.G) continue;
+    // (One stood at a stop, or at work, is not in a queue: it is got round or waited for as it ever was.)
+    const slow = 1 - Math.min(1, m.speed / (m.cruise * 0.6)), e = { id: m.id, s: m.s - d.start[d.k], w: LOAD_MOVING + LOAD_STOOD * slow };
+    const list = on.get(d.lanes[d.k]);
+    if (list) list.push(e); else on.set(d.lanes[d.k], [e]);
+  }
+  const now = { at: t.t, G: T.G, on };
+  loadsKept.set(t, now);
+  return now;
+}
+/** What the traffic adds to a way along a lane, or as far along it as a point. `me`, one already on it, or on one beside it: only what is ahead of it counts. @see routeLanes */
+function loadOf(t: Town, T: Traffic, me?: { id: number; lanes: ReadonlySet<number>; s: number }): (lane: number, to?: number) => number {
+  const { on } = loadsNow(t, T);
+  return (lane, to = Infinity) => {
+    const list = on.get(lane);
+    if (!list) return 0;
+    const from = me?.lanes.has(lane) ? me.s : -Infinity;
+    let c = 0;
+    for (const o of list) if (o.id !== me?.id && o.s > from && o.s <= to) c += o.w;
+    return c;
+  };
+}
+
+/** What a way costs from `s0` along its first lane to `s1` along its last, as {@link routeLanes} counts it. */
+function wayCost(G: LaneGraph, lanes: readonly number[], s0: number, s1: number, load: (lane: number, to?: number) => number): number {
+  let c = 0;
+  lanes.forEach((id, k) => {
+    const l = G.lanes[id], last = k === lanes.length - 1, next = lanes[k + 1];
+    // (A change of lane: the road is the one road, counted on the lane changed out of.)
+    const across = k > 0 && isChange(G, lanes[k - 1], id);
+    if (k > 0 && !across) c += costOf(l);
+    if (across) c += CHANGE_COST;
+    if (next !== undefined && isChange(G, id, next)) { c += l.len - (k ? 0 : s0); return; }
+    c += (across ? 0 : (last ? s1 : l.len) - (k ? 0 : s0)) + load(id, last ? s1 : undefined);
+  });
+  return c;
+}
+
+/**
+ * THINKING AGAIN, UNDER WAY: on a street of more than one lane each way, behind a slower car or a queue — and, on
+ * any, held up — a driver looks whether the lane beside, or another way altogether, is now so much the better as to be
+ * worth changing to. The lane was chosen when it set off, by the map alone, and kept: on a road of two lanes
+ * the whole town drove in one. One driver looks at a time, a few times a second in all.
+ *
+ * ITS WAY IS LAID AGAIN from just where it is on its lane, so it neither jumps nor turns; and not while it is part way
+ * across, in or let into a junction, at its stop or its bay, or on a call.
+ */
+function thinkAgain(t: Town, g: Grid, T: Traffic, cars: readonly Mover[], now: ReturnType<typeof trafficNow>): void {
+  if (t.t - (t.lookedAt ?? 0) < LOOKS_GAP) return;
+  let who: Mover | null = null, giveUp = false;
+  for (const m of cars) {
+    const d = m.drive;
+    // WAITED LONG ENOUGH TO CHANGE LANE, stood in its own in front of everybody: it goes on in the one it is in, and
+    // round by another way. (Two waiting each for the other's lane stood there for good, and the road behind them.)
+    if (d && d.graph === T.G && !m.bus && !m.siren && !d.claims.length && d.wants !== undefined && m.stuck > CHANGE_PATIENCE && d.let <= d.k && !m.wait && !m.leaving && m.pullAt === undefined && !m.gone && T.G.lanes[d.lanes[d.k]].kind === "street" && !(d.k > 0 && m.s < d.enter[d.k] + (isChange(T.G, d.lanes[d.k - 1], d.lanes[d.k]) ? CHANGE_LEN : halfLength(m))) && t.t - (d.looked ?? -Infinity) >= LOOK_EVERY) { who = m; giveUp = true; break; }
+    if (!d || d.graph !== T.G || m.bus || m.siren || m.bayTo || m.leaving || m.wait || m.pullAt !== undefined || m.gone || d.claims.length || d.let > d.k) continue;
+    const l = T.G.lanes[d.lanes[d.k]], s = m.s - d.start[d.k];
+    if (l.kind !== "street" || s < 0.3 || d.k === 0 && m.s < 0.5 || t.t - (d.looked ?? -Infinity) < LOOK_EVERY) continue;
+    // (Part way across from the lane beside, its tail in it still.)
+    if (d.k > 0 && isChange(T.G, d.lanes[d.k - 1], d.lanes[d.k]) && m.s < d.enter[d.k] + CHANGE_LEN + 2 * halfLength(m)) continue;
+    // (Out of the junction behind altogether; and with road enough to change.)
+    if (d.k > 0 && m.s < d.enter[d.k] + halfLength(m) + 0.2) continue;
+    if (!roomToChange(l, s) || m.at[m.at.length - 1] - m.s < 4) continue;
+    // Held up, or come onto a road with a choice of lanes, or with a change of lane to make.
+    const due = d.k + 1 < d.lanes.length && isChange(T.G, d.lanes[d.k], d.lanes[d.k + 1]);
+    if (!due && m.speed > 0.75 * m.cruise && (!l.beside || d.looked !== undefined && d.lookedOn === d.lanes[d.k])) continue;
+    if (!who || (d.looked ?? -1) < (who.drive!.looked ?? -1)) who = m;
+  }
+  if (!who) return;
+  t.lookedAt = t.t;
+  const m = who, d = m.drive!, lane = d.lanes[d.k], s = m.s - d.start[d.k], G = T.G;
+  d.looked = t.t; d.lookedOn = lane;
+  if (giveUp) {
+    const load = loadOf(t, T), way = driveWay(t, g, d.to, d.to, undefined, undefined, { start: { lane, s }, ...(m.bayTo ? { goal: d.end } : {}) }, { than: Infinity, over: 0, load, stay: true });
+    if (way) takeWay(m, way);
+    return;
+  }
+  const mine = new Set<number>([lane]);
+  for (const id of mine) for (const b of G.lanes[id].beside ?? []) mine.add(b);
+  const load = loadOf(t, T, { id: m.id, lanes: mine, s });
+  // WHAT ITS OWN WAY COSTS IT from here, as a new one would be counted. (With a change still to make, made now while
+  // there is a gap, not at the end of the road in front of the queue, it is as good.)
+  const due = d.k + 1 < d.lanes.length && isChange(G, lane, d.lanes[d.k + 1]);
+  const had = wayCost(G, d.lanes.slice(d.k), s, d.end.s, load);
+  const way = driveWay(t, g, d.to, d.to, undefined, undefined, { start: { lane, s } }, { than: due ? had + 0.5 : had - WORTH, over: s + 0.3 + m.speed * 0.5, load });
+  if (!way) return;
+  const over = way.drive.lanes.length > 1 && isChange(G, lane, way.drive.lanes[1]);
+  if (way.drive.lanes.join() === d.lanes.slice(d.k).join() && !(due && over && d.enter[d.k + 1] - m.s > way.drive.enter[1] + 1)) return;
+  // (Across at once if it is to be across at all: no gap, and it stays where it is — never stood in its own lane waiting for one.)
+  if (over && !mayChange({ ...m, s: 0, drive: way.drive }, 1, now, m)) return;
+  takeWay(m, way);
+}
+
+/** A vehicle onto another way, laid from just where it is on its lane. */
+function takeWay(m: Mover, way: NonNullable<ReturnType<typeof driveWay>>): void {
+  const d = m.drive!;
+  m.path = way.path; m.line = way.line; m.bends = undefined;
+  m.drive = { ...way.drive, waited: d.waited, looked: d.looked, lookedOn: d.lookedOn };
+  m.at = new Float32Array(m.line.length);
+  for (let k = 1; k < m.line.length; k++) m.at[k] = m.at[k - 1] + Math.hypot(m.line[k].x - m.line[k - 1].x, m.line[k].y - m.line[k - 1].y);
+  m.s = 0;
 }
 
 /**
@@ -849,11 +979,13 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
   // FOLLOWING: the nearest thing ahead on its own lanes, or one just gone
   // off the same lane onto another curve, still in the way.
   for (let j = d.k; j < d.lanes.length && d.start[j] - m.s < FOLLOW; j++) {
+    const yet = j > d.k && d.let < j && isChange(G, d.lanes[j - 1], d.lanes[j]);
     for (const o of now.on.get(d.lanes[j]) ?? []) {
       if (o.m === m || passes(m, o.m)) continue;
       const gap = d.start[j] + o.s - m.s;
-      // (Two set off from the same spot: the later waits for the earlier.)
-      const ahead = Math.abs(gap) < 1e-3 ? o.m.id < m.id : gap > 0;
+      // (Two set off from the same spot: the later waits for the earlier. One beside it in a lane it has yet to change to is
+      // not ahead: each of two abreast, due to change past the other, measured the other a hair in front and stood for it.)
+      const ahead = yet ? gap > 0.3 : Math.abs(gap) < 1e-3 ? o.m.id < m.id : gap > 0;
       if (ahead && gap < FOLLOW + 1) follow(A, v, Math.max(0, gap) - spacing(m, o.m) + GAP, o.m.speed, GAP);
     }
     if (j > 0) {
@@ -877,7 +1009,11 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
       // out, and everyone coming goes once those out on it are over — not one car a wait, but the queue, for a time.
       // (Just out of a junction, its tail still in it and the junction stopped behind it: their turn comes sooner.)
       const turn = !T.signals.has(G.crossings[x.c].junction) && carsTurn(t, T, x.c, front, v, G.lanes[d.lanes[j]].kind === "street" && x.s < G.lanes[d.lanes[j]].len / 2, () => clearPast(now, d, j, m, x.s));
-      if (now.foot.on.has(x.c) || (!turn && (patient || (now.foot.waiting.has(x.c) && zebraAt(t, T, x.c))))) follow(A, v, front - CROSS_STOP, 0, 0.02);
+      // FOR THOSE AT ITS KERB only if they would go: not at lights while they are held, nor from inside the junction, where
+      // they let it out first — it stood there for people who were waiting for it. FOR THOSE OUT ON IT till they are past its lane.
+      const J = G.crossings[x.c].junction, arm = T.signals.has(J) ? armOver(T, x.c) : -1;
+      const let_ = !turn && !inside(G.lanes[d.lanes[d.k]]) && (arm < 0 || walkOn(T, J, arm, t.t)) && (patient || (now.foot.waiting.has(x.c) && zebraAt(t, T, x.c)));
+      if (let_ || inWay(G, now.foot.on.get(x.c), x.c, d.lanes[j], x.s)) follow(A, v, front - CROSS_STOP, 0, 0.02);
     }
     // NOT ABREAST OF A LONG ONE THROUGH A JOG: a bus swings as it turns, into the lane beside. Whichever of the
     // two is behind keeps behind till the one ahead is through.
@@ -900,7 +1036,8 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
     }
     // MERGING: one coming onto this lane from another, nearer the join than
     // this one is, goes first; the farther of the two waits for it.
-    if (j > d.k) {
+    // (Not for a lane it will change onto further along: two abreast, each to change to the other's, stood for each other in the junction.)
+    if (j > d.k && !isChange(G, d.lanes[j - 1], d.lanes[j])) {
       const mine = d.start[j] - m.s;
       for (const p of T.into.get(d.lanes[j]) ?? []) {
         if (p === d.lanes[j - 1]) continue;
@@ -1006,11 +1143,11 @@ function restSide(T: Traffic, now: ReturnType<typeof trafficNow>, m: Mover): num
 }
 
 /** Whether there is a gap for a vehicle to change onto lane `c` of its way: room ahead, and behind for whoever is coming. */
-function mayChange(m: Mover, c: number, now: ReturnType<typeof trafficNow>): boolean {
+function mayChange(m: Mover, c: number, now: ReturnType<typeof trafficNow>, self = m): boolean {
   const d = m.drive!, me = Math.max(m.s, d.enter[c]);
   for (const o of now.on.get(d.lanes[c]) ?? []) {
     // (Not one at the kerb: it is out of the lane.)
-    if (o.m === m || pulled(o.m)) continue;
+    if (o.m === self || pulled(o.m)) continue;
     const at = d.start[c] + o.s, room = spacing(m, o.m) + 0.1;
     if (at >= me ? at - me < room + Math.max(0, m.speed - o.m.speed) * 0.5 : me - at < room + o.m.speed * 0.8) return false;
   }
@@ -1220,6 +1357,23 @@ function clearPast(now: ReturnType<typeof trafficNow>, d: Drive, j: number, m: M
   return true;
 }
 
+/** Whether any of those out on a crossing are in the way along a lane over it at `s`, or yet to be: not once past it. */
+function inWay(G: LaneGraph, on: readonly Mover[] | undefined, c: number, lane: number, s: number): boolean {
+  if (!on) return false;
+  const C = G.crossings[c], a = G.walk.nodes[C.a], b = G.walk.nodes[C.b], l = G.lanes[lane];
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1, ux = (b.x - a.x) / len, uy = (b.y - a.y) / len, { p } = pointAt(l.pts, l.at, s);
+  return on.some((m) => {
+    const w = along(m, m.s), way = Math.sign(w.dx * ux + w.dy * uy);
+    // (Yet to step out, or turning at the kerb: coming.)
+    const x = m.walk!.crossings[m.walk!.k];
+    // (Over it, this moment.)
+    if (x?.c !== c) return false;
+    return m.s < x.s0 || ((m.x - p.x) * ux + (m.y - p.y) * uy) * way < PAST_LANE;
+  });
+}
+/** How far past the middle of a lane a walker is out of the way of those in it, tiles. */
+const PAST_LANE = 0.45;
+
 /** Whether a crossing is a zebra, as the road is painted. */
 const zebraAt = (t: Town, T: Traffic, c: number) => !!t.dress && (t.dress[T.G.crossings[c].cells[0]] & 4) !== 0;
 
@@ -1326,7 +1480,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     if (was && was !== T) {
       for (const m of t.movers) {
         if (!m.drive) continue;
-        const way = driveWay(t, g, m.drive.to, m.drive.to, undefined, { x: m.x, y: m.y, heading: m.heading });
+        const way = driveWay(t, g, m.drive.to, m.drive.to, undefined, { x: m.x, y: m.y, heading: m.heading }, undefined, undefined, m.kind);
         if (!way) { m.gone = true; continue; }
         m.path = way.path; m.line = way.line; m.drive = way.drive; m.bends = undefined;
         m.at = new Float32Array(m.line.length);
@@ -1370,7 +1524,8 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
       const m = trip && setOff(t, g, kind, ...trip, colour);
       // To a door: to park near it, if there is a bay free. (Its way, and where it sets off, as it will be: then room there.)
       if (m && kind === "car" && trip![1].kind === "door") toBay(t, g, m, trip![0], trip![1]);
-      if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR) && !amongParked(t, m)) t.movers.push(m);
+      // (Nor put down on somebody out on a crossing.)
+      if (m && !cars.some((o) => Math.hypot(o.x - m.x, o.y - m.y) < START_CLEAR) && !t.movers.some((o) => o.walk?.on && Math.hypot(o.x - m.x, o.y - m.y) < ON_FOOT_CLEAR) && !amongParked(t, m)) t.movers.push(m);
     }
   }
   t.untilPerson -= h;
@@ -1399,6 +1554,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
   if (gotOn.size) t.movers = t.movers.filter((m) => !gotOn.has(m));
   stepWalkers(t, g, h);
   giveWayToBlues(T, cars, now);
+  thinkAgain(t, g, T, cars, now);
   const taken = new Set<string>();
   for (const m of t.movers) if (m.sit) taken.add(m.sit.seat);
   for (const m of t.movers) {
@@ -1450,7 +1606,8 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
         if (x && w.on && m.s < x.s0 - 0.02 && (m.cap ?? 1) < 1e-6) w.on = false;
         if (x && !w.on) {
           const to = x.s0 - m.s;
-          if (to <= 0 || (to < KERB_LOOK && mayCross(t, T, now, m, x))) w.on = true;
+          // (Set off from right at one, they look first like anybody: they stepped out under a car stood on it.)
+          if (to < -0.02 || (to < KERB_LOOK && mayCross(t, T, now, m, x))) w.on = true;
           else if (to < KERB_LOOK) {
             w.waited += h;
             limit = Math.min(limit, Math.sqrt(2 * BRAKE * Math.max(0, to - 0.04)));
@@ -1671,7 +1828,8 @@ function stepParked(t: Town, g: Grid, T: Traffic, now: ReturnType<typeof traffic
 /** Whether a car in a bay may pull out: nothing on its lane, or coming onto it, near behind it or beside it. */
 function clearBehind(T: Traffic, now: ReturnType<typeof trafficNow>, c: Mover, b: { lane: number; s: number }): boolean {
   const half = halfLength(c);
-  const ok = (o: Mover, back: number) => back < -2 * half - 0.1 || back > Math.max(0.9, o.speed * 1.8) + 2 * half;
+  // (Past one ahead of it, as long as that one is: a bus's tail reached back to it.)
+  const ok = (o: Mover, back: number) => back < -Math.max(2 * half, half + halfLength(o)) - 0.1 || back > Math.max(0.9, o.speed * 1.8) + 2 * half;
   for (const o of now.on.get(b.lane) ?? []) if (!ok(o.m, b.s - o.s)) return false;
   for (const P of T.into.get(b.lane) ?? []) for (const o of now.on.get(P) ?? []) if (!ok(o.m, b.s + T.G.lanes[P].len - o.s)) return false;
   return true;

@@ -5,12 +5,13 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { FIXTURE_SIZE, applyFixture } from "../../debug/fixtures";
 import { createNetwork } from "../../roads/network";
 import { halfLength } from "../cars/fleet";
 import { createTown, setTownCaps, stepTown, townCaps, trafficOf, type Mover } from "../town";
 import { walkOn } from "./drive";
 import { crossroads } from "./traffic.test-kit";
-import type { Grid } from "../../grid";
+import { createGrid, type Grid } from "../../grid";
 
 /** A busy town of walkers and cars for `secs`: what the walkers did at the crossings. */
 function walkers(g: Grid, secs: number, zebras = false, people = 40) {
@@ -22,7 +23,8 @@ function walkers(g: Grid, secs: number, zebras = false, people = 40) {
     t.dress = new Uint8Array(g.w * g.h);
     for (const c of T.G.crossings) for (const i of c.cells) t.dress[i] = 4;
   }
-  const out = { crossed: 0, offKerb: 0, under: 0, steppedOnRed: 0, waited: 0, arrived: 0, drove: 0, longestStand: 0 };
+  const out = { crossed: 0, offKerb: 0, under: 0, steppedOnRed: 0, waited: 0, arrived: 0, drove: 0, longestStand: 0, stood: 0 };
+  let seen = 0;
   const standing = new Map<number, number>();
   const lines = new Map<number, Mover>();
   const dt = 1 / 20;
@@ -35,6 +37,8 @@ function walkers(g: Grid, secs: number, zebras = false, people = 40) {
     const cars = t.movers.filter((m) => m.kind !== "person");
     // STOOD AT A CROSSING'S LINE, the first in its queue: for how long, without a break.
     for (const c of cars) {
+      seen++;
+      if (c.speed < 0.05 && !c.wait) out.stood++;
       const d = c.drive;
       let atLine = false;
       for (let j = d?.k ?? 0; d && j < Math.min(d.lanes.length, d.k + 2); j++) for (const x of T.over.get(d.lanes[j]) ?? []) {
@@ -74,6 +78,7 @@ function walkers(g: Grid, secs: number, zebras = false, people = 40) {
     }
   }
   setTownCaps(caps);
+  out.stood /= seen;
   return out;
 }
 
@@ -101,6 +106,15 @@ describe("walkers at the crossings", () => {
     // (It once stood 45 s, one car a ten-second turn, the crowd back out between each.)
     expect(r.longestStand).toBeLessThan(25);
     expect(r.drove).toBeGreaterThan(60);
+  });
+
+  test("a town of wide roads, zebras all over: the traffic keeps moving", () => {
+    const n = FIXTURE_SIZE.traffic ?? 48, g = createGrid(n, n, 1);
+    applyFixture(g, "traffic", 1);
+    const r = walkers(g, 200, true, 120);
+    // (Two in three once stood still: cars on the green for people held at the red, cars in the junction and people at its kerb each for the other.)
+    expect(r.stood).toBeLessThan(0.35);
+    expect(r.under).toBe(0);
   });
 
   test("lights: over on the walk, and never on the red", () => {
