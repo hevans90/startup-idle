@@ -431,7 +431,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         d = { c, parts, band: -1, key: "", baked: !!car || !!fig, tilted: false };
         if (car) parts[0].tint = m.colour;
         // ITS LAMPS, over the trim, each lit by its alpha alone: nothing in the band's draw list changes.
-        if (car && car.lamps[0]?.length) {
+        if (car && car.at(0).lamps.length) {
           d.lamps = LAMP_TINT.map((t) => { const sp = new Sprite(); sp.tint = t; sp.alpha = 0; c.addChild(sp); return sp; });
         }
         // BLUE LIGHTS on the roof of an emergency vehicle, over everything of it.
@@ -456,14 +456,15 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         const key = `baked|${car.id}|${pose.key}|${scale}`;
         if (d.key !== key) {
           d.key = key;
-          d.parts[0].texture = P.paint[f]; d.parts[1].texture = P.trim[f];
+          const F = P.at(f);
+          d.parts[0].texture = F.paint.tex; d.parts[1].texture = F.trim.tex;
           // (Its paint as it is now: a lorry of the fleet is repainted as it is loaded and emptied — which is its model too.)
           d.parts[0].tint = m.colour;
-          d.parts[0].anchor.set(P.paintAnchor[f].x, P.paintAnchor[f].y);
-          d.parts[1].anchor.set(P.trimAnchor[f].x, P.trimAnchor[f].y);
+          d.parts[0].anchor.set(F.paint.anchor.x, F.paint.anchor.y);
+          d.parts[1].anchor.set(F.trim.anchor.x, F.trim.anchor.y);
           for (const sp of d.parts) sp.scale.set(scale / sheet!.res);
           d.lamps?.forEach((sp, k) => {
-            const l = P.lamps[f][k];
+            const l = F.lamps[k];
             sp.texture = l.tex; sp.anchor.set(l.anchor.x, l.anchor.y); sp.scale.set(scale / sheet!.res);
           });
         }

@@ -4,8 +4,8 @@ import { HEIGHT_UNIT, HH, HW } from "../../iso";
 import { AI_TRUCK_COLOUR, VAN_COLOUR } from "../town";
 import { readFileSync } from "node:fs";
 
-import { baseCorners, headingIndex, modelFor, pitchMatrix, poseOf, type CarLook } from "./car-sheet";
-import { CAR_HEADINGS, CAR_PITCHES, PITCH_HEADINGS, type CarSheet } from "./sheet-format";
+import { baseCorners, cutRun, headingIndex, modelFor, pagesOf, pitchMatrix, poseOf, type CarLook } from "./car-sheet";
+import { CAR_GAP, CAR_HEADINGS, CAR_PITCHES, PITCH_HEADINGS, type CarSheet } from "./sheet-format";
 import { BUS_WEIGHTS, CAR_WEIGHTS, LORRY_WEIGHTS, MINIBUS_WEIGHTS, MODELS, TILES_PER_M, VAN_WEIGHTS, pitchAngle, type Model } from "./models";
 import { BUS_COLOUR, halfLength, SHUTTLE_COLOUR } from "./fleet";
 import { bakeFrame } from "./raster";
@@ -159,7 +159,7 @@ describe("a vehicle on a slope", () => {
     expect(c.trim.w !== a.trim.w || !Buffer.from(a.trim.px).equals(Buffer.from(c.trim.px))).toBe(true);
   });
 
-  const runOf = (tag: string) => ({ paint: [tag], trim: [], paintAnchor: [], trimAnchor: [], lamps: [] }) as unknown as CarLook["tilted"][number];
+  const runOf = (tag: string) => ({ at: () => tag }) as unknown as CarLook["tilted"][number];
   const look = { ...runOf("level"), id: "x", length: 1, width: 1, tilted: CAR_PITCHES.map((q) => runOf(`p${q}`)) } as CarLook;
   const sheet = { headings: CAR_HEADINGS, pitches: [...CAR_PITCHES], pitchHeadings: PITCH_HEADINGS };
 
@@ -184,6 +184,19 @@ describe("a vehicle on a slope", () => {
     expect(poseOf(sheet, look, 4, 2)).toMatchObject({ from: look, k: 4, lean: 0, shear: 2 });
     // A sheet baked without them: sheared, as it was.
     expect(poseOf({ headings: CAR_HEADINGS, pitches: [], pitchHeadings: 0 }, { ...look, tilted: [] }, 8, 2)).toMatchObject({ from: expect.anything(), k: 8, shear: 2 });
+  });
+
+  test("a frame is cut when it is first asked for, once; and a model's pages are all its frames' and lamps'", () => {
+    const disk: CarSheet = JSON.parse(readFileSync("public/isometric_assets/derived/cars.json", "utf8"));
+    for (const m of Object.values(disk.models)) {
+      const run = cutRun(m.frames, disk.over ?? 0), k = 3, f = m.frames[k], a = run.at(k);
+      expect(run.at(k)).toBe(a);
+      expect(a.trim.tex.frame).toMatchObject({ x: f[1] + f[3] + CAR_GAP, y: f[2], width: f[7], height: f[8] });
+      expect(a.over.length).toBe(disk.over ?? 0);
+      expect(a.lamps.length + a.over.length).toBe((f.length - 11) / 7);
+      const pages = pagesOf(m);
+      for (const fr of m.frames) { expect(pages).toContain(fr[0]); for (let q = 11; q < fr.length; q += 7) if (fr[q + 3]) expect(pages).toContain(fr[q]); }
+    }
   });
 
   test("the sheet on disk has every model leant at every pitch, each of a road's four ways", () => {

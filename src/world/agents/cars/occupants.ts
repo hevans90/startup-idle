@@ -54,7 +54,7 @@ export function poseRiders(R: Riders, P: PeopleSprites, seats: readonly Seat[], 
     R.keys[j] = posePerson(parts, P, r.figure, "sit", heading, 0, scale, r.height, R.keys[j]);
     for (const sp of parts) sp.position.set(at.x, at.y);
   });
-  const o = from.over[k] ?? [];
+  const o = from.at(k).over;
   R.over.forEach((sp, q) => {
     const l = o[q];
     sp.visible = !!l;

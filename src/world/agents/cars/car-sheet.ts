@@ -17,18 +17,19 @@ import { CAR_GAP, type CarFrame, type CarSheet } from "./sheet-format";
 
 const BASE = "/isometric_assets/derived";
 
-/** A run of frames, one a heading. */
-export type CarPoses = {
-  paint: Texture[];
-  trim: Texture[];
-  /** Each heading's anchor in each layer: the vehicle's middle at the road, as a share of the layer. */
-  paintAnchor: { x: number; y: number }[];
-  trimAnchor: { x: number; y: number }[];
-  /** Each heading's lamps' masks, in `LAMPS` order, and their anchors; an empty texture where there is none. @see raster LAMPS */
-  lamps: { tex: Texture; anchor: { x: number; y: number } }[][];
-  /** Each heading's layers that are drawn OVER whoever is in it — its paint's, then its trim's — and their anchors; empty textures where nobody could be seen. @see raster BakeOpts.over */
-  over: { tex: Texture; anchor: { x: number; y: number } }[][];
+/** A layer's picture, and its anchor: the vehicle's middle at the road, as a share of the layer. */
+export type CarLayer = { tex: Texture; anchor: { x: number; y: number } };
+/** A vehicle at one heading. */
+export type CarPose = {
+  paint: CarLayer;
+  trim: CarLayer;
+  /** Its lamps' masks, in `LAMPS` order; an empty texture where there is none. @see raster LAMPS */
+  lamps: CarLayer[];
+  /** Its layers that are drawn OVER whoever is in it — its paint's, then its trim's; empty textures where nobody could be seen. @see raster BakeOpts.over */
+  over: CarLayer[];
 };
+/** A run of frames, one a heading: each cut when it is first asked for. */
+export type CarPoses = { at: (heading: number) => CarPose };
 export type CarLook = CarPoses & {
   id: string;
   /** Length and width, tiles. */
@@ -63,7 +64,8 @@ function pump(): void {
         const tex: Texture = await Assets.load({ src: `${BASE}/${pageNames[i]}`, data: { autoGenerateMipmaps: true, scaleMode: "linear" } });
         pageNow[i] = tex.source;
         keepOnGpuOnly(tex.source);
-        for (const t of waiting[i] ?? []) { t.source = tex.source; t.update(); }
+        // (And they are watched no longer: a sprite destroyed does not stop listening to its texture, so a frame kept would keep it.)
+        for (const t of waiting[i] ?? []) { t.source = tex.source; t.update(); t.dynamic = false; t.removeAllListeners("update"); }
         waiting[i] = undefined;
       } catch (e) { console.warn(`cars: page ${pageNames[i]} would not load`, e); }
       fetchingNow--;
@@ -79,65 +81,70 @@ function wantPages(pages: readonly number[]): void {
   pump();
 }
 
+/** What a layer with nothing in it is drawn as. */
+const NONE: CarLayer = { tex: Texture.EMPTY, anchor: { x: 0, y: 0 } };
+/** A frame of a page, cut from an empty picture and given its page when that is in — watched by its sprites until then. */
+function layer(page: number, x: number, y: number, w: number, h: number, ox: number, oy: number): CarLayer {
+  if (!w) return NONE;
+  const source = pageNow[page];
+  const tex = new Texture({ source: source ?? Texture.EMPTY.source, frame: new Rectangle(x, y, w, h), dynamic: !source });
+  if (!source) (waiting[page] ??= []).push(tex);
+  return { tex, anchor: { x: ox / w, y: oy / h } };
+}
+/** One frame, cut: its paint (none, of a livery), its trim right of it, and its lamps — the last `over` of them its layers over its occupants. */
+function cutFrame([page, x, y, pw, ph, pox, poy, tw, th, tox, toy, ...ls]: CarFrame, over: number): CarPose {
+  const lamps: CarLayer[] = [];
+  for (let k = 0; k + 6 < ls.length; k += 7) lamps.push(layer(ls[k], ls[k + 1], ls[k + 2], ls[k + 3], ls[k + 4], ls[k + 5], ls[k + 6]));
+  return {
+    paint: layer(page, x, y, pw, ph, pox, poy), trim: layer(page, x + pw + CAR_GAP, y, tw, th, tox, toy),
+    over: over ? lamps.splice(lamps.length - over, over) : [], lamps,
+  };
+}
+/**
+ * A run of frames, EACH CUT WHEN IT IS FIRST ASKED FOR: there are some twenty-three thousand pictures in the sheet,
+ * and a town draws a few hundred of them.
+ */
+export function cutRun(frames: readonly CarFrame[], over: number): CarPoses {
+  const cut: CarPose[] = [];
+  return { at: (k) => (cut[k] ??= cutFrame(frames[k], over)) };
+}
+/** The pages a model's frames are on. */
+export function pagesOf(m: Pick<CarSheet["models"][string], "frames" | "tilted">): number[] {
+  const pages = new Set<number>();
+  for (const run of [m.frames, ...(m.tilted ?? [])]) for (const f of run) {
+    pages.add(f[0]);
+    for (let k = 11; k + 6 < f.length; k += 7) if (f[k + 3]) pages.add(f[k]);
+  }
+  return [...pages];
+}
+
 /**
  * The looks by model — and A MODEL'S PAGES ASKED FOR WHEN IT IS FIRST LOOKED UP, not before: the sheet is baked a
  * model to a page or two, the works' plant and the buses are most of its twenty-six, and a town of cars was
  * fetching every one of them. @see dev/bake-cars.ts
  */
 class Looks extends Map<string, CarLook> {
-  readonly pagesOf = new Map<string, number[]>();
+  readonly unasked = new Map<string, CarSheet["models"][string]>();
   override get(id: string): CarLook | undefined {
-    const look = super.get(id);
-    if (look) { const pages = this.pagesOf.get(id); if (pages) { this.pagesOf.delete(id); wantPages(pages); } }
-    return look;
+    const m = this.unasked.get(id);
+    if (m) { this.unasked.delete(id); wantPages(pagesOf(m)); }
+    return super.get(id);
   }
 }
 
-/** Load the sheet and cut its frames. */
-export async function loadCarSprites(): Promise<CarSprites> {
+async function load(): Promise<CarSprites> {
   const sheet: CarSheet = await Assets.load({ src: `${BASE}/cars.json`, loadParser: "loadJson" });
-  // ITS PAGES AS THEY ARE WANTED, and not all of them before a vehicle is seen: there are twenty-six, tens of
-  // megabytes. A frame is cut at once from an empty picture and given its page when that is in.
-  const pages = sheet.pages.map((_p, i) => ({ get source() { return pageNow[i] ?? Texture.EMPTY.source; } }));
-  /** A frame of a page: drawn from the page once it has come. */
-  const frameOf = (page: number, rect: Rectangle) => {
-    const t = new Texture({ source: pages[page].source, frame: rect, dynamic: true });
-    if (!pageNow[page]) (waiting[page] ??= []).push(t);
-    used.add(page);
-    return t;
-  };
   pageNames = sheet.pages;
-  /** The pages the frames being cut have named so far: gathered a model at a time. */
-  let used = new Set<number>();
-  const looks = new Looks();
-  /** A run of frames cut from the pages: each layer's texture and anchor, and its lamps. */
-  const cut = (frames: CarFrame[]): CarPoses => {
-    const paint: Texture[] = [], trim: Texture[] = [], paintAnchor: { x: number; y: number }[] = [], trimAnchor: typeof paintAnchor = [];
-    const lamps: CarPoses["lamps"] = [], over: CarPoses["over"] = [], nOver = sheet.over ?? 0;
-    for (const [page, x, y, pw, ph, pox, poy, tw, th, tox, toy, ...ls] of frames) {
-      const mine: CarPoses["lamps"][number] = [];
-      for (let k = 0; k + 6 < ls.length; k += 7) {
-        const [lp, lx, ly, lw, lh, lox, loy] = ls.slice(k, k + 7);
-        mine.push(lw ? { tex: frameOf(lp, new Rectangle(lx, ly, lw, lh)), anchor: { x: lox / lw, y: loy / lh } } : { tex: Texture.EMPTY, anchor: { x: 0, y: 0 } });
-      }
-      // (The last of them are not lamps: the layers over its occupants.)
-      over.push(nOver ? mine.splice(mine.length - nOver, nOver) : []);
-      lamps.push(mine);
-      // A livery has no paint: an empty texture, so the paint sprite draws nothing.
-      paint.push(pw ? frameOf(page, new Rectangle(x, y, pw, ph)) : Texture.EMPTY);
-      trim.push(frameOf(page, new Rectangle(x + pw + CAR_GAP, y, tw, th)));
-      paintAnchor.push(pw ? { x: pox / pw, y: poy / ph } : { x: 0, y: 0 });
-      trimAnchor.push({ x: tox / tw, y: toy / th });
-    }
-    return { paint, trim, paintAnchor, trimAnchor, lamps, over };
-  };
+  const looks = new Looks(), over = sheet.over ?? 0;
   for (const [id, m] of Object.entries(sheet.models)) {
-    used = new Set<number>();
-    looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, ...cut(m.frames), tilted: (m.tilted ?? []).map(cut) });
-    looks.pagesOf.set(id, [...used]);
+    looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, ...cutRun(m.frames, over), tilted: (m.tilted ?? []).map((run) => cutRun(run, over)) });
+    looks.unasked.set(id, m);
   }
   return { res: sheet.res, headings: sheet.headings, pitches: sheet.pitches ?? [], pitchHeadings: sheet.pitchHeadings ?? 0, looks };
 }
+/** The sheet, loaded once for everything that draws a vehicle; asked for again if it would not load. */
+let loading: Promise<CarSprites> | null = null;
+export const loadCarSprites = (): Promise<CarSprites> => (loading ??= load().catch((e) => { loading = null; throw e; }));
 
 /**
  * WHICH FRAME A VEHICLE IS DRAWN FROM, at heading `h` (of the sheet's) on a slope of `pitch` half steps a tile.

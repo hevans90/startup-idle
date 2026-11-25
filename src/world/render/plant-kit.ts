@@ -83,8 +83,9 @@ export function poseUnit(u: Unit, cars: CarSprites, looks: readonly { look: stri
     if (u.keys[k] === key) return;
     u.keys[k] = key;
     paint.tint = l.tint;
-    paint.texture = F.paint[q]; trim.texture = F.trim[q];
-    paint.anchor.set(F.paintAnchor[q].x, F.paintAnchor[q].y); trim.anchor.set(F.trimAnchor[q].x, F.trimAnchor[q].y);
+    const P = F.at(q);
+    paint.texture = P.paint.tex; trim.texture = P.trim.tex;
+    paint.anchor.set(P.paint.anchor.x, P.paint.anchor.y); trim.anchor.set(P.trim.anchor.x, P.trim.anchor.y);
     paint.scale.set(scale / cars.res); trim.scale.set(scale / cars.res);
   });
   const x = (at.x - at.y) * HW * scale, y = (at.x + at.y) * HH * scale - at.z * HEIGHT_UNIT * scale;
