@@ -606,8 +606,12 @@ export function createSheet(
         // have grown. What is copied past its quads is what the clear left,
         // which draws nothing.
         const had = seen ? (seen[b] ?? 0) : cap;
+        // AND A BAND WITH NONE IS NOT COPIED: its mesh draws what this count
+        // says, so nothing would be read of it. Every band's spare copied,
+        // every frame, was two hundred copies on a map with no fall on it.
+        // @see drawGpuFalls
+        if (had <= 0) continue;
         const want = Math.min(cap, had + 32);
-        if (want <= 0) continue;
         enc.copyBufferToBuffer(quads, b * per, dests[b], 0, want * QUAD_WORDS * 4);
       }
     },

@@ -490,6 +490,8 @@ export function createStreetProps(bands: BandLayer): StreetProps {
         gr = new Graphics();
         gr.eventMode = "none";
         gr.zIndex = tier === "back" ? -0.4 : 0.4;
+        // (With the movers round it, in one draw: alone, it is a draw itself and cuts theirs in two.)
+        gr.context.batchMode = "batch";
         layer.addChild(gr);
         drawn.push(gr);
         tiers.set(k, gr);

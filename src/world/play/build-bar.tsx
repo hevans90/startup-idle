@@ -199,7 +199,7 @@ function tileNote(def: StructureDef): string {
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
-const PANEL = "border border-line-quiet bg-surface-1/95 shadow-lg backdrop-blur-sm";
+const PANEL = "border border-line-quiet bg-surface-1/95 shadow-lg";
 const TOOL =
   `flex cursor-pointer items-center gap-1 whitespace-nowrap px-2 py-1 text-xs text-fg hover:bg-surface-2 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center ${FOCUS}`;
 /** In hand, or on: lit in the console's own colour, underlined. */

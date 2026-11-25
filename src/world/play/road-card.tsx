@@ -13,7 +13,7 @@ import { formatCurrency } from "../../utils/money-utils";
 import { strokeCells } from "../edit/tools";
 import { freshIn, liveRoadJobs, jobSeconds, loadPrice, loadsFor, orderRoad } from "../roads/jobs";
 
-const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
+const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg";
 
 export function RoadCard() {
   const stroke = useWorldStore((s) => s.stroke);

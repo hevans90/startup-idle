@@ -83,7 +83,7 @@ export const SkillTreeBonuses = () => {
   }
 
   return (
-    <div className="pointer-events-auto absolute inset-y-0 right-0 w-72 overflow-y-auto border-l border-line bg-surface-1/85 p-3 text-fg backdrop-blur-sm">
+    <div className="pointer-events-auto absolute inset-y-0 right-0 w-72 overflow-y-auto border-l border-line bg-surface-1/85 p-3 text-fg">
       <h3 className="font-display text-sm uppercase tracking-wider">Allocated bonuses</h3>
       <p className="mb-3 text-[11px] opacity-50">
         {nodes.length} {nodes.length === 1 ? "node" : "nodes"} · {totals.length}{" "}

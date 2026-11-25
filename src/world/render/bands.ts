@@ -117,6 +117,9 @@ export function createBandLayer(w: number, h: number): BandLayer {
   // upload, for every sprite on the map. @see chunks
   const root = new Container({ isRenderGroup: true });
   root.sortableChildren = true;
+  // (Nothing on the map is pointed at through Pixi — the viewport answers for all of it — so its thousands of
+  // things are not walked to find what is under the pointer, as they were at every move of it.)
+  root.eventMode = "none";
   const chunks: Container[] = [];
   for (let k = 0; k * BAND_CHUNK < n; k++) {
     const chunk = new Container({ isRenderGroup: true });

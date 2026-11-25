@@ -3327,6 +3327,9 @@ const trusted = (g: QuadGather, b: number) => {
     && c.from <= t.from && c.to >= t.to;
 };
 
+/** Whether a band is known to hold no water: the count of this gathering, and none lately. Past the map's end, so too. */
+const dryAt = (g: QuadGather, b: number, bands: number) => b < 0 || b >= bands || (trusted(g, b) && g.count[b] === 0 && g.grew[b] <= 0);
+
 /** Tiles of band b whose x across the screen (tx - ty) lies in [from, to]. */
 const tilesAcross = (b: number, from: number, to: number, w: number, h: number) => {
   // tx = (b + a) / 2, ty = (b - a) / 2: a must share b's parity, and both
@@ -3836,7 +3839,9 @@ export function drawGpuWater(
         g.grew[b], wl.most[b],
       )
       : wl.most[b];
-    wl.meshes[b].geometry.instanceCount = Math.min(n, instanceCap);
+    // (None in this band nor in either beside it, which is where any would come from: not even the spare.)
+    const dry = onScreen && g?.gathered === true && dryAt(g, b - 1, wl.meshes.length) && dryAt(g, b, wl.meshes.length) && dryAt(g, b + 1, wl.meshes.length);
+    wl.meshes[b].geometry.instanceCount = dry ? 0 : Math.min(n, instanceCap);
     // Only on a change: visibility is structural, and flipping it every frame
     // makes the renderer rebuild the scene's instruction list every frame.
     if (wl.meshes[b].visible !== show) wl.meshes[b].visible = show;

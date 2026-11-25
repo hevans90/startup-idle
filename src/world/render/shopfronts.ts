@@ -676,6 +676,8 @@ export function createShopfronts(bands: BandLayer): Shopfronts {
     gr = new Graphics();
     gr.eventMode = "none";
     gr.zIndex = 0;
+    // (With the movers round it, in one draw: alone, it is a draw itself and cuts theirs in two.)
+    gr.context.batchMode = "batch";
     band.addChild(gr);
     drawn.push(gr);
     of.set(b, gr);

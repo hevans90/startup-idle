@@ -261,7 +261,7 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
 
   return createPortal(
     <div ref={box} role="dialog" aria-modal="true" aria-label="Culture deck" tabIndex={-1}
-      className="fixed inset-0 z-50 overflow-y-auto bg-surface-0/95 text-fg outline-none backdrop-blur-sm">
+      className="fixed inset-0 z-50 overflow-y-auto bg-surface-0/95 text-fg outline-none">
       <Backdrop kind="dots" still />
       <div className="relative mx-auto flex min-h-full max-w-6xl flex-col gap-6 px-3 pb-10 pt-5 sm:px-4">
         <header className="flex items-start justify-between gap-3 border-b border-line-quiet pb-4">

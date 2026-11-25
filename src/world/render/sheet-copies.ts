@@ -33,7 +33,12 @@ function hold(texture: GPUTexture): Data {
 /** A sheet just loaded: its copy is let go once it is on the GPU. Anything but a compressed sheet is left alone. */
 export function keepOnGpuOnly(source: TextureSource): void {
   const s = source as unknown as Held;
-  if (source.uploadMethodId !== "compressed" || kept.has(s) || owed.includes(s)) return;
+  if (source.uploadMethodId !== "compressed") return;
+  // (Its colour is multiplied by its alpha already, and Pixi takes a compressed sheet to be one whose is not: blended
+  // as though it were not, its edges were darkened twice over — and nothing drawn from it went in one batch with
+  // anything drawn from a picture, so a street was a draw for each turn from the one to the other. @see dev/to-ktx2.ts)
+  source.alphaMode = "premultiplied-alpha";
+  if (kept.has(s) || owed.includes(s)) return;
   owed.push(s);
 }
 

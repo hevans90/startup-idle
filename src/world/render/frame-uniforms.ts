@@ -48,8 +48,9 @@ export function syncOnce<T extends object>(shader: T): T {
 
 type BindGroupLike = object;
 type ShaderLike = { gpuProgram?: { autoAssignGlobalUniforms: boolean; autoAssignLocalUniforms: boolean }; groups: Record<number, BindGroupLike>; __syncOnce?: boolean; __synced?: number };
-type MeshLike = { _shader?: ShaderLike | null; _geometry: unknown; state: unknown };
-type MeshPipeLike = { localUniforms: unknown };
+type MeshLike = { _shader?: ShaderLike | null; _geometry: { instanceCount?: number }; state: unknown };
+type Matrix6 = { a: number; b: number; c: number; d: number; tx: number; ty: number };
+type MeshPipeLike = { localUniforms: { uniforms: { uTransformMatrix: Matrix6; uColor: ArrayLike<number>; uRound: number } } };
 type Host = {
   runners?: { prerender?: { add: (o: { prerender: () => void }) => void } }; __uniformsHooked?: boolean;
   tick: number;
@@ -68,12 +69,29 @@ export function hookUniforms(renderer: unknown): void {
   const adaptor = r.renderPipes?.mesh?._adaptor, enc = r.encoder, batch = r.renderPipes?.uniformBatch;
   if (!adaptor || !enc?._syncBindGroup || !batch || !r.globalUniforms) return;
   const execute = adaptor.execute.bind(adaptor);
+  // A MESH'S OWN NUMBERS, MOST OFTEN THE LAST ONE'S: the bands stand where the map does, so one after another is
+  // placed and tinted alike, and is given the group the last was — neither packed nor bound again. Within a render:
+  // what a group points at is written over by the next.
+  const last = new Float64Array(11);
+  let lastTick = -1, lastGroup: BindGroupLike | null = null;
+  r.runners.prerender.add({ prerender: () => { lastGroup = null; } });
+  const own = (u: MeshPipeLike["localUniforms"]): BindGroupLike => {
+    const { uTransformMatrix: m, uColor: c, uRound } = u.uniforms;
+    if (lastGroup && lastTick === r.tick && last[0] === m.a && last[1] === m.b && last[2] === m.c && last[3] === m.d && last[4] === m.tx && last[5] === m.ty
+      && last[6] === c[0] && last[7] === c[1] && last[8] === c[2] && last[9] === c[3] && last[10] === uRound) return lastGroup;
+    last[0] = m.a; last[1] = m.b; last[2] = m.c; last[3] = m.d; last[4] = m.tx; last[5] = m.ty;
+    last[6] = c[0]; last[7] = c[1]; last[8] = c[2]; last[9] = c[3]; last[10] = uRound;
+    lastTick = r.tick;
+    return (lastGroup = batch.getUniformBindGroup(u, true));
+  };
   adaptor.execute = (pipe, mesh) => {
+    // (Not one of it to draw: nothing is bound for it.)
+    if (mesh._geometry?.instanceCount === 0) return;
     const shader = mesh._shader, program = shader?.gpuProgram;
     if (!shader || !program || !shader.__syncOnce || !program.autoAssignGlobalUniforms || !program.autoAssignLocalUniforms) { execute(pipe, mesh); return; }
     const groups = shader.groups;
     groups[0] = r.globalUniforms!.bindGroup;
-    groups[1] = batch.getUniformBindGroup(pipe.localUniforms, true);
+    groups[1] = own(pipe.localUniforms);
     // (The view's own numbers, which Pixi writes as it goes: looked at every time. The mesh's are a buffer, not a group.)
     enc._syncBindGroup!(groups[0]);
     if (shader.__synced !== r.tick) {

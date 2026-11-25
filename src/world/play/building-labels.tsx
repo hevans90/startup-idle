@@ -372,7 +372,7 @@ export function BuildingLabels({ className }: { className?: string }) {
         const vp = useWorldStore.getState().viewport;
         return (
           <div ref={labelEl}
-            className="absolute left-0 top-0 whitespace-nowrap border border-l-2 border-line-quiet bg-surface-2/95 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg shadow-md backdrop-blur-sm"
+            className="absolute left-0 top-0 whitespace-nowrap border border-l-2 border-line-quiet bg-surface-2/95 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg shadow-md"
             style={{ borderLeftColor: hex(info.accent), transform: vp ? placed(vp, label, false) : undefined }}>
             {info.leaks
               ? <Glitch key={label.id} arrive every={2.5} strength={0.8}>

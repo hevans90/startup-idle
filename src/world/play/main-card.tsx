@@ -39,7 +39,7 @@ import type { SewerState } from "../pipes/report";
 import { Manual } from "../../ui/manual";
 import { useAiDriving } from "../../hooks/use-ai-driving";
 
-const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
+const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg";
 
 export function MainCard() {
   const stroke = useWorldStore((s) => s.stroke);

@@ -19,7 +19,7 @@ import { sewerFlow } from "../../game/mains";
 import { structureDef } from "../structures/def";
 import { lateralStrokePlan, sewerStrokePlan } from "../sewers/tool";
 
-const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm";
+const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg";
 
 export function SewerCard() {
   const stroke = useWorldStore((s) => s.stroke);

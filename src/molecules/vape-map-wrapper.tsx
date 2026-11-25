@@ -551,7 +551,7 @@ function VapeMinigame({
         }
       `}</style>
 
-      <div className="absolute inset-0 bg-surface-0/85 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-surface-0/85" />
 
       <div
         className="relative z-10 flex flex-col overflow-hidden border border-line-strong border-t-2 border-t-juice bg-surface-1 text-fg shadow-2xl"
@@ -996,8 +996,8 @@ export function VapeMapWrapper() {
       >
         {ready && (
           <div className="pointer-events-none absolute inset-0 z-10 animate-pulse" aria-hidden>
-            <div className="absolute inset-[-12px] rounded-full bg-ai/20 blur-xl" />
-            <div className="absolute inset-[-4px] rounded-full bg-ai/15 blur-md" />
+            {/* (A gradient and not a blur: over the moving map a blur is worked out again every frame.) */}
+            <div className="absolute inset-[-40px] text-ai" style={{ background: "radial-gradient(closest-side, color-mix(in oklab, currentColor 32%, transparent) 45%, color-mix(in oklab, currentColor 16%, transparent) 75%, transparent)" }} />
           </div>
         )}
         {ready && (

@@ -6,7 +6,7 @@ import { formatCurrency } from "../utils/money-utils";
 
 /**
  * SVG mod vape: a tank with a liquid fill, dressed by each purchased juice-shop
- * upgrade with a themed, filter-driven flourish.
+ * upgrade with a themed flourish.
  *
  * Pass `chargeFill` (0–1) to drive the tank fill from an external charge value
  * instead of the juice balance — used by the map overlay where the fill
@@ -52,7 +52,7 @@ export const VapeJuiceDisplay = ({
     >
       <svg
         viewBox="0 -30 140 270"
-        className="h-auto w-full max-h-[min(42vh,22rem)] drop-shadow-xl"
+        className="h-auto w-full max-h-[min(42vh,22rem)]"
         aria-hidden
       >
         <defs>
@@ -119,53 +119,18 @@ export const VapeJuiceDisplay = ({
             <stop offset="100%" stopColor="#0891b2" stopOpacity="0" />
           </radialGradient>
 
-          {/* Bloom: blur + composite back over the source for a glowing element */}
-          <filter id={id("bloom")} x="-70%" y="-70%" width="240%" height="240%">
-            <feGaussianBlur stdDeviation="3" result="b" />
-            <feMerge>
-              <feMergeNode in="b" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          {/* Wispy vapour: animated fractal turbulence warps + softens the puffs */}
-          <filter id={id("smoke")} x="-90%" y="-90%" width="280%" height="280%">
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency="0.02 0.035"
-              numOctaves="2"
-              seed="7"
-              result="noise"
-            >
-              <animate
-                attributeName="baseFrequency"
-                dur="10s"
-                values="0.02 0.035;0.032 0.022;0.02 0.035"
-                repeatCount="indefinite"
-              />
-            </feTurbulence>
-            <feDisplacementMap
-              in="SourceGraphic"
-              in2="noise"
-              scale="16"
-              xChannelSelector="R"
-              yChannelSelector="G"
-            />
-            <feGaussianBlur stdDeviation="1.8" />
-          </filter>
-          {/* Soft outer glow for DNA chip LEDs */}
-          <filter
-            id={id("ledBloom")}
-            x="-120%"
-            y="-120%"
-            width="340%"
-            height="340%"
-          >
-            <feGaussianBlur stdDeviation="2" result="b" />
-            <feMerge>
-              <feMergeNode in="b" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
+          {/* A puff's softness, and a spark's and a chip's glow: gradients and not filters, as everything here moves
+              and a filter over it is worked out again every frame, all the time the game is open. */}
+          <radialGradient id={id("puff")} className="text-surface-2">
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.8" />
+            <stop offset="45%" stopColor="currentColor" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id={id("ledGlowViolet")} cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0%" stopColor="#a78bfa" stopOpacity="1" />
+            <stop offset="60%" stopColor="#7c3aed" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="#7c3aed" stopOpacity="0" />
+          </radialGradient>
 
           <clipPath id={id("tank")}>
             <rect x="36" y={innerTop} width="68" height={innerH} rx="10" />
@@ -448,18 +413,11 @@ export const VapeJuiceDisplay = ({
 
         {/* DNA chip: column of pulsing LEDs down the left side */}
         {has("juice_dna_chip") && (
-          <g
-            clipPath={`url(#${id("body")})`}
-            filter={`url(#${id("ledBloom")})`}
-          >
+          <g clipPath={`url(#${id("body")})`}>
             {[88, 110, 132, 154, 176, 198, 220].map((y, i) => (
-              <circle
-                key={y}
-                cx="38"
-                cy={y}
-                r="2.8"
-                fill={i % 2 === 0 ? "#22d3ee" : "#a78bfa"}
-              >
+              <g key={y}>
+                <circle cx="38" cy={y} r="6.5" opacity="0.6" fill={`url(#${id(i % 2 === 0 ? "ledGlow" : "ledGlowViolet")})`} />
+                <circle cx="38" cy={y} r="2.8" fill={i % 2 === 0 ? "#22d3ee" : "#a78bfa"} />
                 <animate
                   attributeName="opacity"
                   values="0.2;0.95;0.2"
@@ -467,7 +425,7 @@ export const VapeJuiceDisplay = ({
                   begin={`${i * 0.2}s`}
                   repeatCount="indefinite"
                 />
-              </circle>
+              </g>
             ))}
           </g>
         )}
@@ -516,7 +474,7 @@ export const VapeJuiceDisplay = ({
           </g>
         )}
 
-        {/* Sub-ohm rig: a bloom-glowing coil over a pulsing heat haze */}
+        {/* Sub-ohm rig: a glowing coil over a pulsing heat haze */}
         {has("juice_sub_ohm") && (
           <g>
             <ellipse
@@ -533,7 +491,9 @@ export const VapeJuiceDisplay = ({
                 repeatCount="indefinite"
               />
             </ellipse>
-            <g filter={`url(#${id("bloom")})`}>
+            <g>
+              <path d="M44 208 q6.5 -10 13 0 t13 0 t13 0 t13 0" fill="none" stroke="#fb923c" strokeWidth="10" strokeLinecap="round" opacity="0.12" />
+              <path d="M44 208 q6.5 -10 13 0 t13 0 t13 0 t13 0" fill="none" stroke="#fb923c" strokeWidth="6" strokeLinecap="round" opacity="0.22" />
               <path
                 d="M44 208 q6.5 -10 13 0 t13 0 t13 0 t13 0"
                 fill="none"
@@ -570,7 +530,9 @@ export const VapeJuiceDisplay = ({
                 repeatCount="indefinite"
               />
             </ellipse>
-            <g filter={`url(#${id("bloom")})`}>
+            <g>
+              <path d="M43 203 q4.5-6.5 9 0 t9 0 M61 203 q4.5-6.5 9 0 t9 0 M79 203 q4.5-6.5 9 0 t9 0" fill="none" stroke="#fbbf24" strokeWidth="10" strokeLinecap="round" opacity="0.12" />
+              <path d="M43 203 q4.5-6.5 9 0 t9 0 M61 203 q4.5-6.5 9 0 t9 0 M79 203 q4.5-6.5 9 0 t9 0" fill="none" stroke="#fbbf24" strokeWidth="6" strokeLinecap="round" opacity="0.22" />
               <path
                 d="M43 203 q4.5-6.5 9 0 t9 0"
                 fill="none"
@@ -631,19 +593,16 @@ export const VapeJuiceDisplay = ({
           </g>
         )}
 
-        {/* Cloud chaser: turbulent vapour billowing from the mouthpiece */}
+        {/* Cloud chaser: vapour billowing from the mouthpiece */}
         {has("juice_cloud_chaser") && (
-          <g
-            filter={`url(#${id("smoke")})`}
-            className="fill-surface-2/80"
-          >
+          <g>
             {[
               { cx: 70, begin: "0s" },
               { cx: 61, begin: "0.8s" },
               { cx: 79, begin: "1.5s" },
               { cx: 70, begin: "2.2s" },
             ].map((c, i) => (
-              <circle key={i} cx={c.cx} cy="6" r="4">
+              <circle key={i} cx={c.cx} cy="6" r="4" fill={`url(#${id("puff")})`}>
                 <animate
                   attributeName="cy"
                   values="8;-22"
@@ -653,7 +612,7 @@ export const VapeJuiceDisplay = ({
                 />
                 <animate
                   attributeName="r"
-                  values="2;11"
+                  values="3;15"
                   dur="2.8s"
                   begin={c.begin}
                   repeatCount="indefinite"
@@ -672,7 +631,7 @@ export const VapeJuiceDisplay = ({
 
         {/* Nicotine shot: electric cyan sparks crackling from the mouthpiece */}
         {has("juice_nicotine_shot") && (
-          <g filter={`url(#${id("bloom")})`}>
+          <g>
             {[
               { cx: 64, dur: "1.6s", begin: "0s" },
               { cx: 70, dur: "2.1s", begin: "0.5s" },
@@ -683,8 +642,8 @@ export const VapeJuiceDisplay = ({
                 key={i}
                 cx={s.cx}
                 cy="2"
-                r="1.6"
-                fill="#22d3ee"
+                r="4.5"
+                fill={`url(#${id("ledGlow")})`}
                 opacity="0"
               >
                 <animate
@@ -703,7 +662,7 @@ export const VapeJuiceDisplay = ({
                 />
                 <animate
                   attributeName="r"
-                  values="1.6;0.8;0"
+                  values="4.5;2.6;0"
                   dur={s.dur}
                   begin={s.begin}
                   repeatCount="indefinite"
