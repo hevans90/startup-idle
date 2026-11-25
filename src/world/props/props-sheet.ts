@@ -72,6 +72,9 @@ export function propSprite(P: PropSprites, id: string, turn: number, u: number, 
     sp.anchor.set(look.anchor[k].x, look.anchor[k].y);
     sp.scale.set((scale / P.res) * size);
     if (k === 0) sp.tint = tint;
+    // (A layer with nothing in it is not drawn: the empty texture blends unlike the sheet's, and broke the batch in two
+    // at every tree — a thousand more draws over a wooded map.)
+    if (t === Texture.EMPTY) sp.visible = false;
     c.addChild(sp);
   });
   c.position.set((u - v) * HW * scale, (u + v) * HH * scale - z * HEIGHT_UNIT * scale);

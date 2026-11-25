@@ -64,16 +64,29 @@ export const worksClock = () => worksTime;
 
 type Owned = Partial<Record<GeneratorId, number>>;
 
-/** Pump houses paid from the company's money, a second's upkeep at a time. @see pumpUpkeep */
-const PAID_PUMPS = {
+/**
+ * Pump houses and lift stations, paid for from the company's money as they run — run up on a bill, and the bill paid
+ * once a second: money that changed for each of them on every frame had the whole company panel made again, and the
+ * save written, a hundred times a second. Run only while the company has the money for what is on it. @see pumpUpkeep
+ */
+const BILL_EVERY = 1;
+const bill = { owed: 0, rate: null as number | null, since: 0 };
+export const PAID_PUMPS = {
   pay: (seconds: number) => {
-    const cost = pumpUpkeep(useGeneratorStore.getState().getMoneyPerSecond()) * seconds;
-    const money = useMoneyStore.getState();
-    if (money.money.lt(cost)) return false;
-    money.spendMoney(cost);
+    bill.rate ??= pumpUpkeep(useGeneratorStore.getState().getMoneyPerSecond());
+    const cost = bill.rate * seconds;
+    if (useMoneyStore.getState().money.lt(bill.owed + cost)) return false;
+    bill.owed += cost;
     return true;
   },
 };
+export function settleBill(dt: number): void {
+  if ((bill.since += dt) < BILL_EVERY) return;
+  const money = useMoneyStore.getState();
+  // (As much of it as there is, spent on something else since.)
+  if (bill.owed > 0) money.spendMoney(Math.min(bill.owed, Math.max(0, money.money.toNumber())));
+  bill.owed = 0; bill.rate = null; bill.since = 0;
+}
 
 /**
  * WHAT GOES INTO THE WATER AND THROUGH THE PIPES, before the water itself is
@@ -96,6 +109,7 @@ export function stepPlumbing(g: Grid, field: WaterField, dt: number, playing: bo
     pumps: playing ? PAID_PUMPS : undefined,
     slop: desks ? { desks, perCoder: slopRate() } : null,
   });
+  settleBill(dt);
   e(); e = section("plumbing: pollution");
   stepPollution(field, dt);
   e();
