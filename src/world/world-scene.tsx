@@ -155,10 +155,10 @@ const CPU_SOLVE_MS = 8;
 /** How many frames the water waits unstepped for the device's solver to be built for a new field. @see solverDue */
 const SOLVER_WAIT = 10;
 /**
- * How bright each kind of light is to the map's own light (@see render/gi): a lamp and a headlight are small and
+ * How bright each kind of light is to the map's own light (@see render/gi): a lamp is small and
  * must be very bright to light a street; a lit building is a whole wall of light, and need only glow.
  */
-const GI_LAMP = 13, GI_HEAD = 34, GI_SIGN = 1.6, GI_WINDOW = 0.05, GI_SPILL = 0.6;
+const GI_LAMP = 13, GI_SIGN = 1.6, GI_WINDOW = 0.05, GI_SPILL = 0.6;
 /** How long a frame spends on a map's new lanes, ms. @see pumpLanes */
 const LANES_MS = 3;
 /** Whether the device's solver is what should be stepping the water: a device held and not lost, and the toggle on. */
@@ -300,6 +300,7 @@ import { createSignals, type Signals } from "./render/signals";
 import { boundBatchBinds } from "./render/batch-binds";
 import { freeGraphicsContexts, quietEmptyClears } from "./render/graphics-free";
 import { createBusStops, type BusStops } from "./render/bus-stops";
+import { halfLength } from "./agents/cars/fleet";
 import { createCarGlow, lit as lampsLit, type CarGlow } from "./render/car-glow";
 import { createGi, giOptions, giVersion, type Gi, type GiLight } from "./render/gi";
 import { shopName } from "./agents/shop-names";
@@ -661,6 +662,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const lampsOverRef = useRef<LampsOver | null>(null), lampsRoot = useRef<Container | null>(null);
   /** The lamp posts' lanterns as last listed, and a count of the lists there have been. @see street-props lanternsOf */
   const giPosts = useRef<readonly unknown[]>([]), giPostsRev = useRef(0);
+  /** The vehicles' beams this frame, four numbers apiece, and room for as many as are drawn. @see render/gi BEAM_WGSL */
+  const giBeams = useRef(new Float32Array(4096 * 4));
   const lightsAt = useRef<{ grid: unknown; rev: number; crunch: boolean }>({ grid: null, rev: -1, crunch: false });
   // AND RAIN over it while a flood is coming or here. @see drawRain
   const rain = useRef<Graphics | null>(null);
@@ -4210,15 +4213,19 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               giStill.current = { key, lights: list, lit };
               eStill();
             }
-            let lights = giStill.current.lights;
+            let lights = giStill.current.lights, beamN = 0, heads = 0;
             if (o.headlights) {
               lights = lights.slice();
               for (const m of getTown().movers) {
                 if (!lampsLit(m)) continue;
-                // (Two pools along its way, the nearer the brighter: a beam thrown ahead, not a glow round the car.)
-                const ch = Math.cos(m.heading), sh = Math.sin(m.heading);
-                lights.push({ x: (m.x + 0.5 + ch * 0.55) * 4, y: (m.y + 0.5 + sh * 0.55) * 4, hx: 1.3, hy: 1.3, ...rgb(0xfff0c8, GI_HEAD), solid: 0, z: 0.5 });
-                lights.push({ x: (m.x + 0.5 + ch * 1.25) * 4, y: (m.y + 0.5 + sh * 1.25) * 4, hx: 2, hy: 2, ...rgb(0xfff0c8, GI_HEAD * 0.45), solid: 0, z: 0.5 });
+                const ch = Math.cos(m.heading), sh = Math.sin(m.heading), nose = halfLength(m) * 0.8;
+                // (Its beam on the road, from its lamps; and the two pools of it that the water gives back.)
+                if (beamN < giBeams.current.length / 4) {
+                  giBeams.current.set([m.x + 0.5 + ch * nose, m.y + 0.5 + sh * nose, ch, sh], beamN * 4);
+                  beamN++;
+                }
+                for (const [ahead, half] of [[0.55, 1.3], [1.25, 2]]) lights.push({ x: (m.x + 0.5 + ch * ahead) * 4, y: (m.y + 0.5 + sh * ahead) * 4, hx: half, hy: half, r: 1, g: 0.94, b: 0.78, solid: 0, z: 0.5 });
+                heads += 2;
               }
             }
             // THE LIT BUILDINGS' OWN WINDOWS, each by its own hours, where what stands in front does not hide them:
@@ -4228,7 +4235,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const emitted = o.floors && litRef.current ? litRef.current.emitters(GI_SPILL) : undefined;
             eNight(); eNight = section("night: the light worked out");
             laid = giRef.current.gi.tick({
-              lights, windows: emitted,
+              lights, heads, beams: { data: giBeams.current, n: beamN }, windows: emitted,
               heights: gm.heights, casts: gm.casts, sceneRev: gm.shadeRev, low: st.grid.minHeight, top: st.grid.maxHeight + gm.castTop,
               // (The water as the solver has it on the GPU, where it does: for what it gives back of the light.)
               water: gpuRef.current ? { depth: gpuRef.current.sources[0], bed: gpuRef.current.sources[1] } : null,

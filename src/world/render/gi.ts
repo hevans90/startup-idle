@@ -4,7 +4,7 @@
  * The night was one colour multiplied over the whole screen, and the town's lamps and windows soft sprites added
  * on top of it: light that no wall stops, that lights nothing, and that is the same whichever way a street runs.
  * Here the light is worked out in the map's own plane — a texture a few texels a tile, as the ground's shade is —
- * by RADIANCE CASCADES (Sannikov): every lamp, lit building and headlight an emitter, every building a wall, and
+ * by RADIANCE CASCADES (Sannikov): every lamp and lit building an emitter, every building a wall, and
  * the cost the same for one light as for a thousand. The night's colour is then laid over the screen through
  * that texture: dark where no light comes, lifted toward day where it does.
  *
@@ -25,7 +25,7 @@ import { HH, HW } from "../iso";
 export type GiOptions = {
   /** Whether the light is worked out at all — it is, unless turned off: off, the night is the flat grade and the glows it always was. */
   on: boolean;
-  /** How many cascades: how far a light reaches — 3, some five tiles; 4, some twenty; 5, the map. */
+  /** How many cascades: 3 look as far as any light carries (@see REACH); more find nothing further at two quarter-tiles between probes, and are for one. */
   cascades: 3 | 4 | 5;
   /** Quarter-tiles between the nearest cascade's probes: 1 is finer and four times the work of 2. */
   spacing: 1 | 2;
@@ -46,7 +46,7 @@ export type GiOptions = {
   /** Show the light alone, over a black map: what was worked out, and nothing else. */
   only: boolean;
 };
-const options: GiOptions = { on: true, cascades: 4, spacing: 2, floors: true, water: true, layers: 4, glows: false, walls: true, lamps: true, windows: true, headlights: true, gain: 0.5, only: false };
+const options: GiOptions = { on: true, cascades: 3, spacing: 2, floors: true, water: true, layers: 4, glows: false, walls: true, lamps: true, windows: true, headlights: true, gain: 0.5, only: false };
 let version = 0;
 export const giOptions = (): Readonly<GiOptions> => options;
 export const giVersion = () => version;
@@ -88,11 +88,17 @@ const HEIGHT_SPAN = 64;
 /** The least time between two workings-out of the light, ms: a little under a frame at sixty a second. */
 const WORK_EVERY = 15;
 
+/** How far any light carries, quarter-tiles: it thins to nothing by here — as far as three cascades look (2 + 8 + 32), so there is nothing for a fourth to find. */
+const REACH = 42;
+/** A vehicle's beam, as long and as wide as this, tiles; the lit road's light where it is strongest. @see BEAM_WGSL */
+const BEAM_LONG = 3.6, BEAM_NEAR = 0.2, BEAM_WIDE = 0.95, BEAM_BRIGHT = 0.95;
 /** Quarter-tiles a tile: the grid the ground's shade and what is built are kept on. @see ground-mesh SHADE_PER_TILE */
 const Q = 4;
 /** Lights at most, a frame. */
 const MAX_LIGHTS = 16384;
 const FLOATS = 12;
+/** Vehicles with their beams on, at most, and how many numbers each is. */
+const MAX_BEAMS = 4096, BEAM_FLOATS = 4;
 
 const EMIT_WGSL = /* wgsl */ `
 // The map's size, quarter-tiles; this height, the one under it and the one over it, half steps; the clock, s, and how many windows are lit.
@@ -166,13 +172,18 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
   // A PROBE UNDER A BUILDING looks out through its own walls: what stands there is lit as the street round it is,
   // and its footprint is not a hole in the light for the building's own picture to fall into.
   let tall = (u.height + 0.6) / ${HEIGHT_SPAN}.0;
+  // HOW WIDE A RAY IS at its distance: what it looks at is blurred as wide. A lamp smaller than the gap between two
+  // rays was hit by one and missed by the next, and its light lay over the map in spokes.
+  let fan = 6.2831853 / f32(nd);
   var within = textureSampleLevel(occ, samp, origin / u.scene, 0.0).r > tall;
   for (var k = 0; k < 256; k++) {
     if (t >= t1) { break; }
     let q = origin + dir * t;
     if (q.x < 0.0 || q.y < 0.0 || q.x >= u.scene.x || q.y >= u.scene.y) { break; }
     let uv = q / u.scene;
-    let e = textureSampleLevel(emit, samp, uv, 0.0).rgb;
+    // (And thinned by how far it has come, to nothing: light in a plane alone would carry over the whole map.)
+    let far = clamp(1.0 - t * t / ${REACH * REACH}.0, 0.0, 1.0);
+    let e = textureSampleLevel(emit, samp, uv, clamp(log2(max(1.0, t * fan)) + select(0.0, 0.5, lvl > 0u), 0.0, 2.0)).rgb * far * far;
     let wall = textureSampleLevel(occ, samp, uv, 0.0).r > tall;
     if (wall && !within && u.walls > 0.5) { rad += tr * e; tr = 0.0; break; }
     if (!wall) { within = false; rad += tr * e * step * 0.25; }
@@ -222,6 +233,55 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 }
 `;
 
+// EACH COARSER COPY OF THE LIGHTS: the one before it, four texels to one.
+const SHRINK_WGSL = /* wgsl */ `
+@group(0) @binding(0) var finer: texture_2d<f32>;
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+  var p = array<vec2<f32>, 3>(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+  return vec4<f32>(p[i], 0.0, 1.0);
+}
+@fragment
+fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+  let p = vec2<i32>(pos.xy) * 2;
+  return (textureLoad(finer, p, 0) + textureLoad(finer, p + vec2<i32>(1, 0), 0) + textureLoad(finer, p + vec2<i32>(0, 1), 0) + textureLoad(finer, p + vec2<i32>(1, 1), 0)) * 0.25;
+}
+`;
+// A VEHICLE'S BEAM, laid on the map by itself: ahead of it, widening, as long as a beam is and no longer, and stopped
+// by the first wall it meets. Headlamps were lights among the cascades' own, shining every way and as far as any,
+// and every car swept the town through the gaps between its buildings.
+const BEAM_WGSL = /* wgsl */ `
+// The map, tiles; how tall a wall is, as the scene has it.
+struct U { map: vec2<f32>, tall: f32, pad: f32 };
+@group(0) @binding(0) var<uniform> u: U;
+@group(0) @binding(1) var uSceneTex: texture_2d<f32>;
+struct V { @builtin(position) pos: vec4<f32>, @location(0) at: vec2<f32>, @location(1) p: vec2<f32>, @location(2) @interpolate(flat) lamp: vec2<f32> };
+@vertex
+fn vs(@builtin(vertex_index) i: u32, @location(0) car: vec4<f32>) -> V {
+  var c = array<vec2<f32>, 6>(vec2(0.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0), vec2(0.0, -1.0), vec2(1.0, 1.0), vec2(0.0, 1.0));
+  let q = vec2<f32>(c[i].x * ${BEAM_LONG}, c[i].y * ${BEAM_WIDE});
+  let dir = car.zw;
+  var o: V;
+  o.p = car.xy + dir * q.x + vec2<f32>(-dir.y, dir.x) * q.y;
+  o.pos = vec4<f32>(o.p.x / u.map.x * 2.0 - 1.0, 1.0 - o.p.y / u.map.y * 2.0, 0.0, 1.0);
+  o.at = q; o.lamp = car.xy;
+  return o;
+}
+@fragment
+fn fs(v: V) -> @location(0) vec4<f32> {
+  let f = v.at.x / ${BEAM_LONG};
+  let wide = mix(${BEAM_NEAR}, ${BEAM_WIDE}, f);
+  let a = max(0.0, 1.0 - (v.at.y / wide) * (v.at.y / wide));
+  var b = a * a * smoothstep(0.0, 0.12, f) * (1.0 - f) * (1.0 - f) * ${BEAM_BRIGHT};
+  if (b <= 0.002) { return vec4<f32>(0.0); }
+  let size = vec2<f32>(textureDimensions(uSceneTex));
+  for (var k = 1; k <= 12; k++) {
+    let q = mix(v.lamp, v.p, f32(k) / 12.0) / u.map * size;
+    if (textureLoad(uSceneTex, vec2<i32>(clamp(q, vec2<f32>(0.0), size - vec2<f32>(1.0))), 0).r > u.tall) { return vec4<f32>(0.0); }
+  }
+  return vec4<f32>(b, 0.0, 0.0, b);
+}
+`;
 const SHEET_COMMON = /* wgsl */ `
 struct GlobalUniforms {
   uProjectionMatrix: mat3x3<f32>,
@@ -359,11 +419,17 @@ fn lightOver(q: vec2<f32>, up: f32, spread: f32) -> vec3<f32> {
 }
 `;
 const SHEET_WGSL = SHEET_COMMON + /* wgsl */ `
+// The vehicles' beams, as the map has them. @see BEAM_WGSL
+@group(2) @binding(4) var uBeam : texture_2d<f32>;
 @fragment
 fn mainFragment(in: VSOutput) -> @location(0) vec4<f32> {
   let s = seen(in.vGround);
   // (A wall is lit from the air in front of it, not from inside itself.)
-  let l = lightOver(s.at + vec2<f32>(0.12 * s.built), s.up, 5.0);
+  let front = s.at + vec2<f32>(0.12 * s.built);
+  var l = lightOver(front, s.up, 5.0);
+  // (And the beams: the road's light, and a wall's foot's. Added as light on light is, never past day.)
+  let b = textureSampleLevel(uBeam, uLightSampler, front / sheet.uScene.xy, 0.0).r / (1.0 + s.up * s.up * 0.2) * sheet.uScene.w;
+  l = vec3<f32>(1.0) - (vec3<f32>(1.0) - min(l, vec3<f32>(1.0))) * (vec3<f32>(1.0) - b * vec3<f32>(1.0, 0.94, 0.78));
   // The night's colour, lifted toward the light's own as it is strong: under a lamp the street is lamp-lit, warm.
   let a = min(max(l.r, max(l.g, l.b)), 1.0);
   let lit = mix(sheet.uGrade.rgb, min(l / max(a, 0.0001), vec3<f32>(1.0)), a);
@@ -580,6 +646,10 @@ type Gpu = { gpu?: { device: GPUDevice }; texture?: { getGpuSource: (s: unknown)
 export type GiFrame = {
   /** The lights that are told a frame at a time: lamps, signs, headlights. */
   lights: readonly GiLight[];
+  /** How many of them, the last of the list, are headlamps: their light on the road is their beams' (@see beams), and only the water gives these back. */
+  heads?: number;
+  /** The vehicles with their lamps lit: where each one's lamps are, tiles, and which way it points. `BEAM_FLOATS` numbers apiece. */
+  beams?: { data: Float32Array; n: number };
   /** The windows, each a light with its own hours — `FLOATS` numbers apiece, as {@link windowLight} lays them — and a count that moves when they do. */
   windows?: { data: Float32Array; n: number; rev: number };
   /** The ground's height and what is built on it, half steps a quarter-tile; a count that moves when either does; the lowest ground and the highest thing. */
@@ -627,8 +697,10 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
   const sceneBytes = new Uint8Array(SW * SH * 4);
   const scene = new BufferImageSource({ resource: sceneBytes, width: SW, height: SH, format: "rgba8unorm", scaleMode: "linear" });
   const sceneGpu = sys.texture.getGpuSource(scene);
-  const emit = tex(SW, SH, fmt, RT);
-  const linear = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
+  // (The lights as they are and twice shrunk. @see SHRINK_WGSL)
+  const emit = device.createTexture({ size: [SW, SH], format: fmt, usage: RT, mipLevelCount: 3 });
+  const emitViews = [0, 1, 2].map((m) => emit.createView({ baseMipLevel: m, mipLevelCount: 1 }));
+  const linear = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
   const lightData = new Float32Array(MAX_LIGHTS * FLOATS);
   const lightBuf = device.createBuffer({ size: lightData.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   let windowBuf: GPUBuffer | null = null, windowN = 0, windowRev = -1;
@@ -645,6 +717,26 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
     },
     fragment: { module: emitMod, entryPoint: "fs", targets: [{ format: fmt, blend: { color: { srcFactor: "one", dstFactor: "one" }, alpha: { srcFactor: "one", dstFactor: "one" } } }] },
   });
+  const shrinkMod = device.createShaderModule({ code: SHRINK_WGSL });
+  const shrinkPipe = device.createRenderPipeline({ layout: "auto", vertex: { module: shrinkMod, entryPoint: "vs" }, fragment: { module: shrinkMod, entryPoint: "fs", targets: [{ format: fmt }] } });
+  const shrinkBinds = [0, 1].map((m) => device.createBindGroup({ layout: shrinkPipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: emitViews[m] }] }));
+  // THE BEAMS: a texture of their own, finer than the light's — a beam is no wider than a lane.
+  const BT = Math.max(4, Math.min(8, Math.floor(1024 / Math.max(w, h))));
+  const beamTex = new BufferImageSource({ resource: new Uint8Array(w * BT * h * BT), width: w * BT, height: h * BT, format: "r8unorm", scaleMode: "linear" });
+  const beamView = sys.texture.getGpuSource(beamTex).createView();
+  const beamMod = device.createShaderModule({ code: BEAM_WGSL });
+  const beamPipe = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: beamMod, entryPoint: "vs", buffers: [{ arrayStride: BEAM_FLOATS * 4, stepMode: "instance", attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }] }] },
+    // (Light on light: two beams on one patch of road are no brighter than day.)
+    fragment: { module: beamMod, entryPoint: "fs", targets: [{ format: "r8unorm", blend: { color: { srcFactor: "one", dstFactor: "one-minus-src" }, alpha: { srcFactor: "one", dstFactor: "one" } } }] },
+  });
+  const beamBuf = device.createBuffer({ size: MAX_BEAMS * BEAM_FLOATS * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+  const beamU = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(beamU, 0, new Float32Array([w, h, 0.6 / HEIGHT_SPAN, 0]));
+  const beamBind = device.createBindGroup({ layout: beamPipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: beamU } }, { binding: 1, resource: sceneGpu.createView() }] });
+  /** Whether the beams' texture has any in it. */
+  let beamsIn = false;
   const cascMod = device.createShaderModule({ code: CASCADE_WGSL });
   const cascPipe = device.createRenderPipeline({ layout: "auto", vertex: { module: cascMod, entryPoint: "vs" }, fragment: { module: cascMod, entryPoint: "fs", targets: [{ format: fmt }] } });
   const finalMod = device.createShaderModule({ code: FINAL_WGSL });
@@ -767,7 +859,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
     const shader = new Shader({
       gpuProgram: GpuProgram.from({
         vertex: { source: SHEET_WGSL, entryPoint: "mainVertex" }, fragment: { source: SHEET_WGSL, entryPoint: "mainFragment" }, name: "gi-sheet",
-        layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { sheet: 0, uLight: 1, uLightSampler: 2, uSceneTex: 3 }],
+        layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { sheet: 0, uLight: 1, uLightSampler: 2, uSceneTex: 3, uBeam: 4 }],
         gpuLayout: [
           [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
           [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
@@ -776,10 +868,11 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
             { binding: 1, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
             { binding: 2, visibility: 2, sampler: { type: "filtering" } },
             { binding: 3, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+            { binding: 4, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
           ],
         ],
       }),
-      resources: { sheet: sheetU, uLight: light, uLightSampler: light.style, uSceneTex: scene },
+      resources: { sheet: sheetU, uLight: light, uLightSampler: light.style, uSceneTex: scene, uBeam: beamTex },
     });
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
     mesh.eventMode = "none";
@@ -950,7 +1043,16 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
         colorAttachments: [{ view, loadOp: load ? "load" : "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }],
         ...(timed && (first || last) ? { timestampWrites: { querySet: timed.set, ...(first ? { beginningOfPassWriteIndex: 0 } : {}), ...(last ? { endOfPassWriteIndex: 1 } : {}) } } : {}),
       });
-      const emitView = emit.createView();
+      // THE BEAMS, every time: a car is somewhere else each frame. (Once more when there are none left, to clear them.)
+      const beams = options.headlights ? Math.min(f.beams?.n ?? 0, MAX_BEAMS) : 0;
+      if (beams || beamsIn) {
+        beamsIn = beams > 0;
+        if (beams) device.queue.writeBuffer(beamBuf, 0, f.beams!.data, 0, beams * BEAM_FLOATS);
+        const bp = pass(beamView);
+        if (beams) { bp.setPipeline(beamPipe); bp.setBindGroup(0, beamBind); bp.setVertexBuffer(0, beamBuf); bp.draw(6, beams); }
+        bp.end();
+      }
+      const steady = Math.min(n, f.lights.length - (f.heads ?? 0));
       // NOT EVERY HEIGHT EVERY FRAME. The street's light moves with every car and is worked out each frame; the
       // heights over it change as windows come on and go out, over a second or more, and take turns — one of them
       // a frame. All of them at once when anything they are made from has changed: what is built, the options.
@@ -962,11 +1064,16 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       s.layers.forEach((l, li) => {
         if (!due[li]) return;
         // This height's lights; then the cascades from the furthest in; then its light, into its own stretch.
-        const e = pass(emitView, false, li === firstDue);
+        const e = pass(emitViews[0], false, li === firstDue);
         e.setPipeline(emitPipe); e.setBindGroup(0, l.emitBind);
-        if (n) { e.setVertexBuffer(0, lightBuf); e.draw(6, n); }
+        if (steady) { e.setVertexBuffer(0, lightBuf); e.draw(6, steady); }
         if (wins && windowBuf && windowN) { e.setVertexBuffer(0, windowBuf); e.draw(6, windowN); }
         e.end();
+        for (let m = 0; m < 2; m++) {
+          const sp = pass(emitViews[m + 1]);
+          sp.setPipeline(shrinkPipe); sp.setBindGroup(0, shrinkBinds[m]); sp.draw(3);
+          sp.end();
+        }
         for (let i = s.count - 1; i >= 0; i--) {
           const p = pass(s.chain[i].view);
           p.setPipeline(cascPipe); p.setBindGroup(0, l.levels[i].bind); p.draw(3);
@@ -1011,6 +1118,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       // (As far toward the eye as the tallest thing could stand in the way: four half steps up a tile.)
       (s.sheetU.uniforms.uMap as Float32Array)[2] = Math.min(14, Math.max(0.4, f.top / 4 + 0.4));
       (s.sheetU.uniforms.uScene as Float32Array)[2] = f.low;
+      (s.sheetU.uniforms.uScene as Float32Array)[3] = beamsIn ? Math.min(1, f.night * 1.2) : 0;
       s.sheetU.update();
       s.mesh.visible = true;
       if (s.glint) {
@@ -1024,7 +1132,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
     },
     destroy() {
       unsize();
-      setTimeout(() => { emit.destroy(); lightBuf.destroy(); windowBuf?.destroy(); scene.destroy(); stamps?.set.destroy(); stamps?.resolve.destroy(); stamps?.read.destroy(); }, 600);
+      setTimeout(() => { emit.destroy(); beamTex.destroy(); beamBuf.destroy(); lightBuf.destroy(); windowBuf?.destroy(); scene.destroy(); stamps?.set.destroy(); stamps?.resolve.destroy(); stamps?.read.destroy(); }, 600);
     },
   };
 }
