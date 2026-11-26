@@ -170,6 +170,10 @@ html.ui-calm .card-lift:hover {
   transition: none;
 }
 
+/* A DOCK TOOL'S HUE, how far toward black: picked for the dark, it would wash out in the light. @see toned */
+:root { --tone-ink: 45%; }
+.dark { --tone-ink: 0%; }
+
 /* THE EDITOR'S TOOL BAR: its tray and its panels arriving, and a tool's bubble. @see ToolDock */
 @keyframes dock-tray-in {
   from { opacity: 0; transform: translateY(10px) scale(0.985); }

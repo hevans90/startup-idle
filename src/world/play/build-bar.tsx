@@ -61,7 +61,7 @@ import {
   IconAdjustmentsHorizontal, IconArrowBackUp, IconBackhoe, IconBuildingSkyscraper, IconBulldozer, IconCoin, IconDroplet, IconFlower,
   IconMoodSmile, IconPlant2, IconPlugConnected, IconPointer, IconRoad, IconRobot, IconSubtask, IconTag, IconTree, IconTrees,
 } from "@tabler/icons-react";
-import { DOCK, DOCK_FOCUS, DOCK_TRAY, DockButton, DockTool, Part, Rule, toned } from "./dock";
+import { DOCK, DOCK_FOCUS, DOCK_TRAY, DockButton, DockTip, DockTool, Part, Rule, toned } from "./dock";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -355,6 +355,9 @@ export function BuildBar({ className }: { className?: string }) {
       <SewerCard />
       <RoadCard />
       <SuggestCard />
+      <DockTip />
+      {/* THE DOCK: its trays and its bar, which the bubble stands over. @see DockTip */}
+      <div data-dock-stack className="flex max-w-full flex-col items-center gap-2">
       {picking && !handsOff && (
         // ALL OF IT AT ONCE: a row a section, a tile a thing.
         <div style={toned(BUILD_TONE)} className={twMerge(DOCK_TRAY, "dock-scroll flex-col gap-2 max-sm:max-h-[50vh] max-sm:overflow-y-auto")}>
@@ -485,6 +488,7 @@ export function BuildBar({ className }: { className?: string }) {
             </DockButton>
           ) : views}
         </div>
+      </div>
       </div>
     </div>
   );

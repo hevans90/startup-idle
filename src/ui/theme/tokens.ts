@@ -42,16 +42,18 @@ export const ROLES = Object.keys(HUES) as Role[];
 
 /** The lightness each face takes in each theme: dark text on light, light on dark. */
 const STEP: Record<Theme, { main: number; soft: number; line: number }> = {
-  light: { main: 28, soft: 95, line: 50 },
+  // (Deep in the light: a role reads as ink, its tint is seen, its line is drawn.)
+  light: { main: 20, soft: 80, line: 36 },
   dark: { main: 76, soft: 17, line: 59 },
 };
 
 /** The greys' roles: surfaces 0 (the page) to 3 (an overlay), lines, and text (`fg`, so the class reads `text-fg`). */
 const NEUTRAL: Record<Theme, Record<string, string>> = {
+  // THE LIGHT, not a glare: grey paper, each surface a clear step from the next, ink near black, lines that are drawn.
   light: {
-    "surface-0": "#e9ebed", "surface-1": GREY(9), "surface-2": GREY(8), "surface-3": "#ffffff",
-    "line-quiet": GREY(7), "line": GREY(6), "line-strong": GREY(4),
-    "fg": GREY(0), "fg-muted": GREY(4), "fg-faint": GREY(5),
+    "surface-0": "#bcc2ca", "surface-1": "#d3d8de", "surface-2": "#b4bbc4", "surface-3": "#e6e9ed",
+    "line-quiet": "#737b86", "line": "#4d5560", "line-strong": "#22272e",
+    "fg": "#05070a", "fg-muted": "#20252b", "fg-faint": "#343a42",
   },
   dark: {
     "surface-0": GREY(0), "surface-1": GREY(1), "surface-2": GREY(2), "surface-3": GREY(3),
@@ -94,6 +96,15 @@ export const CONTRAST: { fg: string; bg: string; min: number }[] = [
   ...["surface-0", "surface-1"].map((bg) => ({ fg: "line-strong", bg, min: 3 })),
   ...ROLES.map((r) => ({ fg: r, bg: `${r}-soft`, min: 4.5 })),
 ];
+
+/** And in the light, more: ink at AAA, quiet text still AA, a role read as text, a line seen on every surface. */
+export const CONTRAST_LIGHT: { fg: string; bg: string; min: number }[] = ["surface-0", "surface-1", "surface-2", "surface-3"].flatMap((bg) => [
+  { fg: "fg", bg, min: 10 },
+  { fg: "fg-muted", bg, min: 7 },
+  { fg: "fg-faint", bg, min: 4.5 },
+  { fg: "line", bg, min: 3.5 },
+  ...ROLES.map((r) => ({ fg: r, bg, min: 4.5 })),
+]);
 
 /**
  * A TOKEN AS A NUMBER, 0xrrggbb, for what draws on a canvas (Pixi tints and

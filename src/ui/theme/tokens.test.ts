@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parse, wcagContrast } from "culori";
 
-import { CONSOLE_AI, CONTRAST, ROLES, tokens, type Theme } from "./tokens";
+import { CONSOLE_AI, CONTRAST, CONTRAST_LIGHT, ROLES, tokens, type Theme } from "./tokens";
 import { themeCss } from "./install";
 
 describe("the console's tokens", () => {
@@ -12,7 +12,7 @@ describe("the console's tokens", () => {
     });
 
     test(`${theme}: what must read, reads`, () => {
-      const short = CONTRAST
+      const short = [...CONTRAST, ...(theme === "light" ? CONTRAST_LIGHT : [])]
         .map(({ fg, bg, min }) => ({ fg, bg, min, got: wcagContrast(t[fg], t[bg]) }))
         .filter((p) => p.got < p.min)
         .map((p) => `${p.fg} on ${p.bg}: ${p.got.toFixed(2)} < ${p.min}`);

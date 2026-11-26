@@ -34,7 +34,7 @@ import { Beds, Networks, Sources, WaterMeta } from "./edit-panel";
 import type { PanelId } from "./editor-panels";
 import { FIXTURES, fixtureAddress, type FixtureKind } from "./fixture-list";
 import { FIXTURE_SIZE } from "./fixtures";
-import { Part, Rule, Tip, toned } from "../play/dock";
+import { DockTip, Part, Rule, Tip, toned } from "../play/dock";
 
 type IconOf = typeof IconBrush;
 const TOOL_ICON: Partial<Record<ToolId, IconOf>> = {
@@ -394,7 +394,8 @@ export function ToolDock({ panel, setPanel }: { panel: PanelId | null; setPanel:
   }, []);
   const toggle = (p: PanelId) => setPanel(panel === p ? null : p);
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex flex-col items-center gap-2 px-3 text-fg select-none">
+    <div data-dock-stack className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex flex-col items-center gap-2 px-3 text-fg select-none">
+      <DockTip />
       {fixtures ? <FixtureTray /> : !shut && g.id !== "look" && <Tray id={g.id} />}
       <div className={twMerge("pointer-events-auto flex max-w-full items-center rounded-2xl p-1.5", GLASS)} role="toolbar" aria-label="map tools">
         <History />

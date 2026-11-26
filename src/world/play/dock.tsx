@@ -3,7 +3,8 @@
  * tools as tiles in their own colour, a bubble over what is hovered. The editor's tool bar and the player's build bar
  * are both made of these. @see ToolDock, BuildBar
  */
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { twMerge } from "tailwind-merge";
 
 /** The pane, with no blur behind it: a blur over the map is dear on the GPU. */
@@ -11,17 +12,89 @@ export const DOCK = "border border-line bg-surface-0/95";
 /** A tray over the bar. */
 export const DOCK_TRAY = twMerge("dock-tray-in pointer-events-auto flex max-w-full rounded-2xl p-2.5", DOCK);
 export const DOCK_FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-tone";
-export const toned = (tone: string) => ({ "--tone": tone }) as CSSProperties;
+/** A tool's own colour as its tone: a hue picked for the dark, taken deeper in the light so it reads there. @see index.css --tone-ink */
+export const toned = (tone: string) => ({ "--tone": tone.startsWith("#") ? `color-mix(in oklab, ${tone}, black var(--tone-ink))` : tone }) as CSSProperties;
 
 export const Key = ({ k }: { k: string }) => <kbd className="rounded border border-line bg-surface-2 px-1 font-mono text-[10px] leading-4 text-fg-muted">{k.toUpperCase()}</kbd>;
 
-/** A bubble over what is hovered: what it is, its key, and what it does. */
-export function Tip({ name, hint, k }: { name: string; hint?: ReactNode; k?: string }) {
-  return (
-    <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-max max-w-60 -translate-x-1/2 translate-y-1 rounded-lg border border-line bg-surface-1 px-2.5 py-1.5 text-left text-[11px] leading-snug font-normal tracking-normal text-fg normal-case opacity-0 transition-all delay-0 duration-100 group-hover/tip:translate-y-0 group-hover/tip:opacity-100 group-hover/tip:delay-300 group-focus-visible/tip:opacity-100">
-      <span className="flex items-center gap-2 font-semibold">{name}{k && <Key k={k} />}</span>
-      {hint && <span className="mt-0.5 block text-fg-muted">{hint}</span>}
-    </span>
+/**
+ * THE DOCK'S ONE BUBBLE: what is hovered, its key, and what it does. One for the whole page, so two never stack;
+ * stood over the whole dock — its trays too — so it never covers one; slow to come the first time, then quick from
+ * tool to tool. A `<Tip>` inside a button is only what to say. @see DockTip
+ */
+type TipSay = { name: string; hint?: ReactNode; k?: string };
+type TipNow = TipSay & { el: HTMLElement };
+let tipNow: TipNow | null = null, warmUntil = 0, timer: ReturnType<typeof setTimeout> | undefined;
+const tipSubs = new Set<() => void>();
+const setTip = (t: TipNow | null) => { tipNow = t; for (const f of tipSubs) f(); };
+const TIP_DELAY = 350, TIP_WARM = 400;
+function showTip(t: TipNow) {
+  clearTimeout(timer);
+  if (performance.now() < warmUntil || tipNow) setTip(t);
+  else timer = setTimeout(() => setTip(t), TIP_DELAY);
+}
+function hideTip(el: HTMLElement) {
+  clearTimeout(timer);
+  if (tipNow?.el !== el) return;
+  warmUntil = performance.now() + TIP_WARM;
+  setTip(null);
+}
+
+/** What a button says in the dock's bubble: put inside it. */
+export function Tip(say: TipSay) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const said = useRef(say);
+  said.current = say;
+  // (Said again while shown — Undo's sum, Pause become Resume — the bubble follows.)
+  useEffect(() => { if (tipNow && tipNow.el === ref.current?.parentElement) setTip({ ...say, el: tipNow.el }); });
+  useEffect(() => {
+    const el = ref.current?.parentElement;
+    if (!el) return;
+    let pressed = false;
+    const enter = () => { if (!pressed) showTip({ ...said.current, el }); };
+    const leave = () => { pressed = false; hideTip(el); };
+    // A press puts it away till the pointer leaves: what was clicked may open a tray where it stood.
+    const press = () => { pressed = true; clearTimeout(timer); if (tipNow?.el === el) setTip(null); };
+    const focus = () => { if (el.matches(":focus-visible")) showTip({ ...said.current, el }); };
+    el.addEventListener("pointerenter", enter);
+    el.addEventListener("pointerleave", leave);
+    el.addEventListener("pointerdown", press);
+    el.addEventListener("focus", focus);
+    el.addEventListener("blur", leave);
+    return () => {
+      el.removeEventListener("pointerenter", enter);
+      el.removeEventListener("pointerleave", leave);
+      el.removeEventListener("pointerdown", press);
+      el.removeEventListener("focus", focus);
+      el.removeEventListener("blur", leave);
+      hideTip(el);
+    };
+  }, []);
+  return <span ref={ref} hidden />;
+}
+
+/** The bubble itself: once on the page, wherever a dock is. */
+export function DockTip() {
+  const t = useSyncExternalStore((f) => { tipSubs.add(f); return () => tipSubs.delete(f); }, () => tipNow);
+  const box = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!t || !box.current) { setAt(null); return; }
+    if (!t.el.isConnected) { setTip(null); return; }
+    const r = t.el.getBoundingClientRect();
+    // Over the whole dock it is in: its trays too.
+    const top = Math.min(r.top, t.el.closest("[data-dock-stack]")?.getBoundingClientRect().top ?? r.top);
+    const w = box.current.offsetWidth, pad = 8;
+    setAt({ x: Math.max(pad, Math.min(innerWidth - w - pad, r.left + r.width / 2 - w / 2)), y: top - 8 });
+  }, [t]);
+  if (!t) return null;
+  return createPortal(
+    <div ref={box} role="tooltip" style={{ left: at?.x ?? -9999, top: at?.y ?? -9999 }}
+      className="pointer-events-none fixed z-[1000] w-max max-w-64 -translate-y-full rounded-lg border border-line-strong bg-surface-3 px-2.5 py-1.5 text-left text-[11px] leading-snug font-normal tracking-normal whitespace-normal text-fg normal-case">
+      <span className="flex items-center gap-2 font-semibold">{t.name}{t.k && <Key k={t.k} />}</span>
+      {t.hint && <span className="mt-0.5 block text-fg-muted">{t.hint}</span>}
+    </div>,
+    document.body,
   );
 }
 
