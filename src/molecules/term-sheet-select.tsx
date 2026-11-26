@@ -203,7 +203,7 @@ function TermDocument({ sheet, clauses, founder, seed, version, signing }: {
 
   return (
     <article aria-label={`Term sheet: ${sheet.investor}`}
-      className="relative flex flex-col overflow-hidden border border-line-strong border-t-2 border-t-console bg-surface-1 font-mono text-[12px] leading-relaxed text-fg shadow-2xl">
+      className="relative flex flex-col overflow-hidden border border-line-strong border-t-2 border-t-console bg-surface-1 font-mono text-[12px] leading-relaxed text-fg">
       <Backdrop kind="dots" />
       {/* THE BAND: what kind of paper this is. */}
       <div className="relative flex flex-wrap items-center justify-between gap-2 border-b border-line-quiet bg-surface-2/60 px-5 py-1.5 text-[10px] uppercase tracking-[0.25em] text-fg-muted">

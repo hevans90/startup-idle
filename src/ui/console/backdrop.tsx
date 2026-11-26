@@ -1,7 +1,7 @@
 /**
  * THE CONSOLE'S BACKDROP: arwes's patterns (`@arwes/bgs`) on a canvas filling
  * its frame — dots, grid lines, and, once the AI has the console (from the
- * Overseer), its moving lines — faint, in the frame's tone, behind dialogs
+ * Overseer), its moving lines; or motes rising, behind the founding screens — faint, in the frame's tone, behind dialogs
  * and the founder's screen, never under scrolling content. Calm, nothing.
  * Drawn again when the theme or the tone changes; nothing runs at rest but
  * the moving lines. Its packages are fetched the first time one is drawn:
@@ -12,11 +12,12 @@ import { useEffect, useRef } from "react";
 import { useThemeStore } from "../../state/theme.store";
 import { useConsoleMotion } from "../motion";
 
-export function Backdrop({ kind = "dots", still = false }: { kind?: "dots" | "grid"; /** Never the moving lines: behind what stands, which must cost nothing at rest. */ still?: boolean }) {
+export function Backdrop({ kind = "dots", still = false }: { kind?: "dots" | "grid" | "puffs"; /** Never the moving lines: behind what stands, which must cost nothing at rest. */ still?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const theme = useThemeStore((s) => s.theme);
   const { calm, moves: canMove } = useConsoleMotion();
-  const moves = canMove && !still;
+  // (Puffs rise whatever the console's stage: they are a screen's own, not the takeover's.)
+  const moves = kind === "puffs" ? !calm : canMove && !still;
   useEffect(() => {
     const el = canvas.current;
     if (!el) return;
@@ -25,6 +26,16 @@ export function Backdrop({ kind = "dots", still = false }: { kind?: "dots" | "gr
       if (gone) return;
       // The frame's tone, resolved: the canvas cannot read a variable.
       const color = getComputedStyle(el).color;
+      if (kind === "puffs") {
+        // MOTES RISING, on an animator of their own, as the moving lines.
+        const system = animator.createAnimatorSystem();
+        const node = system.register(undefined, { getSettings: () => ({ duration: { enter: 1, interval: 6 } }) });
+        const bg = bgs.createBackgroundPuffs({ canvas: el, animator: node, settingsRef: { current: { color, quantity: 14, padding: 20, xOffset: [0, 0], yOffset: [-12, -60], radiusOffset: [4, 0], sets: 4 } } });
+        node.send("setup");
+        node.send("enter");
+        stop = () => { bg.cancel(); system.unregister(node); };
+        return;
+      }
       if (moves) {
         // Its lines run on an animator of their own: a node of a system made for it, taken down with it.
         const system = animator.createAnimatorSystem();
@@ -45,7 +56,7 @@ export function Backdrop({ kind = "dots", still = false }: { kind?: "dots" | "gr
   if (calm) return null;
   // Faint by its wrapper: the patterns set the canvas's own opacity.
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 opacity-25">
+    <div aria-hidden className={`pointer-events-none absolute inset-0 ${kind === "grid" ? "opacity-15" : "opacity-25"}`}>
       <canvas ref={canvas} className="h-full w-full" style={{ color: "var(--frame-tone, var(--ui-console))" }} />
     </div>
   );

@@ -22,6 +22,7 @@
  * Time away is caught up all at once on load, as if the whole crew had been
  * there throughout. @see catchUpWorks
  */
+import { DRONE_SITE_SECONDS } from "../drones/build-drones";
 import { contractFor } from "./contracts";
 import { housedBy } from "../../game/housing";
 import {
@@ -298,6 +299,7 @@ export function stepWorks(
   const plantAt = new Map<number, ReturnType<typeof stepPlant>>();
   for (const s of sites) {
     const b = s.build!, door = places.find((pl) => pl.structure === s.id);
+    if (b.drone) continue;
     // (Nothing a gang carries in on its own van wants a digger: a rack, a wall, a lot.)
     if (!door || (!projectForStructure(s.def) && (!contractFor(s.def) || contractFor(s.def)!.carried))) continue;
     const ground = b.need * groundShare(b.deliveries, s.def), inGround = b.done < ground - 1e-9;
@@ -368,6 +370,20 @@ export function stepWorks(
     // the contractor's: there when the site is, and nobody's desk empty for it. @see contracts
     const b = s.build!, p = projectForStructure(s.def), contract = p ? null : contractFor(s.def);
     if (!p && !contract) continue;
+    // UNDER A DRONE: nothing till it lands — no crew, no lorries — then up in `DRONE_SITE_SECONDS`. @see build-drones
+    if (b.drone) {
+      if (b.drone.t < b.drone.fly) continue;
+      b.done = Math.min(b.need, b.done + (b.need / DRONE_SITE_SECONDS) * dt);
+      b.updatedAt = now;
+      if (b.done >= b.need - 1e-6 && b.delivered >= b.deliveries) {
+        delete s.build;
+        w.crews.delete(s.id); w.trucks.delete(s.id); w.stalled.delete(s.id);
+        if (p) w.opened.push(p.id);
+        w.rev++;
+        town.placesAt = -1;
+      } else w.rev++;
+      continue;
+    }
     const door = places.find((pl) => pl.structure === s.id);
     let crew = w.crews.get(s.id);
     if (!crew) {

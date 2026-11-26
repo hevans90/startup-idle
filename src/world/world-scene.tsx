@@ -31,6 +31,7 @@ import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
 import { inherited } from "./ai/planner";
 import { aiFixturePreview, sequenceIntensity, stepSequence } from "./ai/ascension-sequence";
 import { catchUpAi, droneAt, getAiRunner, stepAi, stepMemos, vetoAt } from "./ai/ai-runner";
+import { buildDronesOn, dronePort } from "./drones/build-drones";
 import { VETO_REPLIES } from "./ai/memos";
 import { useGenerationStore } from "../state/generation.store";
 import { stepGamePilot } from "./ai/pilot/game";
@@ -4317,6 +4318,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // The Machine's Coolant Loop and Holo-Concierges, where bought. @see game/machine
           coolant: !modelRun && notable("coolant"),
           concierges: !modelRun && notable("concierge") ? conciergesOf(useWorldStore.getState().grid) : undefined,
+          buildDrones: modelRun || aiDriving() ? buildDronesOn(useWorldStore.getState().grid) : undefined,
+          dronePort: modelRun || aiDriving() ? dronePort(useWorldStore.getState().grid) : null,
           airlifts: getWorks().airlifts.map((a) => { const k = Math.min(1, a.t / a.fly); return { x: a.from.x + (a.to.x - a.from.x) * k, y: a.from.y + (a.to.y - a.from.y) * k }; }),
           // An inherited AI's drones in the player's teal, till its takeover begins. @see inherited
           droneLight: !modelRun && inherited(stageOf(v).stage) ? STAGE_COLOUR.tool : undefined,

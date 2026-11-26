@@ -59,7 +59,7 @@ export const SettingsPopover = ({
         </button>
       </PopoverTrigger>
 
-      <PopoverContent className={twMerge(POPOVER_BARE, "w-80 border border-line-strong border-t-2 border-t-console bg-surface-3 text-fg shadow-xl")}>
+      <PopoverContent className={twMerge(POPOVER_BARE, "w-80 border border-line-strong border-t-2 border-t-console bg-surface-3 text-fg")}>
         <header className="flex items-center gap-2 border-b border-line-quiet px-4 py-2">
           <IconSettings className="h-3.5 w-3.5 text-console" stroke={1.6} />
           <h2 className="font-display text-[11px] uppercase tracking-widest">Settings</h2>

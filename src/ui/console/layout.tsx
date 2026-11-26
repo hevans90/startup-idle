@@ -69,7 +69,7 @@ export function Card({ title, tone = "console", onClose, className, children }: 
   children?: ReactNode;
 }) {
   return (
-    <div style={toneVar(tone)} className={twMerge("relative border border-line border-l-2 border-l-tone bg-surface-2/95 text-xs text-fg shadow-lg", className)}>
+    <div style={toneVar(tone)} className={twMerge("relative border border-line border-l-2 border-l-tone bg-surface-2/95 text-xs text-fg", className)}>
       {/* Untitled, the close sits in the corner, taking no line of its own. */}
       {!title && onClose && (
         <button type="button" onClick={onClose} aria-label="Close" className={twMerge("absolute right-1 top-1.5 cursor-pointer px-1 text-fg-muted hover:text-fg", FOCUS)}>✕</button>
@@ -123,7 +123,8 @@ export function Dialog({ title, kicker, onClose, actions, tone = "console", wide
   onClose?: () => void;
   actions?: ReactNode;
   tone?: Tone;
-  wide?: boolean;
+  /** Wider: for a form, or "xl" for a drawing beside its detail. */
+  wide?: boolean | "xl";
   /** Torn now and then, or on cue through `kick`. @see useGlitch */
   glitch?: GlitchOptions & { kick?: { current: Kick | null } };
   children?: ReactNode;
@@ -157,8 +158,8 @@ export function Dialog({ title, kicker, onClose, actions, tone = "console", wide
   return createPortal(
     // On a phone, the whole screen. @see isPhone
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-0/60 p-4 backdrop-blur-[1px] max-md:p-0">
-      <div ref={box} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className={twMerge("w-full outline-none max-md:h-full max-md:max-w-none", wide ? "max-w-2xl" : "max-w-md")}>
-        <Frame kind="octagon" tone={tone} assemble="auto" style={toneVar(tone)} className="text-fg shadow-2xl max-md:h-full max-md:bg-surface-1" inner="max-md:h-full max-md:overflow-y-auto">
+      <div ref={box} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className={twMerge("w-full outline-none max-md:h-full max-md:max-w-none", wide === "xl" ? "max-w-5xl" : wide ? "max-w-2xl" : "max-w-md")}>
+        <Frame kind="octagon" tone={tone} assemble="auto" style={toneVar(tone)} className="text-fg max-md:h-full max-md:bg-surface-1" inner="max-md:h-full max-md:overflow-y-auto">
           <Backdrop kind="dots" />
           <div className="relative flex flex-col">
             <header className="flex items-start justify-between gap-2 border-b border-line-quiet px-5 pb-3 pt-4">

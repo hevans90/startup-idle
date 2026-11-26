@@ -85,7 +85,8 @@ describe("the Ascension", () => {
     expect(g.past[g.past.length - 1]).toEqual(g.announce!);
     expect(ringRevealed(1)).toBe("Ring 1 of the Machine");
     expect(ringRevealed(4)).toBe("The Machine's keystones");
-    expect(ringRevealed(5)).toBeNull();
+    expect(ringRevealed(5)).toBe("The Machine's head starts");
+    expect(ringRevealed(6)).toBeNull();
   });
 
   test("a salary in Weights banks less; book 3's endings leave the next talk warmer or colder", () => {

@@ -114,7 +114,7 @@ export function LandmarksPanel({ className }: { className?: string }) {
     <div className={twMerge("flex max-w-[calc(100vw-1rem)] flex-col items-start gap-2", className)}>
       {slop && <SlopCard />}
       {shown.length > 0 && !driving && (
-        <section className="w-80 max-w-full border border-line-quiet bg-surface-1/95 text-xs text-fg shadow-lg dark:bg-surface-1/95">
+        <section className="w-80 max-w-full border border-line-quiet bg-surface-1/95 text-xs text-fg dark:bg-surface-1/95">
           <button type="button" onClick={() => setOpen(!isOpen)} data-hint="projects" aria-expanded={isOpen}
             className={twMerge(
               "flex w-full cursor-pointer items-center gap-2 px-2.5 py-2 text-left hover:bg-surface-2",

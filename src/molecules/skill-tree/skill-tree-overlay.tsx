@@ -1,7 +1,6 @@
 import { IconSearch, IconX } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { usePrestigeStore, RESPECS_PER_EXIT } from "../../state/prestige.store";
-import { useGenerationStore } from "../../state/generation.store";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
 import { twMerge } from "tailwind-merge";
 import { Button, FOCUS, IconButton, Label, Num, Text } from "../../ui/console";
@@ -15,14 +14,11 @@ import { SkillTreeTooltip } from "./skill-tree-tooltip";
  * room to breathe (a 1/3-width sidebar is too cramped for a PoE-style tree).
  * Close with the corner ✕ or the Esc key.
  */
-export const SkillTreeOverlay = ({ onClose, focus }: { onClose: () => void; focus?: "machine" }) => {
+export const SkillTreeOverlay = ({ onClose }: { onClose: () => void }) => {
   const equity = usePrestigeStore((s) => s.equity);
   const exits = usePrestigeStore((s) => s.exits);
   const respecPoints = usePrestigeStore((s) => s.respecPoints);
   const allocated = usePrestigeStore((s) => s.allocated.length);
-  // THE MACHINE's currency, once there is a Machine to spend it in. @see game/machine
-  const weights = useGenerationStore((s) => s.weights);
-  const ascended = useGenerationStore((s) => s.generation > 1);
   const respecMode = useSkillTreeUiStore((s) => s.respecMode);
   const search = useSkillTreeUiStore((s) => s.search);
 
@@ -69,11 +65,6 @@ export const SkillTreeOverlay = ({ onClose, focus }: { onClose: () => void; focu
           <span><Label>Exits</Label> <Num>{exits}</Num></span>
           <span><Label>Allocated</Label> <Num>{allocated}</Num></span>
           <span><Label>Respecs</Label> <Num className="text-bad">{respecPoints}</Num></span>
-          {ascended && (
-            <span title="Spent in the Machine, the AI's cluster below the tree">
-              <Label>Weights</Label> <Num role="weights" className="font-display text-base">{weights}</Num>
-            </span>
-          )}
         </div>
 
         <div className="relative">
@@ -109,7 +100,7 @@ export const SkillTreeOverlay = ({ onClose, focus }: { onClose: () => void; focu
       </div>
 
       <div className="relative min-h-0 flex-1">
-        <SkillTreeCanvas focus={focus} />
+        <SkillTreeCanvas />
         <SkillTreeTooltip />
         <SkillTreeBonuses />
         {respecMode && (

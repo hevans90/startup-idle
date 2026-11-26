@@ -20,7 +20,7 @@ export type Module = {
 };
 
 export const MODULES: readonly Module[] = [
-  { id: "quiet-model", name: "Quiet Model", levels: ["The AI rises 15% slower", "30% slower", "45% slower"], costs: [3, 8, 18] },
+  { id: "quiet-model", name: "Quiet Model", levels: ["The AI meter rises 15% slower", "30% slower", "45% slower"], costs: [3, 8, 18] },
   { id: "rack-density", name: "Rack Density", levels: ["+1 agent a rack", "+2 agents a rack", "+3 agents a rack"], costs: [5, 12, 26] },
   { id: "blueprint-cache", name: "Blueprint Cache", levels: ["The Data Centre needs 20% less headcount", "40% less", "60% less"], costs: [4, 10, 22] },
   { id: "pre-trained", name: "Pre-trained", levels: ["Training runs take 25% less time", "50% less", "75% less"], costs: [3, 8, 18] },

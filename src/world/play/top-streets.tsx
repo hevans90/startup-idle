@@ -21,7 +21,7 @@ export function TopStreets({ className }: { className?: string }) {
   const live = liveStreets();
   return (
     <div className={twMerge(
-      "w-64 border border-line-quiet bg-surface-1/95 p-2.5 text-xs text-fg shadow-lg",
+      "w-64 border border-line-quiet bg-surface-1/95 p-2.5 text-xs text-fg",
       className,
     )}>
       <p className="mb-1 flex items-center gap-2 font-display text-xs uppercase tracking-widest">

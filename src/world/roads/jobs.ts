@@ -16,6 +16,7 @@
  *
  * Pure: what it would write is handed to its caller. @see world.store
  */
+import { DRONE_ROAD_PACE } from "../drones/build-drones";
 import { clearCell } from "../vegetation/tend";import { idx, inBounds, type Grid } from "../grid";
 import { gradeRoad, type Grade, type GradeCell } from "./grade";
 import { derivedRamp } from "./ramp-derive";
@@ -79,6 +80,8 @@ export type RoadJob = {
   at: number;
   /** Whether its standing has been said: once a stall, not every frame of it. */
   told?: boolean;
+  /** AI mode's drone: the road waits for it, then goes in at `DRONE_ROAD_PACE`, every crew there at once. @see build-drones */
+  drone?: import("../drones/build-drones").BuildDrone;
 };
 
 /**
@@ -351,6 +354,11 @@ export function stepRoadJobs(g: Grid, dt: number, crews?: { on: (j: RoadJob, cre
   const writes = noWrites();
   let changed = false;
   for (const j of crews ? g.roadJobs : g.roadJobs.slice(0, GANGS)) {
+    // UNDER A DRONE: nothing till it lands, then every trade at once and quick. @see build-drones
+    if (j.drone && j.drone.t < j.drone.fly) continue;
+    const dt0 = dt;
+    dt = j.drone ? dt0 * DRONE_ROAD_PACE : dt0;
+    try {
     const on = (c: RoadCrew) => !crews || crews.on(j, c);
     const before = [0, 1, 2, 3].map((s) => frontOf(j, s));
     // LOADS ACROSS COUNTRY, arriving.
@@ -410,6 +418,7 @@ export function stepRoadJobs(g: Grid, dt: number, crews?: { on: (j: RoadJob, cre
       j.opened = to;
       changed = true;
     }
+    } finally { dt = dt0; }
   }
   // (Done, and off the list — once its crews have gone from it, where it has any.)
   const done = g.roadJobs.filter((j) => j.opened >= j.cells.length && (crews?.over(j) ?? true));

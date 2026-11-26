@@ -58,15 +58,15 @@ const GROUND: Record<string, [string, string]> = {
 };
 const GROUND_NAME: Record<string, string> = { wood1: "Light wood", wood2: "Wood", wood3: "Deep wood" };
 
-const GLASS = "border border-line bg-surface-0/85 shadow-2xl backdrop-blur-xl";
-const TRAY = twMerge("dock-tray-in pointer-events-auto flex max-w-full rounded-2xl p-2.5", GLASS, "shadow-[0_-1px_0_0_var(--tone)_inset,0_20px_40px_-12px_rgb(0_0_0/0.5)]");
+const GLASS = "border border-line bg-surface-0/85 backdrop-blur-xl";
+const TRAY = twMerge("dock-tray-in pointer-events-auto flex max-w-full rounded-2xl p-2.5", GLASS);
 const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-tone";
 const toned = (tone: string) => ({ "--tone": tone }) as CSSProperties;
 
 /** A bubble over what is hovered: what it is, its key, and what it does. */
 function Tip({ name, hint, k }: { name: string; hint?: string; k?: string }) {
   return (
-    <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-max max-w-52 -translate-x-1/2 translate-y-1 rounded-lg border border-line bg-surface-1 px-2.5 py-1.5 text-left text-[11px] leading-snug text-fg opacity-0 shadow-xl transition-all delay-0 duration-100 group-hover/tip:translate-y-0 group-hover/tip:opacity-100 group-hover/tip:delay-300 group-focus-visible/tip:opacity-100">
+    <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-max max-w-52 -translate-x-1/2 translate-y-1 rounded-lg border border-line bg-surface-1 px-2.5 py-1.5 text-left text-[11px] leading-snug text-fg opacity-0 transition-all delay-0 duration-100 group-hover/tip:translate-y-0 group-hover/tip:opacity-100 group-hover/tip:delay-300 group-focus-visible/tip:opacity-100">
       <span className="flex items-center gap-2 font-semibold">{name}{k && <Key k={k} />}</span>
       {hint && <span className="mt-0.5 block text-fg-muted">{hint}</span>}
     </span>
@@ -90,7 +90,7 @@ function ToolTile({ id }: { id: ToolId }) {
   return (
     <button type="button" aria-pressed={on} aria-label={t.name} onClick={() => pickTool(id)}
       className={twMerge("group/tip relative flex h-14 w-15 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border text-[11px] transition-all duration-150 active:scale-95", FOCUS,
-        on ? "border-tone bg-tone-fill text-fg shadow-[0_0_18px_-4px_var(--tone)]" : "border-transparent text-fg-muted hover:bg-surface-2 hover:text-fg")}>
+        on ? "border-tone bg-tone-fill text-fg" : "border-transparent text-fg-muted hover:bg-surface-2 hover:text-fg")}>
       <Icon size={20} stroke={1.7} className={on ? "text-tone" : undefined} />
       {t.name}
       {t.key && <span className="absolute top-0.5 right-1 font-mono text-[9px] text-fg-faint">{t.key.toUpperCase()}</span>}
@@ -123,7 +123,7 @@ function BrushPart() {
           {[0, 1, 2, 3, 4].map((r) => (
             <button key={r} type="button" aria-label={`${r * 2 + 1}×${r * 2 + 1}`} aria-pressed={radius === r} onClick={() => setRadius(r)}
               className={twMerge("group/tip relative grid h-6 w-[21.6px] cursor-pointer place-items-center rounded-lg hover:bg-surface-3", FOCUS)}>
-              <span className={twMerge("rotate-45 rounded-[2px] transition-colors", radius === r ? "bg-tone shadow-[0_0_8px_var(--tone)]" : "bg-fg-faint")} style={{ width: 4 + r * 2.4, height: 4 + r * 2.4 }} />
+              <span className={twMerge("rotate-45 rounded-[2px] transition-colors", radius === r ? "bg-tone" : "bg-fg-faint")} style={{ width: 4 + r * 2.4, height: 4 + r * 2.4 }} />
               <Tip name={`${r * 2 + 1}×${r * 2 + 1}`} k="[ ]" />
             </button>
           ))}
@@ -137,7 +137,7 @@ function BrushPart() {
 function Swatch({ on, onClick, name, colours }: { on: boolean; onClick: () => void; name: string; colours: [string, string] }) {
   return (
     <button type="button" aria-pressed={on} aria-label={name} onClick={onClick} className={twMerge("group/tip relative flex w-17 cursor-pointer flex-col items-center gap-1 rounded-xl text-[10px]", FOCUS, on ? "text-fg" : "text-fg-muted hover:text-fg")}>
-      <span className={twMerge("relative h-9 w-full overflow-hidden rounded-xl border-2 transition-all", on ? "border-tone shadow-[0_0_14px_-3px_var(--tone)]" : "border-transparent group-hover/tip:border-line-strong")}
+      <span className={twMerge("relative h-9 w-full overflow-hidden rounded-xl border-2 transition-all", on ? "border-tone" : "border-transparent group-hover/tip:border-line-strong")}
         style={{ background: `radial-gradient(circle at 25% 30%, ${colours[1]} 0 14%, transparent 15%), radial-gradient(circle at 70% 65%, ${colours[1]} 0 18%, transparent 19%), radial-gradient(circle at 85% 20%, ${colours[1]} 0 9%, transparent 10%), linear-gradient(160deg, ${colours[0]}, ${colours[1]})` }} />
       <span className="max-w-full truncate">{name}</span>
     </button>
@@ -209,7 +209,7 @@ function PlantPart() {
         return (
           <button key={p} type="button" aria-pressed={on} onClick={() => setPlanting(p)}
             className={twMerge("flex h-14 w-18 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border text-[11px] transition-all active:scale-95", FOCUS,
-              on ? "border-tone bg-tone-fill text-fg shadow-[0_0_18px_-4px_var(--tone)]" : "border-transparent text-fg-muted hover:bg-surface-2 hover:text-fg")}>
+              on ? "border-tone bg-tone-fill text-fg" : "border-transparent text-fg-muted hover:bg-surface-2 hover:text-fg")}>
             <Icon size={21} stroke={1.6} className={on ? "text-tone" : undefined} />{name}
           </button>
         );
@@ -253,7 +253,7 @@ function Block({ def }: { def: StructureDef }) {
 }
 function Picture({ def }: { def: StructureDef }) {
   const url = useLandmarkPicture(def.id);
-  return url ? <img src={url} alt="" draggable={false} className="h-10 w-full object-contain drop-shadow-md" /> : <IconBuildingMonument size={26} stroke={1.2} className="h-10 text-fg-faint" />;
+  return url ? <img src={url} alt="" draggable={false} className="h-10 w-full object-contain" /> : <IconBuildingMonument size={26} stroke={1.2} className="h-10 text-fg-faint" />;
 }
 
 /** The head of a picker: what to find, and its tabs. */
@@ -279,7 +279,7 @@ const PickerRow = ({ children }: { children: ReactNode }) => (
   <div className="dock-scroll flex gap-1 overflow-x-auto overflow-y-hidden pb-1" onWheel={(e) => { if (!e.deltaX) e.currentTarget.scrollLeft += e.deltaY; }}>{children}</div>
 );
 const CARD = "relative flex h-[68px] w-21 shrink-0 cursor-pointer flex-col items-center justify-end gap-0.5 rounded-xl border px-1 pb-1 text-[10px] transition-all active:scale-95";
-const CARD_ON = "border-tone bg-tone-fill text-fg shadow-[0_0_18px_-4px_var(--tone)]", CARD_OFF = "border-line-quiet bg-surface-1 text-fg-muted hover:border-line-strong hover:text-fg";
+const CARD_ON = "border-tone bg-tone-fill text-fg", CARD_OFF = "border-line-quiet bg-surface-1 text-fg-muted hover:border-line-strong hover:text-fg";
 
 function BuildPart() {
   const { chosen, setChosen, tool } = useWorldStore(useShallow((s) => ({ chosen: s.structureDefId, setChosen: s.setStructureDef, tool: s.tool })));
@@ -429,9 +429,9 @@ export function ToolDock({ panel, setPanel }: { panel: PanelId | null; setPanel:
               onClick={() => { if (fixtures) { setFixtures(false); setShut(false); if (!on) pickGroup(x.id); } else if (on) setShut(!shut); else pickGroup(x.id); }}
               className={twMerge("group/tip relative flex h-12 w-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] transition-all duration-150 active:scale-95 max-md:w-11", FOCUS,
                 on ? "-translate-y-0.5 bg-tone-fill text-fg" : "text-fg-muted hover:-translate-y-0.5 hover:bg-surface-2 hover:text-fg")}>
-              <Icon size={21} stroke={1.7} className={on ? "text-tone drop-shadow-[0_0_6px_var(--tone)]" : "transition-colors group-hover/tip:text-tone"} />
+              <Icon size={21} stroke={1.7} className={on ? "text-tone" : "transition-colors group-hover/tip:text-tone"} />
               <span className="max-md:hidden">{x.name}</span>
-              <span className={twMerge("absolute -bottom-px h-0.5 rounded-full bg-tone transition-all duration-200", on ? "w-8 shadow-[0_0_8px_var(--tone)]" : "w-0")} />
+              <span className={twMerge("absolute -bottom-px h-0.5 rounded-full bg-tone transition-all duration-200", on ? "w-8" : "w-0")} />
               {(shut || fixtures || x.id === "look" || !on) && <Tip name={x.name} k={`⇧${x.key}`} />}
             </button>
           );

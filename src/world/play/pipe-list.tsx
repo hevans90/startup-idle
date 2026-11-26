@@ -52,7 +52,7 @@ export function PipeList({ className }: { className?: string }) {
   const rows = pipeRows(g).filter((r) => (r.kind === "main") === (side === "water"));
   const pick = (to: "water" | "sewers") => { setWater(to === "water"); setSewers(to === "sewers"); };
   return (
-    <div className={twMerge("w-72 border border-line-quiet bg-surface-1/95 p-2.5 text-xs text-fg shadow-lg", className)}>
+    <div className={twMerge("w-72 border border-line-quiet bg-surface-1/95 p-2.5 text-xs text-fg", className)}>
       <div className="mb-1 flex items-center justify-between gap-2">
         <p className="flex items-center gap-2 font-display text-xs uppercase tracking-widest"><span aria-hidden className="h-3 w-0.5 bg-good dark:bg-good" />Pipes</p>
         <div className="flex border border-line-quiet" role="group" aria-label="Which pipes">

@@ -35,7 +35,7 @@ export class ErrorScreen extends Component<{ children: ReactNode }, State> {
     return (
       <div role="alert" className="flex h-full w-full items-center justify-center bg-surface-0 p-4 text-fg">
         <Glitch arrive strength={1} every={3} className="w-full max-w-lg">
-        <div className="flex w-full flex-col border border-line-strong border-t-2 border-t-bad bg-surface-1 shadow-2xl">
+        <div className="flex w-full flex-col border border-line-strong border-t-2 border-t-bad bg-surface-1">
           <header className="border-b border-line-quiet px-5 pb-3 pt-4">
             <p className="text-[10px] uppercase tracking-widest text-bad">The console fell over</p>
             <h1 className="font-display text-xl tracking-wide">Something broke</h1>

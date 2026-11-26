@@ -18,6 +18,7 @@ import {
 import { setTownReader } from "../game/culture-now";
 import { setHaulageReader } from "../game/site-trucks";
 import { isMachine } from "../game/machine";
+import { DEV_EQUITY } from "./dev-bank";
 import {
   coerceDecimal,
   decimalReplacer,
@@ -86,7 +87,7 @@ type PrestigeState = {
 export const usePrestigeStore = create<PrestigeState>()(
   persist(
     (set, get) => ({
-      equity: new Decimal(0),
+      equity: new Decimal(DEV_EQUITY),
       exits: 0,
       everEarnedEquity: false,
       respecPoints: 0,
@@ -225,7 +226,7 @@ export const usePrestigeStore = create<PrestigeState>()(
 
       reset: () => {
         set({
-          equity: new Decimal(0),
+          equity: new Decimal(DEV_EQUITY),
           exits: 0,
           respecPoints: 0,
           allocated: [],
@@ -243,7 +244,7 @@ export const usePrestigeStore = create<PrestigeState>()(
       }),
       partialize: (s) => ({
         treeVersion: TREE_VERSION,
-        equity: s.equity,
+        equity: Decimal.max(0, s.equity.sub(DEV_EQUITY)),
         exits: s.exits,
         respecPoints: s.respecPoints,
         allocated: s.allocated,
@@ -258,12 +259,12 @@ export const usePrestigeStore = create<PrestigeState>()(
         const refund = reshaped ? had.reduce((n, _, k) => n + nodeCost(k), 0) : 0;
         // Drop any allocated ids that no longer exist in the tree.
         const allocated = reshaped ? [] : had.filter((id) => NODES.has(id));
-        const equity = coerceDecimal(p.equity, current.equity).add(refund);
+        const equity = (p.equity === undefined ? current.equity.sub(DEV_EQUITY) : coerceDecimal(p.equity, current.equity)).add(refund);
         const { treeVersion: _, ...rest } = p;
         return {
           ...current,
           ...rest,
-          equity,
+          equity: equity.add(DEV_EQUITY),
           // A save from before the flag: anything Equity bought, or is, says it was earned.
           everEarnedEquity: p.everEarnedEquity ?? (equity.gt(0) || (p.exits ?? 0) > 0 || allocated.length > 0 || (p.respecPoints ?? 0) > 0),
           allocated,

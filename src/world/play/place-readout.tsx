@@ -75,7 +75,7 @@ export function PlaceReadout({ className }: { className?: string }) {
   return (
     <div ref={ref} className={twMerge(
       "pointer-events-none invisible absolute left-0 top-0 -translate-x-1/2 translate-y-4 whitespace-nowrap",
-      "border border-line-strong bg-surface-3 px-1.5 py-0.5 text-[10px] leading-[13px] tabular-nums shadow-md",
+      "border border-line-strong bg-surface-3 px-1.5 py-0.5 text-[10px] leading-[13px] tabular-nums",
       !line && "hidden",
       className,
     )}>

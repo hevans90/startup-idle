@@ -14,7 +14,6 @@
  */
 
 import { combineEffects, effectLines, type CardEffects } from "./culture";
-import { machineGraph } from "./machine";
 import { describe, helps, part, STATS, type Stat } from "./wording";
 
 export type SkillNodeKind = "root" | "travel" | "minor" | "notable" | "keystone";
@@ -29,7 +28,7 @@ export type SkillNode = {
   cluster: string;
   /** Optional background icon (texture URL/key) — icon pack lands later. */
   icon?: string;
-  /** Its effect line: made from its grants, or the Machine's own. Searched by the tree's finder. */
+  /** Its effect line, made from its grants. Searched by the tree's finder. */
   effect?: string;
   /** Structured, aggregatable bonuses this node grants. Resolved into economy
    * modifiers by {@link resolvePrestigeModifiers} and applied at the founder-style
@@ -677,22 +676,7 @@ export function buildTree(seed: number): SkillTree {
 }
 
 
-/**
- * THE MACHINE joined on: its own constellation below the rest, with its own
- * root, laid out apart so the business tree's layout — and so the ids a save
- * has allocated — are untouched. Bought with Weights, never Equity: nothing
- * links it to the hub. @see game/machine
- */
-function withMachine(tree: SkillTree): SkillTree {
-  const m = machineGraph();
-  return {
-    nodes: [...tree.nodes, ...m.nodes.map(({ id, x, y, title, kind, cluster, effect }) => ({ id, x, y, title, kind, cluster, effect }))],
-    edges: [...tree.edges, ...m.edges],
-    roots: tree.roots,
-  };
-}
-
-export const SKILL_TREE: SkillTree = withMachine(buildTree(LAYOUT_SEED));
+export const SKILL_TREE: SkillTree = buildTree(LAYOUT_SEED);
 
 /**
  * THE TREE'S SHAPE, numbered: a save allocated on another is refunded in full

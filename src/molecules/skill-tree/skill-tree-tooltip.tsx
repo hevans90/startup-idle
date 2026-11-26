@@ -15,10 +15,7 @@ import {
   townRows,
 } from "../../game/skill-tree";
 import { usePrestigeStore } from "../../state/prestige.store";
-import { useGenerationStore } from "../../state/generation.store";
-import { isMachine, machineBlocked, machineCost, machineNode } from "../../game/machine";
 import { useSkillTreeUiStore } from "../../state/skill-tree-ui.store";
-import { useGlitch } from "../../ui/console";
 import { percent, times } from "../../game/wording";
 
 const NODES = nodeById(SKILL_TREE);
@@ -42,9 +39,6 @@ export const SkillTreeTooltip = () => {
   const allocated = usePrestigeStore((s) => s.allocated);
   const equity = usePrestigeStore((s) => s.equity);
   const respecPoints = usePrestigeStore((s) => s.respecPoints);
-  // Read so the Machine's lines follow what is bought and the Weights. @see MachineTip
-  useGenerationStore((s) => s.machine);
-  useGenerationStore((s) => s.weights);
   const ref = useRef<HTMLDivElement>(null);
 
   // Keep the card inside the canvas bounds (it's positioned absolutely within
@@ -77,8 +71,6 @@ export const SkillTreeTooltip = () => {
   const node = NODES.get(hovered.id);
   if (!node) return null;
 
-  // THE MACHINE: bought with Weights, its own lines. @see game/machine
-  if (isMachine(node.id)) return <MachineTip refEl={ref} id={node.id} hovered={hovered} />;
 
   const effectRows = nodeEffectRows(node);
   const isAllocated = allocated.includes(node.id);
@@ -130,7 +122,7 @@ export const SkillTreeTooltip = () => {
         transform: "translate(-50%, -100%)",
       }}
     >
-      <div className="border border-line-strong border-t-2 border-t-console bg-surface-3 text-xs text-fg shadow-xl">
+      <div className="border border-line-strong border-t-2 border-t-console bg-surface-3 text-xs text-fg">
         <div className="flex items-baseline justify-between gap-2 border-b border-line-quiet px-3 py-2">
           <span className="font-display text-[11px] uppercase tracking-widest">{node.title}</span>
           <span className="text-[10px] uppercase tracking-widest text-fg-faint">
@@ -192,7 +184,7 @@ export const SkillTreeTooltip = () => {
         </div>
 
         {(routeTotals.length > 0 || routeStructural.length > 0) && (
-          <div className="mt-2 border-t border-line/40 pt-1.5">
+          <div className="border-t border-line-quiet px-3 pb-2.5 pt-2">
             <p className="mb-1 text-[10px] uppercase tracking-widest text-innovation">
               Route gains
             </p>
@@ -231,35 +223,3 @@ export const SkillTreeTooltip = () => {
     </div>
   );
 };
-
-/** A node of the Machine under the cursor: what it does, and what it costs in Weights — or why it cannot be bought yet. */
-function MachineTip({ refEl, id, hovered }: { refEl: React.RefObject<HTMLDivElement | null>; id: string; hovered: { x: number; y: number; r: number } }) {
-  const n = machineNode(id)!;
-  const cost = machineCost(id);
-  const blocked = machineBlocked(id);
-  const status = blocked === "owned" ? { text: "✓ Bought", cls: "text-good" }
-    : blocked === "fog" ? { text: n.kind === "root" ? "Ascend to receive" : "Ascend to reveal", cls: "text-ai" }
-    : blocked === "exclusive" ? { text: "Another keystone is bought: they exclude each other", cls: "text-bad" }
-    : blocked === "unreached" ? { text: `Buy the node before it first · ${cost} Weights`, cls: "text-warn" }
-    : blocked === "weights" ? { text: `Cost: ${cost} Weights (can't afford)`, cls: "text-bad" }
-    : { text: `Cost: ${cost} Weights`, cls: "text-fg" };
-  const fog = blocked === "fog" && n.kind !== "root";
-  // THE KEYSTONES THAT LET IT LOOSE OR SHUT IT OUT, once bought: torn. @see useGlitch
-  const box = useRef<HTMLDivElement>(null);
-  useGlitch(box, { active: (id === "takeoff" || id === "airgap") && blocked === "owned", strength: 0.9, every: 1.6 });
-  return (
-    <div ref={refEl} className="pointer-events-none absolute z-10 w-60"
-      style={{ left: hovered.x, top: hovered.y - hovered.r - 12, transform: "translate(-50%, -100%)" }}>
-      <div ref={box} className="border border-line-strong border-t-2 border-t-ai bg-surface-3 text-xs text-fg shadow-xl">
-        <div className="flex items-baseline justify-between gap-2 border-b border-line-quiet px-3 py-2">
-          <span className="font-display text-[11px] uppercase tracking-widest">{fog ? "Unrevealed" : n.title}</span>
-          <span className="text-[10px] uppercase tracking-widest text-ai">The Machine</span>
-        </div>
-        {!fog && <p className="px-3 pt-2 text-good">{n.effect}</p>}
-        {!fog && n.detail && <p className="px-3 pt-1 text-[11px] leading-snug text-fg-muted">{n.detail}</p>}
-        {!fog && <div className="pb-2" />}
-        <div className={`border-t border-line-quiet bg-surface-2/50 px-3 py-2 text-[11px] tabular-nums ${status.cls}`}>{status.text}</div>
-      </div>
-    </div>
-  );
-}

@@ -10,7 +10,7 @@ import { mainWet, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { suggestionsKept, type Suggestion, type SuggestionWhy } from "../pipes/suggest";
 
-const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs shadow-lg";
+const CARD = "border border-line-quiet bg-surface-1/95 px-2.5 py-1.5 text-xs";
 const WHY: Record<SuggestionWhy, string> = { cheapest: "Cheapest", most: "Carries most", "no-pump": "No pump", shortest: "Shortest", only: "Only way" };
 const TIP: Record<SuggestionWhy, string> = {
   cheapest: "The least to lay", most: "The most a second", "no-pump": "Nothing to pay for running it", shortest: "The fewest tiles", only: "No other route from here",

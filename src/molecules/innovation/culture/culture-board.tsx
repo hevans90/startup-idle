@@ -291,7 +291,7 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
               {held && <span className="text-xs text-console">Pick a slot for it</span>}
             </div>
             {/* The tray they sit in. */}
-            <div className="flex flex-wrap justify-center gap-3 border border-line-quiet bg-surface-1/50 p-2 shadow-[inset_0_2px_12px_rgb(0_0_0/0.25)] sm:justify-start sm:gap-4 sm:p-4">
+            <div className="flex flex-wrap justify-center gap-3 border border-line-quiet bg-surface-1/50 p-2 sm:justify-start sm:gap-4 sm:p-4">
               {Array.from({ length: d.slots }, (_, at) => {
                 const id = d.slotted[at];
                 const lit = over === at || (held !== null && held !== id);
@@ -300,14 +300,14 @@ export function CultureBoard({ offerFirst, onClose }: { offerFirst: boolean; onC
                     onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setOver(at); }}
                     onDragLeave={() => setOver((o) => (o === at ? null : o))}
                     onDrop={(e) => { e.preventDefault(); placeAt(dragged(e), at); }}>
-                    <div className={twMerge("transition-[filter] duration-150", lit && "drop-shadow-[0_0_10px_var(--ui-console)]")}>
+                    <div className={"transition-[filter] duration-150"}>
                       {id
                         ? <Held key={id} id={id} rank={rankNow(d, id)} shine={shone === id} held={held === id} onTap={() => tapSlot(at, id)} onDrag={setHeld} />
                         : (
                           <button type="button" onClick={() => tapSlot(at)} aria-label={`Slot ${at + 1}, empty`}
                             className={twMerge("relative block h-[18rem] w-[9.5rem] cursor-pointer", FOCUS)}>
                             <span className={twMerge("absolute inset-0", lit ? "bg-console" : "bg-line")} style={{ clipPath: CARD_CLIP }} />
-                            <span className="absolute inset-px bg-surface-0 shadow-[inset_0_4px_16px_rgb(0_0_0/0.45)]" style={{ clipPath: CARD_CLIP }} />
+                            <span className="absolute inset-px bg-surface-0" style={{ clipPath: CARD_CLIP }} />
                             {/* A card's outline, waiting. */}
                             <span className={twMerge("absolute inset-3 flex flex-col items-center justify-center gap-1 border border-dashed text-center", lit ? "border-console text-console" : "border-line-quiet text-fg-muted")}>
                               <span className="text-[10px] uppercase tracking-widest">{lit ? "Place here" : "Empty slot"}</span>

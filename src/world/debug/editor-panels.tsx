@@ -54,7 +54,7 @@ export function EditorPanels({ open, close }: { open: PanelId | null; close: () 
   if (open && !seen.has(open)) setSeen(new Set([...seen, open]));
   if (!seen.size) return null;
   return (
-    <aside className={`${open ? "dock-panel-in" : "hidden"} absolute top-3 right-3 z-20 flex max-h-[calc(100%-13rem)] w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-line bg-surface-0/90 text-xs text-fg shadow-2xl backdrop-blur-xl`}>
+    <aside className={`${open ? "dock-panel-in" : "hidden"} absolute top-3 right-3 z-20 flex max-h-[calc(100%-13rem)] w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-line bg-surface-0/90 text-xs text-fg backdrop-blur-xl`}>
       <header className="flex shrink-0 items-center justify-between border-b border-line-quiet px-4 py-2.5">
         <h2 className="font-display text-sm tracking-widest uppercase">{open ?? ""}</h2>
         <button type="button" aria-label="close" onClick={close} className="cursor-pointer rounded-lg p-1 text-fg-muted hover:bg-surface-2 hover:text-fg"><IconX size={16} /></button>

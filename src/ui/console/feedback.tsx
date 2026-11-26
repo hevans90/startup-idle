@@ -130,7 +130,7 @@ export function Tooltip({ content, children }: { content: ReactNode; children: R
       {open && (
         <FloatingPortal>
           <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()}
-            className="z-[60] max-w-xs border border-line-strong border-t-2 border-t-console bg-surface-3 px-2.5 py-1.5 text-xs leading-snug text-fg shadow-lg">
+            className="z-[60] max-w-xs border border-line-strong border-t-2 border-t-console bg-surface-3 px-2.5 py-1.5 text-xs leading-snug text-fg">
             {content}
           </div>
         </FloatingPortal>

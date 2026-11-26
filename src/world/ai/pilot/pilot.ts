@@ -18,6 +18,7 @@
  * It holds no stores and draws nothing: a grid's revision and a purse in, a
  * status out. @see choose, Job, plans/ai-mode-rebuild.md §4
  */
+import { asPilot } from "../../drones/build-drones";
 import { choose, newMemory, type Decision, type Memory, type Purse } from "./chooser";
 import { clock, shortOf, type DeskId, type Job, type Queued } from "./job";
 
@@ -146,7 +147,8 @@ export function createPilot(desks: readonly Desk[], options: PilotOptions = {}):
     // AT ITS PACE, but for what cannot wait.
     if (!d.job.urgent && sinceJob < pace) return saysOf(d);
     const job = d.job;
-    let out = job.run();
+    // As AI mode: what it orders goes by drone, once the port stands. @see build-drones
+    let out = asPilot(() => job.run());
     // DONE IS READ OFF THE WORLD.
     if (out.ok && job.done && !job.done()) out = { ok: false, because: "it changed nothing", retry: "on-change" };
     if (!out.ok) {

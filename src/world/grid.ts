@@ -95,6 +95,8 @@ export type Build = {
   updatedAt: number;
   /** Its ground's machines, from the yard and home again; false, with none to come by road. @see fleet/plant, projects/works */
   plant?: false | import("./fleet/plant").Plant;
+  /** AI mode's drone, flying out to it or landed: no crew, no lorries, and quick. @see build-drones */
+  drone?: import("./drones/build-drones").BuildDrone;
 };
 export type Grid = {
   readonly w: number;

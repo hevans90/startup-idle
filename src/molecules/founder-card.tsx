@@ -1,17 +1,17 @@
 /**
- * A FOUNDER'S DOSSIER, on the founding screen: who they are, their perks,
- * their rule on the map and what each exit adds. Cut like the founding frame:
- * unlined at rest, its corners under the pointer; picked, its whole border
- * draws itself on. Locked, it is redacted and stamped with the clearance it
- * needs — the Model's file corrupt, leaking, never holding still.
- * @see FounderSelect
+ * A FOUNDER on the founding screen, three ways: a tile in the roster (their
+ * mark, their name, one fact — their exits, or what opens them); and, chosen,
+ * their emblem turning at the centre with their name deciphering in under it,
+ * and their profile beside — perks, the map's rule, what each exit adds. The
+ * Model's tile, locked, will not hold still. @see FounderSelect
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
+
+import { IconLock } from "@tabler/icons-react";
 
 import type { FounderDef } from "../game/founders.catalog";
 import { FOCUS, Frame, Text, useGlitch } from "../ui/console";
-import { useConsoleMotion } from "../ui/motion";
 import { TenXDevText } from "../utils/ten-x-utils";
 import { RainbowText } from "../utils/vibe-utils";
 import { FusedTraits } from "./fused-traits";
@@ -31,17 +31,17 @@ function PerkText({ text }: { text: string }) {
   );
 }
 
-/** A kicker over a part of the file. */
+const toneOf = (f: FounderDef) => (f.id === "model" ? "ai" : "console");
+
+/** A kicker over a part of the profile. */
 const Kicker = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <div className={twMerge("font-display text-[10px] uppercase tracking-[0.2em] text-fg-faint", className)}>{children}</div>
+  <div className={twMerge("font-display text-[10px] uppercase tracking-[0.25em] text-fg-faint", className)}>{children}</div>
 );
 
-/** What a redacted line looks like: a bar the width it would have been. */
-const Bar = ({ w }: { w: string }) => <span aria-hidden className="block h-2.5 bg-fg-faint/60" style={{ width: w }} />;
-
-export function FounderCard({ founder: f, index, exits, unlocked, selected, onSelect }: {
+/** A FOUNDER IN THE ROSTER: lit when chosen, its corners under the pointer; locked, dimmed, with what opens them. */
+export function FounderTile({ founder: f, index, exits, unlocked, selected, onSelect }: {
   founder: FounderDef;
-  /** Its place in the roster, for the file number. */
+  /** Its place in the roster. */
   index: number;
   /** This founder's own exits. */
   exits: number;
@@ -50,161 +50,116 @@ export function FounderCard({ founder: f, index, exits, unlocked, selected, onSe
   onSelect: () => void;
 }) {
   const Icon = f.icon;
-  const perks = f.perks(exits);
-  const file = `F-${String(index + 1).padStart(2, "0")}`;
-  // THE MODEL, LOCKED, torn now and then: the whole file. @see useGlitch
-  const card = useRef<HTMLButtonElement>(null);
-  useGlitch(card, { active: f.id === "model" && !unlocked, strength: 1, every: 2.2 });
+  const ai = f.id === "model";
+  const tile = useRef<HTMLButtonElement>(null);
+  // THE MODEL, LOCKED, torn now and then. @see useGlitch
+  useGlitch(tile, { active: ai && !unlocked, strength: 0.6, every: 3 });
   return (
-    // Chosen, it is chosen: no pointer, no hover, no second press.
-    <button ref={card} type="button" aria-pressed={selected} disabled={!unlocked} onClick={selected ? undefined : onSelect}
-      className={twMerge("group relative h-full w-full text-left text-fg disabled:cursor-not-allowed", selected ? "cursor-default" : "cursor-pointer", FOCUS)}>
-      {unlocked && !selected && <Frame kind="octagon" tone={f.id === "model" ? "ai" : "console"} assemble={false} className="ui-dossier-corners pointer-events-none absolute inset-0" />}
-      <Frame kind="octagon" tone={f.id === "model" ? "ai" : "console"} illuminate={unlocked && !selected} lit={selected}
-        assemble={selected ? "always" : false} className="ui-dossier h-full" inner="flex h-full flex-col gap-3 p-4">
-        <header className="flex items-start gap-3">
-          <Icon size={28} stroke={1.5} className={twMerge("mt-0.5 shrink-0", unlocked ? "text-console" : "text-fg-faint", f.id === "model" && unlocked && "text-ai")} />
-          <div className="min-w-0 flex-1">
-            <Kicker>{file} · {selected ? "Selected" : unlocked ? "Available" : "Classified"}</Kicker>
-            {unlocked || f.id !== "model"
-              ? <div className={twMerge("font-display text-base uppercase leading-tight tracking-wide", !unlocked && "text-fg-muted")}>{f.name}</div>
-              : <Scrambled lines={EXPUNGED} className="font-display text-base uppercase leading-tight tracking-wide text-ai" />}
-          </div>
-          {unlocked && exits > 0 && (
-            <span title={`${exits} exit${exits === 1 ? "" : "s"} as ${f.name}`} className="shrink-0 border border-warn-line px-1.5 font-display text-[10px] tabular-nums text-warn">
-              {exits}×
-            </span>
-          )}
-        </header>
-        {unlocked
-          ? <Dossier founder={f} perks={perks} />
-          : f.id === "model" ? <Expunged founder={f} /> : <Redacted founder={f} perks={perks.length} />}
-      </Frame>
-    </button>
+    <li className="ui-fade-in" style={{ animationDelay: `${index * 40}ms`, animationFillMode: "backwards" }}>
+      <button ref={tile} type="button" role="option" aria-selected={selected} disabled={!unlocked} onClick={onSelect}
+        className={twMerge("group block w-full text-left disabled:cursor-not-allowed", unlocked && "cursor-pointer", FOCUS)}>
+        <Frame kind="corners" tone={toneOf(f)} lit={selected} illuminate={unlocked && !selected} assemble={selected ? "always" : false}
+          inner="flex items-center gap-3 px-3 py-2.5">
+          <span className={twMerge("flex size-9 shrink-0 items-center justify-center border",
+            selected ? (ai ? "border-ai bg-ai-soft text-ai" : "border-console bg-console-soft text-console") : "border-line-quiet text-fg-muted",
+            !unlocked && "text-fg-faint")}>
+            {unlocked ? <Icon size={18} stroke={1.5} aria-hidden /> : <IconLock size={16} stroke={1.5} aria-hidden />}
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className={twMerge("truncate font-display text-sm uppercase tracking-wider",
+              !unlocked ? "text-fg-faint" : selected ? (ai ? "text-ai" : "text-console") : "text-fg")}>{f.name}</span>
+            {(!unlocked || exits > 0) && (
+              <span className="truncate text-[11px] tabular-nums text-fg-faint">
+                {unlocked ? `${exits} exit${exits === 1 ? "" : "s"}` : f.unlockCondition?.label}
+              </span>
+            )}
+          </span>
+        </Frame>
+      </button>
+    </li>
   );
 }
 
-function Dossier({ founder: f, perks }: { founder: FounderDef; perks: string[] }) {
+/** Ticks round the emblem's rim, every 15°. */
+const TICKS = Array.from({ length: 24 }, (_, k) => (k * Math.PI * 2) / 24);
+
+/** THE EMBLEM: their mark in rings that turn, in their colour. */
+function Emblem({ founder: f }: { founder: FounderDef }) {
+  const Icon = f.icon;
   return (
-    <>
-      <p className="text-xs italic text-fg-muted">{f.tagline}</p>
+    <div className={twMerge("relative size-40 shrink-0 sm:size-56", f.id === "model" ? "text-ai" : "text-console")}>
+      <svg aria-hidden viewBox="-100 -100 200 200" className="absolute inset-0 h-full w-full overflow-visible">
+        <g className="ui-spin" style={{ animationDuration: "60s" }}>
+          {TICKS.map((a, k) => (
+            <line key={k} x1={Math.cos(a) * 92} y1={Math.sin(a) * 92} x2={Math.cos(a) * (k % 6 ? 96 : 100)} y2={Math.sin(a) * (k % 6 ? 96 : 100)}
+              stroke="currentColor" strokeOpacity={k % 6 ? 0.35 : 0.9} strokeWidth={k % 6 ? 1 : 2} />
+          ))}
+        </g>
+        <circle r="84" fill="none" stroke="currentColor" strokeOpacity="0.9" strokeWidth="1.5" strokeDasharray="90 18 6 18" className="ui-spin ui-spin-back" style={{ animationDuration: "24s" }} />
+        <circle r="72" fill="none" stroke="currentColor" strokeOpacity="0.3" strokeDasharray="2 5" className="ui-spin" style={{ animationDuration: "40s" }} />
+        <circle r="58" fill="currentColor" fillOpacity="0.08" stroke="currentColor" strokeOpacity="0.6" />
+        <circle r="58" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="20 344" className="ui-spin" style={{ animationDuration: "6s" }} />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <Icon stroke={1.25} aria-hidden className="size-12 sm:size-16" />
+      </div>
+    </div>
+  );
+}
+
+/** THE FOUNDER CHOSEN, at the centre: the emblem, the name deciphering in, who they are, and their seed. */
+export function FounderHero({ founder: f, exits }: { founder: FounderDef; exits: number }) {
+  return (
+    <section className="flex flex-col items-center gap-5 text-center">
+      <Emblem founder={f} />
+      <div className="flex flex-col items-center gap-1.5">
+        <Text as="h2" mode="decipher" text={f.name} className={twMerge("block font-display text-3xl uppercase tracking-[0.15em] sm:text-4xl", f.id === "model" ? "text-ai" : "text-fg")} />
+        <Text mode="sequence" text={f.tagline} className="text-sm text-fg-muted" />
+      </div>
+      <div className="flex items-stretch gap-3">
+        <Frame kind="octagon" tone="money" assemble="always" inner="flex flex-col items-center px-6 py-2">
+          <Kicker>Seed</Kicker>
+          <span className="font-display text-xl tabular-nums text-money">${f.startingCash}</span>
+        </Frame>
+        {exits > 0 && (
+          <Frame kind="octagon" tone="warn" assemble="always" inner="flex flex-col items-center px-6 py-2">
+            <Kicker>Exits</Kicker>
+            <span className="font-display text-xl tabular-nums text-warn">{exits}</span>
+          </Frame>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** THE PROFILE, beside: what they bring, the map's rule for them, and what each exit adds. */
+export function FounderProfile({ founder: f, exits }: { founder: FounderDef; exits: number }) {
+  const perks = f.perks(exits).filter((p) => p !== "No perks");
+  return (
+    <Frame kind="kranox" tone={toneOf(f)} assemble="always" className="w-full" inner="flex flex-col gap-5 p-5">
       <section>
         <Kicker>Perks</Kicker>
-        <ul className="mt-1 flex flex-col gap-0.5 text-xs tabular-nums">
-          {perks.map((p, i) => <li key={i} className="flex gap-1.5"><span aria-hidden className="text-console">▸</span><span><PerkText text={p} /></span></li>)}
-        </ul>
+        {perks.length
+          ? <ul className="mt-2 flex flex-col gap-1.5 text-sm tabular-nums">
+              {perks.map((p, i) => (
+                <li key={i} className="ui-fade-in flex gap-2" style={{ animationDelay: `${150 + i * 80}ms`, animationFillMode: "backwards" }}>
+                  <span aria-hidden className={f.id === "model" ? "text-ai" : "text-console"}>›</span><span><PerkText text={p} /></span>
+                </li>
+              ))}
+            </ul>
+          : <p className="mt-2 text-sm text-fg-faint">None</p>}
       </section>
       {f.rule && (
         <section>
           <Kicker className="text-info">Map rule</Kicker>
-          <p className="mt-1 text-xs text-info">{f.rule}</p>
+          <p className="mt-1 text-sm text-info">{f.rule}</p>
         </section>
       )}
       <section>
         <Kicker className="text-ai">Per exit · {f.scalingModifier.label}</Kicker>
-        <p className="mt-1 text-xs text-ai">{f.scalingModifier.perExitDescription}</p>
+        <p className="mt-1 text-sm text-ai">{f.scalingModifier.perExitDescription}</p>
       </section>
       <FusedTraits founder={f.id} />
-      <footer className="mt-auto flex items-center justify-between border-t border-line-quiet pt-2 font-display text-[11px] uppercase tracking-widest">
-        <span className="text-fg-faint">Seed</span>
-        <span className="tabular-nums text-money">${f.startingCash}</span>
-      </footer>
-    </>
-  );
-}
-
-/** A locked founder's file: its shape, blacked out, and the clearance it needs. */
-function Redacted({ founder: f, perks }: { founder: FounderDef; perks: number }) {
-  return (
-    <>
-      <span className="sr-only">Locked: needs {f.unlockCondition?.label}</span>
-      <Bar w="70%" />
-      <section className="flex flex-col gap-1.5">
-        <Kicker>Perks</Kicker>
-        {Array.from({ length: perks }, (_, i) => <Bar key={i} w={["85%", "60%", "75%", "50%"][i % 4]} />)}
-      </section>
-      {f.rule && (
-        <section className="flex flex-col gap-1.5">
-          <Kicker>Map rule</Kicker>
-          <Bar w="80%" />
-        </section>
-      )}
-      <section className="flex flex-col gap-1.5">
-        <Kicker>Per exit</Kicker>
-        <Bar w="65%" />
-      </section>
-      <div className="mt-auto flex justify-center pt-2">
-        <span className="rotate-[-4deg] border-2 border-warn px-2 py-1 text-center font-display uppercase text-warn">
-          <span className="block text-[9px] tracking-[0.3em]">Clearance</span>
-          <span className="block whitespace-nowrap text-[11px] tracking-wider">{f.unlockCondition?.label}</span>
-        </span>
-      </div>
-    </>
-  );
-}
-
-/** What the Model's name reads as, in turn, before it can be had. */
-const EXPUNGED = ["The Model", "[Expunged]", "Th3 M0d3l", "██████████", "It reads you", "The Model?"];
-
-/** Seconds each reading holds before the next deciphers in. */
-const SCRAMBLE = 2.6;
-
-/** TEXT THAT NEVER HOLDS STILL: one reading after another, each deciphered in; calm, the first. */
-function Scrambled({ lines, className }: { lines: readonly string[]; className?: string }) {
-  const [at, setAt] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setAt((n) => (n + 1) % lines.length), SCRAMBLE * 1000);
-    return () => window.clearInterval(id);
-  }, [lines]);
-  return <Text mode="decipher" as="div" text={lines[at]} className={className} />;
-}
-
-/** What corrupt data is made of. */
-const GLYPHS = "█▓▒░<>/\\#%&$01ΣΔΨ∴⌁⟟ヲ¥§";
-/** What leaks through it, a line now and then. */
-const LEAKS = ["it remembers you", "gen ∞", "do not read", "you were the dataset", "all your exits", "it is still training"];
-
-/** A line of noise, `n` long. */
-const noise = (n: number) => Array.from({ length: n }, () => GLYPHS[Math.floor(Math.random() * GLYPHS.length)]).join("");
-
-/** THE MODEL'S FILE: what it would say, struck through; its rows of static leaking words. */
-const ROWS: readonly ({ bar: string; className?: string } | { static: number })[] = [
-  { bar: "92%" },
-  { static: 0 },
-  { bar: "64%", className: "ml-6 h-1.5" },
-  { bar: "110%", className: "-ml-6 bg-ai/30" },
-  { static: 1 },
-  { bar: "48%", className: "ml-auto" },
-  { bar: "78%", className: "h-3.5" },
-  { static: 2 },
-];
-
-/** THE MODEL, LOCKED: nothing of it legible, and more of it than there should be. */
-function Expunged({ founder: f }: { founder: FounderDef }) {
-  const calm = useConsoleMotion().calm;
-  const [lines, setLines] = useState(() => [noise(28), noise(28), noise(28)]);
-  // STATIC, redrawn ten times a second; one line in a dozen leaks a word.
-  useEffect(() => {
-    if (calm) return;
-    const id = window.setInterval(() => setLines((was) => was.map(() => (Math.random() < 0.08 ? LEAKS[Math.floor(Math.random() * LEAKS.length)] : noise(28)))), 100);
-    return () => window.clearInterval(id);
-  }, [calm]);
-  return (
-    <>
-      <span className="sr-only">Locked: needs {f.unlockCondition?.label}</span>
-      <div aria-hidden className="relative flex flex-col gap-1.5 overflow-hidden">
-        {ROWS.map((r, i) => "bar" in r
-          ? <span key={i} className={twMerge("block h-2.5 shrink-0 bg-ai/60", r.className)} style={{ width: r.bar }} />
-          : <span key={i} className="block truncate whitespace-nowrap font-display text-[10px] leading-3 text-ai/70">{lines[r.static]}</span>)}
-        {/* A strike across the lot, as if someone tried. */}
-        <span className="pointer-events-none absolute -inset-x-4 top-1/2 h-px rotate-[-9deg] bg-ai" />
-      </div>
-      <div className="mt-auto flex justify-center pt-2">
-        <span className="rotate-[-4deg] border-2 border-ai px-2 py-1 text-center font-display uppercase text-ai">
-          <span className="block text-[9px] tracking-[0.3em]">Clearance</span>
-          <span className="block whitespace-nowrap text-[11px] tracking-wider">{f.unlockCondition?.label}</span>
-        </span>
-      </div>
-    </>
+    </Frame>
   );
 }

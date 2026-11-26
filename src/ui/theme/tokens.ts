@@ -49,9 +49,9 @@ const STEP: Record<Theme, { main: number; soft: number; line: number }> = {
 /** The greys' roles: surfaces 0 (the page) to 3 (an overlay), lines, and text (`fg`, so the class reads `text-fg`). */
 const NEUTRAL: Record<Theme, Record<string, string>> = {
   light: {
-    "surface-0": GREY(10), "surface-1": GREY(9), "surface-2": GREY(8), "surface-3": "#ffffff",
-    "line-quiet": GREY(8), "line": GREY(7), "line-strong": GREY(5),
-    "fg": GREY(1), "fg-muted": GREY(5), "fg-faint": GREY(6),
+    "surface-0": "#e9ebed", "surface-1": GREY(9), "surface-2": GREY(8), "surface-3": "#ffffff",
+    "line-quiet": GREY(7), "line": GREY(6), "line-strong": GREY(4),
+    "fg": GREY(0), "fg-muted": GREY(4), "fg-faint": GREY(5),
   },
   dark: {
     "surface-0": GREY(0), "surface-1": GREY(1), "surface-2": GREY(2), "surface-3": GREY(3),

@@ -11,6 +11,7 @@
  * (the scene has a device to solve it on), the boats, the events and what
  * they do to the map, repairs and cooling.
  */
+import { stepBuildDrones } from "./drones/build-drones";
 import { pumpUpkeep } from "../game/cooling";
 import { slopRate } from "../game/slop";
 import { section } from "../hitches";
@@ -193,6 +194,8 @@ export function stepSites(g: Grid, net: Network, seen: WorksSeen, dt: number, pl
     }
     return lorry ? "sent" : "busy";
   });
+  // AI MODE'S DRONES, flying out to what it ordered, and landing. @see build-drones
+  if (stepBuildDrones(g, dt, playing ? payForLoad : () => true)) works.rev++;
   // THE ROADS BEING BUILT, a frame further on — before the sites, which clear the town's arrivals. @see roads/jobs
   if (g.roadJobs.length) useWorldStore.getState().stepRoadWorks(dt, { net, town });
   // AND THE LINES BEING LAID: mains, sewers, channels. @see lines/jobs

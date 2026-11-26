@@ -25,7 +25,7 @@ export function PopCard({ title, value, icon, tone = "console", foot, className,
   children?: ReactNode;
 }) {
   return (
-    <div style={toneVar(tone)} className={twMerge("flex w-64 flex-col border border-line-strong border-t-2 border-t-tone bg-surface-3 text-xs text-fg shadow-xl", className)}>
+    <div style={toneVar(tone)} className={twMerge("flex w-64 flex-col border border-line-strong border-t-2 border-t-tone bg-surface-3 text-xs text-fg", className)}>
       {(title || value) && (
         <header className="flex items-baseline justify-between gap-3 border-b border-line-quiet px-3 py-2">
           <span className="flex min-w-0 items-center gap-2 font-display text-[11px] uppercase tracking-widest">{icon}<span className="truncate">{title}</span></span>

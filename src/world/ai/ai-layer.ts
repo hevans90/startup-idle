@@ -65,6 +65,9 @@ export type AiView = {
   concierges?: readonly { x: number; y: number }[];
   /** Loads flying to small sites with Drone Airlift: where each is. @see Airlift */
   airlifts?: readonly { x: number; y: number }[];
+  /** AI mode's build drones, flying out or at work over what they build; and the port in the garage's yard. @see build-drones */
+  buildDrones?: readonly { x: number; y: number; landed: boolean }[];
+  dronePort?: { x: number; y: number } | null;
   /** Its drones' light, if not its own violet: the player's teal, while an inherited AI works for them. @see inherited */
   droneLight?: number;
   /** Where the AI takes over: a faint ring on the ground round it. @see aiDistrict */
@@ -386,6 +389,40 @@ export function createAiLayer(overlay: Container): AiLayer {
         }
         gfx.circle(x, y, 1.3 * S);
         gfx.fill({ color: STAGE_COLOUR.overseer, alpha: 0.9 });
+      }
+
+      // THE DRONE PORT, in the garage's yard: a pad, its ring lit. @see build-drones
+      if (view.dronePort) {
+        const p = view.dronePort, z = ground(g, Math.round(p.x), Math.round(p.y));
+        const [px, py] = P(sc, p.x, p.y, z + 0.05);
+        gfx.ellipse(px, py, 9 * sc, 4.5 * sc);
+        gfx.fill({ color: 0x1b1530, alpha: 0.9 });
+        gfx.ellipse(px, py, 7 * sc, 3.5 * sc);
+        gfx.stroke({ color: STAGE_COLOUR.tool, width: Math.max(1, 0.8 * sc), alpha: 0.6 + 0.3 * Math.sin(t * 2) });
+        gfx.rect(px - 2.5 * sc, py - 0.4 * sc, 5 * sc, 0.8 * sc);
+        gfx.fill({ color: STAGE_COLOUR.tool, alpha: 0.8 });
+      }
+      // ITS BUILD DRONES: out to the work, then low over it, a beam down while it goes up.
+      for (const [k, a] of (view.buildDrones ?? []).entries()) {
+        const z = ground(g, Math.round(a.x), Math.round(a.y));
+        const hover = (a.landed ? 4 : 6.5) + Math.sin(t * 5 + k) * 0.12;
+        const [x, y] = P(sc, a.x, a.y, z + hover);
+        const S = 1.2 * sc;
+        const [sx, sy] = P(sc, a.x, a.y, z);
+        gfx.ellipse(sx, sy, 7 * S, 2.6 * S);
+        gfx.fill({ color: 0x000000, alpha: 0.18 });
+        if (a.landed) {
+          gfx.poly([x - 1.5 * S, y + 1.5 * S, x + 1.5 * S, y + 1.5 * S, sx + 6 * S, sy, sx - 6 * S, sy]);
+          gfx.fill({ color: STAGE_COLOUR.tool, alpha: 0.18 + 0.1 * Math.sin(t * 9 + k) });
+        }
+        gfx.rect(x - 6 * S, y - 1.2 * S, 12 * S, 2.4 * S);
+        gfx.fill({ color: 0x1b1530, alpha: 0.95 });
+        for (const [dx, dy] of [[-6, -2.2], [6, -2.2], [-4.5, 1.3], [4.5, 1.3]]) {
+          gfx.ellipse(x + dx * S, y + dy * S, 2.8 * S, 0.8 * S);
+          gfx.fill({ color: 0x8a86a0, alpha: 0.5 + 0.3 * Math.sin(t * 40 + dx) });
+        }
+        gfx.circle(x, y, 1.2 * S);
+        gfx.fill({ color: STAGE_COLOUR.tool, alpha: 0.95 });
       }
 
       // HOLOGRAMS: one a rack from the Assistant on, more at the Ascension.

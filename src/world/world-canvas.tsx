@@ -13,6 +13,7 @@ import { Application } from "@pixi/react";
 import { useEffect, useState, type RefObject } from "react";
 
 import { foundingRemoteBeds, setHousingReader } from "../game/housing";
+import { foundHeadStarts } from "./districts/head-start";
 import { useGeneratorStore } from "../state/generators.store";
 import { startAutosave, startedOnFixture, useWorldStore } from "../state/world.store";
 import { setProjectReader } from "../game/projects";
@@ -104,6 +105,8 @@ export function useFoundWorld(slot: SaveSlot, play: boolean): void {
     if (slot !== "run" || generatedKey !== `${slot}:${useSessionStore.getState().incorporatedAt}`) return;
     generatedKey = null;
     const perks = usePrestigeStore.getState().modifiers;
+    // THE MACHINE'S HEAD STARTS, first, for the middle of the map: whole districts, built and lived in. @see foundHeadStarts
+    foundHeadStarts();
     // A CAFÉ to begin with, for founders who have done this before. @see foundingCafe
     if (perks.foundingCafe) useWorldStore.getState().foundCafe();
     // A SHIPPING ROUTE to begin with, likewise. @see ROUTE_BONUS

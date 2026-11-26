@@ -38,9 +38,6 @@ type Level = Extract<PlanStep, { kind: "level" }>;
 type Clear = Extract<PlanStep, { kind: "clear" }>;
 const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
-/** Beds a lot grows to: III's twelve when the style plans tall, about II's five when wide. */
-const GROWN_BEDS = 5;
-const TALL_BEDS = 12;
 
 export type Wants = {
   rules: PlaceRules;
@@ -120,8 +117,8 @@ export function liftStep(g: Grid, plan: Masterplan, skip: (s: PlanStep) => boole
 }
 
 /**
- * A kind short of desks: who lives on the map with no desk to go to `now`, and — `ahead` — what its lots will sleep
- * grown, past the desks it has and those on their way; `need`, the more of the two once what is being built is in.
+ * A kind short of desks: who lives on the map with no desk to go to `now`, and — `ahead` — the beds its houses have
+ * at the tier they are, past the desks it has and those on their way; `need`, the more of the two once what is being built is in.
  */
 export type Short = { who: GeneratorId; now: number; ahead: number; need: number };
 
@@ -138,7 +135,8 @@ export function desksShort(g: Grid, given: Wants): Short[] {
         if ((WORKPLACES[who] as readonly string[]).includes(s.def)) { if (s.build) coming += DESKS[s.def] ?? 0; else have += DESKS[s.def] ?? 0; }
         if (s.build) continue;
         const h = housedBy(s.def);
-        if (h?.id === who) { residents += s.residents ?? 0; grown += style.compact ? TALL_BEDS : GROWN_BEDS; }
+        // BEDS AS THEY ARE, at the tier each house is now: counted as twelve a lot, grown, it built offices for people who never came. @see deskBalance
+        if (h?.id === who) { residents += s.residents ?? 0; if (Number.isFinite(h.slots)) grown += h.slots; }
       }
       const now = residents - have, ahead = grown - have - coming - style.spareDesks;
       return { who, now, ahead, need: Math.max(now - coming, ahead) };

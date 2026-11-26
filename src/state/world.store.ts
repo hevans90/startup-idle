@@ -636,6 +636,8 @@ type WorldState = {
   setMapHidden: (hidden: boolean) => void;
   /** A café by the road, free: a founding gift. @see foundingCafe */
   foundCafe: () => void;
+  /** Forget the undo history: what was just built is the company's from the start, not the player's to take back. @see placeDistrictNow */
+  forgetHistory: () => void;
   /** A building put down free, as near `near` as it fits; whether it was. A tenants' strike settled. @see TENANTS */
   giftAt: (defId: string, near: Cell) => boolean;
   /** Housing whose residents changed: redrawn, and saved. @see stepArrivals */
@@ -1167,6 +1169,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
   },
   mapHidden: false,
   setMapHidden: (mapHidden) => set({ mapHidden }),
+  forgetHistory: () => { history = createHistory(); set({ ...historyMeta(), lastBuild: null }); },
   foundCafe: () => { get().giftAt("cafe", { x: get().grid.w / 2, y: get().grid.h / 2 }); },
   giftAt: (defId, near) => {
     const st = get();

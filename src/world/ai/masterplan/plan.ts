@@ -91,7 +91,7 @@ export function blockAt(
   return blocksAt(g, owned, centre, tried, 1, wet)[0] ?? null;
 }
 
-/** The `n` nearest blocks, as `blockAt` picks them, their anchors a block apart. @see chooseBlock */
+/** The `n` nearest blocks, as `blockAt` picks them, their anchors a block apart. */
 export function blocksAt(
   g: Grid, owned: (x: number, y: number) => boolean, centre: Cell, tried: ReadonlySet<number> = new Set(), n = 1,
   wet: (x: number, y: number) => boolean = (x, y) => g.pool[idx(g, x, y)] > 0,

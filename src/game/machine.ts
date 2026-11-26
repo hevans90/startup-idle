@@ -7,6 +7,7 @@
  * one already bought. Its minors are the old modules, a level a node.
  * @see plans/ai-takeover.md §4.2, game/modules
  */
+import { DEV_OPEN } from "../state/dev-bank";
 import { hasMachine, useGenerationStore } from "../state/generation.store";
 import { questMachineReveal } from "./quests/effects";
 import { MODULES, type ModuleId } from "./modules";
@@ -24,7 +25,7 @@ const RING_GAP = 115;
 export const MACHINE_CENTRE = { x: 0, y: 2420 };
 
 export type MachineNode = {
-  id: string; x: number; y: number; title: string; kind: "root" | "minor" | "notable" | "keystone"; cluster: typeof MACHINE;
+  id: string; x: number; y: number; title: string; kind: "root" | "minor" | "notable" | "keystone" | "headstart"; cluster: typeof MACHINE;
   /** Its effect line: what it does, short. @see game/wording */
   effect: string;
   /** How it works, a sentence or more, for its popover: notables, keystones and the root. */
@@ -40,15 +41,15 @@ export type MachineNode = {
  */
 export type NotableId = "freight" | "airlift" | "prefab" | "zoning" | "coolant" | "concierge" | "nightshift" | "market" | "selffund";
 export const NOTABLES: readonly { id: NotableId; title: string; effect: string; detail: string; gap: number; ring?: 3 }[] = [
-  { id: "freight", gap: 0, title: "Autonomous Freight", effect: "Project loads come by self-driving convoy", detail: "Project materials come in convoys of three self-driving lorries, from the Data Centre as well as the garage: a sixteen-load wonder in six runs." },
-  { id: "airlift", gap: 2, title: "Drone Airlift", effect: "Small sites' loads ×3 faster · each load +25%", detail: "Sites of four tiles or fewer get their materials by heavy-lift drone, straight from the Data Centre over the town: three times as fast, each load costing a quarter more." },
-  { id: "prefab", gap: 4, title: "Prefab Printing", effect: "Project work −40%", detail: "The AI prints building segments off-site: every new project needs 40% less work. The loads stay." },
-  { id: "zoning", gap: 5, title: "Generative Zoning", effect: "AI lots start at the tier their spot sustains", detail: "Lots the AI zones in its district are born at the tier the spot can sustain, not as starter lots." },
-  { id: "coolant", gap: 1, title: "Coolant Loop", effect: "The AI's buildings share their water", detail: "The AI's buildings share their water: a surplus at one tops up a shortage at another, so one good intake can cool them all." },
-  { id: "concierge", gap: 3, title: "Holo-Concierge", effect: "AI district services reach 4 tiles further", detail: "A holographic attendant at every service in the AI's district: each serves houses 4 road tiles further away." },
-  { id: "nightshift", gap: 6, title: "Night Shift", effect: "Deskless employees work nights at 70%, not 35%", detail: "The town never sleeps: employees without a desk work the night shift on the empty ones, at 70% instead of 35%. Offices glow violet at night." },
-  { id: "market", gap: 2, ring: 3, title: "Market Maker", effect: "AI district ports +50% faster · convoys ×2", detail: "The AI runs the river trade: ports in its district turn ships round half as fast again, some of them its own violet freighters, and convoys come twice as often." },
-  { id: "selffund", gap: 5, ring: 3, title: "Self-Funding", effect: "AI wallet gets a tenth of the agents' income", detail: "The AI pays its own way: a tenth of what the agents add to income goes into its wallet as well." },
+  { id: "freight", gap: 0, title: "Autonomous Freight", effect: "Project loads come by self-driving convoy", detail: "Project materials arrive in convoys of 3 self-driving lorries, sent from the Data Centre as well as the garage. A 16-load project takes 6 runs." },
+  { id: "airlift", gap: 2, title: "Drone Airlift", effect: "Small sites' loads ×3 faster · each load +25%", detail: "Sites of 4 tiles or fewer get their materials by drone from the Data Centre: deliveries are 3× faster, and each load costs 25% more." },
+  { id: "prefab", gap: 4, title: "Prefab Printing", effect: "Project work −40%", detail: "Every new project needs 40% less work. Material loads are unchanged." },
+  { id: "zoning", gap: 5, title: "Generative Zoning", effect: "AI lots start at the tier their spot sustains", detail: "Lots the AI zones in its district start at the highest tier their spot can sustain, instead of as starter lots." },
+  { id: "coolant", gap: 1, title: "Coolant Loop", effect: "The AI's buildings share their water", detail: "The AI's buildings pool their water: a surplus at one covers a shortage at another." },
+  { id: "concierge", gap: 3, title: "Holo-Concierge", effect: "AI district services reach 4 tiles further", detail: "Services in the AI's district reach houses 4 road tiles further away." },
+  { id: "nightshift", gap: 6, title: "Night Shift", effect: "Deskless employees work nights at 70%, not 35%", detail: "Employees without a desk work nights at the empty desks, at 70% output instead of 35%." },
+  { id: "market", gap: 2, ring: 3, title: "Market Maker", effect: "AI district ports +50% faster · convoys ×2", detail: "Ports in the AI's district turn ships round 50% faster, and convoys arrive twice as often." },
+  { id: "selffund", gap: 5, ring: 3, title: "Self-Funding", effect: "AI wallet gets a tenth of the agents' income", detail: "The AI's wallet also gets 10% of the income the agents add." },
 ];
 export const NOTABLE_COST = 30;
 export const NOTABLE_STEP = 15;
@@ -64,9 +65,9 @@ export const notable = (id: NotableId): boolean => hasMachine(notableId(id)) && 
  */
 export type KeystoneId = "alignment" | "takeoff" | "airgap";
 export const KEYSTONES: readonly { id: KeystoneId; title: string; effect: string; detail: string; spoke: number }[] = [
-  { id: "alignment", spoke: 0, title: "Alignment", effect: "The AI stays a colleague · AI meter ×0.5 · sale floor ×0.5", detail: "The takeover never turns hostile: past the Manager it stays a colleague — nothing converted or repurposed, ever, its streets never closed to you, working only to your focus. But the meter rises half as fast, and each sale carries half the floor. Its district is drawn in your colour." },
-  { id: "takeoff", spoke: 5, title: "Hard Takeoff", effect: "Overseer at 60% · the AI builds free on the whole map", detail: "The Overseer comes at 60%. Its district is your whole map, and everything it builds is free, paid in compute. The town is its: chaotic, and enormously powerful. The violet sky comes with it." },
-  { id: "airgap", spoke: 3, title: "Air Gap", effect: "The AI stays off the map · agents' boost ×1.6", detail: "The AI never touches the map: no district, no drones, no takeover, and no Lattice to wait on. Every agent's boost is 1.6 times what it was. None of the Machine's notables that work on the map work. The Data Centre's links go dark; it hums alone." },
+  { id: "alignment", spoke: 0, title: "Alignment", effect: "The AI stays a colleague · AI meter ×0.5 · sale floor ×0.5", detail: "Past the Manager stage the AI stays on your side: it never converts houses or repurposes buildings, never closes streets to you, and builds only what your focus asks for. The AI meter rises half as fast, and each sale's floor is halved." },
+  { id: "takeoff", spoke: 5, title: "Hard Takeoff", effect: "Overseer at 60% · the AI builds free on the whole map", detail: "The Overseer stage comes at 60% on the AI meter instead of 80%. The AI's district covers the whole map, and everything it builds is free." },
+  { id: "airgap", spoke: 3, title: "Air Gap", effect: "The AI stays off the map · agents' boost ×1.6", detail: "The AI never builds on the map: no district, no drones, no takeover, no Lattice. Every agent's boost is ×1.6. Machine notables that act on the map do nothing." },
 ];
 /** Keystones are past the minors' last ring, revealed an Ascension after it; a keystone costs this many Weights. */
 export const KEYSTONE_RING = MACHINE_RINGS + 1;
@@ -74,6 +75,23 @@ export const KEYSTONE_COST = 100;
 const keystoneId = (id: KeystoneId) => `machine_k_${id}`;
 /** Whether a keystone is bought. */
 export const keystone = (id: KeystoneId): boolean => hasMachine(keystoneId(id));
+
+/**
+ * ITS HEAD STARTS: a whole district every new company is founded with, built
+ * and lived in. Past the keystones' ring, revealed an Ascension after them, at
+ * the end of a spoke with no keystone. @see world/districts/head-start
+ */
+export type HeadStartId = "suburb" | "studio" | "company";
+export const HEAD_STARTS: readonly { id: HeadStartId; title: string; effect: string; detail: string; spoke: number; cost: number }[] = [
+  { id: "suburb", spoke: 1, cost: 150, title: "Ready-made Suburb", effect: "Start with 30 houses · 150 interns · 4 offices", detail: "Every new company's map comes with this district near its middle: roads paved and joined to the town, every house finished and full, offices for everyone in them (a café, a gym and a park in some), and the residents already hired. Fewer if the ground there won't take it all." },
+  { id: "studio", spoke: 4, cost: 200, title: "Studio District", effect: "Start with a Studio · 24 houses · 120 vibe coders", detail: "Every new company's map comes with this district near its middle: roads paved and joined to the town, every house finished and full, offices for everyone in them (a café, a gym and a park in some), and the residents already hired. Fewer if the ground there won't take it all." },
+  { id: "company", spoke: 6, cost: 300, title: "Company Town", effect: "Start with 14 tall houses · 84 interns · 84 vibe coders", detail: "Every new company's map comes with this district near its middle: roads paved and joined to the town, every house finished and full, offices for everyone in them (a café, a gym and a park in some), and the residents already hired. Fewer if the ground there won't take it all." },
+];
+/** The ring head starts are on, an Ascension past the keystones. */
+export const HEAD_RING = KEYSTONE_RING + 1;
+const headStartId = (id: HeadStartId) => `machine_h_${id}`;
+/** Whether a head start is bought. */
+export const headStart = (id: HeadStartId): boolean => hasMachine(headStartId(id));
 
 /** What a node costs now: a notable dearer for each bought. */
 export function machineCost(id: string): number {
@@ -92,8 +110,8 @@ const minorId = (m: ModuleId, ring: number) => `machine_${m}_${ring}`;
 export function machineGraph(): { nodes: MachineNode[]; edges: [string, string][] } {
   const nodes: MachineNode[] = [{
     id: INHERITANCE, ...MACHINE_CENTRE, title: "Inheritance", kind: "root", cluster: MACHINE, ring: 0, cost: 0,
-    effect: "The AI comes back as yours, a colleague till the Overseer",
-    detail: "The AI you raised comes back as yours. Each company it starts at the Assistant stage; till the Overseer it takes nothing — no house converted, nothing repurposed — and works only to your focus, its drones in your teal.",
+    effect: "AI meter starts at 20% · works for you till the Overseer",
+    detail: "Each company, the AI meter starts at 20% (the Assistant stage). Until the Overseer stage the AI builds only what your focus asks for, and never converts houses or repurposes buildings.",
   }];
   const edges: [string, string][] = [];
   const spokeAngle = (i: number) => -Math.PI / 2 + (i / SPOKES.length) * Math.PI * 2 + Math.PI / SPOKES.length;
@@ -132,6 +150,15 @@ export function machineGraph(): { nodes: MachineNode[]; edges: [string, string][
     });
     edges.push([minorId(SPOKES[k.spoke], MACHINE_RINGS), id]);
   }
+  // The head starts, each at the end of a spoke with no keystone, on the keystones' circle.
+  for (const h of HEAD_STARTS) {
+    const a = spokeAngle(h.spoke), id = headStartId(h.id);
+    nodes.push({
+      id, x: MACHINE_CENTRE.x + Math.cos(a) * RING_GAP * KEYSTONE_RING, y: MACHINE_CENTRE.y + Math.sin(a) * RING_GAP * KEYSTONE_RING,
+      title: h.title, kind: "headstart", cluster: MACHINE, ring: HEAD_RING, cost: h.cost, effect: h.effect, detail: h.detail,
+    });
+    edges.push([minorId(SPOKES[h.spoke], MACHINE_RINGS), id]);
+  }
   return { nodes, edges };
 }
 
@@ -151,20 +178,23 @@ export const revealedRing = (): number => useGenerationStore.getState().generati
 /** The ring an Ascension from this generation revealed, said; none past the keystones. @see AscensionRecap */
 export function ringRevealed(generation: number): string | null {
   if (generation <= MACHINE_RINGS) return `Ring ${generation} of the Machine`;
-  return generation === KEYSTONE_RING ? "The Machine's keystones" : null;
+  if (generation === KEYSTONE_RING) return "The Machine's keystones";
+  return generation === HEAD_RING ? "The Machine's head starts" : null;
 }
 /** Whether a node is still under the fog: "Ascend to reveal". */
 export const fogged = (id: string): boolean =>
-  ((machineNode(id)?.ring ?? 0) > revealedRing() && !questMachineReveal(id).revealed) || !hasMachine(INHERITANCE);
+  !DEV_OPEN && (((machineNode(id)?.ring ?? 0) > revealedRing() && !questMachineReveal(id).revealed) || !hasMachine(INHERITANCE));
 
 /** Why a node cannot be bought now, or null if it can. */
 export function machineBlocked(id: string): "owned" | "fog" | "unreached" | "exclusive" | "weights" | null {
   const n = machineNode(id);
   if (!n || hasMachine(id)) return "owned";
+  // INHERITANCE is never bought: the first Ascension grants it (run locally, it counts as had). @see grantInheritance
+  if (id === INHERITANCE) return DEV_OPEN ? "owned" : "fog";
   if (fogged(id)) return "fog";
   // One keystone: the others close. @see KEYSTONES
   if (n.kind === "keystone" && KEYSTONES.some((k) => keystone(k.id))) return "exclusive";
-  if (!(NEIGHBOURS.get(id) ?? []).some(hasMachine)) return "unreached";
+  if (!(NEIGHBOURS.get(id) ?? []).some((n) => hasMachine(n) || (DEV_OPEN && n === INHERITANCE))) return "unreached";
   if (useGenerationStore.getState().weights < machineCost(id)) return "weights";
   return null;
 }

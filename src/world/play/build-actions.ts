@@ -13,6 +13,7 @@ import type { ProjectId } from "../../game/projects";
 import { useWorldStore } from "../../state/world.store";
 import type { ToolId } from "../edit/tools";
 import { asAi } from "../ai/district";
+import { pilotActing, sendDrones, worksOn } from "../drones/build-drones";
 
 type Cell = { x: number; y: number };
 
@@ -28,9 +29,11 @@ function withTool(patch: Record<string, unknown>, act: () => void): boolean {
     placingProject: st.placingProject, stroke: st.stroke, notice: st.notice, lastBuild: st.lastBuild, heightStep: st.heightStep,
   };
   const rev = st.revision;
+  // WHAT AI MODE ORDERS goes by drone: told new from old by what was there before. @see build-drones
+  const before = pilotActing() ? worksOn(st.grid) : null;
   useWorldStore.setState(patch);
   // As the AI: its own streets are not closed to it. @see asAi
-  try { asAi(act); } finally {
+  try { asAi(act); if (before) sendDrones(useWorldStore.getState().grid, before); } finally {
     // What the game said in refusing it, kept for whoever asked: the player's own notice is put back. @see whyNot
     const said = useWorldStore.getState().notice;
     lastWhy = said && said !== kept.notice ? said.text : null;

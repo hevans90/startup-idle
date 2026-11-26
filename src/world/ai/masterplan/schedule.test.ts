@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { DESKS } from "../../agents/commute";
 import { createGrid, fillTerrain, type Grid } from "../../grid";
 import { desksShort } from "./schedule";
+import { SPARE_PLAIN } from "./style";
 
 /** Interns' houses, `n` of them with four in each, and offices: built, or still going up. */
 function town(n: number, offices: { build: boolean }[]): Grid {
@@ -20,14 +21,24 @@ const short = (g: Grid) => desksShort(g, { rules: {}, kinds: ["intern"], offices
 describe("the AI's offices", () => {
   test("one still going up counts as its desks: the shortage it was ordered for is not asked for again while it is built", () => {
     const desks = DESKS["office-intern"];
-    const none = short(town(10, []))!, one = short(town(10, [{ build: true }]))!, two = short(town(10, [{ build: true }, { build: true }]))!;
+    const none = short(town(40, []))!, one = short(town(40, [{ build: true }]))!, two = short(town(40, [{ build: true }, { build: true }]))!;
     expect(one.need).toBe(none.need - desks);
     expect(two.need).toBe(none.need - 2 * desks);
     // Built or still going up, the same to the plan.
-    expect(short(town(10, [{ build: false }]))!.need).toBe(one.need);
+    expect(short(town(40, [{ build: false }]))!.need).toBe(one.need);
     // Nobody sits at a desk that is still being built, all the same.
     expect(one.now).toBe(none.now);
     // Enough going up for all that will live there: none asked for.
-    expect(short(town(10, Array.from({ length: Math.ceil(none.need / desks) }, () => ({ build: true }))))).toBeUndefined();
+    expect(short(town(40, Array.from({ length: Math.ceil(none.need / desks) }, () => ({ build: true }))))).toBeUndefined();
+  });
+  test("counts the beds houses have now, not what they may grow to: no office ahead of anyone to sit in it", () => {
+    // Ten starter lots, two beds each and empty: twenty beds ahead, past the spare desks kept — not twelve a lot.
+    const g = town(10, []);
+    for (const s of g.structures.values()) s.residents = 0;
+    expect(short(g)!.ahead).toBe(20 - SPARE_PLAIN);
+    // Four of them, eight beds: within the spare. None asked for.
+    const few = town(4, []);
+    for (const s of few.structures.values()) s.residents = 0;
+    expect(short(few)).toBeUndefined();
   });
 });

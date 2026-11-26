@@ -130,7 +130,8 @@ export function wantsCrew(j: RoadJob, crew: RoadCrew): boolean {
 /** A frame of the road crews. @see stepCrews */
 export function stepRoadCrews(g: Grid, haul: { net: Network; town: Town }, dt: number) {
   return stepCrews<RoadJob, RoadCrew>(g, haul, dt, {
-    jobs: g.roadJobs, all: ROAD_CREWS, role: "road-plant", crews: () => ROAD_CREWS, plant: (_j, c) => CREW_PLANT[c],
+    // (Not those under a drone: every crew of them is there, with nothing to drive. @see build-drones)
+    jobs: g.roadJobs.filter((j) => !j.drone), all: ROAD_CREWS, role: "road-plant", crews: () => ROAD_CREWS, plant: (_j, c) => CREW_PLANT[c],
     wants: wantsCrew, done: crewDone, started: (j, c) => (CREW_TRADE[c] < 0 ? j.t > 0 : tradeBegun(j, CREW_TRADE[c])),
     head: (j) => headOf(g, haul.net, j),
   });

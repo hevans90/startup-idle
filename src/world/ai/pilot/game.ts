@@ -4,6 +4,7 @@
  * is flown to each thing it does that has a place, for the look of it: the
  * thing is done already. @see createPilot, PilotBar, plans/ai-mode-rebuild.md phase 6
  */
+import { dronePort } from "../../drones/build-drones";
 import type { Grid } from "../../grid";
 import { DRONE_SPEED, HANGAR_SPEED, MAX_DRONES, MAX_HANGARS, getAiRunner } from "../ai-runner";
 import { allDesks, livePurse } from "./live";
@@ -80,6 +81,8 @@ export function stepGamePilot(g: Grid, dt: number) {
   if (sincePublish >= LOOK_EVERY) { sincePublish = 0; usePilotView.getState().publish(viewOf(pilot)); }
   if (pilot.done() === flown) return;
   flown = pilot.done();
+  // (What it built has a build drone of its own, from the port. @see build-drones)
+  if (st.kind === "did" && dronePort(g) && (st.job?.puts || st.job?.id === "street")) return;
   const to = st.kind === "did" ? st.job?.at : undefined, from = droneHome(g), r = getAiRunner();
   // THE MODEL'S OWN flies one drone more. @see plans/ai-mode-rebuild.md open question 1
   const most = MAX_DRONES + (useFounderStore.getState().selectedFounderId === "model" ? 1 : 0);

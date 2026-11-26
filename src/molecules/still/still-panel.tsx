@@ -127,8 +127,8 @@ export function StillPanel() {
             last.current = { x, y, t };
           }}>
           <div className="pointer-events-none flex flex-col items-center">
-            <span className="font-display text-2xl tabular-nums text-fg drop-shadow-none [text-shadow:0_0_6px_rgb(255_255_255/0.9)] dark:text-white dark:[text-shadow:0_1px_4px_rgb(0_0_0/0.9)]">{n0(juice)}</span>
-            <span className={twMerge("text-xs tabular-nums text-fg [text-shadow:0_0_6px_rgb(255_255_255/0.9)] dark:text-white dark:[text-shadow:0_1px_4px_rgb(0_0_0/0.9)]", !flow && "invisible")}>{flow?.way === "drain" ? "+" : "−"}{n0(rate)}/s</span>
+            <span className="font-display text-2xl tabular-nums text-fg dark:text-white">{n0(juice)}</span>
+            <span className={twMerge("text-xs tabular-nums text-fg dark:text-white", !flow && "invisible")}>{flow?.way === "drain" ? "+" : "−"}{n0(rate)}/s</span>
           </div>
         </div>
         {/* THE BRANCHES: what each comes to. */}
@@ -146,14 +146,14 @@ export function StillPanel() {
               <button type="button" aria-label={`${u.name}, ${u.description}, ${has} of ${v.cost} juice`} aria-pressed={picked === v.id} onClick={() => setPicked(picked === v.id ? null : v.id)}
                 style={{ ...at(v.at[0], v.at[1]), width: `${(28 / W) * 100}%`, height: `${(25 / H) * 100}%` }}
                 className={twMerge("absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col items-center justify-center rounded-lg border border-transparent leading-tight hover:border-juice-line", FOCUS, picked === v.id && "border-juice-line",
-                  wet ? "text-white [text-shadow:0_1px_3px_rgb(0_0_0/0.85)] dark:text-white" : "text-fg [text-shadow:0_0_4px_rgb(255_255_255/0.9)] dark:text-fg dark:[text-shadow:0_1px_3px_rgb(0_0_0/0.9)]", locked && "opacity-60")}>
+                  wet ? "text-white dark:text-white" : "text-fg dark:text-fg", locked && "opacity-60")}>
                 <span className="text-[13px] font-bold tabular-nums">{bonus(u)}</span>
                 <span className="text-[10px] tabular-nums">{full ? n0(v.cost) : has > 0 ? `${n0(has)}/${n0(v.cost)}` : n0(v.cost)}</span>
               </button>
               {!full && (
                 <Hold label={`Pour into ${u.name}`} on={on && flow.way === "pour"} disabled={!canPour(v.id)} set={hold(v.id, "pour")}
                   style={at(v.at[0], v.row === 0 ? 113 : Math.max(v.gate[1] + 3.5, v.at[1] - v.r - 5))}
-                  className={twMerge("absolute grid size-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-juice-line bg-surface-2 text-juice shadow-md transition-transform disabled:size-5 disabled:border-line-quiet disabled:text-fg-faint disabled:shadow-none dark:bg-surface-1", on && flow.way === "pour" && "scale-110 bg-juice-soft dark:bg-juice-soft")}>
+                  className={twMerge("absolute grid size-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-juice-line bg-surface-2 text-juice transition-transform disabled:size-5 disabled:border-line-quiet disabled:text-fg-faint disabled:shadow-none dark:bg-surface-1", on && flow.way === "pour" && "scale-110 bg-juice-soft dark:bg-juice-soft")}>
                   {locked ? <IconLock size={11} /> : <IconDropletFilled size={14} />}
                 </Hold>
               )}

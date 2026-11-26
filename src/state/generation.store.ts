@@ -19,6 +19,7 @@ import type { DatasetId } from "../game/training";
 import type { AscendingEnding } from "../game/quests/endings";
 import type { LatticeForm } from "../game/quests/finale";
 import type { TraitId } from "../game/traits";
+import { DEV_WEIGHTS } from "./dev-bank";
 
 export type BehaviourLog = {
   /** Training runs finished, by dataset. */
@@ -103,7 +104,7 @@ export const useGenerationStore = create<GenerationState>()(
       log: emptyLog(),
       equity: 0,
       peakAgents: 0,
-      weights: 0,
+      weights: DEV_WEIGHTS,
       modules: {},
       slotted: [],
       machine: [],
@@ -137,11 +138,12 @@ export const useGenerationStore = create<GenerationState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         generation: s.generation, book: s.book, sales: s.sales, log: s.log, equity: s.equity, peakAgents: s.peakAgents,
-        weights: s.weights, modules: s.modules, slotted: s.slotted, machine: s.machine, fused: s.fused, past: s.past, announce: s.announce,
+        weights: Math.max(0, s.weights - DEV_WEIGHTS), modules: s.modules, slotted: s.slotted, machine: s.machine, fused: s.fused, past: s.past, announce: s.announce,
         legacy: s.legacy, contained: s.contained, discovered: s.discovered,
       }),
       merge: (p, current) => ({
         ...current, ...(p as object),
+        weights: ((p as { weights?: number } | null)?.weights ?? 0) + DEV_WEIGHTS,
         log: { ...emptyLog(), ...((p as { log?: BehaviourLog } | null)?.log ?? {}) },
         machine: (p as { machine?: string[] } | null)?.machine ?? [],
         discovered: (p as { discovered?: CardId[] } | null)?.discovered ?? [],

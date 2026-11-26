@@ -8,6 +8,7 @@ import { desksShort } from "../world/ai/masterplan/schedule";
 import { PACE, createPilot } from "../world/ai/pilot/pilot";
 import { shownAs } from "../world/ai/pilot/job";
 import { useGeneratorStore } from "../state/generators.store";
+import { useGenerationStore } from "../state/generation.store";
 import { useSessionStore } from "../state/session.store";
 import { playRules } from "../state/world.store";
 import type { Grid } from "../world/grid";
@@ -156,7 +157,8 @@ describe("a company played on a real map with no screen", () => {
     let roadsAtFirst = { unbridged: 0, offRoad: 0 };
     const r = playCompany(jest.advanceTimersByTime.bind(jest), {
       seed, size, minutes, until, untilSale,
-      begin: (g) => { map = g; roadsAtFirst = roadFaults(g); },
+      // AS THE GAME PLAYS IT: AI mode is open from the first Ascension, and builds by drone. @see build-drones
+      begin: (g) => { map = g; roadsAtFirst = roadFaults(g); useGenerationStore.setState({ generation: 2 }); },
       drive: (g, dt) => {
         if (!pilot.tick(dt, livePurse, g.rev).says) unnamed++;
       },

@@ -20,7 +20,6 @@ const EXIT = 0.45;
 export const TENX_GLOW_STYLE: React.CSSProperties = {
   fontFamily: "'Share Tech Mono', 'Space Mono', monospace",
   color: "rgb(74 222 128)",
-  textShadow: "0 0 8px rgba(74,222,128,0.55), 0 0 2px rgba(74,222,128,0.9)",
   letterSpacing: "0.02em",
 };
 

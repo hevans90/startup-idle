@@ -355,7 +355,7 @@ export function BuildingLabels({ className }: { className?: string }) {
           const Icon = m.badge.icon === "mood" && m.badge.tone === "ok" ? IconMoodSmile : ICON[m.badge.icon];
           return (
             <div key={m.key} ref={ref(m.key)}
-              className={twMerge("invisible absolute left-0 top-0 flex items-center gap-1 whitespace-nowrap rounded-sm border px-1 py-0.5 text-[10px] leading-[12px] tabular-nums shadow-sm", TONE_CLASS[m.badge.tone])}>
+              className={twMerge("invisible absolute left-0 top-0 flex items-center gap-1 whitespace-nowrap rounded-sm border px-1 py-0.5 text-[10px] leading-[12px] tabular-nums", TONE_CLASS[m.badge.tone])}>
               <Icon size={12} stroke={2} aria-hidden />
               <span>{m.badge.text}</span>
               {m.more > 0 && <span className="border-l border-current/30 pl-1 opacity-70">{m.more} more</span>}
@@ -372,7 +372,7 @@ export function BuildingLabels({ className }: { className?: string }) {
         const vp = useWorldStore.getState().viewport;
         return (
           <div ref={labelEl}
-            className="absolute left-0 top-0 whitespace-nowrap border border-l-2 border-line-quiet bg-surface-2/95 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg shadow-md"
+            className="absolute left-0 top-0 whitespace-nowrap border border-l-2 border-line-quiet bg-surface-2/95 px-1.5 py-0.5 text-[10px] leading-[13px] text-fg"
             style={{ borderLeftColor: hex(info.accent), transform: vp ? placed(vp, label, false) : undefined }}>
             {info.leaks
               ? <Glitch key={label.id} arrive every={2.5} strength={0.8}>

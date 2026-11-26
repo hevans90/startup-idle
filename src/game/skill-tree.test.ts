@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { INHERITANCE, MACHINE } from "./machine";
 import {
   aggregateGrants,
   buildAdjacency,
@@ -43,8 +42,7 @@ describe("generated skill tree", () => {
 
   test("every node is reachable from a root (no orphans)", () => {
     const adj = buildAdjacency(SKILL_TREE);
-    // The Machine hangs from its own root, Inheritance. @see game/machine
-    const roots = [...SKILL_TREE.roots, INHERITANCE];
+    const roots = SKILL_TREE.roots;
     const seen = new Set(roots);
     const queue = [...roots];
     while (queue.length) {
@@ -64,7 +62,7 @@ describe("generated skill tree", () => {
     expect(kinds.has("keystone")).toBe(true);
     expect(kinds.has("notable")).toBe(true);
     expect(kinds.has("travel")).toBe(true);
-    const keystones = SKILL_TREE.nodes.filter((n) => n.kind === "keystone" && n.cluster !== MACHINE);
+    const keystones = SKILL_TREE.nodes.filter((n) => n.kind === "keystone");
     expect(keystones.length).toBe(8); // design doc §4, and Refactoring
   });
 
@@ -174,8 +172,7 @@ describe("frontierPath + pathEquityCost", () => {
 
 describe("node bonuses", () => {
   test("every non-root node does something (travel included)", () => {
-    // The Machine's nodes are features, bought with Weights: no Equity-tree grants.
-    const bearing = SKILL_TREE.nodes.filter((n) => n.kind !== "root" && n.cluster !== MACHINE);
+    const bearing = SKILL_TREE.nodes.filter((n) => n.kind !== "root");
     expect(bearing.length).toBeGreaterThan(0);
     for (const n of bearing) {
       expect((n.grants?.length ?? 0) + (n.town ? 1 : 0) + (n.special ? 1 : 0)).toBeGreaterThan(0);

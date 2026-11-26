@@ -54,7 +54,7 @@ export function CellReadout() {
       // pointer-events-none so it can never intercept a pick
       className="pointer-events-none absolute left-0 top-0 z-20 -translate-x-1/2 -translate-y-full
                  whitespace-nowrap rounded border border-good/50 bg-surface-0/90 px-2 py-1
-                 font-mono text-[11px] leading-tight text-good shadow-lg"
+                 font-mono text-[11px] leading-tight text-good"
       style={{ visibility: "hidden" }}
     >
       {hover && (

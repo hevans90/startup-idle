@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 
+import { buildDronesOn } from "../../drones/build-drones";
 import { aiDriving } from "../../../hooks/use-ai-driving";
 import { playCompany } from "../../../simulation/pilot-run";
 import { resetAllGameStores } from "../../../simulation/reset-game-stores";
@@ -29,7 +30,8 @@ describe("AI mode driving", () => {
     let flown = 0;
     const r = playCompany(jest.advanceTimersByTime.bind(jest), {
       seed: 2, size: 64, minutes: 4,
-      drive: (g, dt) => { stepGamePilot(g, dt); flown = Math.max(flown, getAiRunner().jobs.length); },
+      // (Its builds by build drone, from the garage's port; the rest by the AI's own. @see build-drones)
+      drive: (g, dt) => { stepGamePilot(g, dt); flown = Math.max(flown, getAiRunner().jobs.length + buildDronesOn(g).length); },
       steps: gamePilot().done, said: gamePilot().last,
     });
     expect(r.steps).toBeGreaterThan(3);
