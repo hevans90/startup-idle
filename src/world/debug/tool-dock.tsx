@@ -14,7 +14,7 @@ import {
   IconPointer, IconRipple, IconRoad, IconRoadOff, IconSearch, IconShip, IconSquareDashed, IconStairs, IconStairsDown,
   IconSubtask, IconTree, IconTrees, IconWaveSine, IconArrowBarToDown, IconMinus, IconPlant2,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 import { useShallow } from "zustand/shallow";
 
@@ -34,6 +34,7 @@ import { Beds, Networks, Sources, WaterMeta } from "./edit-panel";
 import type { PanelId } from "./editor-panels";
 import { FIXTURES, fixtureAddress, type FixtureKind } from "./fixture-list";
 import { FIXTURE_SIZE } from "./fixtures";
+import { Part, Rule, Tip, toned } from "../play/dock";
 
 type IconOf = typeof IconBrush;
 const TOOL_ICON: Partial<Record<ToolId, IconOf>> = {
@@ -61,28 +62,6 @@ const GROUND_NAME: Record<string, string> = { wood1: "Light wood", wood2: "Wood"
 const GLASS = "border border-line bg-surface-0/85 backdrop-blur-xl";
 const TRAY = twMerge("dock-tray-in pointer-events-auto flex max-w-full rounded-2xl p-2.5", GLASS);
 const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-tone";
-const toned = (tone: string) => ({ "--tone": tone }) as CSSProperties;
-
-/** A bubble over what is hovered: what it is, its key, and what it does. */
-function Tip({ name, hint, k }: { name: string; hint?: string; k?: string }) {
-  return (
-    <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-max max-w-52 -translate-x-1/2 translate-y-1 rounded-lg border border-line bg-surface-1 px-2.5 py-1.5 text-left text-[11px] leading-snug text-fg opacity-0 transition-all delay-0 duration-100 group-hover/tip:translate-y-0 group-hover/tip:opacity-100 group-hover/tip:delay-300 group-focus-visible/tip:opacity-100">
-      <span className="flex items-center gap-2 font-semibold">{name}{k && <Key k={k} />}</span>
-      {hint && <span className="mt-0.5 block text-fg-muted">{hint}</span>}
-    </span>
-  );
-}
-const Key = ({ k }: { k: string }) => <kbd className="rounded border border-line bg-surface-2 px-1 font-mono text-[10px] leading-4 text-fg-muted">{k.toUpperCase()}</kbd>;
-
-/** A heading over a part of the tray, and a hair's rule between parts. */
-const Part = ({ title, note, children, className }: { title: string; note?: ReactNode; children: ReactNode; className?: string }) => (
-  <section className={twMerge("flex min-w-0 shrink-0 flex-col gap-1.5 border-line-quiet px-3 not-first:border-l first:pl-1 last:pr-1", className)}>
-    <h3 className="flex h-4 items-center justify-between gap-3 text-[10px] tracking-[0.18em] text-fg-faint uppercase">
-      {title}{note !== undefined && <span className="font-mono tracking-normal whitespace-nowrap text-fg-muted normal-case">{note}</span>}
-    </h3>
-    {children}
-  </section>
-);
 
 /** A tool: a tile with its picture and name, lit in its group's colour while it is in hand. */
 function ToolTile({ id }: { id: ToolId }) {
@@ -366,8 +345,6 @@ function Tray({ id }: { id: GroupId }) {
     </div>
   );
 }
-
-const Rule = () => <span className="mx-1 h-8 w-px shrink-0 bg-line-quiet" />;
 
 /** A button of the bar's own: undo, a panel, the rules. */
 function BarButton({ on, dead, onClick, name, k, hint, tone, children }: { on?: boolean; dead?: boolean; onClick: () => void; name: string; k?: string; hint?: string; tone?: string; children: ReactNode }) {

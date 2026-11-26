@@ -21,7 +21,7 @@
 import { PROCESS_RATE, processorKind } from "../../game/processors";
 import { SLOP_FROM } from "../../game/slop";
 import { isPhone } from "../../hooks/use-phone";
-import { Fragment, useRef, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRef, useEffect, useMemo, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 import { buildCost } from "../../game/build-cost";
@@ -57,7 +57,11 @@ import { RoadCard } from "./road-card";
 import { SuggestCard } from "./suggest-card";
 import { InfoPop } from "../../ui/InfoPop";
 import { INFINITY } from "../../utils/time-utils";
-import { FOCUS, Kbd, Tile } from "../../ui/console";
+import {
+  IconAdjustmentsHorizontal, IconArrowBackUp, IconBackhoe, IconBuildingSkyscraper, IconBulldozer, IconCoin, IconDroplet, IconFlower,
+  IconMoodSmile, IconPlant2, IconPlugConnected, IconPointer, IconRoad, IconRobot, IconSubtask, IconTag, IconTree, IconTrees,
+} from "@tabler/icons-react";
+import { DOCK, DOCK_FOCUS, DOCK_TRAY, DockButton, DockTool, Part, Rule, toned } from "./dock";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -65,20 +69,6 @@ const Icon = ({ children }: { children: ReactNode }) => (
     strokeLinecap="round" strokeLinejoin="round" aria-hidden>{children}</svg>
 );
 const ICONS: Record<string, ReactNode> = {
-  inspect: <Icon><path d="M3 2l9 5-4 1-1 4z" /></Icon>,
-  paintRoad: <Icon><path d="M5 2L3 14M11 2l2 12M8 3v2M8 7v2M8 11v2" /></Icon>,
-  eraseRoad: <Icon><path d="M5 2L3 14M11 2l2 12M6 6l4 4M10 6l-4 4" /></Icon>,
-  pipe: <Icon><path d="M2 6h7a3 3 0 0 1 3 3v5M2 10h7M8 14h8" /></Icon>,
-  placeStructure: <Icon><path d="M2 8l6-5 6 5M4 7v7h8V7M7 14v-4h2v4" /></Icon>,
-  demolish: <Icon><path d="M3 4h10M6 4V2h4v2M4 4l1 10h6l1-10" /></Icon>,
-  dredge: <Icon><path d="M1 5c2-1.5 3-1.5 5 0s3 1.5 5 0 3-1.5 4 0M3 9l3 4h4l3-4M8 13V8" /></Icon>,
-  plant: <Icon><path d="M8 14V7M8 9c-3 0-4.5-2-4.5-4.5C6 4.5 8 6 8 9zM8 7c0-2.5 1.5-4.5 4.5-4.5C12.5 5 11 7 8 7zM5 14h6" /></Icon>,
-  labels: <Icon><path d="M2 3h7l5 5-5 5-7-7z" /><circle cx="5.5" cy="6.5" r="1" /></Icon>,
-  water: <Icon><path d="M8 2.5c2.5 3 4 5.2 4 7a4 4 0 0 1-8 0c0-1.8 1.5-4 4-7z" /></Icon>,
-  mood: <Icon><circle cx="8" cy="8" r="6" /><path d="M5.5 9.5c.7 1 1.5 1.5 2.5 1.5s1.8-.5 2.5-1.5M6 6.5h.01M10 6.5h.01" /></Icon>,
-  earnings: <Icon><path d="M8 1.5v13M11 4.5H6.5a2 2 0 000 4h3a2 2 0 010 4H5" /></Icon>,
-  sewer: <Icon><path d="M1.5 6h13" strokeDasharray="2 1.5" /><path d="M3 10.5h10M3 13.5h10" /><ellipse cx="8" cy="3.5" rx="2.5" ry="1" /></Icon>,
-  undo: <Icon><path d="M5 3L2 6l3 3M2 6h7a4 4 0 010 8H6" /></Icon>,
   // The people row. @see Stat
   people: <Icon><circle cx="6" cy="5" r="2" /><path d="M2.5 13c0-2.2 1.6-3.5 3.5-3.5S9.5 10.8 9.5 13M10.5 3.5a2 2 0 010 3.5M12 9.8c1 .5 1.5 1.6 1.5 3.2" /></Icon>,
   desk: <Icon><path d="M2 6h12M3.5 6v7M12.5 6v7M3.5 9.5h4M7.5 6v7" /></Icon>,
@@ -117,19 +107,20 @@ function Stat({ icon, value, tone, title, children }: {
 /** The tools the AI takes over in its district at the Overseer stage. @see aiHoldsRoads */
 const ROAD_TOOLS = new Set<ToolId>(["paintRoad", "demolish"]);
 
-const TOOLS: { id: ToolId; label: string; hint: string }[] = [
-  { id: "inspect", label: "Look", hint: "Pan and look round the town; click a building to open it" },
-  { id: "paintRoad", label: "Road", hint: "Drag to lay road" },
-  { id: "pipe", label: "Pipe", hint: "Drag from water to the Data Centre or an AI building to lay a water main; or click, click to pin corners, and click the end. Right-click takes a corner back" },
-  { id: "sewer", label: "Sewer", hint: "Drag from water or a processor to lay a sewer underground; from a workplace's slop port to a manhole, a connection. Or click and pin corners. Click one laid to open it" },
-  { id: "placeStructure", label: "Build", hint: "Build beside a road, a park anywhere; drag along a street for a row of lots; click a seaport to upgrade it" },
-  { id: "dredge", label: "Dredge", hint: "Drag along a river to deepen it, for bigger ships" },
-  { id: "plant", label: "Plant", hint: "Drag to plant a wood, a row of trees, a hedge or flowers" },
-  { id: "demolish", label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to delete it, or over trees to fell them" },
+type IconOf = typeof IconPointer;
+const TOOLS: { id: ToolId; label: string; hint: string; tone: string; Icon: IconOf }[] = [
+  { id: "inspect", tone: "#8b9bb0", Icon: IconPointer, label: "Look", hint: "Pan and look round the town; click a building to open it" },
+  { id: "paintRoad", tone: "#b9a4f2", Icon: IconRoad, label: "Road", hint: "Drag to lay road" },
+  { id: "pipe", tone: "#3fa9e0", Icon: IconPlugConnected, label: "Pipe", hint: "Drag from water to the Data Centre or an AI building to lay a water main; or click, click to pin corners, and click the end. Right-click takes a corner back" },
+  { id: "sewer", tone: "#b08a5a", Icon: IconSubtask, label: "Sewer", hint: "Drag from water or a processor to lay a sewer underground; from a workplace's slop port to a manhole, a connection. Or click and pin corners. Click one laid to open it" },
+  { id: "placeStructure", tone: "#e8a83e", Icon: IconBuildingSkyscraper, label: "Build", hint: "Build beside a road, a park anywhere; drag along a street for a row of lots; click a seaport to upgrade it" },
+  { id: "dredge", tone: "#4cc3c0", Icon: IconBackhoe, label: "Dredge", hint: "Drag along a river to deepen it, for bigger ships" },
+  { id: "plant", tone: "#62b85f", Icon: IconTree, label: "Plant", hint: "Drag to plant a wood, a row of trees, a hedge or flowers" },
+  { id: "demolish", tone: "#e0705a", Icon: IconBulldozer, label: "Demolish", hint: "Click a building to take it down; drag along a road or pipe to delete it, or over trees to fell them" },
 ];
 
 /** What the Plant tool plants, in its row. @see vegetation/tend */
-const PLANT_LABEL: Record<Planting, string> = { woods: "Woods", row: "Trees", hedge: "Hedge", bed: "Flowers" };
+const PLANT: Record<Planting, [string, IconOf]> = { woods: ["Woods", IconTrees], row: ["Trees", IconTree], hedge: ["Hedge", IconPlant2], bed: ["Flowers", IconFlower] };
 
 const KINDS: GeneratorId[] = ["intern", "vibe_coder", "10x_dev"];
 const KIND_TITLE: Record<GeneratorId, string> = { intern: "Interns", vibe_coder: "Vibe coders", "10x_dev": "10x devs" };
@@ -199,11 +190,8 @@ function tileNote(def: StructureDef): string {
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
-const PANEL = "border border-line-quiet bg-surface-1/95";
-const TOOL =
-  `flex cursor-pointer items-center gap-1 whitespace-nowrap px-2 py-1 text-xs text-fg hover:bg-surface-2 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center ${FOCUS}`;
-/** In hand, or on: lit in the console's own colour, underlined. */
-const TOOL_ON = "bg-surface-3 text-console shadow-[inset_0_-2px_0_var(--ui-console)] hover:bg-surface-3";
+const BUILD_TONE = "#e8a83e";
+const CARD = "relative flex w-32 shrink-0 cursor-pointer flex-col gap-0.5 rounded-xl border px-2 py-1.5 text-left text-xs transition-all active:scale-95";
 
 export function BuildBar({ className }: { className?: string }) {
   const tool = useWorldStore((s) => s.tool);
@@ -337,80 +325,84 @@ export function BuildBar({ className }: { className?: string }) {
 
   const views = (
     <>
-      <button type="button" title="Tint every house by its morale" data-hint="mood"
-        onClick={() => setMoodOverlay(!moodOverlay)} className={twMerge(TOOL, moodOverlay && TOOL_ON)}>
-        {ICONS.mood}
-        <span className="@max-6xl:hidden">Morale</span>
-      </button>
-      <button type="button" title="Tint every street by what it earns, and list the best"
-        onClick={() => setEarningsOverlay(!earningsOverlay)} className={twMerge(TOOL, earningsOverlay && TOOL_ON)}>
-        {ICONS.earnings}
-        <span className="@max-6xl:hidden">Earnings</span>
-      </button>
+      <DockButton name="Morale" hint="Tint every house by its morale" data-hint="mood" on={moodOverlay} onClick={() => setMoodOverlay(!moodOverlay)}>
+        <IconMoodSmile size={20} stroke={1.7} />
+      </DockButton>
+      <DockButton name="Earnings" hint="Tint every street by what it earns, and list the best" on={earningsOverlay} onClick={() => setEarningsOverlay(!earningsOverlay)}>
+        <IconCoin size={20} stroke={1.7} />
+      </DockButton>
       {(mainsOpen || sewersOpen) && (
-        <button type="button" title="Every pipe by what it is doing, and a list of them: water or sewers. On too with the Pipe or Sewer tool in hand"
-          aria-pressed={waterOverlay || sewerView}
-          onClick={() => { const on = waterOverlay || sewerView; setWaterOverlay(!on && mainsOpen); setSewerView(!on && !mainsOpen); }}
-          className={twMerge(TOOL, (waterOverlay || sewerView || tool === "pipe" || tool === "sewer") && TOOL_ON)}>
-          {ICONS.water}
-          <span className="@max-6xl:hidden">Pipes</span>
-        </button>
+        <DockButton name="Pipes" hint="Every pipe by what it is doing, and a list of them: water or sewers. On too with the Pipe or Sewer tool in hand"
+          on={waterOverlay || sewerView || tool === "pipe" || tool === "sewer"}
+          onClick={() => { const on = waterOverlay || sewerView; setWaterOverlay(!on && mainsOpen); setSewerView(!on && !mainsOpen); }}>
+          <IconDroplet size={20} stroke={1.7} />
+        </DockButton>
       )}
       {open && (
-        <button type="button" title="AI mode: the AI plays the company itself" aria-pressed={aiMode}
-          onClick={() => setAiMode({ aiMode: !aiMode })} className={twMerge(TOOL, aiMode && TOOL_ON, aiMode && "text-ai")}>
-          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ai" />
-          <span className="@max-6xl:hidden">AI mode</span>
-        </button>
+        <DockButton name="AI mode" hint="The AI plays the company itself" tone="var(--ui-ai)" on={aiMode} onClick={() => setAiMode({ aiMode: !aiMode })}>
+          <IconRobot size={20} stroke={1.7} />
+        </DockButton>
       )}
-      <button type="button" title="Show or hide what each building is and how it is doing"
-        onClick={() => setLabels(!labels)} className={twMerge(TOOL, labels && TOOL_ON)}>
-        {ICONS.labels}
-        <span className="@max-6xl:hidden">Labels</span>
-      </button>
+      <DockButton name="Labels" hint="Show or hide what each building is and how it is doing" on={labels} onClick={() => setLabels(!labels)}>
+        <IconTag size={20} stroke={1.7} />
+      </DockButton>
     </>
   );
 
   return (
-    <div className={twMerge("flex flex-col items-center gap-1.5 text-fg", className)}>
+    <div className={twMerge("flex flex-col items-center gap-2 text-fg", className)}>
       <MainCard />
       <SewerCard />
       <RoadCard />
       <SuggestCard />
       {picking && !handsOff && (
-        // ALL OF IT AT ONCE: a row a section, a tile a thing, nothing to scroll.
-        <div className={twMerge(PANEL, "grid max-w-[calc(100vw-1rem)] grid-cols-[auto_1fr] sm:w-max items-center gap-x-2 gap-y-1 p-2")}>
+        // ALL OF IT AT ONCE: a row a section, a tile a thing.
+        <div style={toned(BUILD_TONE)} className={twMerge(DOCK_TRAY, "dock-scroll flex-col gap-2 max-sm:max-h-[50vh] max-sm:overflow-y-auto")}>
           {sale.map((sec) => (
-            <Fragment key={sec.title}>
-              <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-fg-muted">
-                {sec.colour !== undefined && <span className="h-2 w-2 shrink-0" style={{ background: hex(sec.colour) }} />}
-                {sec.title}
-              </p>
+            <Part key={sec.title} className="border-l-0 px-1"
+              title={<span className="flex items-center gap-1.5">{sec.colour !== undefined && <span className="size-2 shrink-0 rounded-[2px]" style={{ background: hex(sec.colour) }} />}{sec.title}</span>}>
               <div className="flex flex-wrap gap-1 sm:flex-nowrap">
                 {sec.items.map(({ def, price }) => {
                   const afford = money.gte(price);
                   const on = def.id === structureDefId;
                   return (
-                    <Tile key={def.id} selected={on} lit={afford && !on} title={`${saleName(def)} · ${def.footprint.w}×${def.footprint.h}`}
+                    <button key={def.id} type="button" aria-pressed={on} title={`${saleName(def)} · ${def.footprint.w}×${def.footprint.h}`}
                       onClick={() => { setStructureDef(def.id); setPicking(false); }}
-                      className={twMerge("flex w-32 flex-col px-1.5 py-1 text-xs", !afford && "text-fg-muted")}>
+                      className={twMerge(CARD, DOCK_FOCUS, on ? "border-tone bg-tone-fill text-fg" : "border-line-quiet bg-surface-1 hover:border-line-strong", !afford && !on && "text-fg-muted")}>
                       <span className="flex items-baseline justify-between gap-1">
-                        <b className="truncate">{tileName(def)}</b>
-                        <span className={twMerge("tabular-nums", !afford && "text-bad")}>{formatCurrency(price)}</span>
+                        <b className="truncate font-semibold">{tileName(def)}</b>
+                        <span className={twMerge("font-mono text-[11px] tabular-nums", !afford && "text-bad")}>{formatCurrency(price)}</span>
                       </span>
                       <span className="truncate text-[10px] text-fg-muted">{tileNote(def)}</span>
-                    </Tile>
+                    </button>
                   );
                 })}
               </div>
-            </Fragment>
+            </Part>
           ))}
         </div>
       )}
+      {tool === "plant" && !handsOff && (
+        // WHAT THE PLANT TOOL PLANTS. @see vegetation/tend
+        <div style={toned("#62b85f")} className={DOCK_TRAY}>
+          <div className="flex gap-1">
+            {PLANTINGS.map((what) => {
+              const [name, Icon] = PLANT[what], on = planting === what;
+              return (
+                <button key={what} type="button" aria-pressed={on} onClick={() => setPlanting(what)}
+                  className={twMerge("flex h-12 w-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border text-[11px] transition-all active:scale-95", DOCK_FOCUS,
+                    on ? "border-tone bg-tone-fill text-fg" : "border-transparent text-fg-muted hover:bg-surface-2 hover:text-fg")}>
+                  <Icon size={20} stroke={1.6} className={on ? "text-tone" : undefined} />{name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-      <div className={twMerge(PANEL, "flex max-w-full flex-col")}>
+      <div className={twMerge(DOCK, "flex max-w-full select-none flex-col rounded-2xl p-1.5")} role="toolbar" aria-label="build tools">
         {/* THE PEOPLE: a chip a district, its figures as icons. @see Stat */}
-        <div className="flex flex-wrap justify-center gap-x-4 gap-y-0.5 border-b border-line-quiet px-2 py-1 text-[11px] tabular-nums">
+        {KINDS.some((id) => hireable.has(id)) && <div className="mb-1 flex flex-wrap justify-center gap-x-4 gap-y-0.5 border-b border-line-quiet px-2 pt-0.5 pb-1.5 text-[11px] tabular-nums">
           {KINDS.filter((id) => hireable.has(id)).map((id) => {
             const g = generators.find((x) => x.id === id)!;
             const have = beds[id] ?? 0;
@@ -421,7 +413,7 @@ export function BuildBar({ className }: { className?: string }) {
             const blocked = st?.blocked ? BLOCKED[st.blocked] : null;
             return (
               <span key={id} className="flex items-center gap-1.5">
-                <span className="h-2 w-2" style={{ background: hex(KIND_COLOUR[id]) }} />
+                <span className="size-2 rounded-[2px]" style={{ background: hex(KIND_COLOUR[id]) }} />
                 <Stat icon={ICONS.people} value={`${g.amount}/${have === Infinity ? INFINITY : have}`} tone={full ? "text-bad" : undefined}
                   title={`${name}: ${g.amount} employed, ${have === Infinity ? INFINITY : have} beds`}>
                   {full
@@ -451,53 +443,46 @@ export function BuildBar({ className }: { className?: string }) {
               </span>
             );
           })}
-        </div>
+        </div>}
 
-        {phone && viewsOpen && <div className="flex items-stretch overflow-x-auto border-b border-line-quiet">{views}</div>}
+        {phone && viewsOpen && <div className="mb-1 flex items-center justify-center border-b border-line-quiet pb-1">{views}</div>}
         {/* THE TOOLS: a rail that scrolls, on a phone. */}
-        <div className="flex items-stretch overflow-x-auto">
+        <div className="dock-scroll flex items-center max-md:overflow-x-auto">
           {/* UNDER AI MODE, no tools: what the pilot is doing, and a pause. @see PilotBar */}
-          {driving && <PilotBar tool={TOOL} className="flex-1" />}
+          {driving && <PilotBar className="flex-1 md:w-[36rem]" />}
           {!handsOff && (<>
-          {shown.map((t, k) => (
-            <button key={t.id} type="button" title={`${aiRoads && ROAD_TOOLS.has(t.id) ? `${t.hint} — outside the AI's district: its streets are its own now` : t.hint} (${k + 1})`}
-              onClick={() => choose(t.id)} aria-pressed={tool === t.id} aria-keyshortcuts={String(k + 1)}
-              data-hint={t.id === "placeStructure" ? "build" : undefined}
-              className={twMerge(TOOL, tool === t.id && TOOL_ON, "disabled:cursor-default disabled:opacity-40")}>
-              {ICONS[t.id]}
-              <span className="@max-3xl:hidden">{t.label}</span>
-              <span className="@max-5xl:hidden"><Kbd>{k + 1}</Kbd></span>
-              {t.id === "placeStructure" && chosen && tool === t.id && (
-                <span className="ml-0.5 border-l border-current/30 pl-1 opacity-80">{saleName(chosen.def)}</span>
-              )}
-            </button>
-          )).flatMap((b, k) => shown[k].id === "plant" && tool === "plant" ? [b, ...PLANTINGS.map((what) => (
-            <button key={what} type="button" onClick={() => setPlanting(what)} aria-pressed={planting === what}
-              className={twMerge(TOOL, "border-l border-line-quiet", planting === what && TOOL_ON)}>{PLANT_LABEL[what]}</button>
-          ))] : [b])}
+          {shown.map((t, k) => {
+            const on = tool === t.id;
+            return (
+              <DockTool key={t.id} name={t.label} tone={t.tone} k={String(k + 1)} on={on} onClick={() => choose(t.id)}
+                hint={aiRoads && ROAD_TOOLS.has(t.id) ? `${t.hint} — outside the AI's district: its streets are its own now` : t.hint}
+                label={t.id === "placeStructure" && chosen && on ? <span className="block max-w-24 truncate">{saleName(chosen.def)}</span> : undefined}
+                aria-keyshortcuts={String(k + 1)} data-hint={t.id === "placeStructure" ? "build" : undefined}>
+                <t.Icon size={21} stroke={1.7} />
+              </DockTool>
+            );
+          })}
           {/* THE AI IS BUILDING: its latest memo on hover. @see stepAi */}
           {aiBuilding && (
             <span title={aiMemo ?? "The AI is working on the town."}
-              className="flex items-center gap-1 px-2 text-[10px] uppercase tracking-widest text-ai">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ai" />
-              <span className="@max-3xl:hidden">The AI is building</span>
+              className="flex shrink-0 items-center gap-1.5 px-2 text-[10px] tracking-[0.18em] text-ai uppercase">
+              <span className="size-1.5 animate-pulse rounded-full bg-ai" />
+              <span className="max-xl:hidden">The AI is building</span>
             </span>
           )}
           {canUndo && (
-            <button type="button" title="Take back the last build and get its money back"
-              onClick={undoLastBuild} className={twMerge(TOOL, "text-warn")}>
-              {ICONS.undo}
-              <span>Undo +{formatCurrency(lastBuild!.refund)}</span>
-            </button>
+            <DockTool name="Undo" label={`Undo +${formatCurrency(lastBuild!.refund)}`} hint="Take back the last build and get its money back"
+              tone="var(--ui-warn)" on={false} onClick={undoLastBuild} className="text-warn">
+              <IconArrowBackUp size={20} stroke={1.7} />
+            </DockTool>
           )}
           </>)}
           {/* VIEWS from here: what you see, not what you hold — on a phone, behind a button. */}
-          <span className="mx-0.5 my-1 w-px bg-surface-3" />
+          <Rule />
           {phone ? (
-            <button type="button" aria-expanded={viewsOpen} title="What the map shows" onClick={() => setViewsOpen(!viewsOpen)}
-              className={twMerge(TOOL, viewsOpen && TOOL_ON)}>
-              {ICONS.labels}<span>Views</span>
-            </button>
+            <DockButton name="Views" hint="What the map shows" aria-expanded={viewsOpen} on={viewsOpen} onClick={() => setViewsOpen(!viewsOpen)}>
+              <IconAdjustmentsHorizontal size={20} stroke={1.7} />
+            </DockButton>
           ) : views}
         </div>
       </div>

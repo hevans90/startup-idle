@@ -4,11 +4,13 @@
  * click that flies the camera there; the goal it is steered toward; and a
  * pause. @see usePilotView, useAiDriving
  */
+import { IconPlayerPauseFilled, IconPlayerPlayFilled } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 
 import { usePilotView, type JobView, type PilotView } from "../../state/pilot-view.store";
 import { useSessionStore } from "../../state/session.store";
+import { Choice, DockButton, Rule, Run, toned } from "./dock";
 import { showMe } from "./map-focus";
 
 const TONE: Record<PilotView["kind"], string> = {
@@ -33,7 +35,7 @@ function Where({ job, title, className, children }: { job?: JobView; title: stri
   );
 }
 
-export function PilotBar({ tool, className }: { tool: string; className?: string }) {
+export function PilotBar({ className }: { className?: string }) {
   const { kind, says, job, queue, act } = usePilotView();
   const goal = useSessionStore((s) => s.aiGoal) ?? "grow";
   const steer = useSessionStore((s) => s.steerAi);
@@ -42,25 +44,25 @@ export function PilotBar({ tool, className }: { tool: string; className?: string
   // NEXT: the best of the queue that is not what it is on now.
   const next = queue.find((j) => j.id !== job && j.state !== "cancelled");
   return (
-    <div className={twMerge("flex min-w-0 items-center gap-3 px-2 text-xs", className)}>
-      <span className="flex shrink-0 items-center gap-1.5 font-display uppercase tracking-widest text-ai">
-        <span aria-hidden className={twMerge("h-1.5 w-1.5 rounded-full bg-ai", !paused && "animate-pulse")} />AI
+    <div style={toned("var(--ui-ai)")} className={twMerge("flex min-h-12 min-w-0 items-center gap-2 pl-2 text-xs", className)}>
+      <span className="flex shrink-0 items-center gap-1.5 rounded-lg bg-tone-soft px-2 py-1 font-display text-[11px] tracking-[0.18em] text-ai uppercase">
+        <span aria-hidden className={twMerge("size-1.5 rounded-full bg-ai", !paused && "animate-pulse")} />AI
       </span>
-      <Where job={now} title={now?.why ?? says} className={twMerge("max-w-[28rem] font-bold", TONE[kind])}>{says}</Where>
-      {next && (
-        <Where job={next} title={next.why} className="max-w-[22rem] text-fg-muted @max-4xl:hidden">
-          Next: {next.says}{next.state !== "ready" && <> · {next.shown.toLowerCase()}</>}
-        </Where>
-      )}
-      <select aria-label="The AI's goal" title={GOALS.find((g) => g.value === goal)?.title} value={goal}
-        onChange={(e) => steer({ aiGoal: e.target.value as typeof goal })}
-        className="ml-auto shrink-0 cursor-pointer border border-line-quiet bg-surface-2 px-1 py-0.5 text-xs text-fg dark:bg-surface-2 dark:text-fg">
-        {GOALS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
-      </select>
-      <button type="button" aria-pressed={paused} title={paused ? "Let the AI carry on" : "Stop the AI where it is"}
-        onClick={() => act({ pause: !paused })} className={twMerge(tool, "shrink-0")}>
-        {paused ? "Resume" : "Pause"}
-      </button>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-1">
+        <Where job={now} title={now?.why ?? says} className={twMerge("max-w-[28rem] font-semibold", TONE[kind])}>{says}</Where>
+        {next && (
+          <Where job={next} title={next.why} className="max-w-[28rem] text-[11px] text-fg-muted @max-4xl:hidden">
+            Next: {next.says}{next.state !== "ready" && <> · {next.shown.toLowerCase()}</>}
+          </Where>
+        )}
+      </div>
+      <Run>
+        {GOALS.map((g) => <Choice key={g.value} name={g.label} hint={g.title} on={goal === g.value} onClick={() => steer({ aiGoal: g.value })}>{g.label}</Choice>)}
+      </Run>
+      <Rule />
+      <DockButton name={paused ? "Resume" : "Pause"} hint={paused ? "Let the AI carry on" : "Stop the AI where it is"} tone="var(--ui-ai)" on={paused} onClick={() => act({ pause: !paused })}>
+        {paused ? <IconPlayerPlayFilled size={17} /> : <IconPlayerPauseFilled size={17} />}
+      </DockButton>
     </div>
   );
 }
