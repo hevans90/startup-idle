@@ -19,7 +19,7 @@ describe("steering: each control moves the run the way it says", () => {
   test("the goal Next landmark brings the landmarks sooner", () => {
     const plain = play(28);
     const leaned = play(28, () => session().steerAi({ aiGoal: "landmark" }));
-    expect(leaned.opened.boardroom).toBeDefined();
-    expect(leaned.opened.boardroom!).toBeLessThan(plain.opened.boardroom ?? Infinity);
+    expect(leaned.opened.campus).toBeDefined();
+    expect(leaned.opened.campus!).toBeLessThan(plain.opened.campus ?? Infinity);
   }, 300_000);
 });

@@ -25,6 +25,7 @@
  * still while the job stands for want of a load. @see roads/jobs frontAt
  */
 import { drawnHeight } from "./drawn";
+import { groundMode } from "./ground-mode";
 import { Container, Graphics, Sprite } from "pixi.js";
 
 import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-sheet";
@@ -87,7 +88,11 @@ export function alongJob(g: Grid, j: RoadJob, p: number): At {
   // On the ground as it is now; on a bridge, at its deck.
   const zOf = (c: typeof a) => (c.deck ? c.z : g.deck[idx(g, c.x, c.y)] !== 0 ? g.deckZ[idx(g, c.x, c.y)] : g.height[idx(g, c.x, c.y)]);
   const dx = b === a ? a.x - back.x : b.x - a.x, dy = b === a ? a.y - back.y : b.y - a.y;
-  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: zOf(a) + (zOf(b) - zOf(a)) * f, heading: Math.atan2(dy, dx), pitch: b === a ? 0 : zOf(b) - zOf(a) };
+  const x = a.x + (b.x - a.x) * f, y = a.y + (b.y - a.y) * f;
+  let z = zOf(a) + (zOf(b) - zOf(a)) * f;
+  // ON THE CONTINUOUS SURFACE, on it, as it is drawn.
+  if (groundMode() === "smooth" && !a.deck && !b.deck) z = drawnHeight(g, x + 0.5, y + 0.5);
+  return { x, y, z, heading: Math.atan2(dy, dx), pitch: b === a ? 0 : zOf(b) - zOf(a) };
 }
 
 /** A round somebody walks: places to be — tiles along the road from their machine and across it — what they do at each, how long, and which way they face doing it, from the road's own way. */

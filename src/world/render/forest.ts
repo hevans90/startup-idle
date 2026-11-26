@@ -156,7 +156,7 @@ function underFace(g: Grid, x: number, y: number, i: number): number {
  */
 export function scatterOn(g: Grid, palette: Palette, x: number, y: number, i = vegAt(g, palette, x, y)): ForestTree[] {
   const V = g.veg, cover = V.cover[i], out: ForestTree[] = [];
-  if (V.wet[i] || g.pool[i] > 0 || cover === COVER.reeds || cover === COVER.field || cover >= COVER.stumps) return out;
+  if (V.wet[i] || g.pool[i] > 0 || cover === COVER.none || cover === COVER.reeds || cover === COVER.field || cover >= COVER.stumps) return out;
   const at = (kind: string, size: number, k: number) => out.push({
     kind, u: x + (hash(x * 11 + k, y, 0xf3) - 0.5) * 0.7, v: y + (hash(x, y * 11 + k, 0xf4) - 0.5) * 0.7,
     turn: Math.floor(hash(x + k, y * 3, 0xf5) * 4), size, seed: hash(x * 3 + k, y, 0xf6),

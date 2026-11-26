@@ -956,6 +956,8 @@ function follow(A: Ahead, v: number, free: number, lead: number, s0: number) {
   A.idm = Math.max(A.idm, (want / Math.max(free, 0.01)) ** 2);
 }
 
+/** Half of two vehicles' widths, tiles: what one end on takes of a lane. */
+const LEG_WIDE = 0.19, HALF_WIDE = 0.1;
 function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof trafficNow>, h: number, A: Ahead): void {
   const d = m.drive!;
   const G = T.G;
@@ -968,7 +970,25 @@ function driveLimit(t: Town, T: Traffic, m: Mover, now: ReturnType<typeof traffi
       const o = l.m;
       if (o.id === m.id) continue;
       const dx = o.x - m.x, dy = o.y - m.y, along = dx * cx + dy * cy;
-      if (along > 0 && along < FOLLOW + 1 && Math.abs(dx * cy - dy * cx) < 0.3) follow(A, v, along - spacing(m, o) + GAP, 0, GAP);
+      // (By how far across it reaches: end on it is narrow, and one stood in the lane beside, to turn in over this one, is
+      // not in the way — each stopped for the other. Side on, it is as wide as it is long.)
+      const turn = Math.abs(Math.sin(o.heading - m.heading)), wide = halfLength(o) * turn + LEG_WIDE;
+      if (along > 0 && along < FOLLOW + 1 && Math.abs(dx * cy - dy * cx) < (o.speed > 0 ? Math.max(0.3, wide) : wide)) follow(A, v, along - spacing(m, o) + GAP, 0, GAP);
+      // (And one that has pulled out of its gate has the road, all the way to its lane: let out, not run up to.)
+      if (l.out) {
+        // (Short of the whole of it, lying as it does now.)
+        const reach = Math.max(HALF_WIDE, halfLength(o) * Math.abs(Math.cos(o.heading - m.heading)));
+        let ax = o.x, ay = o.y;
+        for (let k = l.k; k < l.pts.length; k++) {
+          const p = l.pts[k], n = Math.max(1, Math.ceil(Math.hypot(p.x - ax, p.y - ay) / 0.15));
+          for (let i = 1; i <= n; i++) {
+            const x = ax + ((p.x - ax) * i) / n - m.x, y = ay + ((p.y - ay) * i) / n - m.y, a = x * cx + y * cy;
+            // (Too near to stop short of it: past, and out of its way.)
+            if (a > half + reach && a < FOLLOW + 1 && Math.abs(x * cy - y * cx) < LEG_WIDE) follow(A, v, a - half - reach, 0, GAP);
+          }
+          ax = p.x; ay = p.y;
+        }
+      }
     }
   }
   // PULLED IN for an emergency vehicle: to a stop at the kerb.
@@ -1494,6 +1514,17 @@ function drive(m: Mover, A: Ahead, h: number) {
   m.speed = Math.max(0, Math.min(v + a * h, A.cap));
 }
 
+/** A vehicle on the lanes plans its way again from where it is. False: there is none. */
+export function planAgain(t: Town, g: Grid, m: Mover): boolean {
+  const way = driveWay(t, g, m.drive!.to, m.drive!.to, undefined, { x: m.x, y: m.y, heading: m.heading }, undefined, undefined, m.kind);
+  if (!way) return false;
+  m.path = way.path; m.line = way.line; m.drive = way.drive; m.bends = undefined;
+  m.at = new Float32Array(m.line.length);
+  for (let k = 1; k < m.line.length; k++) m.at[k] = m.at[k - 1] + Math.hypot(m.line[k].x - m.line[k - 1].x, m.line[k].y - m.line[k - 1].y);
+  m.s = 0;
+  return true;
+}
+
 /**
  * Re-find the places when the map has changed, set off whoever is missing,
  * move everybody on, and take in whoever has arrived — or whose road is gone.
@@ -1510,13 +1541,7 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
     const T = trafficOf(t, g);
     if (was && was !== T) {
       for (const m of t.movers) {
-        if (!m.drive) continue;
-        const way = driveWay(t, g, m.drive.to, m.drive.to, undefined, { x: m.x, y: m.y, heading: m.heading }, undefined, undefined, m.kind);
-        if (!way) { m.gone = true; continue; }
-        m.path = way.path; m.line = way.line; m.drive = way.drive; m.bends = undefined;
-        m.at = new Float32Array(m.line.length);
-        for (let k = 1; k < m.line.length; k++) m.at[k] = m.at[k - 1] + Math.hypot(m.line[k].x - m.line[k - 1].x, m.line[k].y - m.line[k - 1].y);
-        m.s = 0;
+        if (m.drive && !planAgain(t, g, m)) m.gone = true;
       }
     }
   }

@@ -18,7 +18,7 @@
 import { siteTrucks } from "../../game/site-trucks";
 import {
   FLEET_FLATBED_COLOUR, FLEET_TIPPER_COLOUR, FLEET_TIPPER_EMPTY_COLOUR, PIPE_EMPTY_COLOUR, PIPE_LORRY_COLOUR,
-  PLANT_CRANE_COLOUR, PLANT_LOADER_COLOUR, PLANT_MIXER_COLOUR, PLANT_PICKUP_COLOUR, PLANT_LOADER_EMPTY_COLOUR } from "../agents/cars/fleet";
+  PLANT_CRANE_COLOUR, PLANT_LOADER_COLOUR, PLANT_MIXER_COLOUR, PLANT_PICKUP_COLOUR, PLANT_LOADER_EMPTY_COLOUR, halfLength } from "../agents/cars/fleet";
 import type { Place } from "../agents/roads";
 import { setOff, type Mover, type Town } from "../agents/town";
 import type { Grid, Structure } from "../grid";
@@ -134,6 +134,22 @@ export function yardQueued(town: Town, role: NonNullable<Mover["job"]>["role"]):
 const TO_BAY = [{ u: 4.36, v: 1.62 }, { u: YARD_BAY.u, v: YARD_BAY.v }];
 const SWING = [{ u: 4.46, v: 2.3 }, { u: 4.42, v: 1.75 }, { u: 4.3, v: 1.42 }, { u: 4.1, v: 1.42 }, { u: 4.03, v: 1.6 }, { u: 4.03, v: 1.8 }];
 const GATE_V = 3.0;
+/** Over the gate, tiles, a lorry's nose comes to look: on the pavement, short of the lane. */
+const NOSE_OUT = 0.06;
+/** How near the gate one coming home is let in first, tiles. */
+const COMING_IN = 2;
+/** Whether one is on its way IN at a yard's gate: nobody goes to the gate to stand nose to nose with it, it out in the road. */
+function comingIn(town: Town, s: Structure, m: Mover): boolean {
+  const gate = inYardAt(s, YARD_GATE.u, GATE_V), near = (o: Mover, d: number) => Math.hypot(o.x - gate.x, o.y - gate.y) < d;
+  return town.legs.some((l) => l.m !== m && !l.join && near(l.m, 0.9))
+    || town.movers.some((o) => o.job?.role === "haul-back" && near(o, COMING_IN) && o.at[o.at.length - 1] - o.s < COMING_IN);
+}
+/** A lorry's way out of a yard and onto the road at `next`: to the gate, its nose short of the road; and, when the way is clear, out. @see legs clearOut */
+const outWay = (town: Town, s: Structure, m: Mover, up: number, next: { x: number; y: number }, on?: () => void): LegPoint[] => [
+  { ...inYardAt(s, YARD_GATE.u, Math.min(GATE_V - 0.1, GATE_V + NOSE_OUT - halfLength(m))), up, hold: () => comingIn(town, s, m) },
+  { ...inYardAt(s, YARD_GATE.u, GATE_V + 0.2), up: 0, give: true, ...(on ? { on } : {}) },
+  { x: next.x, y: next.y, up: 0 },
+];
 
 /** Bring a lorry home: from where it is, in at the gate, swung round, and backed into its bay. */
 function bringHome(g: Grid, town: Town, f: FleetLorry, onRoad: boolean): void {
@@ -144,7 +160,8 @@ function bringHome(g: Grid, town: Town, f: FleetLorry, onRoad: boolean): void {
   for (const p of SWING) pts.push({ ...inYardAt(s, p.u, p.v), up });
   pts.push({ ...inYardAt(s, at.u, 1.32), up, rev: true }, { x: at.x, y: at.y, up, rev: true });
   f.m.colour = colourOf(f.body, null);
-  startLeg(town, f.m, pts, () => { f.home = true; }, onRoad ? 0 : up);
+  // (Turning in off the road, it has the way across the near lane: what comes along that lane lets it in.)
+  startLeg(town, f.m, pts, () => { f.home = true; }, onRoad ? 0 : up).out = onRoad;
 }
 
 /**
@@ -176,7 +193,7 @@ export function stepYard(town: Town, g: Grid, dt: number): void {
     const up = levelOf(s), at = bayOf(s, f.bay);
     if (q.phase === "queued") {
       // (One at a time under the crane, and none drawn up while another is still pulling out from under it.)
-      if (town.yard.some((x) => x.yard === q.yard && x !== q && (x.phase === "toBay" || x.phase === "loading" || (x.phase === "out" && x.left > -1.2)))) continue;
+      if (town.yard.some((x) => x.yard === q.yard && x !== q && (x.phase === "toBay" || x.phase === "loading" || (x.phase === "out" && (x.left > -1.2 || (!x.lorry.away && town.legs.some((l) => l.m === x.lorry.m && !l.out))))))) continue;
       // (Nor while a job's machine is on its way through the yard, under the crane and out at the gate.)
       if (yardBusy(town, q.yard)) continue;
       q.phase = "toBay";
@@ -197,7 +214,7 @@ export function stepYard(town: Town, g: Grid, dt: number): void {
         bringHome(g, town, f, false);
         continue;
       }
-      startLeg(town, f.m, [{ ...inYardAt(s, YARD_GATE.u, GATE_V - 0.1), up }, { ...inYardAt(s, YARD_GATE.u, GATE_V + 0.2), up: 0 }, { x: next.x, y: next.y, up: 0 }], () => {
+      startLeg(town, f.m, outWay(town, s, f.m, up, next), () => {
         // THE SAME LORRY, on the road: its number, its paint, its heading as it comes off the yard's ramp.
         next.id = f.m.id; next.colour = f.m.colour; next.fleet = true; next.job = q.job; next.heading = f.m.heading;
         town.movers.push(next);
@@ -250,7 +267,7 @@ function plantBay(town: Town, s: Structure) {
 }
 /** Whether a yard is clear for one of its machines to set off: nothing under its crane, and nothing on the move where it sets off or at its gate. */
 function yardClear(town: Town, s: Structure, from: { x: number; y: number }): boolean {
-  if (town.yard.some((x) => x.yard === s.id && (x.phase === "toBay" || x.phase === "loading" || (x.phase === "out" && x.left > -1.2)))) return false;
+  if (town.yard.some((x) => x.yard === s.id && (x.phase === "toBay" || x.phase === "loading" || (x.phase === "out" && (x.left > -1.2 || (!x.lorry.away && town.legs.some((l) => l.m === x.lorry.m && !l.out))))))) return false;
   if (yardBusy(town, s.id)) return false;
   const gate = inYardAt(s, YARD_GATE.u, GATE_V);
   return !town.legs.some((l) => Math.hypot(l.m.x - from.x, l.m.y - from.y) < YARD_CLEAR || Math.hypot(l.m.x - gate.x, l.m.y - gate.y) < YARD_CLEAR);
@@ -273,9 +290,7 @@ export function plantOut(g: Grid, town: Town, from: Place, to: Place, job: NonNu
   legNow(town, name, 1);
   inYardNow(town, s.id, 1);
   let out = false;
-  const pts: LegPoint[] = [{ ...inYardAt(s, at.u, 1.3), up }, ...TO_BAY.map((p) => ({ ...inYardAt(s, p.u, p.v), up })), { ...inYardAt(s, YARD_GATE.u, GATE_V - 0.1), up }];
-  // (Through the gate: the yard is free for the next.)
-  pts.push({ ...inYardAt(s, YARD_GATE.u, GATE_V + 0.2), up: 0, on: () => { if (!out) { out = true; inYardNow(town, s.id, -1); } } }, { x: next.x, y: next.y, up: 0 });
+  const pts: LegPoint[] = [{ ...inYardAt(s, at.u, 1.3), up }, ...TO_BAY.map((p) => ({ ...inYardAt(s, p.u, p.v), up })), ...outWay(town, s, m, up, next, () => { if (!out) { out = true; inYardNow(town, s.id, -1); } })];
   startLeg(town, m, pts, () => {
     if (!out) { out = true; inYardNow(town, s.id, -1); }
     next.id = m.id; next.colour = colour; next.job = job; next.heading = m.heading;
@@ -294,7 +309,7 @@ function plantHome(g: Grid, town: Town, m: Mover): void {
   // (Into a bay no lorry stands in, and the yard busy till it is under the shed.)
   const up = levelOf(yard), at = plantBay(town, yard), id = yard.id;
   inYardNow(town, id, 1);
-  startLeg(town, m, [{ ...inYardAt(yard, YARD_GATE.u, GATE_V + 0.25), up: 0 }, { ...inYardAt(yard, YARD_GATE.u, GATE_V - 0.1), up }, { ...inYardAt(yard, 4.42, 1.75), up }, { ...inYardAt(yard, at.u, 1.3), up }, { x: at.x, y: at.y, up }], () => inYardNow(town, id, -1), 0);
+  startLeg(town, m, [{ ...inYardAt(yard, YARD_GATE.u, GATE_V + 0.25), up: 0 }, { ...inYardAt(yard, YARD_GATE.u, GATE_V - 0.1), up }, { ...inYardAt(yard, 4.42, 1.75), up }, { ...inYardAt(yard, at.u, 1.3), up }, { x: at.x, y: at.y, up }], () => inYardNow(town, id, -1), 0).out = true;
 }
 
 /** Seconds a lorry stands at a site or at a road's works while it is unloaded. */

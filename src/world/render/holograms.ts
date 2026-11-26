@@ -13,9 +13,10 @@
  */
 import type { Container, Graphics } from "pixi.js";
 
-import { idx, inBounds, type Structure } from "../grid";
+import { footprintCells, idx, inBounds, type Grid, type Structure } from "../grid";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
-import { structureDef } from "../structures/def";
+import { placementOf, structureDef } from "../structures/def";
+import { medianHeight } from "../structures/place";
 import { rendererFor, type RenderCtx, type StructureHandle, type StructureRenderer } from "../structures/render";
 
 /**
@@ -44,7 +45,7 @@ const PLANNED_ALPHA = 0.45;
 /** How the build tool's hologram looks: steady glass, a touch clearer than a planned one. */
 const STEADY_ALPHA = 0.55;
 
-type Shown = { spec: HoloSpec; s: Structure; handle: StructureHandle; renderer: StructureRenderer; styled: boolean };
+type Shown = { spec: HoloSpec; s: Structure; handle: StructureHandle; renderer: StructureRenderer; styled: boolean; /** The level its plot will be made, where that is not its first corner's. */ level?: number };
 
 export type Holograms = {
   /** Show exactly these, mounting what is new and unmounting what is gone. */
@@ -63,11 +64,28 @@ export const partsOf = (h: StructureHandle): Container[] => {
 /** A footprint's diamond on the ground, in the scan layer's space; null without a grid to stand on. */
 let groundOf: ((x: number, y: number) => number) | null = null;
 let scaleOf = 1;
-function footOf(s: Structure, _scan: Graphics): number[] | null {
+function footOf(s: Structure, _scan: Graphics, level?: number): number[] | null {
   if (!groundOf) return null;
-  const z = groundOf(s.x, s.y);
+  const z = level ?? groundOf(s.x, s.y);
   const P = (u: number, v: number): [number, number] => [(u - v) * HW * scaleOf, (u + v) * HH * scaleOf - z * HEIGHT_UNIT * scaleOf];
   return [...P(s.x - 0.5, s.y - 0.5), ...P(s.x + s.w - 0.5, s.y - 0.5), ...P(s.x + s.w - 0.5, s.y + s.h - 0.5), ...P(s.x - 0.5, s.y + s.h - 0.5)];
+}
+
+/**
+ * THE LEVEL A PLOT WILL BE MADE, where it is not level now: the ground under a building is levelled when it is put
+ * down, and its hologram stands on that — not at whatever height its first corner has, sunk in a slope or over it.
+ */
+export function plotLevel(g: Grid, s: Pick<Structure, "def" | "x" | "y" | "w" | "h">): number | undefined {
+  const def = structureDef(s.def);
+  if (!def || !placementOf(def).autoFlatten || placementOf(def).riverside) return undefined;
+  const heights = footprintCells(s.x, s.y, s.w, s.h).filter((c) => inBounds(g, c.x, c.y)).map((c) => g.height[idx(g, c.x, c.y)]);
+  return new Set(heights).size > 1 ? medianHeight(heights) : undefined;
+}
+/** The map with a plot levelled. */
+function levelled(g: Grid, s: Structure, z: number): Grid {
+  const height = g.height.slice();
+  for (const c of footprintCells(s.x, s.y, s.w, s.h)) if (inBounds(g, c.x, c.y)) height[idx(g, c.x, c.y)] = z;
+  return { ...g, height };
 }
 
 /** The part after the point, 0–1, whatever the sign. */
@@ -100,7 +118,9 @@ export function createHolograms(): Holograms {
         const renderer = def ? rendererFor(def) : null;
         if (!def || !renderer) continue;
         const s: Structure = { id: nextId--, def: def.id, x: spec.x, y: spec.y, w: spec.w ?? def.footprint.w, h: spec.h ?? def.footprint.h, ...(spec.facing ? { facing: spec.facing } : {}) };
-        shown.set(key, { spec, s, handle: renderer.mount(s, def, ctx), renderer, styled: false });
+        const level = plotLevel(ctx.grid, s);
+        const on = level === undefined ? ctx : { ...ctx, grid: levelled(ctx.grid, s, level) };
+        shown.set(key, { spec, s, handle: renderer.mount(s, def, on), renderer, styled: false, level });
       }
     },
 
@@ -131,7 +151,7 @@ export function createHolograms(): Holograms {
             }
             m.styled = true;
           }
-          const foot = footOf(m.s, scan);
+          const foot = footOf(m.s, scan, m.level);
           if (foot) { scan.poly(foot); scan.fill({ color: colour, alpha: 0.1 }); scan.poly(foot); scan.stroke({ color: colour, width: 1.5, alpha: 0.6 }); }
           continue;
         }
@@ -154,7 +174,7 @@ export function createHolograms(): Holograms {
         // SCAN LINES, in the overlay's space: faint rules, and a bright one running up.
         const a = scan.parent.toLocal({ x: x0, y: y0 });
         // Its footprint lit on the ground beneath it.
-        const foot = footOf(m.s, scan);
+        const foot = footOf(m.s, scan, m.level);
         if (foot) { scan.poly(foot); scan.fill({ color: colour, alpha: 0.22 * stutter }); scan.poly(foot); scan.stroke({ color: colour, width: 1.5, alpha: 0.8 * stutter }); }
         // SLICES THROUGH IT, not lines across the screen: the footprint's
         // outline lifted from the ground to the roof, so a scan follows its

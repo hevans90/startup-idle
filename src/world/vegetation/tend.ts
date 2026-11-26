@@ -64,6 +64,20 @@ export function fell(g: Grid, palette: Palette, cells: readonly Cell[], under = 
   V.rev++;
 }
 
+/**
+ * CLEAR A CELL to bare earth: what grows on it, what spills onto it from the wood beside it, and what lies about on
+ * it. `healed`: earth no longer, what was cleared grown over — grass. Whether that changed anything.
+ */
+export function clearCell(g: Grid, i: number, healed = false): boolean {
+  const V = g.veg, to = healed ? COVER.grass : COVER.none;
+  if (V.seen[i] === g.terrain[i] && (healed ? V.cover[i] !== COVER.none : V.cover[i] === COVER.none)) return false;
+  V.seen[i] = g.terrain[i];
+  V.cover[i] = to; V.density[i] = 0; V.age[i] = MATURE; V.health[i] = 255; V.wear[i] = 0;
+  V.changed.add(i);
+  V.rev++;
+  return true;
+}
+
 /** WHAT CAN BE PLANTED: a wood of saplings, a row of trees (one a cell), a hedge, a bed of flowers. */
 export type Planting = "woods" | "row" | "hedge" | "bed";
 export const PLANTINGS: readonly Planting[] = ["woods", "row", "hedge", "bed"];

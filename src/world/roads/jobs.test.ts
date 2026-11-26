@@ -14,6 +14,8 @@ import { touchesRoad, validatePlacement } from "../structures/place";
 import { idx, setHeight, type Grid } from "../grid";
 import { roadCost } from "../../game/build-cost";
 import { ARRIVE, GANGS, GAP, PACE, SET_GAP, SET_STEPS, TILES_PER_LOAD, frontAt, frontOf, jobSeconds, lengthsOf, loadPrice, plannedGrid, setOutAt, setOutSeconds, stageOf, startOf } from "./jobs";
+import { forestTrees } from "../render/forest";
+import { COVER } from "../vegetation/fields";
 import { connects, isPaved } from "./mask";
 import { rampNeed } from "./ramp-derive";
 import { groundMode, setGroundMode } from "../render/ground-mode";
@@ -379,4 +381,27 @@ describe("a road is set out before it is dug", () => {
     j.t = ARRIVE;
     expect(frontAt(j, 0)).toBe(0);
   });
+});
+
+test("what stands or lies on the line goes as the digger comes to it, what is ahead of it not till then; cancelled, it is grass again", () => {
+  const ground = groundMode();
+  setGroundMode("smooth");
+  try {
+    const g = game(24, 24, (q) => { for (let x = 0; x < 24; x++) for (let y = 0; y < 24; y++) if (y !== 12 && y !== 20) q.terrain[idx(q, x, y)] = s().palette.indexOf("wood3"); });
+    for (let x = 0; x < 3; x++) g.paved[idx(g, x, 12)] = 1;
+    s().loadGrid(g);
+    const G = s().grid, pal = s().palette, on = (x: number) => forestTrees(G, pal, x, 12).length;
+    drag("paintRoad", 2, 12, 16, 12);
+    const j = G.roadJobs[0];
+    const trees = j.cells.map((c) => (c.fresh ? on(c.x) : 0));
+    // (The wood spills onto the line from both sides.)
+    expect(trees.reduce((a, b) => a + b, 0)).toBeGreaterThan(3);
+    for (let t = 0; t < 400 && j.dug < 6; t++) run(1);
+    for (let k = 0; k <= j.dug; k++) expect(on(j.cells[k].x)).toBe(0);
+    for (let k = j.dug + 1; k < j.cells.length; k++) expect(on(j.cells[k].x)).toBe(trees[k]);
+    const last = j.cells[j.dug];
+    drag("demolish", j.cells[j.cells.length - 1].x, 12, j.cells[j.cells.length - 1].x, 12);
+    expect(G.roadJobs).toHaveLength(0);
+    expect(G.veg.cover[idx(G, last.x, last.y)]).toBe(COVER.grass);
+  } finally { setGroundMode(ground); done(); }
 });

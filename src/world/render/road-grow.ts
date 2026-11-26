@@ -15,14 +15,16 @@
  *
  * Every edge is where a trade has got to along the job PLUS a field of
  * noise fixed to the ground, so a front is ragged, keeps its shape as it
- * advances, and never jumps a tile. One quad a cell, both tiles sampled a
+ * advances, and never jumps a tile. A draped tile a cell, both tiles sampled a
  * pixel at a time; four numbers a vertex move it — the four trades' fronts.
  * Both dialects from one body. @see render/road-works, roads/jobs frontAt
  */
 import { Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, type Texture, type TextureSource } from "pixi.js";
 
-import { HEIGHT_UNIT, HH, HW } from "../iso";
+import { DRAPE, drape, drapeIndices, type Level } from "./works-surface";
 
+/** Vertices a cell. */
+const GROW_VERTS = (DRAPE + 1) ** 2;
 /** Floats a vertex: x, y; its place in the unlined tile's page and the lined one's, pixels; where it is on the map, tiles; the four fronts, cells past this cell's near edge; the way the job runs through it and its middle; the time, and whether it is a bridge's deck. */
 const WORDS = 18;
 
@@ -30,7 +32,7 @@ const BODY = (LET: string, VAR: string, LET2: string, LET3: string, VAR3: string
   ${LET2} q = vTile - vDir.zw;
   ${LET} along = dot(q, vDir.xy) + 0.5;
   ${LET} across = dot(q, ${V2}(-vDir.y, vDir.x));
-  ${LET} inside = step(abs(q.x), 0.5) * step(abs(q.y), 0.5);
+  ${LET} inside = step(abs(q.x), 0.521) * step(abs(q.y), 0.521);
   ${LET} deck = vMisc.y;
   // The ground's own grain, fixed to the map: what makes every edge ragged and keeps it the same shape as it moves on.
   ${LET} nA = noise(vTile * 4.0 + 11.0);
@@ -274,6 +276,9 @@ export type GrowCell = {
   /** The cell, the height its road stands at, and the way the job comes into it. */
   cx: number; cy: number; h: number; ix: number; iy: number;
   deck: boolean;
+  /** The ground it is laid on; and the corners the tiles were painted for, where not level at `h`. @see works-surface */
+  on: Level;
+  zc?: readonly [number, number, number, number];
 };
 export type Grow = {
   mesh: Mesh<Geometry, Shader>;
@@ -288,25 +293,25 @@ const pagePx = (t: Texture) => {
   return [[u.x0 * w, u.y0 * h], [u.x1 * w, u.y1 * h], [u.x2 * w, u.y2 * h], [u.x3 * w, u.y3 * h]];
 };
 
-/** The vertices of a growing cell, all but its fronts: for the mesh, and for whoever tests where they go. */
+/** The vertices of a growing cell, all but its fronts: for the mesh, and for whoever tests where they go. @see works-surface drape */
 export function growVerts(out: Float32Array, c: GrowCell): void {
-  const w = c.bare.orig.width * c.scale, h = c.bare.orig.height * c.scale;
-  const ax = c.bare.defaultAnchor?.x ?? 0.5, ay = c.bare.defaultAnchor?.y ?? 1;
-  const x0 = c.x - ax * w, y0 = c.y - ay * h, a = pagePx(c.bare), b = pagePx(c.lined);
-  [[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]].forEach(([x, y], k) => {
+  const a = pagePx(c.bare), b = pagePx(c.lined);
+  const at = (p: number[][], s: number, t: number, k: number) => {
+    const top = p[0][k] + (p[1][k] - p[0][k]) * s, low = p[3][k] + (p[2][k] - p[3][k]) * s;
+    return top + (low - top) * t;
+  };
+  drape({ x: c.cx, y: c.cy, scale: c.scale, on: c.on, tex: c.bare, texX: c.x, texY: c.y, z: c.h, zc: c.zc }).forEach((q, k) => {
     const o = k * WORDS;
-    // Where this corner is on the map, were it on the cell's own level: the screen undone.
-    const sx = x / (HW * c.scale), sy = (y + c.h * HEIGHT_UNIT * c.scale) / (HH * c.scale);
-    out[o] = x; out[o + 1] = y;
-    out[o + 2] = a[k][0]; out[o + 3] = a[k][1]; out[o + 4] = b[k][0]; out[o + 5] = b[k][1];
-    out[o + 6] = (sx + sy) / 2; out[o + 7] = (sy - sx) / 2;
+    out[o] = q.x; out[o + 1] = q.y;
+    out[o + 2] = at(a, q.s, q.t, 0); out[o + 3] = at(a, q.s, q.t, 1); out[o + 4] = at(b, q.s, q.t, 0); out[o + 5] = at(b, q.s, q.t, 1);
+    out[o + 6] = q.u; out[o + 7] = q.v;
     out[o + 12] = c.ix; out[o + 13] = c.iy; out[o + 14] = c.cx; out[o + 15] = c.cy;
     out[o + 17] = c.deck ? 1 : 0;
   });
 }
 
 export function createGrow(c: GrowCell): Grow {
-  const data = new Float32Array(4 * WORDS), STRIDE = WORDS * 4;
+  const data = new Float32Array(GROW_VERTS * WORDS), STRIDE = WORDS * 4;
   growVerts(data, c);
   const vertices = new Buffer({ data, usage: BufferUsage.VERTEX | BufferUsage.COPY_DST });
   const geometry = new Geometry({
@@ -319,7 +324,7 @@ export function createGrow(c: GrowCell): Grow {
       aDir: { buffer: vertices, format: "float32x4", stride: STRIDE, offset: 48 },
       aMisc: { buffer: vertices, format: "float32x2", stride: STRIDE, offset: 64 },
     },
-    indexBuffer: new Buffer({ data: new Uint32Array([0, 1, 2, 0, 2, 3]), usage: BufferUsage.INDEX }),
+    indexBuffer: new Buffer({ data: drapeIndices(), usage: BufferUsage.INDEX }),
   });
   const mesh = new Mesh<Geometry, Shader>({ geometry, shader: growShader(c.bare.source, c.lined.source) });
   mesh.eventMode = "none";
@@ -331,7 +336,7 @@ export function createGrow(c: GrowCell): Grow {
       const key = `${f0.toFixed(3)},${f1.toFixed(3)},${f2.toFixed(3)},${f3.toFixed(3)},${concrete.toFixed(3)}`;
       if (key === was) return;
       was = key;
-      for (let k = 0; k < 4; k++) { const o = k * WORDS; data[o + 8] = f0; data[o + 9] = f1; data[o + 10] = f2; data[o + 11] = f3; data[o + 16] = concrete; }
+      for (let k = 0; k < GROW_VERTS; k++) { const o = k * WORDS; data[o + 8] = f0; data[o + 9] = f1; data[o + 10] = f2; data[o + 11] = f3; data[o + 16] = concrete; }
       vertices.update();
     },
     destroy() { mesh.parent?.removeChild(mesh); mesh.destroy(); geometry.destroy(true); },

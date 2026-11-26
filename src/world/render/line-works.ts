@@ -15,6 +15,7 @@
  * are units of the vehicles' sheet, moved by transform. @see plant-kit
  */
 import { drawnHeight } from "./drawn";
+import { groundMode } from "./ground-mode";
 import { Container, Graphics, Sprite, type Geometry, type Mesh, type Renderer, type Shader } from "pixi.js";
 
 import { bakedCars, loadCarSprites, type CarSprites } from "../agents/cars/car-sheet";
@@ -268,8 +269,8 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
       for (const q of m.pegs) drop(q);
       m.pegs = [];
       if (Pr) for (let c = k0; c <= n && c < k0 + 40; c++) {
-        const a = by(Math.min(n, c), 0.4 * FAR), hh = hAt(c), band = bandOf(Math.round(a.x), Math.round(a.y));
-        const put = (id: string, turn: number, px: number, py: number) => { const sp = propSprite(Pr, id, turn, px, py, hh, scale), layer = bands.dynamicOf[band]; if (sp && layer) { sp.zIndex = px + py - band; layer.addChild(sp); M_.pegs.push(sp); } };
+        const a = by(Math.min(n, c), 0.4 * FAR), hh = (x: number, y: number) => (groundMode() === "smooth" ? drawnHeight(g, x + 0.5, y + 0.5) : hAt(c)), band = bandOf(Math.round(a.x), Math.round(a.y));
+        const put = (id: string, turn: number, px: number, py: number) => { const sp = propSprite(Pr, id, turn, px, py, hh(px, py), scale), layer = bands.dynamicOf[band]; if (sp && layer) { sp.zIndex = px + py - band; layer.addChild(sp); M_.pegs.push(sp); } };
         put("stake", c & 3, a.x, a.y);
         const bd = c < n ? bendAt(c) : null;
         if (bd) {
@@ -776,10 +777,14 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
             for (let q = 0; q + 1 < cuts.length; q++) {
               if (cuts[q + 1] - cuts[q] < 1e-4) continue;
               const p0 = alongLine(j.cells, cuts[q]), p1 = alongLine(j.cells, cuts[q + 1]);
-              const c = j.cells[Math.max(0, Math.min(n - 1, Math.floor((cuts[q] + cuts[q + 1]) / 2)))], h = g.height[idx(g, c.x, c.y)] + up;
+              const c = j.cells[Math.max(0, Math.min(n - 1, Math.floor((cuts[q] + cuts[q + 1]) / 2)))], flat = g.height[idx(g, c.x, c.y)];
               const G = gfx((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
               if (!G) continue;
-              const side = (p: { x: number; y: number; heading: number }, s: number) => pt(scale, p.x - Math.sin(p.heading) * s, p.y + Math.cos(p.heading) * s, h);
+              // (On the ground as it is drawn: a trench up a slope is cut up the slope.)
+              const side = (p: { x: number; y: number; heading: number }, s: number) => {
+                const x = p.x - Math.sin(p.heading) * s, y = p.y + Math.cos(p.heading) * s;
+                return pt(scale, x, y, (groundMode() === "smooth" ? drawnHeight(g, x + 0.5, y + 0.5) : flat) + up);
+              };
               G.poly([...side(p0, off - w / 2), ...side(p1, off - w / 2), ...side(p1, off + w / 2), ...side(p0, off + w / 2)]).fill({ color: colour, alpha });
             }
           };
@@ -812,7 +817,7 @@ export function createLineWorks(bands: BandLayer, renderer: Renderer | null = nu
           if (!cars) return null;
           const id = `${j.id}:${name}`, on = alongLine(j.cells, p), c = j.cells[Math.max(0, Math.min(n - 1, Math.floor(p)))];
           const at = { x: on.x - Math.sin(on.heading) * across, y: on.y + Math.cos(on.heading) * across, heading: on.heading };
-          return drive(name, id, at.x, at.y, at.heading + turn, g.height[idx(g, c.x, c.y)], looks);
+          return drive(name, id, at.x, at.y, at.heading + turn, groundMode() === "smooth" ? drawnHeight(g, at.x + 0.5, at.y + 0.5) : g.height[idx(g, c.x, c.y)], looks);
         };
         // ITS MACHINES COME AND GO BY ROAD (@see line-loads stepLinePlant): none of them on it till they have come from
         // the yard; then each DRIVES — from where it turned off the road to its work, from one place of work to the

@@ -449,7 +449,8 @@ export function drawSite(p: Pen, b: Building, f: Footprint, site: Site, stock: n
   // (Its spoil heaped in the corner only where no lorry can stand to take it.)
   if (site.pit > 0 && site.plinth === 0 && !G.lorry) drawSpoil(p, f, Math.max(site.pit / PIT, 1 - site.fill));
   if (cabin) drawCabin(p);
-  if (site.plinth > 0.005) {
+  // (From the first of it: the pit is gone with its first sliver, and bare ground flashed between them.)
+  if (site.plinth > 0) {
     p.box(pi, pi, f.w - pi, f.h - pi, 0, site.plinth, CONCRETE);
     // The mat of bar showing until the plinth is cast to its height.
     if (site.plinth < b.plinth.h - 1e-6) {

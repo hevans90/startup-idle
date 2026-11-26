@@ -16,7 +16,7 @@
  *
  * Pure: what it would write is handed to its caller. @see world.store
  */
-import { idx, inBounds, type Grid } from "../grid";
+import { clearCell } from "../vegetation/tend";import { idx, inBounds, type Grid } from "../grid";
 import { gradeRoad, type Grade, type GradeCell } from "./grade";
 import { derivedRamp } from "./ramp-derive";
 
@@ -373,6 +373,8 @@ export function stepRoadJobs(g: Grid, dt: number, crews?: { on: (j: RoadJob, cre
       if (c.fresh && !c.deck && g.deck[i] === 0 && g.height[i] !== c.z) writes.heights.push({ x: c.x, y: c.y, to: c.z });
     }
     j.dug = Math.max(j.dug, after[0]);
+    // WHAT STANDS OR LIES ON IT goes as the digger comes to it: trees, bushes, rocks.
+    if (work[0] >= 0) for (let k = j.opened; k < Math.min(j.cells.length, j.dug + 1); k++) { const c = j.cells[k]; if (c.fresh) clearCell(g, idx(g, c.x, c.y)); }
     // OPENING: the furthest end of a length the lining has passed.
     let to = j.opened;
     for (const b of j.lengths) if (b <= after[3] && b > to) to = b;
@@ -382,6 +384,8 @@ export function stepRoadJobs(g: Grid, dt: number, crews?: { on: (j: RoadJob, cre
         if (c.deck) writes.decks.push({ x: c.x, y: c.y, z: c.z });
         else if (g.deck[i] === 0 && g.height[i] !== c.z) writes.heights.push({ x: c.x, y: c.y, to: c.z });
         if (g.paved[i] === 0) writes.paved.push({ x: c.x, y: c.y });
+        // (Grass again under it: what is there should the road be deleted.)
+        if (c.fresh) clearCell(g, i, true);
       }
       // WHAT IT CHANGES OF THE ROADS ALREADY THERE — a ramp levelled for a junction, and the rows that then climb
       // in its place, on its line or beside it — changes all at once, with its first length: each such change
@@ -425,6 +429,7 @@ export function cancelRoadJobs(g: Grid, hit: ReadonlySet<number>): { writes: Roa
   const drop = (j: RoadJob) => {
     g.roadJobs = g.roadJobs.filter((q) => q !== j);
     for (let k = j.opened; k < j.dug; k++) { const c = j.cells[k]; if (c.fresh && !c.deck && g.height[idx(g, c.x, c.y)] !== c.from) writes.heights.push({ x: c.x, y: c.y, to: c.from }); }
+    for (let k = j.opened; k < Math.min(j.cells.length, j.dug + 1); k++) { const c = j.cells[k]; if (c.fresh) clearCell(g, idx(g, c.x, c.y), true); }
     cancelled.push({ job: j, tiles: j.cells.slice(j.opened).filter((c) => c.fresh).length });
   };
   const first = g.roadJobs.findIndex((j) => j.cells.some((c, k) => k >= j.opened && hit.has(idx(g, c.x, c.y))));

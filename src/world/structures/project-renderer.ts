@@ -79,8 +79,6 @@ type ProjectHandle = StructureHandle & {
   liveT: number;
   /** Seconds since the crew was last drawn. @see CREW_EVERY */
   crewDue: number;
-  /** Whether the site has moved on since it was mounted: its tiles are then not batched. */
-  growing: boolean;
   /** Its props from the sheet, once open, and what they were stood up for. @see Building.props */
   props: Container[];
   propsKey: string;
@@ -502,31 +500,29 @@ function placeBaked(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numb
 }
 
 /** Draw every column of a project, and the crane over it. */
-function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx, growing = false): void {
+function draw(h: ProjectHandle, s: Structure, ctx: RenderCtx): void {
   const ground = groundOf(s, ctx);
   const f = { w: s.w, h: s.h };
   const b = s.build;
   const site = b ? siteAt(h.model, Math.min(1, b.done / b.need), groundShare(b.deliveries, s.def)) : null;
   h.site = site;
-  h.growing = !!site && (growing || h.growing);
   const lawnless = !site && !!h.model.lawn && onGrass(s, ctx);
   // (One of the company's own, finished: asked for its baked building, which is drawn when it is in.)
   if (!site && s.w > 3 && LANDMARK_DEFS.has(s.def) && !landmarksLoaded()) void landmarkSprites();
   const baked = placeBaked(h, s, ctx, ground);
   h.columns.forEach((g, k) => {
-    // A SITE GOING UP IS NEVER BATCHED: redrawn every quarter percent, a small
-    // tile's piece crossed Pixi's batching limit back and forth as the work
-    // grew, and each crossing re-packed its chunk — the 3×3 garage's pieces
-    // flickered, smeared toward its back tile and lagged the rest. It is
-    // un-batched the first time the work moves on, once, and stays so; a site
-    // that is not moving — laid up, or a fixture's — is drawn once and batches.
+    // EVERYTHING BATCHES, A SITE GOING UP AS WELL. Left to Pixi's own rule a
+    // small tile's piece crossed its batching limit back and forth as the work
+    // grew; and never batched, a redrawn piece left whatever came after it in
+    // its chunk — the front of the site, its machines — out of every other
+    // frame. A redraw makes the chunk's list again either way, so it costs nothing.
     //
     // A FINISHED BUILDING ALWAYS BATCHES. It is drawn once, so batching costs
     // nothing after; left to Pixi's own rule, any tile over 400 vertices — most
     // of a detailed building — was drawn alone, a draw call and a uniform group
     // of its own every frame: a gallery of them was a thousand draws, and
     // overflowed WebGPU's per-frame uniform buffer outright.
-    g.context.batchMode = h.growing ? "no-batch" : "batch";
+    g.context.batchMode = "batch";
     g.clear();
     if (baked) return;
     const p = makePen(g, s.x - 0.5, s.y - 0.5, ground, ctx.scale, h.cells[k], site ? 0 : snowStep() / SNOW_STEPS);
@@ -571,7 +567,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   const handle: ProjectHandle = {
     columns, cells, sky, live, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
     // Out of step with every other crane on the map.
-    t: s.id * 3.7, site: null, plant: createSitePlant(), crew: [], leaving: [], cameSeen: 0, goesSeen: 0, baked: [], bakedKey: "", opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, growing: false, props: [], propsKey: "",
+    t: s.id * 3.7, site: null, plant: createSitePlant(), crew: [], leaving: [], cameSeen: 0, goesSeen: 0, baked: [], bakedKey: "", opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, props: [], propsKey: "",
     destroy: () => { setPlanted(`building:${s.id}`, []); for (const sp of handle.baked) { sp.parent?.removeChild(sp); sp.destroy(); } for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); handle.leaving.forEach(dropHand); dropSitePlant(handle.plant); for (const c of handle.props) { c.parent?.removeChild(c); c.destroy({ children: true }); } },
   };
   draw(handle, s, ctx);
@@ -594,7 +590,7 @@ registerCustomRenderer("project", {
     if (now !== handle.drawn) {
       // IT HAS OPENED: a site last frame, a building this one.
       if (handle.site && !s.build) handle.opened = 0;
-      draw(handle, s, ctx, true);
+      draw(handle, s, ctx);
       handle.drawn = now;
     }
     const ground = groundOf(s, ctx);

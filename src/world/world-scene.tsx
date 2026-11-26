@@ -270,7 +270,9 @@ const phaseNow = () => (import.meta.env.DEV ? (window as unknown as { __dayPhase
 
 /** Movers on the map at which the town sounds as busy as it gets. */
 const TOWN_FULL = 80;
-import { HOLO_SAVING, createHolograms, partsOf, type HoloSpec, type Holograms } from "./render/holograms";
+import { plannedCorners } from "./render/works-surface";
+import { plannedGrid } from "./roads/jobs";
+import { HOLO_SAVING, createHolograms, partsOf, plotLevel, type HoloSpec, type Holograms } from "./render/holograms";
 import { drawnBounds } from "./structures/layer";
 import { heldDevice } from "./debug/gpu-device";
 import { deviceLost, deviceWhy, onDeviceLost, sayLoad } from "./render/device";
@@ -2768,6 +2770,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       const under = s0.tool === "placeStructure" ? structureAt(grid, s0.head.x, s0.head.y) : -1;
       const plan = under >= 0 ? planUpgrade(grid, under, rules) : null;
       // What a seaport standing here would be, for its berths, gate and way in. @see createPortGuide
+      /** The level its plot will be made, where it is not level now. */
+      let plot: number | undefined;
       let port: { at: PortRect; facing: Facing; top: number } | null = null;
       /** The biggest ship a port of this size takes, by number. */
       const topOf = (berths = 1) => SHIP_CLASSES.reduce((n, c, k) => (c.tier <= berths ? k : n), 0);
@@ -2792,6 +2796,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           cells = footprintCells(at.x, at.y, at.w, at.h);
           valid = (_g, x, y) => check.cells[(y - at.y) * at.w + (x - at.x)] ?? { ok: false };
           if (check.facing) port = { at, facing: check.facing, top: topOf(def.port?.berths) };
+          plot = plotLevel(grid, { def: def.id, ...at });
         }
       }
       portGuideRef.current?.ghost(grid, port, scale);
@@ -2806,11 +2811,32 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // them to, and red where the climb is too steep for the run. @see gradeRoad
       let level: ((x: number, y: number) => number | undefined) | undefined;
       let tilt: ((x: number, y: number) => Tilt | undefined) | undefined;
+      if (plot !== undefined) { const z = plot; level = () => z; }
       const grade = gradeStroke(grid, s0, brushRadius);
       if (grade) {
         const to = new Map(cells.map((c, k) => [`${c.x},${c.y}`, grade.heights[k]]));
         const no = new Set(grade.blocked.map((c) => `${c.x},${c.y}`));
         level = (x, y) => to.get(`${x},${y}`);
+        if (groundMode() === "smooth") {
+          // ONE SLOPE, as the road will lie: its corners as the map will have them. @see drawn.ts roadCorner
+          const p = plannedGrid(grid), decks = new Map(grade.decks.map((d) => [`${d.x},${d.y}`, d.z]));
+          const will = { ...p, height: p.height.slice(), paved: p.paved.slice(), deck: p.deck.slice(), deckZ: p.deckZ.slice() };
+          for (const m of grade.moved) if (inBounds(grid, m.x, m.y)) will.height[idx(grid, m.x, m.y)] = m.to;
+          for (const c of cells) {
+            if (!inBounds(grid, c.x, c.y)) continue;
+            const i = idx(grid, c.x, c.y), z = decks.get(`${c.x},${c.y}`);
+            will.paved[i] = will.paved[i] || 1;
+            if (z !== undefined) { will.deck[i] = 1; will.deckZ[i] = z; }
+            else if (will.deck[i] === 0) will.height[i] = to.get(`${c.x},${c.y}`) ?? will.height[i];
+          }
+          const tilts = new Map<string, Tilt>();
+          tilt = (x, y) => {
+            if (!to.has(`${x},${y}`) || !inBounds(grid, x, y)) return undefined;
+            let t = tilts.get(`${x},${y}`);
+            if (!t) { const c = plannedCorners(will, x, y), z = will.deckZ[idx(grid, x, y)]; tilts.set(`${x},${y}`, (t = c ?? [z, z, z, z])); }
+            return t;
+          };
+        } else {
         // Tilted where it will ramp: up to whichever cell of the stroke beside it stands higher. Refused, as the ground lies.
         if (!no.size) tilt = (x, y) => {
           const z = to.get(`${x},${y}`);
@@ -2824,6 +2850,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           }
           return [z, z, z, z];
         };
+        }
         if (no.size) valid = (_g, x, y) => (no.has(`${x},${y}`) ? { ok: false, reason: grade.why } : { ok: true });
       }
 

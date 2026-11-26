@@ -9,7 +9,7 @@
  * stops; and a bridge's own pieces, stood as the work comes
  * to each. @see roads/jobs, render/road-plant (the gang), plans/road-building.md
  */
-import { Container, Graphics, Sprite } from "pixi.js";
+import { Container, Graphics, MeshSimple, Sprite } from "pixi.js";
 
 import { idx, type Grid } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf } from "../iso";
@@ -20,6 +20,7 @@ import type { BandLayer } from "./bands";
 import { bridgePiecesOf } from "./bridge-props";
 import { plannedTile, unlinedLooks, type PavedLayer } from "./paved";
 import { createGrow, type Grow } from "./road-grow";
+import { drape, drapeIndices, levelOf, plannedCorners, worksLevel, type Level } from "./works-surface";
 
 const EARTH = 0x7a5a3c, RUT = 0x5c4330, STONE = 0x8f8b84, GRIT = [0xa7a39b, 0x76726c], BLACK = 0x2c2c2f, KERB = 0x9c9b97, LINE = 0xe9e7df;
 const SLAB = 0xaeaca6, SLAB_SIDE = 0x7f7d78;
@@ -30,6 +31,9 @@ const SET_FINE = 16;
 /** A trade's front as its shader is told it: nowhere till the trade has begun, and begun from behind the job's first edge — every front is ragged and reaches ahead of itself, and must not reach onto ground its trade has not come to. */
 const told = (f: number) => (f <= 0 ? -2 : f - 0.65 * (1 - Math.min(1, f)) ** 2);
 const hash = (n: number) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+
+/** Lean a thing drawn upright so that what runs across it climbs at `lean`, its uprights left upright. */
+function shear(c: Container, lean: number): void { c.skew.y = lean; c.scale.x = 1 / Math.cos(lean); }
 
 /** How much of the road shows through, once the sub-base is down and before it is surfaced: the road taking shape on the formation. */
 const FORMING = 0.5;
@@ -66,7 +70,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
    * shown pale till its pegs are in. Drawn again only as the setting out moves on. @see setOutAt
    */
   const setOf = new Map<number, { low: Graphics; plan: Graphics }>();
-  let ghosts: { sp: Sprite; j: RoadJob; n: number; c: number }[] = [], setKey = "";
+  let ghosts: { sp: Container; j: RoadJob; n: number; c: number }[] = [], setKey = "";
   /** What the line is set out WITH, standing on it: stakes, lengths of tape and their pins, profile boards, hubs, the level — baked, and filed with what else stands on the map. Stood again only as a whole piece more of it goes in. */
   let stood: Container[] = [], stoodKey = "";
   const unstand = () => { for (const c of stood) { c.parent?.removeChild(c); c.destroy({ children: true }); } stood = []; stoodKey = ""; };
@@ -74,12 +78,18 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
   const clear = () => { for (const c of drawn) { c.parent?.removeChild(c); c.destroy({ children: true }); } drawn = []; };
   /** Tile coordinates to the screen, at a height. */
   const pt = (scale: number, u: number, v: number, h: number) => [(u - v) * HW * scale, (u + v) * HH * scale - h * HEIGHT_UNIT * scale];
-  const rect = (scale: number, u0: number, v0: number, u1: number, v1: number, h: number) => [...pt(scale, u0, v0, h), ...pt(scale, u1, v0, h), ...pt(scale, u1, v1, h), ...pt(scale, u0, v1, h)];
+  const on = (scale: number, u: number, v: number, h: Level) => pt(scale, u, v, levelOf(h, u, v));
+  const rect = (scale: number, u0: number, v0: number, u1: number, v1: number, h: Level) => [...on(scale, u0, v0, h), ...on(scale, u1, v0, h), ...on(scale, u1, v1, h), ...on(scale, u0, v1, h)];
+  /** Round a cell's edge, a quarter of a tile at a time: on ground that bends across it. */
+  const round = (scale: number, c: JobCell, h: Level) => {
+    const q = [0, 1, 2, 3].map((k) => k / 4 - 0.5), at = (u: number, v: number) => on(scale, c.x + u, c.y + v, h);
+    return [...q.flatMap((k) => at(k, -0.5)), ...q.flatMap((k) => at(0.5, k)), ...q.flatMap((k) => at(-k, 0.5)), ...q.flatMap((k) => at(-0.5, -k))];
+  };
   /** A strip along a cell's road, `a0…a1` across it from its middle, the whole cell long — or `l0…l1` of it. */
-  const strip = (scale: number, c: JobCell, w: { ax: number; ay: number }, a0: number, a1: number, h: number, l0 = -0.5, l1 = 0.5) =>
+  const strip = (scale: number, c: JobCell, w: { ax: number; ay: number }, a0: number, a1: number, h: Level, l0 = -0.5, l1 = 0.5) =>
     w.ax !== 0 ? rect(scale, c.x + l0, c.y + a0, c.x + l1, c.y + a1, h) : rect(scale, c.x + a0, c.y + l0, c.x + a1, c.y + l1, h);
   /** A cell's ground at a stage, on `u0…v1` of it. */
-  function ground(gfx: Graphics, scale: number, c: JobCell, w: { ax: number; ay: number }, stage: number, h: number, u0 = c.x - 0.5, v0 = c.y - 0.5, u1 = c.x + 0.5, v1 = c.y + 0.5, whole = true) {
+  function ground(gfx: Graphics, scale: number, c: JobCell, w: { ax: number; ay: number }, stage: number, h: Level, u0 = c.x - 0.5, v0 = c.y - 0.5, u1 = c.x + 0.5, v1 = c.y + 0.5, whole = true) {
     if (stage < 1) return;
     gfx.poly(rect(scale, u0, v0, u1, v1, h)).fill({ color: stage === 1 ? EARTH : stage === 2 ? STONE : BLACK });
     if (!whole || (w.ax === 0 && w.ay === 0)) return;
@@ -90,7 +100,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
     } else if (stage === 2) {
       // Stone: a scatter of lighter and darker grit, the same every time.
       for (let q = 0; q < 14; q++) {
-        const r = hash(c.x * 31 + c.y * 17 + q * 7.3), r2 = hash(c.x * 13 + c.y * 41 + q * 3.1), [x, y] = pt(scale, c.x - 0.45 + r * 0.9, c.y - 0.45 + r2 * 0.9, h);
+        const r = hash(c.x * 31 + c.y * 17 + q * 7.3), r2 = hash(c.x * 13 + c.y * 41 + q * 3.1), [x, y] = on(scale, c.x - 0.45 + r * 0.9, c.y - 0.45 + r2 * 0.9, h);
         gfx.circle(x, y, Math.max(0.8, 1.6 * scale)).fill({ color: GRIT[q & 1], alpha: 0.9 });
       }
     } else {
@@ -111,6 +121,8 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
       }
       if (!g.roadJobs.length) { plan = null; if (growing.size) ungrow(); }
       /** Whether the cells grow by the shader: wherever there are tiles to grow. */
+      /** A cell's ground as it is drawn. @see works-surface */
+      const liesNow = (c: JobCell): Level => (c.deck ? c.z : worksLevel(g, c.x, c.y, g.height[idx(g, c.x, c.y)]));
       const grows = !!pl?.painter && !!plan;
       /** A cell's own tile as a sprite: unlined, or with its lines. */
       const tileOf = (x: number, y: number, lined: boolean): Sprite | null => {
@@ -121,6 +133,15 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
         sp.anchor.set(t.tex.defaultAnchor?.x ?? 0.5, t.tex.defaultAnchor?.y ?? 1);
         sp.position.set(t.x, t.y); sp.scale.set(pl!.scale);
         return sp;
+      };
+      /** A planned cell's tile, lined, laid on the ground there. */
+      const laidOf = (cell: JobCell): MeshSimple | null => {
+        const t = pl && plan ? plannedTile(pl, plan.grid, plan.lined, cell.x, cell.y) : null;
+        if (!t || !plan) return null;
+        const p = plan.grid, i = idx(p, cell.x, cell.y), q = drape({ x: cell.x, y: cell.y, scale: pl!.scale, on: liesNow(cell), tex: t.tex, texX: t.x, texY: t.y, z: p.deck[i] !== 0 ? p.deckZ[i] : p.height[i], zc: plannedCorners(p, cell.x, cell.y) });
+        const m = new MeshSimple({ texture: t.tex, vertices: new Float32Array(q.flatMap((c) => [c.x, c.y])), uvs: new Float32Array(q.flatMap((c) => [c.s, c.t])), indices: drapeIndices() });
+        m.eventMode = "none"; m.autoUpdate = false;
+        return m;
       };
       const P = bakedProps() ? propsLoaded() : null;
       if (bakedProps() && !P && g.roadJobs.length) void propSprites();
@@ -190,7 +211,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
           for (let c = j.opened; c < j.cells.length; c++) {
             const cell = j.cells[c], layer = bands.pavedOf[bandOf(cell.x, cell.y)];
             if (!cell.fresh || !layer || (roadJobLive(g, j) && stageOf(j, c) > 0)) continue;
-            const sp = tileOf(cell.x, cell.y, true);
+            const sp = laidOf(cell);
             if (sp) { sp.alpha = 0.5; sp.tint = 0x9fd6ff; layer.addChild(sp); drawn.push(sp); ghosts.push({ sp, j, n, c }); }
           }
         });
@@ -207,7 +228,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             let gfx = of.get(band);
             if (!gfx) { gfx = new Graphics(); gfx.eventMode = "none"; gfx.context.batchMode = "batch"; layer.addChild(gfx); of.set(band, gfx); drawn.push(gfx); }
             // A job waiting its turn is staked out and no more.
-            const stage = roadJobLive(g, j) ? stageOf(j, c) : 0, w = wayAt(j, c), h = cell.deck ? cell.z : g.height[idx(g, cell.x, cell.y)];
+            const stage = roadJobLive(g, j) ? stageOf(j, c) : 0, w = wayAt(j, c), h = cell.deck ? cell.z : g.height[idx(g, cell.x, cell.y)], lie = liesNow(cell);
             if (cell.deck) {
               // A DECK: nothing till the sub-base's turn — then its slab, thick at the edges that show, and its top as a road's.
               if (stage >= 2) {
@@ -216,17 +237,17 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
                 gfx.poly([...pt(scale, cell.x + 0.5, cell.y - 0.5, h), ...pt(scale, cell.x + 0.5, cell.y + 0.5, h), ...pt(scale, cell.x + 0.5, cell.y + 0.5, h - t), ...pt(scale, cell.x + 0.5, cell.y - 0.5, h - t)]).fill({ color: 0x6f6d69 });
                 gfx.poly(rect(scale, cell.x - 0.5, cell.y - 0.5, cell.x + 0.5, cell.y + 0.5, h)).fill({ color: SLAB });
               }
-            } else if (stage >= 1 && !(grows && roadJobLive(g, j))) ground(gfx, scale, cell, w, 1, h);
+            } else if (stage >= 1 && !(grows && roadJobLive(g, j))) ground(gfx, scale, cell, w, 1, lie);
             // THE ROAD ITSELF grows on the cell by its own shader (below). Drawn plainly where there is no painter.
             if (stage >= 2 && !(grows && roadJobLive(g, j))) {
               const sp = tileOf(cell.x, cell.y, stage >= TRADES);
               if (sp) { if (stage === 2) sp.alpha = FORMING; layer.addChild(sp); drawn.push(sp); }
-              else if (!cell.deck || stage >= 3) ground(gfx, scale, cell, w, stage, h);
+              else if (!cell.deck || stage >= 3) ground(gfx, scale, cell, w, stage, lie);
             }
             if (!P || !roadJobLive(g, j)) continue;
             // WHAT STANDS ROUND IT, where a gang is at work: a cone each side of every other cell till it is lined; a
             // barrier across where the open road stops.
-            const stand = (id: string, turn: number, x: number, y: number) => { const sp = propSprite(P, id, turn, x, y, h, scale); const dyn = bands.dynamicOf[band]; if (sp && dyn) { sp.zIndex = x + y - band; dyn.addChild(sp); drawn.push(sp); } };
+            const stand = (id: string, turn: number, x: number, y: number) => { const sp = propSprite(P, id, turn, x, y, levelOf(lie, x, y), scale); const dyn = bands.dynamicOf[band]; if (sp && dyn) { sp.zIndex = x + y - band; dyn.addChild(sp); drawn.push(sp); } };
             if (stage >= 1 && c % 2 === 0 && (w.ax !== 0 || w.ay !== 0)) for (const sg of [-1, 1]) stand("cone", 0, cell.x - w.ay * sg * 0.44, cell.y + w.ax * sg * 0.44);
             if (c === j.opened && j.opened > 0) stand("barrier", w.ix !== 0 ? 1 : 0, cell.x - w.ix * 0.42, cell.y - w.iy * 0.42);
           }
@@ -253,7 +274,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             if (!bare || !lined) continue;
             const w = wayAt(j, c), pi = idx(plan!.grid, cell.x, cell.y);
             const h = plan!.grid.deck[pi] !== 0 ? plan!.grid.deckZ[pi] : plan!.grid.height[pi];
-            it = { grow: createGrow({ bare: bare.tex, lined: lined.tex, x: bare.x, y: bare.y, scale: pl!.scale, cx: cell.x, cy: cell.y, h, ix: w.ix, iy: w.iy, deck: cell.deck }), band: -1 };
+            it = { grow: createGrow({ bare: bare.tex, lined: lined.tex, x: bare.x, y: bare.y, scale: pl!.scale, cx: cell.x, cy: cell.y, h, on: liesNow(cell), ix: w.ix, iy: w.iy, deck: cell.deck, zc: plannedCorners(plan!.grid, cell.x, cell.y) }), band: -1 };
             growing.set(i, it);
           }
           // (Over what is drawn whole, which was just put back under it.)
@@ -283,7 +304,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             if (!cell.fresh) continue;
             const s = setOf.get(bandOf(cell.x, cell.y)), stage = roadJobLive(g, j) ? stageOf(j, c) : 0;
             if (!s || stage >= 3) continue;
-            const w = wayAt(j, c), h = cell.deck ? cell.z : g.height[idx(g, cell.x, cell.y)];
+            const w = wayAt(j, c), lie = liesNow(cell);
             /** The cell's edges that are the line's own — none of them between two cells to be built — each with how far along the job's way its ends are. */
             const sides: { a: number[]; b: number[]; fa: number; fb: number }[] = [];
             for (const [ex, ey] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -297,17 +318,17 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             const pegged = at[0] >= c + 1 || stage > 0;
             if (!pegged || (cell.deck && stage < 2)) {
               // THE PLAN: a wash, and the line round it — bright, and thick enough to read from far off.
-              s.plan.poly(rect(scale, cell.x - 0.5, cell.y - 0.5, cell.x + 0.5, cell.y + 0.5, h)).fill({ color: 0x3fb4ff, alpha: 0.26 });
-              for (const e of sides) { const [x0, y0] = pt(scale, e.a[0], e.a[1], h), [x1, y1] = pt(scale, e.b[0], e.b[1], h); s.plan.moveTo(x0, y0).lineTo(x1, y1).stroke({ color: PLAN, width: lw * 1.6, alpha: 1, cap: "round" }); }
+              s.plan.poly(round(scale, cell, lie)).fill({ color: 0x3fb4ff, alpha: 0.26 });
+              for (const e of sides) { [0, 1, 2, 3, 4].forEach((k) => { const [x, y] = on(scale, e.a[0] + ((e.b[0] - e.a[0]) * k) / 4, e.a[1] + ((e.b[1] - e.a[1]) * k) / 4, lie); if (k) s.plan.lineTo(x, y); else s.plan.moveTo(x, y); }); s.plan.stroke({ color: PLAN, width: lw * 1.6, alpha: 1, cap: "round" }); }
               // Its middle, in dashes the way it runs.
-              if (w.ax !== 0 || w.ay !== 0) for (const l of [-0.42, -0.08, 0.26]) s.plan.poly(strip(scale, cell, w, -0.03, 0.03, h, l, l + 0.18)).fill({ color: PLAN, alpha: 0.95 });
+              if (w.ax !== 0 || w.ay !== 0) for (const l of [-0.42, -0.08, 0.26]) s.plan.poly(strip(scale, cell, w, -0.03, 0.03, lie, l, l + 0.18)).fill({ color: PLAN, alpha: 0.95 });
             }
             if (cell.deck || !roadJobLive(g, j)) continue;
             // SPRAYED, the centre of it: dashes the way it runs and a cross at the cell's middle — till it is dug.
             const mk = Math.max(0, Math.min(1, at[2] - c));
             if (stage === 0 && mk > 0) {
-              if (w.ix !== 0 || w.iy !== 0) for (const l of [0.08, 0.6]) { if (l >= mk) continue; const l1 = Math.min(mk, l + 0.28); s.low.poly(strip(scale, cell, { ax: w.ix, ay: w.iy }, -0.022, 0.022, h, w.ix + w.iy > 0 ? l - 0.5 : 0.5 - l1, w.ix + w.iy > 0 ? l1 - 0.5 : 0.5 - l)).fill({ color: SPRAY, alpha: 0.95 }); }
-              if (mk > 0.5) for (const [du, dv] of [[1, 1], [1, -1]]) { const [x0, y0] = pt(scale, cell.x - du * 0.07, cell.y - dv * 0.07, h), [x1, y1] = pt(scale, cell.x + du * 0.07, cell.y + dv * 0.07, h); s.low.moveTo(x0, y0).lineTo(x1, y1).stroke({ color: SPRAY, width: Math.max(1, 1.4 * scale), alpha: 0.95 }); }
+              if (w.ix !== 0 || w.iy !== 0) for (const l of [0.08, 0.6]) { if (l >= mk) continue; const l1 = Math.min(mk, l + 0.28); s.low.poly(strip(scale, cell, { ax: w.ix, ay: w.iy }, -0.022, 0.022, lie, w.ix + w.iy > 0 ? l - 0.5 : 0.5 - l1, w.ix + w.iy > 0 ? l1 - 0.5 : 0.5 - l)).fill({ color: SPRAY, alpha: 0.95 }); }
+              if (mk > 0.5) for (const [du, dv] of [[1, 1], [1, -1]]) { const [x0, y0] = on(scale, cell.x - du * 0.07, cell.y - dv * 0.07, lie), [x1, y1] = on(scale, cell.x + du * 0.07, cell.y + dv * 0.07, lie); s.low.moveTo(x0, y0).lineTo(x1, y1).stroke({ color: SPRAY, width: Math.max(1, 1.4 * scale), alpha: 0.95 }); }
             }
           }
         });
@@ -315,7 +336,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
       // WHAT STANDS ON THE LINE, baked: a stake at every corner once driven; tape from stake to stake in half-tile
       // lengths as it is run out, a pin under each join; a profile board each side every third tile; a hub at each
       // cell's centre till it is dug; the level on its tripod by the start while the line is being set out.
-      const stand: { id: string; turn: number; x: number; y: number; h: number; cell: JobCell }[] = [];
+      const stand: { id: string; turn: number; x: number; y: number; h: Level; cell: JobCell; /** Laid out along u or v: a length of tape. */ along?: "u" | "v" }[] = [];
       // (Worked out again only when a whole piece more of it is due: a stake, half a tile of tape, a hub; or a trade has passed a cell.)
       const sk2 = `${scale}|${P ? 1 : 0}|${liveRoadJobs(g).map((j) => `${j.id}.${j.opened}.${Math.floor(setOutAt(j, 0))}.${Math.floor(setOutAt(j, 1) * 2)}.${Math.floor(setOutAt(j, 2) + 0.5)}.${[0, 1, 2].map((t) => frontOf(j, t)).join("-")}`).join("|")}`;
       const restand = rebuilt || sk2 !== stoodKey;
@@ -329,7 +350,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
           for (let c = j.opened; c < j.cells.length; c++) {
             const cell = j.cells[c], stage = stageOf(j, c);
             if (!cell.fresh || cell.deck || stage >= 3 || !(at[0] >= c + 1 || stage > 0)) continue;
-            const w = wayAt(j, c), h = g.height[idx(g, cell.x, cell.y)];
+            const w = wayAt(j, c), h = liesNow(cell);
             // MIXED UP, the same every time: a few tiles of bunting, then a few of plain line; a flagged stake among the plain ones.
             const bright = hash(j.id * 7.3 + Math.floor(c / 3) * 1.9) < 0.42;
             for (const [du, dv] of [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]) {
@@ -349,7 +370,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
                 const ends = [far(mx - Math.abs(ey) * 0.25, my - Math.abs(ex) * 0.25), far(mx + Math.abs(ey) * 0.25, my + Math.abs(ex) * 0.25)];
                 if (Math.max(...ends) > run + 1e-6 && !(ends[0] === ends[1] && ends[0] <= run)) continue;
                 any = true;
-                stand.push({ id: bright ? "bunting" : "tape", turn: (ex !== 0 ? 1 : 0) + ((cell.x + cell.y) & 1) * 2, x: mx, y: my, h, cell });
+                stand.push({ id: bright ? "bunting" : "tape", turn: (ex !== 0 ? 1 : 0) + ((cell.x + cell.y) & 1) * 2, x: mx, y: my, h, cell, along: ex !== 0 ? "v" : "u" });
               }
               if (any) stand.push({ id: bright ? "buntingPin" : "tapePin", turn: 0, x: cell.x + ex * 0.5, y: cell.y + ey * 0.5, h, cell });
             }
@@ -364,8 +385,14 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
         unstand();
         stoodKey = sk2;
         for (const q of stand) {
-          const band = bandOf(q.cell.x, q.cell.y), dyn = bands.dynamicOf[band], sp = P ? propSprite(P, q.id, q.turn, q.x, q.y, q.h, scale) : null;
+          const band = bandOf(q.cell.x, q.cell.y), dyn = bands.dynamicOf[band], sp = P ? propSprite(P, q.id, q.turn, q.x, q.y, levelOf(q.h, q.x, q.y), scale) : null;
           if (!sp || !dyn) { sp?.destroy({ children: true }); continue; }
+          // TAPE RUNS WITH THE GROUND: a length between two heights is drawn aslant from the one to the other.
+          if (q.along && typeof q.h !== "number") {
+            const u = q.along === "u" ? 0.25 : 0, v = 0.25 - u, rise = q.h(q.x + u, q.y + v) - q.h(q.x - u, q.y - v);
+            const lean = Math.atan2(-rise * HEIGHT_UNIT, (u - v) * 2 * HW);
+            shear(sp, (u - v) < 0 ? lean - Math.sign(lean) * Math.PI : lean);
+          }
           sp.zIndex = q.x + q.y - band;
           dyn.addChild(sp); stood.push(sp);
         }
@@ -396,7 +423,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
             layer.addChild(e.gfx);
             e.band = band;
           }
-          const w = wayAt(j, c), h = cell.deck ? cell.z : g.height[idx(g, cell.x, cell.y)];
+          const w = wayAt(j, c), h = liesNow(cell);
           // From the edge it came in by, as far as it has got.
           const u0 = w.ix > 0 ? cell.x - 0.5 : w.ix < 0 ? cell.x + 0.5 - f : cell.x - 0.5, u1 = w.ix > 0 ? cell.x - 0.5 + f : cell.x + 0.5;
           const v0 = w.iy > 0 ? cell.y - 0.5 : w.iy < 0 ? cell.y + 0.5 - f : cell.y - 0.5, v1 = w.iy > 0 ? cell.y - 0.5 + f : cell.y + 0.5;
@@ -404,7 +431,7 @@ export function createRoadWorks(bands: BandLayer): RoadWorks {
           if (e.tile) {
             // The mask: this much of the cell, and everything above it on the screen that the tile's kerbs and its ramp stand up into.
             e.gfx.poly(rect(scale, u0, v0, u1, v1, h)).fill({ color: 0xffffff });
-            e.gfx.poly(rect(scale, u0, v0, u1, v1, h + 2)).fill({ color: 0xffffff });
+            e.gfx.poly(rect(scale, u0, v0, u1, v1, (x, y) => levelOf(h, x, y) + 2)).fill({ color: 0xffffff });
             e.tile.mask = e.gfx;
           } else {
             ground(e.gfx, scale, cell, w, trade + 1, h, u0, v0, u1, v1, false);
