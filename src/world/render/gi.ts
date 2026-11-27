@@ -1039,7 +1039,8 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       if (fieldDue) device.queue.writeBuffer(glareU, 0, new Float32Array([SW, SH, GLARE_WINDOW, GLARE_LIGHT, f.clock, f.share, 0, 0]));
       const enc = device.createCommandEncoder();
       const timed = stamps && !stamps.busy && turns % 30 === 0 ? stamps : null;
-      const pass = (view: GPUTextureView, load = false, first = false, last = false) => enc.beginRenderPass({
+      const pass = (view: GPUTextureView, load = false, first = false, last = false, label = "gi") => enc.beginRenderPass({
+        label,
         colorAttachments: [{ view, loadOp: load ? "load" : "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }],
         ...(timed && (first || last) ? { timestampWrites: { querySet: timed.set, ...(first ? { beginningOfPassWriteIndex: 0 } : {}), ...(last ? { endOfPassWriteIndex: 1 } : {}) } } : {}),
       });
@@ -1048,7 +1049,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       if (beams || beamsIn) {
         beamsIn = beams > 0;
         if (beams) device.queue.writeBuffer(beamBuf, 0, f.beams!.data, 0, beams * BEAM_FLOATS);
-        const bp = pass(beamView);
+        const bp = pass(beamView, false, false, false, "gi beams");
         if (beams) { bp.setPipeline(beamPipe); bp.setBindGroup(0, beamBind); bp.setVertexBuffer(0, beamBuf); bp.draw(6, beams); }
         bp.end();
       }
@@ -1064,30 +1065,30 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       s.layers.forEach((l, li) => {
         if (!due[li]) return;
         // This height's lights; then the cascades from the furthest in; then its light, into its own stretch.
-        const e = pass(emitViews[0], false, li === firstDue);
+        const e = pass(emitViews[0], false, li === firstDue, false, `gi emit ${li}`);
         e.setPipeline(emitPipe); e.setBindGroup(0, l.emitBind);
         if (steady) { e.setVertexBuffer(0, lightBuf); e.draw(6, steady); }
         if (wins && windowBuf && windowN) { e.setVertexBuffer(0, windowBuf); e.draw(6, windowN); }
         e.end();
         for (let m = 0; m < 2; m++) {
-          const sp = pass(emitViews[m + 1]);
+          const sp = pass(emitViews[m + 1], false, false, false, `gi shrink ${m}`);
           sp.setPipeline(shrinkPipe); sp.setBindGroup(0, shrinkBinds[m]); sp.draw(3);
           sp.end();
         }
         for (let i = s.count - 1; i >= 0; i--) {
-          const p = pass(s.chain[i].view);
+          const p = pass(s.chain[i].view, false, false, false, `gi cascade ${i}`);
           p.setPipeline(cascPipe); p.setBindGroup(0, l.levels[i].bind); p.draw(3);
           p.end();
         }
         // (Its own stretch written over; the others' kept as they were last worked out.)
-        const fin = pass(s.lightView, !(all && li === 0), false, li === lastDue && !fieldDue);
+        const fin = pass(s.lightView, !(all && li === 0), false, li === lastDue && !fieldDue, `gi final ${li}`);
         fin.setViewport(li * s.px, 0, s.px, s.py, 0, 1);
         fin.setPipeline(finalPipe); fin.setBindGroup(0, l.finalBind); fin.draw(3);
         fin.end();
       });
       if (fieldDue) {
         fieldFresh = false;
-        const fp = pass(s.fieldView!, false, false, true);
+        const fp = pass(s.fieldView!, false, false, true, "gi field");
         fp.setPipeline(fieldPipe); fp.setBindGroup(0, s.fieldBind!); fp.draw(3);
         fp.setPipeline(glarePipe); fp.setBindGroup(0, glareBind);
         if (n) { fp.setVertexBuffer(0, lightBuf); fp.draw(6, n); }
@@ -1095,7 +1096,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
         fp.end();
         // AND WHERE THE LIT WATER IS, for the screen to ask first: a point for each square of the field. @see MASK_WGSL
         if (s.maskView && s.maskBind) {
-          const mp = pass(s.maskView);
+          const mp = pass(s.maskView, false, false, false, "gi mask");
           mp.setPipeline(maskPipe); mp.setBindGroup(0, s.maskBind); mp.draw(FW * FH);
           mp.end();
         }

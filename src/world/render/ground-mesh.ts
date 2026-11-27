@@ -485,7 +485,8 @@ function makeGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale: numb
   }));
   const { data: edges, source: edgeSource } = surfaceOf(grid);
   const shade = new Uint8Array(grid.w * SHADE * grid.h * SHADE);
-  const shadeSource = new BufferImageSource({ resource: shade, width: grid.w * SHADE, height: grid.h * SHADE, format: "r8unorm", scaleMode: "nearest" });
+  // (Filtered, not fetched: the shader takes the four texels round a point blended by the sampler. @see shadowAt)
+  const shadeSource = new BufferImageSource({ resource: shade, width: grid.w * SHADE, height: grid.h * SHADE, format: "r8unorm", scaleMode: "linear", addressMode: "clamp-to-edge" });
   const tintSource = new BufferImageSource({ resource: bakeTint(grid.w, grid.h), width: grid.w * SHADE, height: grid.h * SHADE, format: "rgba8unorm", scaleMode: "nearest" });
   const gm: GroundMesh = { cells, source, edges, edgeSource, grid, heights: new Float32Array(shade.length), shade, casts: new Float32Array(shade.length), tops: new Float32Array(grid.w * grid.h), cast: new Map(), castTop: 0, shadeRev: 0, shadeTop: NaN, shadeSource, tintSource, stale: [0, 0, grid.w - 1, grid.h - 1], uniforms, cacheU: cacheUniforms(), blank: new BufferImageSource({ resource: new Uint8Array(4), width: 1, height: 1, format: "rgba8unorm", scaleMode: "nearest" }), shader: null as unknown as Shader, rev: 0, drift: 0, gone: [], meshes: [], dirty: new Set(), scale, w: grid.w, h: grid.h };
   for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) writeCell(gm, grid, palette, x, y);
@@ -849,7 +850,7 @@ export function groundShader(gm: GroundMesh, cacheU: UniformGroup = gm.cacheU): 
       name: "ground",
       // Written out, not left to Pixi, which would have every texture filterable: the drawn surface is floats,
       // fetched and never filtered, and a filterable binding will not take it. @see water-gpu.ts gpuLayout
-      layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { ground: 0, uCells: 1, uEdges: 2, uShade: 3, uTint: 4, gcache: 5, uCache: 6 }],
+      layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { ground: 0, uCells: 1, uEdges: 2, uShade: 3, uTint: 4, gcache: 5, uCache: 6, uShadeSampler: 7 }],
       gpuLayout: [
         [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
         [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
@@ -861,12 +862,13 @@ export function groundShader(gm: GroundMesh, cacheU: UniformGroup = gm.cacheU): 
           { binding: 4, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
           { binding: 5, visibility: 2, buffer: { type: "uniform" } },
           { binding: 6, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+          { binding: 7, visibility: 2, sampler: { type: "filtering" } },
         ],
       ],
     }),
     gl: GlProgram.from({ vertex: GLSL_VERTEX, fragment: GLSL_FRAGMENT, name: "ground" }),
   };
-  return syncOnce(new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source, uEdges: gm.edgeSource, uShade: gm.shadeSource, uTint: gm.tintSource, gcache: cacheU, uCache: gm.blank } }));
+  return syncOnce(new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { ground: gm.uniforms, uCells: gm.source, uEdges: gm.edgeSource, uShade: gm.shadeSource, uShadeSampler: gm.shadeSource.style, uTint: gm.tintSource, gcache: cacheU, uCache: gm.blank } }));
 }
 
 /*
@@ -901,6 +903,7 @@ struct Ground { uMap: vec4<f32>, uMode: vec4<f32>, uSeason: vec4<f32> };
 @group(2) @binding(1) var uCells : texture_2d<f32>;
 @group(2) @binding(2) var uEdges : texture_2d<f32>;
 @group(2) @binding(3) var uShade : texture_2d<f32>;
+@group(2) @binding(7) var uShadeSampler : sampler;
 @group(2) @binding(4) var uTint : texture_2d<f32>;
 // THE STILL VIEW'S COPY. While nothing the ground draws has changed since the last frame, its colour is read back
 // from the copy made of it then, a pixel for a pixel, in place of being worked out again. @see ground-cache.ts
@@ -974,13 +977,11 @@ fn levelAt(c: vec2<i32>, own: f32) -> f32 {
   let v = textureLoad(uEdges, vec2<i32>(clamp(c.x, 0, n.x - 1) * 2 + 1, clamp(c.y, 0, n.y - 1)), 0).z;
   return select(own - 0.35, v, v > -900.0);
 }
-fn shadeAt(c: vec2<i32>, n: vec2<i32>) -> f32 { return textureLoad(uShade, clamp(c, vec2<i32>(0), n - vec2<i32>(1)), 0).r; }
 fn shadowAt(p: vec2<f32>, h: f32) -> f32 {
-  // Worked out when the ground was (@see bakeShade): the four answers round the point, blended.
-  let n = vec2<i32>(i32(ground.uMap.x), i32(ground.uMap.y)) * ${SHADE};
-  let q = p * ${SHADE}.0 - 0.5;
-  let c = vec2<i32>(floor(q)); let f = q - floor(q);
-  return mix(mix(shadeAt(c, n), shadeAt(c + vec2<i32>(1, 0), n), f.x), mix(shadeAt(c + vec2<i32>(0, 1), n), shadeAt(c + vec2<i32>(1, 1), n), f.x), f.y);
+  // Worked out when the ground was (@see bakeShade): the four answers round the point, blended — by the sampler.
+  // NOT FOUR FETCHES BLENDED BY HAND, as it was: on Apple GPUs in Chrome that froze the GPU, which macOS then
+  // restarted, taking the page's device and the whole browser's drawing with it. @see uShadeSampler
+  return textureSampleLevel(uShade, uShadeSampler, p / ground.uMap.xy, 0.0).r;
 }
 // THE SHADE AT THE FOOT OF HIGHER GROUND: darker close under it, and the more the higher it stands.
 fn contactAt(p: vec2<f32>, h: f32) -> f32 {
@@ -1740,12 +1741,8 @@ float levelAt(ivec2 c, float own) {
   float v = texelFetch(uEdges, ivec2(clamp(c.x, 0, n.x - 1) * 2 + 1, clamp(c.y, 0, n.y - 1)), 0).z;
   return v > -900.0 ? v : own - 0.35;
 }
-float shadeAt(ivec2 c, ivec2 n) { return texelFetch(uShade, clamp(c, ivec2(0), n - ivec2(1)), 0).r; }
 float shadowAt(vec2 p, float h) {
-  ivec2 n = ivec2(int(uMap.x), int(uMap.y)) * ${SHADE};
-  vec2 q = p * ${SHADE}.0 - 0.5;
-  ivec2 c = ivec2(floor(q)); vec2 f = q - floor(q);
-  return mix(mix(shadeAt(c, n), shadeAt(c + ivec2(1, 0), n), f.x), mix(shadeAt(c + ivec2(0, 1), n), shadeAt(c + ivec2(1, 1), n), f.x), f.y);
+  return textureLod(uShade, p / uMap.xy, 0.0).r;
 }
 float contactAt(vec2 p, float h) {
   ivec2 cell = ivec2(floor(p));

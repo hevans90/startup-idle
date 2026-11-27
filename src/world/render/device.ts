@@ -98,6 +98,9 @@ const RELOADED_AT = "gpu-lost-reloaded-at";
 /** Whether a loss now is to be answered with a reload, given when the last one was (ms; null, never). */
 export const mayReload = (now: number, last: number | null) => last === null || now - last >= RELOAD_GAP;
 
+/** Whether a lost device reloads the page. Off for now, so the loss and the errors before it stay in the console to be read. */
+const RELOAD_ON_LOSS = false;
+
 /**
  * THE PAGE LOADED AGAIN, since nothing less brings the canvas back: the game is saved as the page goes (the stores
  * as they change, the map on `pagehide`) and comes up where it was. Once the tab is showing — a device taken from a
@@ -133,13 +136,13 @@ function mourn(why: string) {
   console.error(
     "GPU: the device was lost —", why,
     "\nThe water has gone back to the host solver. The CANVAS is on the same "
-    + "device and cannot come back without a reload: the page reloads itself, once the tab is showing.",
+    + "device and cannot come back without a reload" + (RELOAD_ON_LOSS ? ": the page reloads itself, once the tab is showing." : "."),
   );
   for (const fn of [...mourners]) {
     try { fn(why); } catch { /* a listener that throws is not the device's problem */ }
   }
   mourners.clear();
-  reloadForLoss();
+  if (RELOAD_ON_LOSS) reloadForLoss();
 }
 
 /**

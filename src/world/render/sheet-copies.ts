@@ -3,7 +3,7 @@
  *
  * Pixi keeps what a texture was uploaded from (`source.resource`) so that it can upload it again: for a `.ktx2`
  * sheet, every mip level's blocks, as large in the page's memory as on the GPU — some 190 MB in a big town, held
- * for nothing, since a lost device reloads the page (@see reloadForLoss) and the renderer's own collection is off.
+ * for nothing, since a lost device needs the page reloaded (@see reloadForLoss) and the renderer's own collection is off.
  *
  * So once a sheet is on the GPU its levels are let go. What uploading again was FOR is a second renderer — the map's
  * canvas is made anew each time its tab is come back to — so the GPU's texture is kept past its renderer and handed
