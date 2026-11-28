@@ -6,7 +6,8 @@
  *  - `corners` a choice you can make;
  *  - `kranox` a panel, a standing part of the console;
  *  - `nefrex` a card on the map, something there now;
- *  - `underline` a status line; `lines` a divider; `header` a title bar.
+ *  - `underline` a status line; `lines` a divider; `header` a title bar;
+ *  - `cut` and `marks`, an octagon and corners made small, for the dock's slim bar and its tools.
  *
  * Its colours are the tokens', never arwes's own: its `tone` — the console's
  * own colour by default, the founder's teal mixed toward the AI's violet, or
@@ -27,7 +28,7 @@ import type { FrameSettings } from "@arwes/frames";
 import type { Role } from "../theme/tokens";
 import { useConsoleMotion } from "../motion";
 
-export type FrameKind = "octagon" | "corners" | "kranox" | "nefrex" | "underline" | "lines" | "header";
+export type FrameKind = "octagon" | "corners" | "kranox" | "nefrex" | "underline" | "lines" | "header" | "cut" | "marks";
 /** What colours a frame: the console's own, or a role. */
 export type Tone = "console" | Role;
 
@@ -45,6 +46,8 @@ const SETTINGS: Record<FrameKind, (f: ArwesFrames) => FrameSettings> = {
   underline: (f) => f.createFrameUnderlineSettings({ animated: false, squareSize: 8, strokeWidth: 1.25 }),
   lines: (f) => f.createFrameLinesSettings({ animated: false, largeLineWidth: 1.5, smallLineWidth: 1, smallLineLength: 12 }),
   header: (f) => f.createFrameHeaderSettings({ animated: false, strokeWidth: 1.25, decoWidth: 4, contentLength: 48 }),
+  cut: (f) => f.createFrameOctagonSettings({ animated: false, squareSize: 7, strokeWidth: 1, leftTop: true, rightTop: false, rightBottom: true, leftBottom: false }),
+  marks: (f) => f.createFrameCornersSettings({ animated: false, cornerLength: 6, strokeWidth: 1.25 }),
 };
 
 /** Seconds a frame takes to draw on. */

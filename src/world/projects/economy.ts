@@ -42,7 +42,9 @@ export function announceOpened(ids: readonly ProjectId[]): void {
     useInnovationStore.getState().grantFeatures(p.grants);
     const news = p.unlocks ? " New hires are available."
       : p.grants === "managers" ? " Managers and employee management are open on the Innovation tab."
-          : p.grants === "ports" ? " You can now build seaports." : "";
+          : p.grants === "ports" ? " You can now build seaports."
+            : p.grants === "farms" ? " You can now build farms."
+              : p.grants === "floodwalls" ? " You can now build flood walls." : "";
     report(`${p.name} has opened.${news}`, { title: "Opened" });
   }
 }

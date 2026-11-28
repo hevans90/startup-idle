@@ -31,7 +31,7 @@ import type { BandLayer } from "./bands";
 import { terrainName } from "../terrain-names";
 import { built, cornerShift, cornerZ, drawnCentre, drawnCorner, drawnFlat, drawnHeight, pinned, shelfOf, smoothAt, withCorners } from "./drawn";
 import { groundMode } from "./ground-mode";
-import { SHADOW_RUN, SHADOW_RUN_SRC, SHADOW_TINT_SRC, SUN_SRC, SUN_X, SUN_Y } from "../light";
+import { SHADOW_DEPTH_SRC, SHADOW_RUN, SHADOW_RUN_SRC, SHADOW_TINT_SRC, SUN_SRC, SUN_X, SUN_Y, sunRev } from "../light";
 import type { CastBox } from "./casters";
 import { canopyOf, heathAt } from "./forest";
 import { COVER, vegAt } from "../vegetation/fields";
@@ -482,6 +482,13 @@ function makeGroundMesh(grid: Grid, bl: BandLayer, palette: Palette, scale: numb
     uMode: { value: new Float32Array([groundMode() === "smooth" ? 1 : 0, 0, 0, 0]), type: "vec4<f32>" },
     // THE YEAR on the ground: spring's flowers, summer's straw, the grass gone over, the snow. @see seasonGround
     uSeason: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" },
+    // WHAT LIES, ALONG THE WAY THE FRONTS CROSS: the way (cells, a unit), where the first reckoning is along it and
+    // one over the reach of the four; and at each of the four, the snow, the wet and the frost. @see lieAt, world/weather groundOver
+    uLieAxis: { value: new Float32Array([1, 0, 0, 1]), type: "vec4<f32>" },
+    uLieA: { value: new Float32Array(4), type: "vec4<f32>" },
+    uLieB: { value: new Float32Array(4), type: "vec4<f32>" },
+    uLieC: { value: new Float32Array(4), type: "vec4<f32>" },
+    uLieD: { value: new Float32Array(4), type: "vec4<f32>" },
   }));
   const { data: edges, source: edgeSource } = surfaceOf(grid);
   const shade = new Uint8Array(grid.w * SHADE * grid.h * SHADE);
@@ -574,7 +581,14 @@ export const SHADE_PER_TILE = SHADE;
 const BEHIND = 1.5, BEHIND_DARK = 0.6;
 /** The rays a point looks toward the sun along: the sun's own way, and so far round either side of it, radians. @see shadeOf */
 const SUN_WIDTH = 0.1;
-const RAYS = [-1, -0.5, 0, 0.5, 1].flatMap((k) => { const c = Math.cos(k * SUN_WIDTH), n = Math.sin(k * SUN_WIDTH); return [SUN_X * c - SUN_Y * n, SUN_X * n + SUN_Y * c]; });
+let RAYS: number[] = [], raysAt = -1;
+/** WHILE THE SUN IS BEING MOVED: its one middle ray, a fifth of the work, the soft sides left for when it rests. @see sunShadeStep */
+let quickRays = false;
+/** The rays toward the sun where it stands now. @see sunRev */
+const raysNow = () => {
+  if (raysAt !== sunRev) { raysAt = sunRev; RAYS = [-1, -0.5, 0, 0.5, 1].flatMap((k) => { const c = Math.cos(k * SUN_WIDTH), n = Math.sin(k * SUN_WIDTH); return [SUN_X * c - SUN_Y * n, SUN_X * n + SUN_Y * c]; }); }
+  return quickRays ? RAYS.slice(4, 6) : RAYS;
+};
 /** The furthest a point looks toward the sun for what shades it, quarters of a tile. */
 const SHADE_STEPS = 48;
 /** The shade worked out again wherever a change inside `x0…x1`, `y0…y1` (quarter tiles) can have moved it: all of it, if the highest thing there is has moved. */
@@ -584,6 +598,7 @@ function reshade(gm: GroundMesh, grid: Grid, x0: number, y0: number, x1: number,
   const W = grid.w * SHADE, H = grid.h * SHADE, top = grid.maxHeight + 2 + gm.castTop;
   if (gm.shadeTop !== top) { gm.shadeTop = top; shadeOf(gm.heights, W, H, top, gm.shade, [0, 0, W, H], gm.casts, gm.tops); return; }
   // (As far as any of the sun's rays reaches, either way. @see RAYS)
+  const RAYS = raysNow();
   let sx0 = 0, sx1 = 0, sy0 = 0, sy1 = 0;
   for (let r = 0; r < RAYS.length; r += 2) { sx0 = Math.min(sx0, RAYS[r] * SHADE_STEPS); sx1 = Math.max(sx1, RAYS[r] * SHADE_STEPS); sy0 = Math.min(sy0, RAYS[r + 1] * SHADE_STEPS); sy1 = Math.max(sy1, RAYS[r + 1] * SHADE_STEPS); }
   const back = BEHIND * SHADE;
@@ -644,6 +659,46 @@ export function castGround(gm: GroundMesh, grid: Grid, casterOf: (id: number) =>
   gm.shadeSource.update();
   return true;
 }
+/**
+ * THE SUN MOVED (the editor's slider): every band's quads again (a slope is lit by which way it faces it: @see
+ * litOf) and the whole map's shade, the ground's and what is built's, worked out toward it — A FEW ROWS A FRAME,
+ * into a copy shown when it is done. All at once, on a big town, it was a frame of a tenth of a second each time the
+ * slider moved. `quick`: its middle ray only, while it is still moving. @see sunShadeStep, setSunAround
+ */
+type SunJob = { quick: boolean; band: number; row: number; top: number; scratch: Uint8Array };
+const sunJobs = new WeakMap<GroundMesh, SunJob>();
+export function sunShadeStart(gm: GroundMesh, grid: Grid, quick: boolean) {
+  const W = grid.w * SHADE, H = grid.h * SHADE, was = sunJobs.get(gm)?.scratch;
+  topsOf(gm, grid, 0, 0, W, H);
+  sunJobs.set(gm, { quick, band: 0, row: 0, top: grid.maxHeight + 2 + gm.castTop, scratch: was?.length === W * H ? was : new Uint8Array(W * H) });
+}
+/** Whether the sun's shade is still being worked out. */
+export const sunShadeBusy = (gm: GroundMesh) => sunJobs.has(gm);
+/** Work on it for `budget` ms; true on the frame it is done and shown. */
+export function sunShadeStep(gm: GroundMesh, grid: Grid, palette: Palette, budget: number): boolean {
+  const job = sunJobs.get(gm);
+  if (!job) return false;
+  const t0 = performance.now(), W = grid.w * SHADE, H = grid.h * SHADE;
+  // (Roughly, while it is moving: the shadows only, a quarter of them; the slopes' light when it rests.)
+  if (job.quick) job.band = gm.meshes.length;
+  if (job.band < gm.meshes.length) withCorners(grid, FINE, () => {
+    for (; job.band < gm.meshes.length && performance.now() - t0 < budget / 2; job.band++) {
+      const { verts, idx: ix } = bandQuads(grid, palette, job.band, gm.scale), g = gm.meshes[job.band].geometry;
+      g.attributes.aPosition.buffer.data = verts;
+      g.indexBuffer.data = ix;
+    }
+  });
+  quickRays = job.quick;
+  for (; job.row < H && performance.now() - t0 < budget; job.row = Math.min(H, job.row + 8)) shadeOf(gm.heights, W, H, job.top, job.scratch, [0, job.row, W, Math.min(H, job.row + 8)], gm.casts, gm.tops, job.quick ? 2 : 1);
+  quickRays = false;
+  if (job.band < gm.meshes.length || job.row < H) return false;
+  gm.shade.set(job.scratch);
+  gm.shadeTop = job.top; gm.shadeRev++;
+  gm.shadeSource.update();
+  gm.rev++;
+  sunJobs.delete(gm);
+  return true;
+}
 function bakeShade(gm: GroundMesh, grid: Grid) {
   const W = grid.w * SHADE, hs = gm.heights, st = gm.stale;
   if (st[0] <= st[2]) {
@@ -666,9 +721,10 @@ function bakeShade(gm: GroundMesh, grid: Grid) {
   }
 }
 /** The shade of every quarter of a tile (0 lit … 255 a full shadow) from the heights at their middles, `W` by `H` of them; `top` over the highest ground. @see bakeShade */
-export function shadeOf(hs: ArrayLike<number>, W: number, H: number, top: number, out: Uint8Array, box: readonly [number, number, number, number] = [0, 0, W, H], casts?: ArrayLike<number>, tops?: ArrayLike<number>) {
-  const step = 1 / SHADE, TW = W / SHADE;
-  for (let j = box[1]; j < box[3]; j++) for (let i = box[0]; i < box[2]; i++) {
+/** `stride`: every that many quarters each way, each standing for the block it starts (the rough shade while the sun is moved). */
+export function shadeOf(hs: ArrayLike<number>, W: number, H: number, top: number, out: Uint8Array, box: readonly [number, number, number, number] = [0, 0, W, H], casts?: ArrayLike<number>, tops?: ArrayLike<number>, stride = 1) {
+  const step = 1 / SHADE, TW = W / SHADE, RAYS = raysNow();
+  for (let j = box[1]; j < box[3]; j += stride) for (let i = box[0]; i < box[2]; i += stride) {
     const h = hs[j * W + i], far = (top - h) * SHADOW_RUN;
     // THE SUN HAS A WIDTH: a few rays toward it, fanned a little either side, and what they find taken together —
     // so a shadow's side softens the further it is thrown, as its end does, and is not the quarter-tiles' own
@@ -704,7 +760,9 @@ export function shadeOf(hs: ArrayLike<number>, W: number, H: number, top: number
       const t = k * step, a = Math.min(1, Math.max(0, (hs[qj * W + qi] - h - 1.5 - 2 * t) / 2)), v = a * a * (3 - 2 * a) * (1 - (t - step) / BEHIND);
       if (v > o) o = v;
     }
-    out[j * W + i] = Math.round(Math.max(s, o * BEHIND_DARK) * 255);
+    const v = Math.round(Math.max(s, o * BEHIND_DARK) * 255);
+    if (stride === 1) out[j * W + i] = v;
+    else for (let jj = j; jj < Math.min(H, j + stride); jj++) for (let ii = i; ii < Math.min(W, i + stride); ii++) out[jj * W + ii] = v;
   }
 }
 
@@ -801,13 +859,30 @@ function flushed(gm: GroundMesh, grid: Grid, palette: Palette) {
 }
 
 /** THE YEAR on the ground, each frame, and the weather's wet and frost on it: on the continuous surface only. @see world/calendar groundSeason, world/weather groundAt */
-export function seasonGround(gm: GroundMesh, s: { bloom: number; dry: number; brown: number; snow: number } | null, yearShare = 0.3, wet = 0, frost = 0) {
+/** `at once`: drawn the next frame, not when the still view's copy is next made — the editor's slider. @see TimeSlider */
+/** What lies along the way the fronts cross: the way (cells, a unit), where along it the first of four reckonings is, how far the four reach, and each. */
+export type GroundFront = { axis: readonly [number, number]; from: number; reach: number; at: readonly { snow: number; wet: number; frost: number }[] };
+
+export function seasonGround(gm: GroundMesh, s: { bloom: number; dry: number; brown: number; snow: number } | null, yearShare = 0.3, wet = 0, frost = 0, atOnce = false, front: GroundFront | null = null) {
+  const moved = () => { gm.uniforms.update(); if (atOnce) gm.rev++; else gm.drift++; };
+  // WHAT LIES ALONG THE FRONTS' WAY (in 64ths, as below): the four reckonings, or the one everywhere.
+  {
+    const U = gm.uniforms.uniforms as Record<string, Float32Array>, q = (v: number) => Math.round(v * 64) / 64;
+    let changed = false;
+    const put = (a: Float32Array, k: number, v: number) => { const f = Math.fround(v); if (a[k] !== f) { a[k] = f; changed = true; } };
+    ["uLieA", "uLieB", "uLieC", "uLieD"].forEach((name, k) => {
+      const at = front?.at[k];
+      put(U[name], 0, q(s ? (at ? at.snow : s.snow) : 0)); put(U[name], 1, q(at ? at.wet : wet)); put(U[name], 2, q(at ? at.frost : frost));
+    });
+    put(U.uLieAxis, 0, front ? front.axis[0] : 1); put(U.uLieAxis, 1, front ? front.axis[1] : 0); put(U.uLieAxis, 2, front ? front.from : 0); put(U.uLieAxis, 3, front ? 1 / front.reach : 1);
+    if (changed) moved();
+  }
   const m = gm.uniforms.uniforms.uMode as Float32Array;
   // (The year's share, for the fields: a step a day; the ground's wet and frost in 64ths: so the uniforms are not sent each frame.)
   // (The year's share as the array will hold it: a 120th is no exact single-precision number, and held against
   // the longer one it was never the same — the uniforms were sent, and the ground's copy thrown away, every frame.)
   const ys = Math.fround(Math.floor(yearShare * 120) / 120), wq = Math.round(wet * 64) / 64, fq = Math.round(frost * 64) / 64;
-  if (m[1] !== ys || m[2] !== wq || m[3] !== fq) { m[1] = ys; m[2] = wq; m[3] = fq; gm.uniforms.update(); gm.drift++; }
+  if (m[1] !== ys || m[2] !== wq || m[3] !== fq) { m[1] = ys; m[2] = wq; m[3] = fq; moved(); }
   const u = gm.uniforms.uniforms.uSeason as Float32Array;
   // (In 128ths, as the wet and the frost are: the year moves them every frame by less than can be seen, and each
   // move is the still view's copy of the ground thrown away. @see ground-cache.ts)
@@ -815,8 +890,7 @@ export function seasonGround(gm: GroundMesh, s: { bloom: number; dry: number; br
   const b = s ? q(s.bloom) : 0, d = s ? q(s.dry) : 0, r = s ? q(s.brown) : 0, w = s ? q(s.snow) : 0;
   if (u[0] === b && u[1] === d && u[2] === r && u[3] === w) return;
   u[0] = b; u[1] = d; u[2] = r; u[3] = w;
-  gm.uniforms.update();
-  gm.drift++;
+  moved();
 }
 
 export function destroyGroundMesh(gm: GroundMesh) {
@@ -898,13 +972,21 @@ struct LocalUniforms {
   uRound: f32,
 };
 @group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
-struct Ground { uMap: vec4<f32>, uMode: vec4<f32>, uSeason: vec4<f32> };
+struct Ground { uMap: vec4<f32>, uMode: vec4<f32>, uSeason: vec4<f32>, uLieAxis: vec4<f32>, uLieA: vec4<f32>, uLieB: vec4<f32>, uLieC: vec4<f32>, uLieD: vec4<f32> };
 @group(2) @binding(0) var<uniform> ground : Ground;
 @group(2) @binding(1) var uCells : texture_2d<f32>;
 @group(2) @binding(2) var uEdges : texture_2d<f32>;
 @group(2) @binding(3) var uShade : texture_2d<f32>;
 @group(2) @binding(7) var uShadeSampler : sampler;
 @group(2) @binding(4) var uTint : texture_2d<f32>;
+// WHAT LIES at a point of the map — snow, wet, frost: the weather crosses the map as fronts, so it is reckoned at
+// four places along their way and taken between them. @see world/weather groundOver
+fn lieAt(p: vec2<f32>) -> vec3<f32> {
+  let x = clamp((dot(p, ground.uLieAxis.xy) - ground.uLieAxis.z) * ground.uLieAxis.w, 0.0, 1.0) * 3.0;
+  let ab = mix(ground.uLieA.xyz, ground.uLieB.xyz, smoothstep(0.0, 1.0, x));
+  let cd = mix(ground.uLieC.xyz, ground.uLieD.xyz, smoothstep(2.0, 3.0, x));
+  return mix(ab, cd, smoothstep(1.0, 2.0, x));
+}
 // THE STILL VIEW'S COPY. While nothing the ground draws has changed since the last frame, its colour is read back
 // from the copy made of it then, a pixel for a pixel, in place of being worked out again. @see ground-cache.ts
 struct GCache { uCacheMode: vec4<f32> };
@@ -964,6 +1046,7 @@ fn riseOf(c: vec4<f32>) -> f32 { return floor((c.z - 128.0 * step(127.5, c.z) + 
 // every baked thing is lit — and how many tiles of shadow a half step of height throws.
 const SUN = vec2<f32>(${SUN_SRC});
 const SHADOW_RUN = ${SHADOW_RUN_SRC};
+const SHADOW_DEPTH = ${SHADOW_DEPTH_SRC};
 // A cell's height in half steps, a ramp's at its middle.
 fn topOf(c: vec4<f32>) -> f32 { return c.y - 128.0 + riseOf(c) * 0.5; }
 // A cell's drawn corners (0,0), (1,0), (1,1), (0,1), half steps. @see surfaceOf
@@ -1012,7 +1095,7 @@ fn contactAt(p: vec2<f32>, h: f32) -> f32 {
 }
 // A colour as the sun and the ground round it leave it.
 fn relit(col: vec3<f32>, p: vec2<f32>, h: f32, foot: bool) -> vec3<f32> {
-  var c = mix(col, col * vec3<f32>(${SHADOW_TINT_SRC}), shadowAt(p, h) * mix(0.72, 0.5, ground.uMode.x));
+  var c = mix(col, col * vec3<f32>(${SHADOW_TINT_SRC}), shadowAt(p, h) * SHADOW_DEPTH);
   if (foot) { c = c * (1.0 - 0.34 * contactAt(p, h)); }
   return c;
 }
@@ -1037,12 +1120,77 @@ fn seasonGrass(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
   g = mix(g, vec3<f32>(0.5, 0.48, 0.31) * (0.9 + 0.2 * patchy), s.z * (0.35 + 0.35 * patchy));
   return g;
 }
-// SNOW, a little blue, a little uneven, a glint here and there close up.
+// SNOW AS IT LIES, shaped and lit: a surface of its own, not a flat white. Its height soft rolls, each point lit
+// by its own slope toward the sun — warm where it faces it, the sky's blue where it turns away. Close up, dry
+// stalks through it in tufts, drawn as the grass's blades are; and on the lit slopes a glint, a point with a star's
+// arms. (Every slope worked out, not differenced: noise differenced shows its lattice. What cannot show at this
+// zoom is not worked out. Mounds over the buried tussocks, lit and shaded, read as snowballs.)
+const SNOW_LIT = vec3<f32>(1.0, 0.99, 0.975);
+const SNOW_SKY = vec3<f32>(0.73, 0.8, 0.925);
+const SNOW_STRAW = vec3<f32>(0.6, 0.53, 0.36);
 fn snowAt(p: vec2<f32>, fp: f32) -> vec3<f32> {
-  var c = vec3<f32>(0.9, 0.93, 0.97) * (0.95 + 0.07 * vnoise(p * 2.3 + 3.0));
-  c = c * (1.0 + (vnoise(p * 14.0) - 0.5) * 0.05 * shows(14.0, fp));
-  let gl = hash(vec2<i32>(floor(p * 70.0)));
-  return mix(c, vec3<f32>(1.0), step(0.985, gl) * 0.6 * shows(70.0, fp));
+  let warp = fbm(p * 0.22 + 13.0);
+  var grad = vec2<f32>(0.0);
+  // SOFT ROLLS: the ground's own lie under it, rounded over — three gentle waves across one another, their lines
+  // bent, so no way is the wind's. (Ridges all one way read as a desert's dunes.)
+  let r1 = shows(3.0, fp);
+  if (r1 > 0.0) {
+    for (var i = 0; i < 3; i++) {
+      let fi = f32(i);
+      let dir = vec2<f32>(cos(fi * 2.1 + 0.4), sin(fi * 2.1 + 0.4));
+      let fr = 0.9 + fi * 0.75;
+      let ph = dot(p, dir) * fr + warp * 6.0 + fi * 1.7;
+      grad = grad + dir * (0.02 / (1.0 + fi * 0.6) * fr * cos(ph) * r1);
+    }
+  }
+  // THE TUFTS the stalks stand in: in a turned grid some 0.9 of a tile, clustered; each wholly within its own cell
+  // (one spilling over was cut off square by the next cell's edge).
+  var core = 0.0;
+  let r3 = shows(16.0, fp);
+  if (r3 > 0.0) {
+    let w = vec2<f32>(p.x * 0.8 + p.y * 0.6, p.y * 0.8 - p.x * 0.6) * 1.1;
+    let c = vec2<i32>(floor(w)); let f = fract(w);
+    if (hash(c + vec2<i32>(3, 71)) < smoothstep(0.15, 0.6, vnoise(p * 0.45 + 61.0)) * 0.85) {
+      let ctr = vec2<f32>(hash(c + vec2<i32>(11, 5)), hash(c + vec2<i32>(2, 17))) * 0.4 + 0.3;
+      // (As big as it likes, up to what keeps it inside: 0.8 its squash along x.)
+      let room = min(0.8 * min(ctr.x, 1.0 - ctr.x), min(ctr.y, 1.0 - ctr.y)) / 1.2;
+      let rad = mix(0.08, room, 0.35 + 0.65 * hash(c + vec2<i32>(19, 23)));
+      let d = f - ctr;
+      let k = (d.x * d.x * 0.64 + d.y * d.y) / (rad * rad);
+      if (k < 1.0) {
+        core = 1.0 - smoothstep(0.0, 0.55, k);
+      }
+    }
+  }
+  // LIT by its slope: the sun from SUN, some way up the sky.
+  let L = normalize(vec3<f32>(normalize(SUN) * 0.78, 0.62));
+  let n = normalize(vec3<f32>(-grad * 4.0, 1.0));
+  let lit = clamp(0.62 + (max(dot(n, L), 0.0) - L.z) * 1.5, 0.0, 1.0);
+  var col = mix(SNOW_SKY, SNOW_LIT, lit);
+  col = col * (0.985 + 0.03 * warp);
+  col = col * (1.0 + (vnoise(p * 44.0) - 0.5) * 0.03 * shows(44.0, fp));
+  // THE GLINTS, on what faces the sun.
+  let gs = shows(14.0, fp);
+  if (gs > 0.0) {
+    let g = p * 14.0; let gc = vec2<i32>(floor(g));
+    if (hash(gc) > 0.978) {
+      let o = vec2<f32>(hash(gc + vec2<i32>(7, 3)), hash(gc + vec2<i32>(1, 9))) * 0.5 + 0.25;
+      let dd = abs(fract(g) - o);
+      let dot0 = 1.0 - smoothstep(0.035, 0.1, length(dd));
+      let arms = max((1.0 - smoothstep(0.01, 0.028, dd.x)) * (1.0 - smoothstep(0.04, 0.36, dd.y)), (1.0 - smoothstep(0.01, 0.028, dd.y)) * (1.0 - smoothstep(0.04, 0.36, dd.x))) * shows(30.0, fp);
+      // (A crystal flashing in the sun: white, or a touch of ice blue, gold or rose.)
+      let tint = hash(gc + vec2<i32>(13, 31));
+      let flash = select(select(select(vec3<f32>(1.0), vec3<f32>(0.72, 0.92, 1.0), tint > 0.55), vec3<f32>(1.0, 0.9, 0.62), tint > 0.75), vec3<f32>(1.0, 0.78, 0.88), tint > 0.9);
+      col = mix(col, flash, max(dot0, arms * 0.7) * smoothstep(0.4, 0.7, lit) * gs);
+    }
+  }
+  // THE STALKS through it, close up.
+  let bf = shows(BLADE_F, gScreenFp);
+  if (bf > 0.0) {
+    let dens = min(0.5, core * 0.2 * smoothstep(0.3, 0.7, vnoise(p * 1.7 + 3.0)));
+    if (dens > 0.02) { col = mix(col, blades(SNOW_STRAW, 0.7, dens, col, false, vec2<f32>(0.0), 0.0).rgb, bf); }
+  }
+  return col;
 }
 // THE CANOPY over a point, 0–1: each cell's (@see writeEdges), blended between their middles.
 fn canopyCell(c: vec2<i32>) -> f32 {
@@ -1055,9 +1203,11 @@ fn fieldCell(c: vec2<i32>) -> bool {
   return (floor((textureLoad(uEdges, vec2<i32>(c.x * 2 + 1, c.y), 0).w + 0.5) / 256.0) % 2.0) > 0.5;
 }
 // A FIELD through the year (uMode.y its share), over the ground it was (base). The fields are PARCELS a few cells
-// across, each its own crop and its own way of ploughing — wheat, barley, rape, a hay meadow — with a grass headland
-// round it and a verge where the farm's land ends: ploughed ridges, rows sprouting, green with tramlines, gold, cut
-// to striped stubble, ploughed again; some sown in autumn and green through the winter.
+// across, each its own crop and its own way of ploughing — wheat, barley, rape, maize, kale, a hay meadow — with a
+// grass headland round it and a verge where the farm's land ends. Each season its own look: a fine pale tilth in
+// spring, the shade between the rows of the plants over it (the crops' own sprites: @see props/crop-models),
+// stubble and windrows and round bales after the cut, the plough's dark fresh furrows in
+// autumn, frost lying in them in winter — each crop in its own season. (Mirrored in the GLSL below.)
 fn fieldOver(base: vec3<f32>, p: vec2<f32>, fp: f32) -> vec3<f32> {
   let band = floor(p.y / 4.0);
   let q = vec2<f32>((p.x + hash(vec2<i32>(i32(band), 91)) * 3.0) / 3.0, p.y / 4.0);
@@ -1066,45 +1216,102 @@ fn fieldOver(base: vec3<f32>, p: vec2<f32>, fp: f32) -> vec3<f32> {
   let h1 = hash(pc); let h2 = hash(pc + vec2<i32>(17, 5)); let h3 = hash(pc + vec2<i32>(3, 29));
   let edge = min(min(lq.x, 1.0 - lq.x) * 3.0, min(lq.y, 1.0 - lq.y) * 4.0);
   let y = fract(ground.uMode.y + (h2 - 0.5) * 0.03);
-  let along = h3 > 0.5;
-  let across = select(p.y, p.x, along);
-  let ph = across * 43.98;
-  let ridge = sin(ph);
+  let alongX = h3 > 0.5;
+  let across = select(p.y, p.x, alongX);
+  let along = select(p.x, p.y, alongX);
+  // THE CROP: hay mown in spring; wheat, barley, rape cut in summer; maize in autumn; kale picked in winter.
+  // (The same parcels and crops the harvest pays for. @see vegetation/crops)
+  let kind = select(select(select(select(select(3.0, 5.0, h1 < 0.75), 4.0, h1 < 0.5), 2.0, h1 < 0.27), 1.0, h1 < 0.2), 0.0, h1 < 0.12);
+  let hay = kind > 2.5 && kind < 3.5;
+  let maize = kind > 3.5 && kind < 4.5;
+  let kale = kind > 4.5;
+  let rape = kind > 1.5 && kind < 2.5;
+  let big = maize || kale;
   let fine = shows(7.0, fp);
-  // PLOUGHED: ridges lit on the side to the light.
-  let soil = mix(vec3<f32>(0.34, 0.24, 0.15), vec3<f32>(0.5, 0.37, 0.24), 0.5 + 0.5 * ridge * fine) * (0.94 + 0.12 * fbm(p * 2.3 + 7.0));
-  let kind = select(select(select(3.0, 2.0, h1 < 0.82), 1.0, h1 < 0.62), 0.0, h1 < 0.38);
-  let winter = select(0.0, 1.0, h2 > 0.62 && kind < 1.5);
-  let grow = max(smoothstep(0.07, 0.22, y), winter * 0.4 * max(smoothstep(0.7, 0.95, y), 1.0 - smoothstep(0.0, 0.12, y)));
-  let ripe = smoothstep(0.24, 0.34, y) * (1.0 - smoothstep(0.5, 0.55, y));
-  let cut = smoothstep(0.412, 0.425, y) * (1.0 - smoothstep(0.62, 0.68, y));
-  let green = select(vec3<f32>(0.3, 0.5, 0.17), vec3<f32>(0.42, 0.56, 0.22), kind > 0.5);
-  let gold = select(vec3<f32>(0.86, 0.66, 0.26), vec3<f32>(0.9, 0.8, 0.48), kind > 0.5);
-  var crop = mix(green, gold, ripe);
-  // Rape: green, then yellow in flower in late spring, then the brown of its pods.
-  if (kind > 1.5 && kind < 2.5) {
-    crop = mix(vec3<f32>(0.3, 0.48, 0.2), vec3<f32>(0.96, 0.86, 0.18), smoothstep(0.15, 0.2, y) * (1.0 - smoothstep(0.26, 0.31, y)));
+  let finer = shows(16.0, fp);
+  // ROWS: eight a tile; maize and kale, bigger plants, four. (Where the crops' patches stand them: @see vegetation/crops rowsOf)
+  let rows = select(8.0, 4.0, big);
+  let ra = across * rows;
+  let ridge = sin(ra * 6.2831853);
+  // THE SOIL by the season: a fine pale tilth in spring, dark fresh-turned furrows after the autumn plough, frost
+  // lying in the furrows on a cold day.
+  let tilth = 1.0 - smoothstep(0.1, 0.2, y);
+  let fresh = smoothstep(0.62, 0.7, y) * (1.0 - smoothstep(0.82, 0.98, y));
+  let clod = vnoise(p * 11.0 + vec2<f32>(h1 * 37.0, h3 * 19.0));
+  var soil = mix(vec3<f32>(0.32, 0.22, 0.14), vec3<f32>(0.5, 0.37, 0.24), 0.5 + 0.5 * ridge * fine * (1.0 - 0.6 * tilth));
+  soil = soil * (0.88 + 0.24 * clod * finer) * (0.94 + 0.12 * fbm(p * 2.3 + 7.0));
+  soil = mix(soil, soil * vec3<f32>(0.78, 0.76, 0.74), fresh);
+  soil = mix(soil, vec3<f32>(0.56, 0.46, 0.35) * (0.92 + 0.16 * clod), tilth * 0.4);
+  soil = mix(soil, vec3<f32>(0.8, 0.82, 0.86), lieAt(p).z * (1.0 - smoothstep(-0.7, 0.3, ridge)) * 0.75 * fine);
+  var grow = smoothstep(0.07, 0.22, y) * (1.0 - smoothstep(0.62, 0.68, y));
+  var ripe = smoothstep(0.24, 0.34, y) * (1.0 - smoothstep(0.5, 0.55, y));
+  var cut = smoothstep(0.412, 0.425, y) * (1.0 - smoothstep(0.62, 0.68, y));
+  var green = select(vec3<f32>(0.3, 0.5, 0.17), vec3<f32>(0.42, 0.56, 0.22), kind > 0.5);
+  var gold = select(vec3<f32>(0.86, 0.66, 0.26), vec3<f32>(0.9, 0.8, 0.48), kind > 0.5);
+  if (maize) {
+    grow = smoothstep(0.3, 0.45, y) * (1.0 - smoothstep(0.85, 0.9, y));
+    ripe = smoothstep(0.55, 0.65, y) * (1.0 - smoothstep(0.8, 0.85, y));
+    cut = smoothstep(0.672, 0.685, y) * (1.0 - smoothstep(0.85, 0.9, y));
+    green = vec3<f32>(0.26, 0.5, 0.16); gold = vec3<f32>(0.78, 0.7, 0.42);
+  }
+  if (kale) {
+    grow = smoothstep(0.6, 0.75, y) * (1.0 - smoothstep(0.915, 0.93, y));
+    ripe = 0.0; cut = 0.0;
+    green = vec3<f32>(0.24, 0.42, 0.38); gold = green;
+  }
+  // UNDER THE PLANTS (they are the crops' own sprites: @see props/crop-models): the leaves fallen and the shade
+  // between the rows, closing over the soil as they grow.
+  let fr = fract(ra) - 0.5;
+  let cover = clamp(grow * (0.3 + 0.4 * grow), 0.0, 1.0) * mix(1.0, 0.55, abs(fr) * 2.0 * fine);
+  var crop = mix(green, gold, ripe) * 0.7;
+  // Rape: green, then yellow in flower in late spring, speckled where it is fullest, then the brown of its pods.
+  if (rape) {
+    let flower = smoothstep(0.15, 0.2, y) * (1.0 - smoothstep(0.26, 0.31, y));
+    crop = mix(vec3<f32>(0.3, 0.48, 0.2), vec3<f32>(0.98, 0.88, 0.2), flower * (0.55 + 0.45 * smoothstep(0.3, 0.7, vnoise(p * 19.0))));
     crop = mix(crop, vec3<f32>(0.55, 0.5, 0.28), smoothstep(0.3, 0.38, y));
   }
-  // Ears and leaves: a speckle in the crop.
-  crop = crop * (0.9 + 0.2 * vnoise(p * 23.0) * shows(23.0, fp));
-  // Rows while young, filling in as it grows.
-  var c = mix(soil, crop, clamp(grow * (0.35 + 0.65 * grow) + grow * (0.5 - 0.5 * ridge) * 0.4 * fine, 0.0, 1.0));
+  crop = crop * (0.88 + 0.24 * vnoise(p * 23.0) * shows(23.0, fp));
+  var c = mix(soil, crop, cover);
+  // Rows in the grown crop, and between maize's tall rows the shade they cast; the wind's sheen over ripe grain.
+  c = c * (1.0 + 0.08 * ridge * fine * grow);
+  if (maize) { c = c * (1.0 - 0.32 * grow * smoothstep(0.28, 0.5, abs(fr)) * fine); }
+  c = c * (1.0 + 0.12 * ripe * (fbm(vec2<f32>(p.x + p.y, p.x - p.y) * vec2<f32>(0.35, 1.4)) - 0.5));
   // TRAMLINES: the tractor's wheels, two narrow lines every few rows.
-  // (Rows in the grown crop too, and the wind's sheen across it when it is ripe.)
-  c = c * (1.0 + 0.08 * ridge * fine * grow) * (1.0 + 0.1 * ripe * (fbm(vec2<f32>(p.x + p.y, p.x - p.y) * vec2<f32>(0.35, 1.4)) - 0.5));
   let tl = abs(fract(across / 2.4) - 0.5);
   let tram = (1.0 - smoothstep(0.02, 0.035, abs(tl - 0.06))) * grow * (1.0 - cut) * shows(14.0, fp);
-  c = mix(c, soil * 0.9, tram * 0.4 * select(1.0, 0.0, kind > 2.5));
-  // STUBBLE once cut: pale straw in the combine's passes, ploughed in come autumn.
-  let swath = 0.94 + 0.08 * step(0.5, fract(across * 0.8));
-  let straw = mix(vec3<f32>(0.8, 0.71, 0.47), vec3<f32>(0.66, 0.6, 0.4), 0.5 + 0.5 * ridge * fine) * swath;
-  c = mix(c, straw, cut * select(1.0, 0.0, kind > 2.5));
-  // A HAY MEADOW: grass all year, mown in stripes, paler a while after it is cut.
-  if (kind > 2.5) {
+  c = mix(c, soil * 0.9, tram * 0.4 * select(1.0, 0.0, hay));
+  // STUBBLE once cut: short straw in fine lines the way the combine went, its wide passes, the straw left in rows.
+  let swath = 0.93 + 0.1 * step(0.5, fract(across * 0.8));
+  let stalks = 0.9 + 0.2 * step(0.5, fract(across * 30.0 + vnoise(p * 6.0))) * shows(30.0, fp);
+  let windrow = 1.0 - smoothstep(0.03, 0.08, abs(fract(across * 0.8 + 0.25) - 0.5));
+  var straw = mix(vec3<f32>(0.8, 0.71, 0.47), vec3<f32>(0.66, 0.6, 0.4), 0.5 + 0.5 * ridge * fine) * swath * stalks;
+  straw = mix(straw, vec3<f32>(0.86, 0.77, 0.5), windrow * 0.5 * fine * (1.0 - smoothstep(0.44, 0.5, y)));
+  c = mix(c, straw, cut * select(1.0, 0.0, hay));
+  // A HAY MEADOW: tussocky grass, mown in stripes in spring and raked in rows to dry, dull and flat in winter.
+  if (hay) {
+    let mown = smoothstep(0.15, 0.18, y) * (1.0 - smoothstep(0.28, 0.36, y));
     let mow = 0.92 + 0.14 * step(0.5, fract(across * 0.5));
-    c = mix(vec3<f32>(0.36, 0.56, 0.21), vec3<f32>(0.7, 0.68, 0.38), smoothstep(0.38, 0.42, y) * (1.0 - smoothstep(0.5, 0.6, y))) * mow;
-    c = c * (0.92 + 0.16 * vnoise(p * 17.0) * shows(17.0, fp));
+    c = mix(vec3<f32>(0.36, 0.56, 0.21), vec3<f32>(0.7, 0.68, 0.38), mown) * mow;
+    c = c * (0.9 + 0.2 * vnoise(p * 17.0) * shows(17.0, fp));
+    let rake = (1.0 - smoothstep(0.04, 0.1, abs(fract(across) - 0.5))) * smoothstep(0.17, 0.18, y) * (1.0 - smoothstep(0.2, 0.22, y));
+    c = mix(c, vec3<f32>(0.62, 0.62, 0.32), rake * fine);
+    let dull = max(smoothstep(0.7, 0.8, y), 1.0 - smoothstep(0.03, 0.1, y));
+    c = mix(c, c * vec3<f32>(0.86, 0.82, 0.74), dull);
+  }
+  // BALES a while after the cut: round, lying where the baler dropped them, each with its shadow.
+  let baleT = select(smoothstep(0.43, 0.432, y) * (1.0 - smoothstep(0.49, 0.5, y)), smoothstep(0.205, 0.207, y) * (1.0 - smoothstep(0.26, 0.27, y)), hay);
+  if (baleT > 0.0 && !big) {
+    let bq = vec2<f32>(along / 1.4, across / 0.8);
+    let bc = vec2<i32>(floor(bq));
+    let bj = vec2<f32>(hash(bc + vec2<i32>(5, 1)), hash(bc + vec2<i32>(1, 5))) - 0.5;
+    let bo = (fract(bq) - 0.5 - bj * 0.4) * vec2<f32>(1.4, 0.8);
+    let here = step(hash(bc + pc * vec2<i32>(7, 7) + vec2<i32>(9, 9)), 0.55) * baleT * shows(8.0, fp);
+    let sh = 1.0 - smoothstep(0.085, 0.115, length(bo - vec2<f32>(0.05, 0.05)));
+    c = mix(c, c * 0.6, sh * here * 0.6);
+    let bd = length(bo);
+    let disc = 1.0 - smoothstep(0.09, 0.105, bd);
+    let lit = 0.8 + 0.35 * clamp(-(bo.x + bo.y) / 0.105, -1.0, 1.0);
+    c = mix(c, vec3<f32>(0.82, 0.7, 0.4) * lit * (0.9 + 0.1 * sin(bd * 120.0)), disc * here);
   }
   c = c * (0.93 + 0.14 * fbm(p * 0.6 + 3.0));
   // THE HEADLAND round each parcel, and a verge where the farm's land ends.
@@ -1154,7 +1361,7 @@ fn wornFieldAt(p: vec2<f32>) -> f32 {
 // FALLEN LEAVES in the autumn, under a wood and blown a little past its edge, browning and rotting into the winter.
 fn litterOver(base: vec3<f32>, p: vec2<f32>, fp: f32) -> vec3<f32> {
   let y = ground.uMode.y;
-  let fall = smoothstep(0.57, 0.66, y) * (1.0 - smoothstep(0.84, 0.95, y)) * (1.0 - ground.uSeason.w);
+  let fall = smoothstep(0.57, 0.66, y) * (1.0 - smoothstep(0.84, 0.95, y)) * (1.0 - lieAt(p).x);
   if (fall <= 0.0) { return base; }
   let reach = max(canopyAt(p), canopyAt(p - vec2<f32>(0.9, 0.5)) * 0.8);
   if (reach <= 0.004) { return base; }
@@ -1169,7 +1376,7 @@ fn litterOver(base: vec3<f32>, p: vec2<f32>, fp: f32) -> vec3<f32> {
 fn wornOver(base: vec3<f32>, p: vec2<f32>, fp: f32, k: f32) -> vec3<f32> {
   var earth = mix(vec3<f32>(0.42, 0.35, 0.25), vec3<f32>(0.5, 0.43, 0.32), vnoise(p * 3.0 + 7.0));
   earth = earth * (1.0 + (vnoise(p * 22.0) - 0.5) * 0.25 * shows(22.0, fp));
-  earth = mix(earth, vec3<f32>(0.24, 0.19, 0.13), ground.uMode.z * 0.8);
+  earth = mix(earth, vec3<f32>(0.24, 0.19, 0.13), lieAt(p).y * 0.8);
   let rag = k + (fbm(p * 2.6 + 33.0) - 0.5) * 0.35 + (vnoise(p * 7.0 + 5.0) - 0.5) * 0.1;
   let flat = mix(base, base * vec3<f32>(1.1, 1.06, 0.84), smoothstep(0.15, 0.4, rag));
   return mix(flat, earth, smoothstep(0.42, 0.68, rag) * 0.92);
@@ -1302,7 +1509,7 @@ fn grassAt(p: vec2<f32>, fp: f32, dens: f32, under: vec3<f32>) -> vec3<f32> {
   let r = hash(gi + vec2<i32>(91, 7));
   // (In spring, many more, and of every colour; none under the snow.)
   let bloom = ground.uSeason.x;
-  if (r > 0.993 - 0.035 * bloom * vnoise(p * 0.5 + 13.0) && dens > 0.85 && ground.uSeason.w < 0.5) {
+  if (r > 0.993 - 0.035 * bloom * vnoise(p * 0.5 + 13.0) && dens > 0.85 && lieAt(p).x < 0.5) {
     let ctr = vec2<f32>(gi) + vec2<f32>(hash(gi + vec2<i32>(3, 1)), hash(gi + vec2<i32>(5, 9))) * 0.6 + 0.2;
     let d = length(g - ctr);
     let petal = 1.0 - smoothstep(0.11, 0.16, d);
@@ -1564,7 +1771,7 @@ fn groundColour(vAt: vec4<f32>, vGround: vec2<f32>, vWall: vec2<f32>, vTint: vec
     return vec4<f32>(c * a, a) * vTint;
   }
   if (vWall.x > 2.5) {
-    let f = fringeColour(vGround, vWall.y) * (1.0 - smoothstep(0.3, 0.7, ground.uSeason.w));
+    let f = fringeColour(vGround, vWall.y) * (1.0 - smoothstep(0.3, 0.7, lieAt(vGround).x));
     // Nothing, not a discard: it leaves the pixel as it was, and a discard stops tile-based GPUs shading ahead.
     if (f.a <= 0.003) { return vec4<f32>(0.0); }
     return vec4<f32>(f.rgb * f.a, f.a) * vTint;
@@ -1577,8 +1784,8 @@ fn groundColour(vAt: vec4<f32>, vGround: vec2<f32>, vWall: vec2<f32>, vTint: vec
     // then snow laid over every pixel of it. (None on a bed under standing water: it would show through.)
     let wetHere = i32(textureLoad(uEdges, vec2<i32>(i32(floor(vGround.x)) * 2 + 1, i32(floor(vGround.y))), 0).w + 0.5) % 4 == 2;
     var snowCover = 0.0;
-    if (ground.uSeason.w > 0.0 && !wetHere) {
-      let lie = ground.uSeason.w * 1.3 - 0.3 + (fbm(vGround * 1.3 + 5.0) - 0.5) * 0.7 + vWall.y * 0.008;
+    if (lieAt(vGround).x > 0.0 && !wetHere) {
+      let lie = lieAt(vGround).x * 1.3 - 0.3 + (fbm(vGround * 1.3 + 5.0) - 0.5) * 0.7 + vWall.y * 0.008;
       snowCover = smoothstep(0.0, 0.12, lie) * (1.0 - smoothstep(2.2, 4.8, steep));
     }
     let buried = snowCover >= 1.0;
@@ -1643,10 +1850,10 @@ fn groundColour(vAt: vec4<f32>, vGround: vec2<f32>, vWall: vec2<f32>, vTint: vec
     }
     // AFTER RAIN (uMode.z how wet): the ground darker, the wetter. (No water of its own: standing water is the
     // water simulation's.) FROST (uMode.w) whitening it on a cold still morning. @see world/weather groundAt
-    let soaked = ground.uMode.z;
+    let soaked = lieAt(vGround).y;
     if (soaked > 0.01 && !wetHere && !buried) { col = col * (1.0 - 0.16 * soaked); }
-    if (ground.uMode.w > 0.01 && !wetHere && !buried) {
-      col = mix(col, vec3<f32>(0.84, 0.88, 0.93), ground.uMode.w * 0.5 * (0.6 + 0.4 * vnoise(vGround * 9.0)) * (1.0 - smoothstep(2.2, 4.8, steep)));
+    if (lieAt(vGround).z > 0.01 && !wetHere && !buried) {
+      col = mix(col, vec3<f32>(0.84, 0.88, 0.93), lieAt(vGround).z * 0.5 * (0.6 + 0.4 * vnoise(vGround * 9.0)) * (1.0 - smoothstep(2.2, 4.8, steep)));
     }
     // SNOW where it lies: patchy as it comes and as it goes, more the higher, none on a slope too steep to hold it.
     if (snowCover > 0.0) { col = mix(col, snowAt(vGround, fp), snowCover); }
@@ -1703,6 +1910,17 @@ out vec4 finalColor;
 uniform vec4 uMap;
 uniform vec4 uMode;
 uniform vec4 uSeason;
+uniform vec4 uLieAxis;
+uniform vec4 uLieA;
+uniform vec4 uLieB;
+uniform vec4 uLieC;
+uniform vec4 uLieD;
+vec3 lieAt(vec2 p) {
+  float x = clamp((dot(p, uLieAxis.xy) - uLieAxis.z) * uLieAxis.w, 0.0, 1.0) * 3.0;
+  vec3 ab = mix(uLieA.xyz, uLieB.xyz, smoothstep(0.0, 1.0, x));
+  vec3 cd = mix(uLieC.xyz, uLieD.xyz, smoothstep(2.0, 3.0, x));
+  return mix(ab, cd, smoothstep(1.0, 2.0, x));
+}
 uniform sampler2D uCells;
 uniform highp sampler2D uEdges;
 uniform sampler2D uShade;
@@ -1734,6 +1952,7 @@ float riseOf(vec4 c) { return floor((c.z - 128.0 * step(127.5, c.z) + 0.5) / 16.
 
 const vec2 SUN = vec2(${SUN_SRC});
 const float SHADOW_RUN = ${SHADOW_RUN_SRC};
+const float SHADOW_DEPTH = ${SHADOW_DEPTH_SRC};
 float topOf(vec4 c) { return c.y - 128.0 + riseOf(c) * 0.5; }
 vec4 edgesAt(ivec2 c) { return texelFetch(uEdges, ivec2(c.x * 2, c.y), 0); }
 float levelAt(ivec2 c, float own) {
@@ -1769,7 +1988,7 @@ float contactAt(vec2 p, float h) {
   return a;
 }
 vec3 relit(vec3 col, vec2 p, float h, bool foot) {
-  vec3 c = mix(col, col * vec3(${SHADOW_TINT_SRC}), shadowAt(p, h) * mix(0.72, 0.5, uMode.x));
+  vec3 c = mix(col, col * vec3(${SHADOW_TINT_SRC}), shadowAt(p, h) * SHADOW_DEPTH);
   if (foot) c *= 1.0 - 0.34 * contactAt(p, h);
   return c;
 }
@@ -1783,12 +2002,6 @@ vec3 seasonGrass(vec3 c, vec2 p) {
   g = mix(g, vec3(0.6, 0.5, 0.3) * (0.85 + 0.3 * patchy), max(s.y - 1.0, 0.0) * smoothstep(0.15, 0.5, patchy) * 0.85);
   g = mix(g, vec3(0.5, 0.48, 0.31) * (0.9 + 0.2 * patchy), s.z * (0.35 + 0.35 * patchy));
   return g;
-}
-vec3 snowAt(vec2 p, float fp) {
-  vec3 c = vec3(0.9, 0.93, 0.97) * (0.95 + 0.07 * vnoise(p * 2.3 + 3.0));
-  c *= 1.0 + (vnoise(p * 14.0) - 0.5) * 0.05 * shows(14.0, fp);
-  float gl = hash(ivec2(floor(p * 70.0)));
-  return mix(c, vec3(1.0), step(0.985, gl) * 0.6 * shows(70.0, fp));
 }
 float canopyCell(ivec2 c) {
   ivec2 n = ivec2(int(uMap.x), int(uMap.y));
@@ -1806,36 +2019,89 @@ vec3 fieldOver(vec3 base, vec2 p, float fp) {
   float h1 = hash(pc), h2 = hash(pc + ivec2(17, 5)), h3 = hash(pc + ivec2(3, 29));
   float edge = min(min(lq.x, 1.0 - lq.x) * 3.0, min(lq.y, 1.0 - lq.y) * 4.0);
   float y = fract(uMode.y + (h2 - 0.5) * 0.03);
-  float across = h3 > 0.5 ? p.x : p.y;
-  float ph = across * 43.98;
-  float ridge = sin(ph);
+  bool alongX = h3 > 0.5;
+  float across = alongX ? p.x : p.y;
+  float along = alongX ? p.y : p.x;
+  float kind = h1 < 0.12 ? 0.0 : h1 < 0.2 ? 1.0 : h1 < 0.27 ? 2.0 : h1 < 0.5 ? 4.0 : h1 < 0.75 ? 5.0 : 3.0;
+  bool hay = kind > 2.5 && kind < 3.5;
+  bool maize = kind > 3.5 && kind < 4.5;
+  bool kale = kind > 4.5;
+  bool rape = kind > 1.5 && kind < 2.5;
+  bool big = maize || kale;
   float fine = shows(7.0, fp);
-  vec3 soil = mix(vec3(0.34, 0.24, 0.15), vec3(0.5, 0.37, 0.24), 0.5 + 0.5 * ridge * fine) * (0.94 + 0.12 * fbm(p * 2.3 + 7.0));
-  float kind = h1 < 0.38 ? 0.0 : h1 < 0.62 ? 1.0 : h1 < 0.82 ? 2.0 : 3.0;
-  float winter = (h2 > 0.62 && kind < 1.5) ? 1.0 : 0.0;
-  float grow = max(smoothstep(0.07, 0.22, y), winter * 0.4 * max(smoothstep(0.7, 0.95, y), 1.0 - smoothstep(0.0, 0.12, y)));
+  float finer = shows(16.0, fp);
+  float rows = big ? 4.0 : 8.0;
+  float ra = across * rows;
+  float ridge = sin(ra * 6.2831853);
+  float tilth = 1.0 - smoothstep(0.1, 0.2, y);
+  float fresh = smoothstep(0.62, 0.7, y) * (1.0 - smoothstep(0.82, 0.98, y));
+  float clod = vnoise(p * 11.0 + vec2(h1 * 37.0, h3 * 19.0));
+  vec3 soil = mix(vec3(0.32, 0.22, 0.14), vec3(0.5, 0.37, 0.24), 0.5 + 0.5 * ridge * fine * (1.0 - 0.6 * tilth));
+  soil *= (0.88 + 0.24 * clod * finer) * (0.94 + 0.12 * fbm(p * 2.3 + 7.0));
+  soil = mix(soil, soil * vec3(0.78, 0.76, 0.74), fresh);
+  soil = mix(soil, vec3(0.56, 0.46, 0.35) * (0.92 + 0.16 * clod), tilth * 0.4);
+  soil = mix(soil, vec3(0.8, 0.82, 0.86), lieAt(p).z * (1.0 - smoothstep(-0.7, 0.3, ridge)) * 0.75 * fine);
+  float grow = smoothstep(0.07, 0.22, y) * (1.0 - smoothstep(0.62, 0.68, y));
   float ripe = smoothstep(0.24, 0.34, y) * (1.0 - smoothstep(0.5, 0.55, y));
   float cut = smoothstep(0.412, 0.425, y) * (1.0 - smoothstep(0.62, 0.68, y));
   vec3 green = kind > 0.5 ? vec3(0.42, 0.56, 0.22) : vec3(0.3, 0.5, 0.17);
   vec3 gold = kind > 0.5 ? vec3(0.9, 0.8, 0.48) : vec3(0.86, 0.66, 0.26);
-  vec3 crop = mix(green, gold, ripe);
-  if (kind > 1.5 && kind < 2.5) {
-    crop = mix(vec3(0.3, 0.48, 0.2), vec3(0.96, 0.86, 0.18), smoothstep(0.15, 0.2, y) * (1.0 - smoothstep(0.26, 0.31, y)));
+  if (maize) {
+    grow = smoothstep(0.3, 0.45, y) * (1.0 - smoothstep(0.85, 0.9, y));
+    ripe = smoothstep(0.55, 0.65, y) * (1.0 - smoothstep(0.8, 0.85, y));
+    cut = smoothstep(0.672, 0.685, y) * (1.0 - smoothstep(0.85, 0.9, y));
+    green = vec3(0.26, 0.5, 0.16); gold = vec3(0.78, 0.7, 0.42);
+  }
+  if (kale) {
+    grow = smoothstep(0.6, 0.75, y) * (1.0 - smoothstep(0.915, 0.93, y));
+    ripe = 0.0; cut = 0.0;
+    green = vec3(0.24, 0.42, 0.38); gold = green;
+  }
+  float fr = fract(ra) - 0.5;
+  float cover = clamp(grow * (0.3 + 0.4 * grow), 0.0, 1.0) * mix(1.0, 0.55, abs(fr) * 2.0 * fine);
+  vec3 crop = mix(green, gold, ripe) * 0.7;
+  if (rape) {
+    float flower = smoothstep(0.15, 0.2, y) * (1.0 - smoothstep(0.26, 0.31, y));
+    crop = mix(vec3(0.3, 0.48, 0.2), vec3(0.98, 0.88, 0.2), flower * (0.55 + 0.45 * smoothstep(0.3, 0.7, vnoise(p * 19.0))));
     crop = mix(crop, vec3(0.55, 0.5, 0.28), smoothstep(0.3, 0.38, y));
   }
-  crop *= 0.9 + 0.2 * vnoise(p * 23.0) * shows(23.0, fp);
-  vec3 c = mix(soil, crop, clamp(grow * (0.35 + 0.65 * grow) + grow * (0.5 - 0.5 * ridge) * 0.4 * fine, 0.0, 1.0));
-  c *= (1.0 + 0.08 * ridge * fine * grow) * (1.0 + 0.1 * ripe * (fbm(vec2(p.x + p.y, p.x - p.y) * vec2(0.35, 1.4)) - 0.5));
+  crop *= 0.88 + 0.24 * vnoise(p * 23.0) * shows(23.0, fp);
+  vec3 c = mix(soil, crop, cover);
+  c *= 1.0 + 0.08 * ridge * fine * grow;
+  if (maize) c *= 1.0 - 0.32 * grow * smoothstep(0.28, 0.5, abs(fr)) * fine;
+  c *= 1.0 + 0.12 * ripe * (fbm(vec2(p.x + p.y, p.x - p.y) * vec2(0.35, 1.4)) - 0.5);
   float tl = abs(fract(across / 2.4) - 0.5);
   float tram = (1.0 - smoothstep(0.02, 0.035, abs(tl - 0.06))) * grow * (1.0 - cut) * shows(14.0, fp);
-  c = mix(c, soil * 0.9, tram * 0.4 * (kind > 2.5 ? 0.0 : 1.0));
-  float swath = 0.94 + 0.08 * step(0.5, fract(across * 0.8));
-  vec3 straw = mix(vec3(0.8, 0.71, 0.47), vec3(0.66, 0.6, 0.4), 0.5 + 0.5 * ridge * fine) * swath;
-  c = mix(c, straw, cut * (kind > 2.5 ? 0.0 : 1.0));
-  if (kind > 2.5) {
+  c = mix(c, soil * 0.9, tram * 0.4 * (hay ? 0.0 : 1.0));
+  float swath = 0.93 + 0.1 * step(0.5, fract(across * 0.8));
+  float stalks = 0.9 + 0.2 * step(0.5, fract(across * 30.0 + vnoise(p * 6.0))) * shows(30.0, fp);
+  float windrow = 1.0 - smoothstep(0.03, 0.08, abs(fract(across * 0.8 + 0.25) - 0.5));
+  vec3 straw = mix(vec3(0.8, 0.71, 0.47), vec3(0.66, 0.6, 0.4), 0.5 + 0.5 * ridge * fine) * swath * stalks;
+  straw = mix(straw, vec3(0.86, 0.77, 0.5), windrow * 0.5 * fine * (1.0 - smoothstep(0.44, 0.5, y)));
+  c = mix(c, straw, cut * (hay ? 0.0 : 1.0));
+  if (hay) {
+    float mown = smoothstep(0.15, 0.18, y) * (1.0 - smoothstep(0.28, 0.36, y));
     float mow = 0.92 + 0.14 * step(0.5, fract(across * 0.5));
-    c = mix(vec3(0.36, 0.56, 0.21), vec3(0.7, 0.68, 0.38), smoothstep(0.38, 0.42, y) * (1.0 - smoothstep(0.5, 0.6, y))) * mow;
-    c *= 0.92 + 0.16 * vnoise(p * 17.0) * shows(17.0, fp);
+    c = mix(vec3(0.36, 0.56, 0.21), vec3(0.7, 0.68, 0.38), mown) * mow;
+    c *= 0.9 + 0.2 * vnoise(p * 17.0) * shows(17.0, fp);
+    float rake = (1.0 - smoothstep(0.04, 0.1, abs(fract(across) - 0.5))) * smoothstep(0.17, 0.18, y) * (1.0 - smoothstep(0.2, 0.22, y));
+    c = mix(c, vec3(0.62, 0.62, 0.32), rake * fine);
+    float dull = max(smoothstep(0.7, 0.8, y), 1.0 - smoothstep(0.03, 0.1, y));
+    c = mix(c, c * vec3(0.86, 0.82, 0.74), dull);
+  }
+  float baleT = hay ? smoothstep(0.205, 0.207, y) * (1.0 - smoothstep(0.26, 0.27, y)) : smoothstep(0.43, 0.432, y) * (1.0 - smoothstep(0.49, 0.5, y));
+  if (baleT > 0.0 && !big) {
+    vec2 bq = vec2(along / 1.4, across / 0.8);
+    ivec2 bc = ivec2(floor(bq));
+    vec2 bj = vec2(hash(bc + ivec2(5, 1)), hash(bc + ivec2(1, 5))) - 0.5;
+    vec2 bo = (fract(bq) - 0.5 - bj * 0.4) * vec2(1.4, 0.8);
+    float here = step(hash(bc + pc * 7 + ivec2(9, 9)), 0.55) * baleT * shows(8.0, fp);
+    float sh = 1.0 - smoothstep(0.085, 0.115, length(bo - vec2(0.05, 0.05)));
+    c = mix(c, c * 0.6, sh * here * 0.6);
+    float bd = length(bo);
+    float disc = 1.0 - smoothstep(0.09, 0.105, bd);
+    float lit = 0.8 + 0.35 * clamp(-(bo.x + bo.y) / 0.105, -1.0, 1.0);
+    c = mix(c, vec3(0.82, 0.7, 0.4) * lit * (0.9 + 0.1 * sin(bd * 120.0)), disc * here);
   }
   c *= 0.93 + 0.14 * fbm(p * 0.6 + 3.0);
   vec2 fq = p - floor(p); ivec2 cc = ivec2(floor(p));
@@ -1880,7 +2146,7 @@ float wornFieldAt(vec2 p) {
 }
 vec3 litterOver(vec3 base, vec2 p, float fp) {
   float y = uMode.y;
-  float fall = smoothstep(0.57, 0.66, y) * (1.0 - smoothstep(0.84, 0.95, y)) * (1.0 - uSeason.w);
+  float fall = smoothstep(0.57, 0.66, y) * (1.0 - smoothstep(0.84, 0.95, y)) * (1.0 - lieAt(p).x);
   if (fall <= 0.0) return base;
   float reach = max(canopyAt(p), canopyAt(p - vec2(0.9, 0.5)) * 0.8);
   if (reach <= 0.004) return base;
@@ -1894,7 +2160,7 @@ vec3 litterOver(vec3 base, vec2 p, float fp) {
 vec3 wornOver(vec3 base, vec2 p, float fp, float k) {
   vec3 earth = mix(vec3(0.42, 0.35, 0.25), vec3(0.5, 0.43, 0.32), vnoise(p * 3.0 + 7.0));
   earth *= 1.0 + (vnoise(p * 22.0) - 0.5) * 0.25 * shows(22.0, fp);
-  earth = mix(earth, vec3(0.24, 0.19, 0.13), uMode.z * 0.8);
+  earth = mix(earth, vec3(0.24, 0.19, 0.13), lieAt(p).y * 0.8);
   float rag = k + (fbm(p * 2.6 + 33.0) - 0.5) * 0.35 + (vnoise(p * 7.0 + 5.0) - 0.5) * 0.1;
   vec3 flat_ = mix(base, base * vec3(1.1, 1.06, 0.84), smoothstep(0.15, 0.4, rag));
   return mix(flat_, earth, smoothstep(0.42, 0.68, rag) * 0.92);
@@ -1981,6 +2247,64 @@ vec4 blades(vec3 base, float tuft, float dens, vec3 under, bool fringe, vec2 lo,
   }
   return col;
 }
+const vec3 SNOW_LIT = vec3(1.0, 0.99, 0.975);
+const vec3 SNOW_SKY = vec3(0.73, 0.8, 0.925);
+const vec3 SNOW_STRAW = vec3(0.6, 0.53, 0.36);
+vec3 snowAt(vec2 p, float fp) {
+  float warp = fbm(p * 0.22 + 13.0);
+  vec2 grad = vec2(0.0);
+  float r1 = shows(3.0, fp);
+  if (r1 > 0.0) {
+    for (int i = 0; i < 3; i++) {
+      float fi = float(i);
+      vec2 dir = vec2(cos(fi * 2.1 + 0.4), sin(fi * 2.1 + 0.4));
+      float fr = 0.9 + fi * 0.75;
+      float ph = dot(p, dir) * fr + warp * 6.0 + fi * 1.7;
+      grad += dir * (0.02 / (1.0 + fi * 0.6) * fr * cos(ph) * r1);
+    }
+  }
+  float core = 0.0;
+  float r3 = shows(16.0, fp);
+  if (r3 > 0.0) {
+    vec2 w = vec2(p.x * 0.8 + p.y * 0.6, p.y * 0.8 - p.x * 0.6) * 1.1;
+    ivec2 c = ivec2(floor(w)); vec2 f = fract(w);
+    if (hash(c + ivec2(3, 71)) < smoothstep(0.15, 0.6, vnoise(p * 0.45 + 61.0)) * 0.85) {
+      vec2 ctr = vec2(hash(c + ivec2(11, 5)), hash(c + ivec2(2, 17))) * 0.4 + 0.3;
+      float room = min(0.8 * min(ctr.x, 1.0 - ctr.x), min(ctr.y, 1.0 - ctr.y)) / 1.2;
+      float rad = mix(0.08, room, 0.35 + 0.65 * hash(c + ivec2(19, 23)));
+      vec2 d = f - ctr;
+      float k = (d.x * d.x * 0.64 + d.y * d.y) / (rad * rad);
+      if (k < 1.0) {
+        core = 1.0 - smoothstep(0.0, 0.55, k);
+      }
+    }
+  }
+  vec3 L = normalize(vec3(normalize(SUN) * 0.78, 0.62));
+  vec3 n = normalize(vec3(-grad * 4.0, 1.0));
+  float lit = clamp(0.62 + (max(dot(n, L), 0.0) - L.z) * 1.5, 0.0, 1.0);
+  vec3 col = mix(SNOW_SKY, SNOW_LIT, lit);
+  col *= 0.985 + 0.03 * warp;
+  col *= 1.0 + (vnoise(p * 44.0) - 0.5) * 0.03 * shows(44.0, fp);
+  float gs = shows(14.0, fp);
+  if (gs > 0.0) {
+    vec2 g = p * 14.0; ivec2 gc = ivec2(floor(g));
+    if (hash(gc) > 0.978) {
+      vec2 o = vec2(hash(gc + ivec2(7, 3)), hash(gc + ivec2(1, 9))) * 0.5 + 0.25;
+      vec2 dd = abs(fract(g) - o);
+      float dot0 = 1.0 - smoothstep(0.035, 0.1, length(dd));
+      float arms = max((1.0 - smoothstep(0.01, 0.028, dd.x)) * (1.0 - smoothstep(0.04, 0.36, dd.y)), (1.0 - smoothstep(0.01, 0.028, dd.y)) * (1.0 - smoothstep(0.04, 0.36, dd.x))) * shows(30.0, fp);
+      float tint = hash(gc + ivec2(13, 31));
+      vec3 flash = tint > 0.9 ? vec3(1.0, 0.78, 0.88) : tint > 0.75 ? vec3(1.0, 0.9, 0.62) : tint > 0.55 ? vec3(0.72, 0.92, 1.0) : vec3(1.0);
+      col = mix(col, flash, max(dot0, arms * 0.7) * smoothstep(0.4, 0.7, lit) * gs);
+    }
+  }
+  float bf = shows(BLADE_F, gScreenFp);
+  if (bf > 0.0) {
+    float dens = min(0.5, core * 0.2 * smoothstep(0.3, 0.7, vnoise(p * 1.7 + 3.0)));
+    if (dens > 0.02) col = mix(col, blades(SNOW_STRAW, 0.7, dens, col, false, vec2(0.0), 0.0).rgb, bf);
+  }
+  return col;
+}
 vec3 grassAt(vec2 p, float fp, float dens, vec3 under) {
   vec3 c = grassBase(p);
   float t = 0.6;
@@ -2000,7 +2324,7 @@ vec3 grassAt(vec2 p, float fp, float dens, vec3 under) {
   vec2 g = p * 32.0; ivec2 gi = ivec2(floor(g));
   float r = hash(gi + ivec2(91, 7));
   float bloom = uSeason.x;
-  if (r > 0.993 - 0.035 * bloom * vnoise(p * 0.5 + 13.0) && dens > 0.85 && uSeason.w < 0.5) {
+  if (r > 0.993 - 0.035 * bloom * vnoise(p * 0.5 + 13.0) && dens > 0.85 && lieAt(p).x < 0.5) {
     vec2 ctr = vec2(gi) + vec2(hash(gi + ivec2(3, 1)), hash(gi + ivec2(5, 9))) * 0.6 + 0.2;
     float d = length(g - ctr);
     float petal = 1.0 - smoothstep(0.11, 0.16, d);
@@ -2200,7 +2524,7 @@ void main() {
     return;
   }
   if (vWall.x > 2.5) {
-    vec4 f = fringeColour(vGround, vWall.y) * (1.0 - smoothstep(0.3, 0.7, uSeason.w));
+    vec4 f = fringeColour(vGround, vWall.y) * (1.0 - smoothstep(0.3, 0.7, lieAt(vGround).x));
     if (f.a <= 0.003) { finalColor = vec4(0.0); return; }
     finalColor = vec4(f.rgb * f.a, f.a) * vTint;
     return;
@@ -2250,13 +2574,13 @@ void main() {
       col = mix(col, stuff * mix(0.7, 1.0, smoothstep(-0.02, 0.16, over)), beach);
     }
     bool wetHere = int(texelFetch(uEdges, ivec2(int(floor(vGround.x)) * 2 + 1, int(floor(vGround.y))), 0).w + 0.5) % 4 == 2;
-    float soaked = uMode.z;
+    float soaked = lieAt(vGround).y;
     if (soaked > 0.01 && !wetHere) col *= 1.0 - 0.16 * soaked;
-    if (uMode.w > 0.01 && !wetHere) {
-      col = mix(col, vec3(0.84, 0.88, 0.93), uMode.w * 0.5 * (0.6 + 0.4 * vnoise(vGround * 9.0)) * (1.0 - smoothstep(2.2, 4.8, steep)));
+    if (lieAt(vGround).z > 0.01 && !wetHere) {
+      col = mix(col, vec3(0.84, 0.88, 0.93), lieAt(vGround).z * 0.5 * (0.6 + 0.4 * vnoise(vGround * 9.0)) * (1.0 - smoothstep(2.2, 4.8, steep)));
     }
-    if (uSeason.w > 0.0 && !wetHere) {
-      float lie = uSeason.w * 1.3 - 0.3 + (fbm(vGround * 1.3 + 5.0) - 0.5) * 0.7 + vWall.y * 0.008;
+    if (lieAt(vGround).x > 0.0 && !wetHere) {
+      float lie = lieAt(vGround).x * 1.3 - 0.3 + (fbm(vGround * 1.3 + 5.0) - 0.5) * 0.7 + vWall.y * 0.008;
       float cover = smoothstep(0.0, 0.12, lie) * (1.0 - smoothstep(2.2, 4.8, steep));
       if (cover > 0.0) col = mix(col, snowAt(vGround, fp), cover);
     }

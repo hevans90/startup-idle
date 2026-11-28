@@ -19,6 +19,7 @@ import "./debug/expose-store";
 import { GpuCheckHud } from "./debug/gpu-check-hud";
 import { GpuWaterToggle } from "./debug/gpu-water-toggle";
 import { PerfHud } from "./debug/perf-hud";
+import { TimeSlider } from "./debug/time-slider";
 import { ToolDock } from "./debug/tool-dock";
 import { useEditKeys } from "./edit/use-edit-keys";
 
@@ -54,6 +55,8 @@ export function WorldEditor() {
         {/* CPU or device, on the water in front of you. A real switch — see
             `gpu-water-toggle`, and the cost note in `gpu/solver`. */}
         <GpuWaterToggle />
+        {/* The day of the year and the hour, held to look at. @see TimeSlider */}
+        <TimeSlider />
         {/* Which compute passes agree with the CPU, on THIS map — behind
             `?gpucheck`. Not a CPU/GPU switch; see `gpu-check-hud`. */}
         {import.meta.env.DEV && GPU_CHECK && <GpuCheckHud />}

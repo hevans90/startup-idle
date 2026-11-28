@@ -20,6 +20,10 @@ export const MOOD = {
   derelict: -5,
   /** Trees round it, on the continuous surface: a wood, a row, a hedge or a bed. @see GREEN_AT */
   green: 4,
+  /** Inside the flood line, with no wall between it and the river. @see floodReach */
+  floodRisk: -8,
+  /** A farm's fields round it: fresh food. @see FRESH_AT */
+  fresh: 4,
 } as const;
 /**
  * What each need met adds, by the kind it is met for: about what a café, a
@@ -34,6 +38,8 @@ export const DERELICT_REACH = 4;
  * woods round it are as good as a park against the crowding. @see greenAround
  */
 export const GREEN_REACH = 2, GREEN_AT = 6;
+/** FRESH FOOD: how near a farm's fields count, in tiles, and how many of them within that it takes. @see fieldsAround */
+export const FRESH_REACH = 4, FRESH_AT = 6;
 /** A house's mood never goes past this, either way. */
 export const MOOD_LIMIT = 40;
 /** At or below this, people start to leave; one every this many seconds. */
@@ -68,6 +74,8 @@ export const WHY = {
   culture: "company culture",
   street: "a fine street",
   green: "greenery",
+  floodRisk: "floods here",
+  fresh: "fresh food",
 } as const;
 export type Why = (typeof WHY)[keyof typeof WHY];
 

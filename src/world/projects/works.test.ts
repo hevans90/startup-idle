@@ -339,11 +339,13 @@ describe("the Harbour Office", () => {
 });
 
 describe("every project's gate", () => {
-  test("every project after the garage waits on an employee upgrade that exists, a wonder on headcounts, a slop processor on slop or another project", () => {
+  test("every project after the garage waits on an employee upgrade that exists, a wonder or the late land on headcounts, a slop processor on slop or another project", () => {
     for (const p of PROJECTS) {
       if (p.id === "garage") { expect(p.gate).toEqual({}); continue; }
       if (p.bonus) expect(Object.keys(p.gate.staff ?? {}).length).toBeGreaterThan(0);
       else if (processorKind(p.structure)) expect(!!p.gate.after || (p.gate.staff?.vibe_coder ?? 0) > 0).toBe(true);
+      // The late land waits on headcounts, like a wonder. @see plans/farms-and-flood-walls.md §1
+      else if (p.grants === "farms" || p.grants === "floodwalls") expect(Object.keys(p.gate.staff ?? {}).length).toBeGreaterThan(0);
       else expect(UPGRADES.some((u) => u.id === p.gate.upgrade)).toBe(true);
     }
   });

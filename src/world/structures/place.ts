@@ -137,6 +137,8 @@ function cellVerdict(
   if (placementOf(def).riverside && rules.rivers && riverAt(rules.rivers, x, y)) {
     return { ok: false, reason: "in the river" };
   }
+  // (The water the map was made with: a river, a lake. @see Grid.pool)
+  if (placementOf(def).dry && grid.pool[i] > 0) return { ok: false, reason: "in the water" };
   return OK;
 }
 

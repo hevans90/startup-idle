@@ -24,6 +24,8 @@ export const PLANT_LOADER_EMPTY_COLOUR = 0xe9a71f;
 export const FLEET_FLATBED_COLOUR = 0x2e63ba, FLEET_TIPPER_COLOUR = 0x2e63bb, FLEET_TIPPER_EMPTY_COLOUR = 0x2e63bc;
 /** A tipper going home with what it was filled with on the job: a pit's spoil, a building's rubble. @see fleet/plant `spoil` */
 export const FLEET_SPOIL_COLOUR = 0x2e63bd;
+/** A farm's oat-milk vans, to the cafés. @see world/farms/oat-milk */
+export const OAT_VAN_COLOUR = 0xf3ead2;
 /** Hire to Fire's moving vans, white. */
 export const VAN_COLOUR = 0xe9e6dd;
 /** The interns' bus, yellow; Shuttle Bus's buses, blue. */
@@ -63,6 +65,7 @@ export function modelFor(m: Pick<Mover, "id" | "kind" | "colour" | "siren" | "bu
     if (m.colour === FLEET_TIPPER_COLOUR) return "tipper";
     if (m.colour === FLEET_TIPPER_EMPTY_COLOUR) return "spoil0";
     if (m.colour === FLEET_SPOIL_COLOUR) return "spoil4";
+    if (m.colour === OAT_VAN_COLOUR) return "smallVan";
     return ofId(m.id, 0x7a11, m.colour === VAN_COLOUR ? VAN_PICKS : LORRY_PICKS);
   }
   return null;

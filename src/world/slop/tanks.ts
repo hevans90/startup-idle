@@ -7,7 +7,7 @@
  * saved with the map: what each holds. @see game/slop, serializeWorld
  */
 import { SPILL_DEPTH, setSlopMaking, setSlopSpilling, tankFor } from "../../game/slop";
-import { PROCESS_RATE, processorKind, setProcessorUse, type ProcessorKind } from "../../game/processors";
+import { PROCESS_RATE, processorKind, setProcessorUse, takesSlop, type ProcessorKind } from "../../game/processors";
 import { WORKPLACES } from "../agents/commute";
 import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { fluidIndexOf } from "../water/materials";
@@ -84,13 +84,13 @@ export function release(g: Grid, field: WaterField, x: number, y: number, amount
   if (!(amount > 0)) return;
   if (strength < 1) {
     const at = waterBy(g, field, x, y) ?? { x, y };
-    pourAt(field, at.x, at.y, amount * SPILL_DEPTH * (1 - Math.max(0, strength)), fluidIndexOf("water"));
+    pourAt(field, at.x, at.y, amount * SPILL_DEPTH * (1 - Math.max(0, strength)), fluidIndexOf("water"), g);
     amount *= Math.max(0, strength);
     if (!(amount > 0)) return;
   }
   // ONE THING, wherever it goes: slop, poured. In water it mixes and the water carries it. @see ColumnField.foul
   const at = waterBy(g, field, x, y) ?? { x, y };
-  pourAt(field, at.x, at.y, amount * SPILL_DEPTH, fluidIndexOf("slop"));
+  pourAt(field, at.x, at.y, amount * SPILL_DEPTH, fluidIndexOf("slop"), g);
 }
 
 /** How high the water's surface stands on a tile, in the ground's half steps: its highest wet column's; −∞ where it is dry. */
@@ -173,7 +173,7 @@ export function stepSlop(
     // AS MUCH AS IT CAN PUT SOMEWHERE: what its processors have room for, and
     // with an outfall, all it carries. Backed up, the rest stays in the tanks.
     // Each processor once, though a sewer meet both its inlets.
-    const sinks = [...new Map(r.outlets.filter((o) => processorKind(g.structures.get(o.building)?.def ?? "") || loader(o.building)).map((o) => [o.building, o])).values()];
+    const sinks = [...new Map(r.outlets.filter((o) => takesSlop(g.structures.get(o.building)?.def ?? "") || loader(o.building)).map((o) => [o.building, o])).values()];
     const roomOf = roomLeft;
     // BACKED UP, it puts it all in the street: as much as it carries. @see setBackedUp
     const manhole = r.state === "backed-up" ? backedUpCell() : null;
@@ -238,13 +238,14 @@ export function stepSlop(
   const seen = new Set<number>();
   for (const s of g.structures.values()) {
     const k = processorKind(s.def);
-    if (!k || s.build) continue;
+    // (A farm's compost heap too, though it is no kind of processor's. @see COMPOST_MOST)
+    if ((!k && !takesSlop(s.def)) || s.build) continue;
     seen.add(s.id);
     const now = dt > 0 ? (taken.get(s.id) ?? 0) / (PROCESS_RATE * dt) : 0;
     const was = busy.get(s.id) ?? 0;
     const b = was + (now - was) * Math.min(1, dt / BUSY_SECONDS);
     busy.set(s.id, b);
-    use[k] += b;
+    if (k) use[k] += b;
   }
   for (const id of busy.keys()) if (!seen.has(id)) busy.delete(id);
   setProcessorUse(use);

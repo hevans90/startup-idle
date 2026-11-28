@@ -25,12 +25,24 @@
 import type { Graphics } from "pixi.js";
 
 import { HEIGHT_UNIT, HH, HW } from "../../iso";
+import { SHADOW_RUN, SUN_X, SUN_Y, faceGain, sunHome } from "../../light";
 
 /** How much lighter a top is than the face lit from the left. */
 export const TOP = 1.06;
 /** How dark the face looking down and right is, against the one lit from the left. */
 export const RIGHT = 0.76;
 
+/** A shadow on a building's own yard: the ground's blue shade, about as deep. @see light SHADOW_TINT */
+const SHADOW_COLOUR = 0x1c2438, SHADOW_ALPHA = 0.3;
+/** The convex hull of points, anticlockwise (Andrew's monotone chain). */
+function hullOf(pts: [number, number][]): [number, number][] {
+  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo: [number, number][] = [], hi: [number, number][] = [];
+  for (const q of p) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  for (const q of p.reverse()) { while (hi.length >= 2 && cross(hi[hi.length - 2], hi[hi.length - 1], q) <= 0) hi.pop(); hi.push(q); }
+  return [...lo.slice(0, -1), ...hi.slice(0, -1)];
+}
 /** A colour scaled channel by channel, `k` above one lightening it. */
 export function tone(c: number, k: number): number {
   const ch = (s: number) => Math.max(0, Math.min(255, Math.round(((c >> s) & 255) * k)));
@@ -65,6 +77,8 @@ export type Pen = {
     u0: number, v0: number, u1: number, v1: number, z0: number, z1: number,
     colour: number, o?: { top?: number; noTop?: boolean; alpha?: number; right?: number },
   ) => void;
+  /** THE SHADOW a box standing over `u0…v1` to `z1` throws on the level at `z`, from the sun where it stands. */
+  shadow: (u0: number, v0: number, u1: number, v1: number, z1: number, z: number, alpha?: number) => void;
   /** A level rectangle at height `z`, unshaded. */
   flat: (u0: number, v0: number, u1: number, v1: number, z: number, colour: number, alpha?: number) => void;
   /** A rectangle on a +v face (the one lit from the left) at `v`, across `a0..a1` in `u`. */
@@ -120,6 +134,10 @@ const SNOW = 0xe8edf3;
 export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc: number, cell: Cell, snow = 0): Pen {
   /** A face turned to the sky, under the snow lying (0–1) on it. */
   const up = (c: number) => (snow > 0 ? mix(c, SNOW, snow * 0.85) : c);
+  // THE WALLS LIT BY THE SUN where it stands: each face's colour by how it turns to it, against how it was drawn lit
+  // from the left. One at home: nothing changes. @see faceGain
+  const gv = faceGain(0, 1), gu = faceGain(1, 0), lit = !sunHome();
+  const V = (c: number) => (gv === 1 ? c : tone(c, gv)), U = (c: number) => (gu === 1 ? c : tone(c, gu));
   const P = (u: number, v: number, z: number): Pt => [
     (ou + u - (ov + v)) * HW * sc,
     (ou + u + ov + v) * HH * sc - (ground + z) * HEIGHT_UNIT * sc,
@@ -145,12 +163,12 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
   const onV: Pen["onV"] = (v, a0, a1, z0, z1, colour, alpha = 1) => {
     const a = Math.max(a0, cu0), b = Math.min(a1, cu1);
     if (!ownsV(v) || b <= a + EPS || z1 <= z0) return;
-    poly([P(a, v, z1), P(b, v, z1), P(b, v, z0), P(a, v, z0)], colour, alpha);
+    poly([P(a, v, z1), P(b, v, z1), P(b, v, z0), P(a, v, z0)], V(colour), alpha);
   };
   const onU: Pen["onU"] = (u, b0, b1, z0, z1, colour, alpha = 1) => {
     const c = Math.max(b0, cv0), d = Math.min(b1, cv1);
     if (!ownsU(u) || d <= c + EPS || z1 <= z0) return;
-    poly([P(u, c, z1), P(u, d, z1), P(u, d, z0), P(u, c, z0)], colour, alpha);
+    poly([P(u, c, z1), P(u, d, z1), P(u, d, z0), P(u, c, z0)], U(colour), alpha);
   };
   const box: Pen["box"] = (u0, v0, u1, v1, z0, z1, colour, o = {}) => {
     const a = Math.max(u0, cu0), b = Math.min(u1, cu1);
@@ -158,8 +176,8 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
     if (b <= a + EPS || d <= c + EPS || z1 <= z0) return;
     const alpha = o.alpha ?? 1;
     // The +u face, then the +v, then the top: the top's edges lie over both.
-    if (ownsU(u1)) poly([P(u1, c, z1), P(u1, d, z1), P(u1, d, z0), P(u1, c, z0)], o.right ?? tone(colour, RIGHT), alpha);
-    if (ownsV(v1)) poly([P(a, v1, z1), P(b, v1, z1), P(b, v1, z0), P(a, v1, z0)], colour, alpha);
+    if (ownsU(u1)) poly([P(u1, c, z1), P(u1, d, z1), P(u1, d, z0), P(u1, c, z0)], U(o.right ?? tone(colour, RIGHT)), alpha);
+    if (ownsV(v1)) poly([P(a, v1, z1), P(b, v1, z1), P(b, v1, z0), P(a, v1, z0)], V(colour), alpha);
     if (!o.noTop) poly([P(a, c, z1), P(b, c, z1), P(b, d, z1), P(a, d, z1)], up(o.top ?? tone(colour, TOP)), alpha);
   };
   /** The part of a segment from `a` to `b`, as a range of its parameter, inside one slab of the tile. */
@@ -192,7 +210,13 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
     const a = Math.max(u0, cu0), b = Math.min(u1, cu1);
     const c = Math.max(v0, cv0), d = Math.min(v1, cv1);
     if (b <= a + EPS || d <= c + EPS) return;
-    poly([P(a, c, z(a, c)), P(b, c, z(b, c)), P(b, d, z(b, d)), P(a, d, z(a, d))], up(colour), alpha);
+    // (A roof's pitch lit by the way it falls: half as much as a wall would be, the steeper the more.)
+    let col = colour;
+    if (lit) {
+      const du = (z(b, c) + z(b, d) - z(a, c) - z(a, d)) / (2 * (b - a)), dv = (z(a, d) + z(b, d) - z(a, c) - z(b, c)) / (2 * (d - c)), steep = Math.hypot(du, dv);
+      if (steep > 0.05) col = tone(colour, 1 + (faceGain(-du, -dv) - 1) * Math.min(1, steep) * 0.5);
+    }
+    poly([P(a, c, z(a, c)), P(b, c, z(b, c)), P(b, d, z(b, d)), P(a, d, z(a, d))], up(col), alpha);
   };
   const gable: Pen["gable"] = (axis, at, top, z0, colour, alpha = 1) => {
     if (axis === "u" ? !ownsU(at) : !ownsV(at)) return;
@@ -213,7 +237,7 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
     const at3 = (b: number, zz: number) => (axis === "u" ? P(at, b, zz) : P(b, at, zz));
     const pts = cut.map(([b, zz]) => at3(b, zz));
     pts.push(at3(cut[cut.length - 1][0], z0), at3(cut[0][0], z0));
-    poly(pts, axis === "u" ? tone(colour, RIGHT) : colour, alpha);
+    poly(pts, axis === "u" ? U(tone(colour, RIGHT)) : V(colour), alpha);
   };
   const cylinder: Pen["cylinder"] = (u, v, r, z0, z1, colour, o = {}) => {
     if (!ownsU(u) || !ownsV(v)) return;
@@ -223,7 +247,8 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
     for (let k = 0; k < N; k++) {
       const t0 = A0 + ((A1 - A0) * k) / N, t1 = A0 + ((A1 - A0) * (k + 1)) / N;
       const a = [u + r * Math.cos(t0), v + r * Math.sin(t0)], b = [u + r * Math.cos(t1), v + r * Math.sin(t1)];
-      poly([P(a[0], a[1], z1), P(b[0], b[1], z1), P(b[0], b[1], z0), P(a[0], a[1], z0)], shade((t0 + t1) / 2));
+      const tm = (t0 + t1) / 2;
+      poly([P(a[0], a[1], z1), P(b[0], b[1], z1), P(b[0], b[1], z0), P(a[0], a[1], z0)], lit ? tone(shade(tm), faceGain(Math.cos(tm), Math.sin(tm))) : shade(tm));
     }
     const cap = o.cap ?? 0, M = 24;
     if (cap <= 0) {
@@ -235,8 +260,32 @@ export function makePen(g: Graphics, ou: number, ov: number, ground: number, sc:
     const top = up(o.top ?? colour);
     for (const t of tris) {
       const t1 = t + (Math.PI * 2) / M;
-      poly([P(u, v, z1 + cap), P(u + r * Math.cos(t), v + r * Math.sin(t), z1), P(u + r * Math.cos(t1), v + r * Math.sin(t1), z1)], tone(top, 0.86 + 0.26 * ((Math.sin(t + Math.PI / M) - Math.cos(t + Math.PI / M)) / Math.SQRT2) * 0.5 + 0.12));
+      const tm = t + Math.PI / M, k = 0.86 + 0.26 * ((Math.sin(tm) - Math.cos(tm)) / Math.SQRT2) * 0.5 + 0.12;
+      poly([P(u, v, z1 + cap), P(u + r * Math.cos(t), v + r * Math.sin(t), z1), P(u + r * Math.cos(t1), v + r * Math.sin(t1), z1)], tone(top, lit ? k * (1 + (faceGain(Math.cos(tm), Math.sin(tm)) - 1) * 0.6) : k));
     }
   };
-  return { P, cu0, cu1, cv0, cv1, sc, poly, box, flat, onV, onU, strut, dot, slope, gable, cylinder };
+  /** The shape `pts` (u, v) cut to this tile's square: Sutherland–Hodgman, a side at a time. */
+  const clipped = (pts: [number, number][]): [number, number][] => {
+    let out = pts;
+    for (const [axis, edge, keepAbove] of [[0, cu0, true], [0, cu1, false], [1, cv0, true], [1, cv1, false]] as const) {
+      const src = out; out = [];
+      for (let k = 0; k < src.length; k++) {
+        const a = src[k], b = src[(k + 1) % src.length], ina = keepAbove ? a[axis] >= edge : a[axis] <= edge, inb = keepAbove ? b[axis] >= edge : b[axis] <= edge;
+        if (ina) out.push(a);
+        if (ina !== inb) { const t = (edge - a[axis]) / (b[axis] - a[axis]); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+      }
+      if (out.length < 3) return [];
+    }
+    return out;
+  };
+  const shadow: Pen["shadow"] = (u0, v0, u1, v1, z1, z, alpha = SHADOW_ALPHA) => {
+    if (z1 <= z + EPS) return;
+    // THE BOX'S SHADOW on the level at `z`: its foot and its top thrown away from the sun, and the hull of the two.
+    const run = (z1 - z) * SHADOW_RUN, du = -SUN_X * run, dv = -SUN_Y * run;
+    const pts: [number, number][] = [[u0, v0], [u1, v0], [u1, v1], [u0, v1], [u0 + du, v0 + dv], [u1 + du, v0 + dv], [u1 + du, v1 + dv], [u0 + du, v1 + dv]];
+    const hull = hullOf(pts), cut = clipped(hull);
+    if (cut.length < 3) return;
+    poly(cut.map(([u, v]) => P(u, v, z)), SHADOW_COLOUR, alpha);
+  };
+  return { P, cu0, cu1, cv0, cv1, sc, poly, box, flat, onV, onU, strut, dot, slope, gable, cylinder, shadow };
 }

@@ -1130,6 +1130,11 @@ export function farm(f: Footprint): Building {
   const zHouse = (v: number) => H.ridge - ((H.ridge - H.eave) * Math.abs(v - hm)) / (hm - H.v0);
   return {
     plinth: { inset: 0.04, h: 0.08, colour: STONE, top: GRAVEL }, masses: [barn, house], crane: "none",
+    // (The silo and the grain bin, and the roofs over the walls: each throws its shadow too.)
+    casts: [
+      { u0: 0.2, v0: 0.22, u1: 0.64, v1: 0.66, z1: 3.1 }, { u0: 0.68, v0: 0.1, u1: 0.92, v1: 0.34, z1: 1.35 },
+      { u0: B.u0 + B.k, v0: B.v0, u1: B.u1 - B.k, v1: B.v1, z1: B.ridge - 0.15 }, { u0: H.u0, v0: hm - 0.25, u1: H.u1, v1: hm + 0.25, z1: H.ridge - 0.15 },
+    ],
     grounds: (p) => {
       // The yard; a lawn before the house; a fence along the open sides.
       p.flat(0.06, 0.06, f.w - 0.06, f.h - 0.06, 0.085, GRAVEL);
@@ -1186,6 +1191,12 @@ export function farm(f: Footprint): Building {
       p.box(1.56, 1.66, 1.86, 1.8, 0.16, 0.34, 0x3f7d3a, { top: 0x4f9446 });
       p.box(1.56, 1.66, 1.7, 1.8, 0.34, 0.6, 0x9fc3cf, { top: 0x3f7d3a });
       p.dot(1.62, 1.81, 0.15, 0.08, 0x23262a); p.dot(1.83, 1.81, 0.11, 0.05, 0x23262a);
+      // THE COMPOST HEAP, fed by a sewer: higher the more slop it takes. @see COMPOST_MOST
+      const heap = f.heap ?? 0;
+      for (let k = 0; k < heap; k++) {
+        const i = k * 0.045;
+        p.box(0.72 + i * 0.7, 0.42 + i, 0.98 - i * 0.7, 0.72 - i, 0.085 + k * 0.05, 0.085 + (k + 1) * 0.05, tone(0x4a3523, 1 + k * 0.06), { top: tone(0x5a4128, 1 + k * 0.05) });
+      }
     },
   };
 }
@@ -1254,7 +1265,7 @@ export function park(f: Footprint): Building {
 export function gym(f: Footprint): Building {
   const m: Mass = {
     ...inside(f, 0.2, PLINTH.h, PLINTH.h + 2.6), wall: 0x9aa3ad, storey: 2.6,
-    facade: { kind: "windows", glass: GLASS, frame: 0x7a838c, w: 0.14, gap: 0.2, sill: 0.35, head: 0.4 },
+    facade: { kind: "windows", glass: GLASS, frame: 0x7a838c, w: 0.14, gap: 0.2, sill: 0.35, head: 0.66 },
     roof: { kind: "parapet", deck: 0x4b5259, rim: 0x7a838c, h: 0.18 },
     base: { colour: 0x4b5259, h: 0.25 },
     piers: { colour: 0x8a939d, every: 0.17, w: 0.025 },
@@ -1264,6 +1275,11 @@ export function gym(f: Footprint): Building {
     plinth: PLINTH, masses: [m], crane: "none", live,
     grounds: paved,
     details: (p) => {
+      // THE FRONT is the shop window, the door and the band: plain ribbed cladding round them, not the side's
+      // windows half hidden under them.
+      p.onV(m.v1 + 0.001, m.u0, m.u1, m.z0 + 0.25, m.z1, m.wall);
+      { const len = m.u1 - m.u0, n = Math.max(1, Math.round(len / 0.17));
+        for (let k = 0; k <= n; k++) { const a = Math.min(len - 0.025, Math.max(0, (len * k) / n - 0.0125)); p.box(m.u0 + a, m.v1 - 0.006, m.u0 + a + 0.025, m.v1 + 0.006, m.z0, m.z1, 0x8a939d, { noTop: k < n }); } }
       // THE FRONT WINDOW: a wide pane, the machines inside in a row.
       const w0 = m.u0 + 0.7, w1 = m.u1 - 0.1;
       p.onV(m.v1 + 0.004, w0 - 0.03, w1 + 0.03, m.z0 + 0.3, m.z0 + 1.6, 0x2b2f33);
@@ -1279,8 +1295,9 @@ export function gym(f: Footprint): Building {
       p.box(mu - 0.02, mv - 0.02, mu + 0.02, mv + 0.02, z, z + 0.8, 0x26292d);
       p.box(mu - 0.38, mv - 0.03, mu + 0.38, mv + 0.03, z + 0.8, z + 0.88, 0x9aa3ad);
       for (const du of [-0.32, 0.32]) p.box(mu + du - 0.05, mv - 0.14, mu + du + 0.05, mv + 0.14, z + 0.6, z + 1.08, 0x26292d);
-      p.box(m.u0 + 0.1, m.v1, m.u1 - 0.1, m.v1 + 0.03, m.z1 - 0.5, m.z1 - 0.15, 0xf2b43c);
-      lettering(p, m.v1 + 0.031, m.u0 + 0.25, m.u1 - 0.25, m.z1 - 0.43, m.z1 - 0.22, DARK, 4);
+      // The band over the windows' heads, clear of them.
+      p.box(m.u0 + 0.1, m.v1, m.u1 - 0.1, m.v1 + 0.03, m.z1 - 0.45, m.z1 - 0.12, 0xf2b43c);
+      lettering(p, m.v1 + 0.031, m.u0 + 0.25, m.u1 - 0.25, m.z1 - 0.38, m.z1 - 0.19, DARK, 4);
       unit(p, m.u1 - 0.35, m.v0 + 0.3, m.z1);
       drawLiveBase(p, live);
     },
@@ -1394,7 +1411,7 @@ export function coworking(f: Footprint): Building {
   const m: Mass = {
     ...inside(f, 0.2, PLINTH.h, PLINTH.h + 3.6), wall: 0x9c5a44, storey: 1.8,
     facade: { kind: "windows", glass: GLASS, frame: 0x2b2f33, w: 0.36, gap: 0.12, sill: 0.25, head: 0.25 },
-    ground: { kind: "ribbon", glass: GLASS, frame: 0x2b2f33, sill: 0.1, head: 0.3, edge: 0.12 },
+    ground: { kind: "ribbon", glass: GLASS, frame: 0x2b2f33, sill: 0.1, head: 0.62, edge: 0.12 },
     roof: { kind: "parapet", deck: ROOF, rim: 0x7e4a38, h: 0.18 },
     base: { colour: 0x5a5550, h: 0.12 },
     bands: { colour: 0x7e4a38, h: 0.08 },
@@ -1405,8 +1422,9 @@ export function coworking(f: Footprint): Building {
     grounds: paved,
     details: (p) => {
       const mid = (m.u0 + m.u1) / 2;
-      p.box(mid - 0.6, m.v1, mid + 0.6, m.v1 + 0.04, m.z0 + 1.55, m.z0 + 1.85, YELLOW);
-      lettering(p, m.v1 + 0.042, mid - 0.5, mid + 0.5, m.z0 + 1.62, m.z0 + 1.78, 0x22262b, 6);
+      // The sign on the brick between the shop glass's head and the floor band, clear of both.
+      p.box(mid - 0.6, m.v1, mid + 0.6, m.v1 + 0.04, m.z0 + 1.44, m.z0 + 1.72, YELLOW);
+      lettering(p, m.v1 + 0.042, mid - 0.5, mid + 0.5, m.z0 + 1.5, m.z0 + 1.66, 0x22262b, 6);
       bikes(p, m.u0 + 0.1, m.u0 + 0.75, m.v1 + 0.26, PLINTH.h, [0x2f8f6b, 0xd8432f, 0x2e6fb5]);
       planter(p, m.u1 - 0.2, m.v1 + 0.2, PLINTH.h, YELLOW);
       // THE ROOF TERRACE: decking, a table, string lights between posts.
@@ -1431,7 +1449,7 @@ export function doctor(f: Footprint): Building {
   const GREEN = 0x2fa35a;
   const m: Mass = {
     u0: 0.18, v0: 0.12, u1: f.w - 0.18, v1: f.h - 0.36, z0: 0.12, z1: 2.4, wall: 0xf1f2ee, storey: 2.28,
-    facade: { kind: "ribbon", glass: 0x7fb0d6, frame: 0xdfe3e0, sill: 0.8, head: 0.4, edge: 0.15 },
+    facade: { kind: "ribbon", glass: 0x7fb0d6, frame: 0xdfe3e0, sill: 0.8, head: 0.62, edge: 0.15 },
     roof: { kind: "parapet", deck: 0x8a9096, rim: 0xdfe3e0, h: 0.14 },
     base: { colour: 0xb9bec4, h: 0.3 },
   };
@@ -1440,8 +1458,9 @@ export function doctor(f: Footprint): Building {
     grounds: paved,
     details: (p) => {
       door(p, m, m.u0 + 0.35, 0.34, 1.2, 0x7fb0d6, 0xdfe3e0);
-      p.box(m.u0 + 0.6, m.v1, m.u1 - 0.1, m.v1 + 0.03, m.z0 + 1.45, m.z0 + 1.75, GREEN);
-      lettering(p, m.v1 + 0.032, m.u0 + 0.7, m.u1 - 0.2, m.z0 + 1.52, m.z0 + 1.66, WHITE, 5);
+      // The sign on the wall over the glass, clear of its head.
+      p.box(m.u0 + 0.6, m.v1, m.u1 - 0.25, m.v1 + 0.03, m.z0 + 1.86, m.z0 + 2.14, GREEN);
+      lettering(p, m.v1 + 0.032, m.u0 + 0.7, m.u1 - 0.35, m.z0 + 1.93, m.z0 + 2.07, WHITE, 5);
       // The ramp: up to the door from the side, a rail along it.
       p.box(m.u0 + 0.55, m.v1, m.u0 + 1.15, m.v1 + 0.16, 0.12, 0.16, 0xd9d3c0, { top: 0xe6e1d2 });
       p.strut([m.u0 + 1.15, m.v1 + 0.15, 0.6], [m.u0 + 0.55, m.v1 + 0.15, 0.62], 0.018, 0x9aa3ab);
@@ -1687,25 +1706,133 @@ export function lab(f: Footprint): Building {
   };
 }
 
-/** A FLOOD WALL: a tile of concrete in cast panels, a band of sandbags along its top. */
-export function levee(f: Footprint): Building {
+/** A GLASSHOUSE: low white frames, panes of glass, rows of green inside, a ridge along it. */
+function glasshouse(p: Pen, u0: number, v0: number, u1: number, v1: number, z: number) {
+  const eave = z + 0.75, ridge = z + 1.05, vm = (v0 + v1) / 2, FRAME_W = 0xf4f6f2, PANE = 0xbfdde3;
+  p.flat(u0, v0, u1, v1, z + 0.01, 0x6a5a44);
+  for (let v = v0 + 0.12; v < v1 - 0.06; v += 0.16) p.box(u0 + 0.08, v, u1 - 0.08, v + 0.07, z, z + 0.16, 0x4f8f3a, { top: 0x66a845 });
+  p.box(u0, v0, u1, v1, z, eave, PANE, { alpha: 0.35, noTop: true });
+  const zr = (_u: number, v: number) => ridge - ((ridge - eave) * Math.abs(v - vm)) / (vm - v0);
+  p.slope(u0, v0, u1, vm, zr, tone(PANE, 1.1), 0.4);
+  p.slope(u0, vm, u1, v1, zr, PANE, 0.4);
+  for (let u = u0; u <= u1 + 1e-6; u += 0.25) {
+    p.strut([u, v1, z], [u, v1, eave], 0.018, FRAME_W);
+    p.strut([u, v0, eave], [u, vm, ridge], 0.014, FRAME_W);
+    p.strut([u, vm, ridge], [u, v1, eave], 0.014, FRAME_W);
+  }
+  p.strut([u0, v1, eave], [u1, v1, eave], 0.02, FRAME_W);
+  p.strut([u0, vm, ridge], [u1, vm, ridge], 0.02, FRAME_W);
+  p.gable("u", u1, [[v0, eave], [vm, ridge], [v1, eave]], z, PANE, 0.35);
+}
+
+/**
+ * THE AGRITECH LAB: a white lab block at the back, its roof all solar, two
+ * glasshouses before it, a weather mast at the corner blinking green.
+ * @see game/projects "agritech"
+ */
+export function agritech(f: Footprint): Building {
   const m: Mass = {
-    u0: 0, v0: 0, u1: f.w, v1: f.h, z0: 0, z1: 1.3, wall: 0xa8a294, storey: 1.3,
+    u0: 0.2, v0: 0.2, u1: f.w - 0.2, v1: 1.3, z0: PLINTH.h, z1: PLINTH.h + 2.2, wall: 0xf1f2ee, storey: 1.1,
+    facade: { kind: "ribbon", glass: 0x6c9fb8, frame: 0xc3c9cf, sill: 0.45, head: 0.35 },
+    roof: { kind: "parapet", deck: 0x6b7680, rim: 0xf1f2ee, h: 0.16 },
+    base: { colour: 0x9aa3ab, h: 0.2 },
+  };
+  const mu = f.w - 0.3, mv = f.h - 0.3;
+  const live = turning([], [{ u: mu, v: mv, z: PLINTH.h + 2.75, colour: 0x7ed957, period: 2.2 }]);
+  return {
+    plinth: PLINTH, masses: [m], crane: "none", live,
+    grounds: paved,
+    details: (p) => {
+      door(p, m, m.u0 + 0.6, 0.3, 1.0, 0x2c3e48);
+      solar(p, m.u0 + 0.15, m.v0 + 0.15, m.u1 - 0.15, m.v1 - 0.15, m.z1);
+      // A green band round the lab, at the floor between.
+      p.onV(m.v1 + 0.003, m.u0, m.u1, m.z0 + 1.08, m.z0 + 1.14, 0x5aa83a);
+      p.onU(m.u1 + 0.003, m.v0, m.v1, m.z0 + 1.08, m.z0 + 1.14, 0x5aa83a);
+      glasshouse(p, 0.25, 1.5, 1.45, f.h - 0.2, PLINTH.h);
+      glasshouse(p, 1.6, 1.5, f.w - 0.55, f.h - 0.2, PLINTH.h);
+      // THE WEATHER MAST: a lattice pole, a vane, cups.
+      p.box(mu - 0.03, mv - 0.03, mu + 0.03, mv + 0.03, PLINTH.h, PLINTH.h + 2.6, 0xc3c9cf);
+      p.strut([mu - 0.2, mv, PLINTH.h + 2.45], [mu + 0.2, mv, PLINTH.h + 2.45], 0.02, 0x8a9299);
+      p.dot(mu - 0.2, mv, PLINTH.h + 2.45, 0.05, 0xf4f6f2);
+      p.dot(mu + 0.2, mv, PLINTH.h + 2.45, 0.05, 0xf4f6f2);
+      drawLiveBase(p, live);
+    },
+  };
+}
+
+/**
+ * THE CLIMATE LAB: a small grey block on the bank, a gauge tower beside it
+ * marked in metres, a weather radar dome on its roof.
+ * @see game/projects "climatelab"
+ */
+export function climatelab(f: Footprint): Building {
+  const m: Mass = {
+    u0: 0.15, v0: 0.15, u1: f.w - 0.7, v1: f.h - 0.2, z0: PLINTH.h, z1: PLINTH.h + 1.9, wall: 0xdfe2e4, storey: 0.95,
+    facade: { kind: "windows", glass: GLASS, frame: 0xf4f6f7, w: 0.16, gap: 0.18, sill: 0.3, head: 0.2, edge: 0.1 },
+    roof: { kind: "parapet", deck: 0x5f6a72, rim: 0xdfe2e4, h: 0.14 },
+    base: { colour: 0x8a949b, h: 0.2 },
+  };
+  const tu = f.w - 0.35, tv = f.h - 0.45, top = PLINTH.h + 3.1;
+  const live = turning([], [{ u: tu, v: tv, z: top + 0.15, colour: 0x4fa8ff, period: 1.4 }]);
+  return {
+    plinth: PLINTH, masses: [m], crane: "none", live,
+    grounds: paved,
+    details: (p) => {
+      door(p, m, m.u0 + 0.4, 0.28, 0.95, 0x2c3e48);
+      // The radar dome on its drum.
+      const du = (m.u0 + m.u1) / 2, dv = (m.v0 + m.v1) / 2;
+      drum(p, du, dv, 0.22, m.z1, m.z1 + 0.2, 0xb7bec4);
+      p.cylinder(du, dv, 0.3, m.z1 + 0.2, m.z1 + 0.32, 0xf4f6f7, { cap: 0.3 });
+      // THE GAUGE TOWER: a square post, its depth marked in bands, a hood on top.
+      p.box(tu - 0.12, tv - 0.12, tu + 0.12, tv + 0.12, PLINTH.h, top, 0xe9ecee, { top: 0x9aa3ab });
+      for (let z = PLINTH.h + 0.25; z < top - 0.1; z += 0.25) {
+        const c = Math.round((z - PLINTH.h) / 0.25) % 2 ? 0x2e6fb5 : 0xf4f6f7;
+        p.onV(tv + 0.123, tu - 0.12, tu + 0.12, z, z + 0.12, c);
+        p.onU(tu + 0.123, tv - 0.12, tv + 0.12, z, z + 0.12, c);
+      }
+      p.box(tu - 0.16, tv - 0.16, tu + 0.16, tv + 0.16, top, top + 0.08, 0x5f6a72);
+      drawLiveBase(p, live);
+    },
+  };
+}
+
+/**
+ * A FLOOD WALL: a run of cast concrete half a tile thick, sandbags along its
+ * top, joined to each wall beside it — through the tile's middle and out to
+ * the side they meet it on — so a dragged row stands as one wall round its
+ * corners. A wall alone is a short block. @see Footprint.joins
+ */
+export function levee(f: Footprint): Building {
+  const j = f.joins ?? 0, H = 1.3, T0 = 0.25, T1 = 0.75;
+  const run = (u0: number, v0: number, u1: number, v1: number): Mass => ({
+    u0, v0, u1, v1, z0: 0, z1: H, wall: 0xa8a294, storey: H,
     facade: { kind: "plain", lines: 0x958f82, every: 0.43 },
     roof: { kind: "flat", deck: 0xc9c4b8 },
-    piers: { colour: 0x9a9486, every: 0.5, w: 0.02 },
-  };
+  });
+  const across = (j & 3) !== 0, down = (j & 12) !== 0;
+  // Back to front: the arm behind (−v), the run across the middle, the arm in front (+v).
+  const masses: Mass[] = [];
+  if (across || !down) {
+    if (j & 8) masses.push(run(T0, 0, T1, T0));
+    masses.push(run(j & 2 ? 0 : across ? T0 : 0.15, T0, j & 1 ? f.w : across ? T1 : 0.85, T1));
+    if (j & 4) masses.push(run(T0, T1, T1, f.h));
+  } else masses.push(run(T0, j & 8 ? 0 : T0, T1, j & 4 ? f.h : T1));
   return {
-    plinth: { inset: 0, h: 0, colour: STONE }, masses: [m], crane: "none",
+    plinth: { inset: 0, h: 0, colour: STONE }, masses, crane: "none",
     details: (p) => {
-      // Water marks along the foot.
-      p.onV(m.v1 + 0.004, 0, f.w, 0.05, 0.3, 0x5f6a5a, 0.35);
-      p.onU(m.u1 + 0.004, 0, f.h, 0.05, 0.3, 0x5f6a5a, 0.35);
-      // The sandbags, two courses, laid staggered.
-      for (const [z, off] of [[1.3, 0], [1.5, 0.13]] as const) {
-        for (let u = 0.08 + off; u < f.w - 0.1; u += 0.26) {
-          const c = hash(u * 13 + z) < 0.5 ? 0xb59a62 : 0xa88e58;
-          p.box(u, 0.2, Math.min(f.w - 0.06, u + 0.22), f.h - 0.2, z, z + 0.2, c, { top: tone(c, 1.12) });
+      for (const m of masses) {
+        // Water marks along the foot.
+        p.onV(m.v1 + 0.004, m.u0, m.u1, 0.05, 0.3, 0x5f6a5a, 0.35);
+        p.onU(m.u1 + 0.004, m.v0, m.v1, 0.05, 0.3, 0x5f6a5a, 0.35);
+        // The sandbags, two courses, laid staggered along the run.
+        const alongU = m.u1 - m.u0 >= m.v1 - m.v0;
+        const a0 = alongU ? m.u0 : m.v0, a1 = alongU ? m.u1 : m.v1;
+        for (const [z, off] of [[H, 0], [H + 0.18, 0.11]] as const) {
+          for (let a = a0 + 0.02 + off; a < a1 - 0.04; a += 0.22) {
+            const b = Math.min(a1 - 0.02, a + 0.19), c = hash(a * 13 + z + m.u0 * 7 + m.v0 * 3) < 0.5 ? 0xb59a62 : 0xa88e58;
+            if (alongU) p.box(a, m.v0 + 0.06, b, m.v1 - 0.06, z, z + 0.18, c, { top: tone(c, 1.12) });
+            else p.box(m.u0 + 0.06, a, m.u1 - 0.06, b, z, z + 0.18, c, { top: tone(c, 1.12) });
+          }
         }
       }
     },
@@ -2122,7 +2249,7 @@ export const LOOKS: Record<string, (f: Footprint) => Building> = {
   garage: yarded(garage), studio, hq: yarded(hq), boardroom: yarded(boardroom), campus, agency, townhall, harbour, datacentre, conference, hackerspace, ipo: yarded(ipo),
   // Offices, drawn as the buildings that first opened their kind of work.
   "office-intern": garage, "office-vibe": studio, "office-10x": hq,
-  cafe, park, gym, lab, levee, farm, derelict, rack, pump,
+  cafe, park, gym, lab, levee, farm, agritech, climatelab, derelict, rack, pump,
   // The town's own services.
   club, coworking, cinema, doctor, climbing,
   // The slop processors. @see game/processors

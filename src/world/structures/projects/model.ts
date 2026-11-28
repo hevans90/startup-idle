@@ -53,13 +53,20 @@ export type Mass = {
   bands?: { colour: number; h: number };
 };
 
-export type Footprint = { w: number; h: number };
+/**
+ * A plot's size; and for a FLOOD WALL, which of its four sides meet another
+ * wall — 1 +u, 2 −u, 4 +v, 8 −v — so a run is drawn as one wall. @see levee
+ */
+/** A plot, and what about where it stands a look draws: a wall's joins (@see levee), a farm's compost heap in steps (@see farm). */
+export type Footprint = { w: number; h: number; joins?: number; heap?: number };
 
 export type Building = {
   /** The stone the building stands on, `inset` in from the plot. */
   plinth: { inset: number; h: number; colour: number; top?: number };
   /** Drawn in order. Lower first, then back to front. @see sortMasses */
   masses: Mass[];
+  /** What else throws a shadow, as boxes: a silo, a roof's ridge over its walls — what the masses leave out. @see casters, drawFinished */
+  casts?: { u0: number; v0: number; u1: number; v1: number; z1: number }[];
   /** The plot round the building once it is open: paving, lawn, planting. */
   grounds?: (p: Pen, f: Footprint) => void;
   /**

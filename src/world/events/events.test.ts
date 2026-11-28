@@ -65,7 +65,7 @@ describe("a river flood", () => {
 
   test("a levee is priced from its walls, raised once when chosen, and not offered with the bank walled", () => {
     let raised = 0;
-    const levee = (walls: number) => ({ walls, price: walls * 40, build: () => { raised++; } });
+    const levee = (walls: number, walled = false) => ({ walls, price: walls * 40, build: () => { raised++; }, walled });
     const v = (now: number) => town(now, { river: { x: 0, y: 9 }, levee: levee(12) });
     let evs = start("river-flood", v(0));
     expect(evs[0].choices.find((c) => c.id === "levee")).toMatchObject({ price: 480 });
@@ -74,7 +74,7 @@ describe("a river flood", () => {
     once.acts.forEach((a) => a());
     step(once.events, v(2000)).acts.forEach((a) => a());
     expect(raised).toBe(1);
-    const walled = start("river-flood", town(0, { river: { x: 0, y: 9 }, levee: levee(0) }));
+    const walled = start("river-flood", town(0, { river: { x: 0, y: 9 }, levee: levee(0, true) }));
     expect(walled[0].choices.find((c) => c.id === "levee")?.unavailable).toBe("The bank is walled already");
   });
 

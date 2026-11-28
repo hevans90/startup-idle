@@ -61,7 +61,8 @@ import {
   IconAdjustmentsHorizontal, IconArrowBackUp, IconBackhoe, IconBuildingSkyscraper, IconBulldozer, IconCoin, IconDroplet, IconFlower,
   IconMoodSmile, IconPlant2, IconPlugConnected, IconPointer, IconRoad, IconRobot, IconSubtask, IconTag, IconTree, IconTrees,
 } from "@tabler/icons-react";
-import { DOCK, DOCK_FOCUS, DOCK_TRAY, DockButton, DockTip, DockTool, Part, Rule, toned } from "./dock";
+import { DockBar, DockButton, DockCard, DockTip, DockTool, DockTray, Part, Rule, Slide, usePresence } from "./dock";
+import { BuildingThumb } from "./building-thumb";
 
 /** A small line icon, in the current colour. */
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -159,12 +160,12 @@ function sections(hireable: ReadonlySet<string>, river: boolean): Section[] {
   // SLOP PROCESSORS, each kind once its project has opened it. @see game/processors
   const processors = all.filter((d) => { const k = processorKind(d.def.id); return k !== null && featureGateOpen(k); });
   if (processors.length) out.push({ title: "Slop", colour: 0x7a5230, items: processors });
-  // FARMS, where the ground is one surface and fields can be. @see vegetation/tend
+  // FARMS, once the Agritech Lab has opened them, where the ground is one surface and fields can be. @see vegetation/tend
   const farms = all.filter((d) => d.def.id === FARM);
-  if (groundMode() === "smooth" && farms.length) out.push({ title: "Land", colour: 0x8a9a3a, items: farms });
-  // FLOOD WALLS, on a map with a river to flood. @see LEVEE
+  if (groundMode() === "smooth" && farms.length && featureGateOpen("farms")) out.push({ title: "Land", colour: 0x8a9a3a, items: farms });
+  // FLOOD WALLS, once the Climate Lab has opened them, on a map with a river to flood. @see LEVEE
   const walls = all.filter((d) => d.def.id === "levee");
-  if (river && walls.length) out.push({ title: "Defences", colour: 0x8a8475, items: walls });
+  if (river && walls.length && featureGateOpen("floodwalls")) out.push({ title: "Defences", colour: 0x8a8475, items: walls });
   return out;
 }
 
@@ -180,6 +181,7 @@ function tileNote(def: StructureDef): string {
   if (workplaceKind(def.id)) return `${DESKS[def.id] ?? 0} desks`;
   if (def.port) return `${def.port.berths} berth${def.port.berths > 1 ? "s" : ""}`;
   if (def.id === "levee") return "drag along a bank";
+  if (def.id === FARM) return "fields around it";
   if (def.id === "lab") return `innovation +${LAB_SHARE * 100}%`;
   if (def.id === "rack") return `${AGENTS_A_RACK} agents · near the Data Centre`;
   if (def.id === "pump") return `lifts water ${PUMP_HEAD / 2} slabs · by the water`;
@@ -191,7 +193,6 @@ function tileNote(def: StructureDef): string {
 const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
 const BUILD_TONE = "#e8a83e";
-const CARD = "relative flex w-32 shrink-0 cursor-pointer flex-col gap-0.5 rounded-xl border px-2 py-1.5 text-left text-xs transition-all active:scale-95";
 
 export function BuildBar({ className }: { className?: string }) {
   const tool = useWorldStore((s) => s.tool);
@@ -227,6 +228,8 @@ export function BuildBar({ className }: { className?: string }) {
   const money = useMoneyStore((s) => s.money);
   const generators = useGeneratorStore((s) => s.generators);
   const [picking, setPicking] = useState(false);
+  const picker = usePresence(picking && !handsOff);
+  const plants = usePresence(tool === "plant" && !handsOff);
   const phone = isPhone();
   const [viewsOpen, setViewsOpen] = useState(false);
   // A refusal is comms' now, shown by the pointer. @see NoticeToast
@@ -309,11 +312,21 @@ export function BuildBar({ className }: { className?: string }) {
   const shown = useMemo(() => TOOLS.filter((t) => (t.id !== "pipe" || mainsOpen) && (t.id !== "sewer" || sewersOpen) && (t.id !== "dredge" || dredgeOpen) && (t.id !== "plant" || smooth)), [mainsOpen, sewersOpen, dredgeOpen, smooth]);
   const keyed = useRef(choose);
   keyed.current = choose;
+  const pickingNow = useRef(picking);
+  pickingNow.current = picking;
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
       if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      // ESCAPE PUTS DOWN: the picker shut first, then the tool in hand for the pointer — not mid-stroke, nor under a dialog.
+      if (e.key === "Escape") {
+        const st = useWorldStore.getState();
+        if (handsOff || st.stroke || document.querySelector('[aria-modal="true"]')) return;
+        if (pickingNow.current) { setPicking(false); return; }
+        if (st.tool !== "inspect") keyed.current("inspect");
+        return;
+      }
       const n = Number(e.key);
       if (handsOff || !Number.isInteger(n) || n < 1 || n > shown.length) return;
       e.preventDefault();
@@ -326,25 +339,25 @@ export function BuildBar({ className }: { className?: string }) {
   const views = (
     <>
       <DockButton name="Morale" hint="Tint every house by its morale" data-hint="mood" on={moodOverlay} onClick={() => setMoodOverlay(!moodOverlay)}>
-        <IconMoodSmile size={20} stroke={1.7} />
+        <IconMoodSmile size={18} stroke={1.7} />
       </DockButton>
       <DockButton name="Earnings" hint="Tint every street by what it earns, and list the best" on={earningsOverlay} onClick={() => setEarningsOverlay(!earningsOverlay)}>
-        <IconCoin size={20} stroke={1.7} />
+        <IconCoin size={18} stroke={1.7} />
       </DockButton>
       {(mainsOpen || sewersOpen) && (
         <DockButton name="Pipes" hint="Every pipe by what it is doing, and a list of them: water or sewers. On too with the Pipe or Sewer tool in hand"
           on={waterOverlay || sewerView || tool === "pipe" || tool === "sewer"}
           onClick={() => { const on = waterOverlay || sewerView; setWaterOverlay(!on && mainsOpen); setSewerView(!on && !mainsOpen); }}>
-          <IconDroplet size={20} stroke={1.7} />
+          <IconDroplet size={18} stroke={1.7} />
         </DockButton>
       )}
       {open && (
         <DockButton name="AI mode" hint="The AI plays the company itself" tone="var(--ui-ai)" on={aiMode} onClick={() => setAiMode({ aiMode: !aiMode })}>
-          <IconRobot size={20} stroke={1.7} />
+          <IconRobot size={18} stroke={1.7} />
         </DockButton>
       )}
       <DockButton name="Labels" hint="Show or hide what each building is and how it is doing" on={labels} onClick={() => setLabels(!labels)}>
-        <IconTag size={20} stroke={1.7} />
+        <IconTag size={18} stroke={1.7} />
       </DockButton>
     </>
   );
@@ -358,54 +371,66 @@ export function BuildBar({ className }: { className?: string }) {
       <DockTip />
       {/* THE DOCK: its trays and its bar, which the bubble stands over. @see DockTip */}
       <div data-dock-stack className="flex max-w-full flex-col items-center gap-2">
-      {picking && !handsOff && (
-        // ALL OF IT AT ONCE: a row a section, a tile a thing.
-        <div style={toned(BUILD_TONE)} className={twMerge(DOCK_TRAY, "dock-scroll flex-col gap-2 max-sm:max-h-[50vh] max-sm:overflow-y-auto")}>
-          {sale.map((sec) => (
+      {picker.shown && (
+        // ALL OF IT AT ONCE: a row a section, a card a thing, its picture and its price.
+        <DockTray from='[data-tool="placeStructure"]' tone={BUILD_TONE} leaving={picker.leaving}
+          className="dock-scroll flex-col gap-2 max-sm:max-h-[50vh] max-sm:overflow-y-auto">
+          {(() => { let i = 0; return sale.map((sec) => (
             <Part key={sec.title} className="border-l-0 px-1"
-              title={<span className="flex items-center gap-1.5">{sec.colour !== undefined && <span className="size-2 shrink-0 rounded-[2px]" style={{ background: hex(sec.colour) }} />}{sec.title}</span>}>
-              <div className="flex flex-wrap gap-1 sm:flex-nowrap">
+              title={<span className="flex items-center gap-1.5">{sec.colour !== undefined && <span className="size-2 shrink-0" style={{ background: hex(sec.colour) }} />}{sec.title}</span>}>
+              <div className="flex flex-wrap gap-1.5 sm:flex-nowrap">
                 {sec.items.map(({ def, price }) => {
                   const afford = money.gte(price);
                   const on = def.id === structureDefId;
+                  const home = !!housedBy(def.id);
                   return (
-                    <button key={def.id} type="button" aria-pressed={on} title={`${saleName(def)} · ${def.footprint.w}×${def.footprint.h}`}
+                    <DockCard key={def.id} on={on} i={i++} title={`${saleName(def)} · ${def.footprint.w}×${def.footprint.h}`}
                       onClick={() => { setStructureDef(def.id); setPicking(false); }}
-                      className={twMerge(CARD, DOCK_FOCUS, on ? "border-tone bg-tone-fill text-fg" : "border-line-quiet bg-surface-1 hover:border-line-strong", !afford && !on && "text-fg-muted")}>
-                      <span className="flex items-baseline justify-between gap-1">
-                        <b className="truncate font-semibold">{tileName(def)}</b>
-                        <span className={twMerge("font-mono text-[11px] tabular-nums", !afford && "text-bad")}>{formatCurrency(price)}</span>
+                      className={twMerge("flex w-44 items-center gap-2 p-1 pr-2 text-xs", !afford && !on && "text-fg-muted")}>
+                      <span className={twMerge("grid size-9 shrink-0 place-items-center overflow-hidden transition-[opacity,transform] duration-200 group-hover:scale-110", !afford && "opacity-55")}>
+                        <BuildingThumb def={def} home={home} colour={home ? sec.colour : undefined} className="size-9" />
                       </span>
-                      <span className="truncate text-[10px] text-fg-muted">{tileNote(def)}</span>
-                    </button>
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="flex items-baseline justify-between gap-1">
+                          <b className="truncate font-display text-[11px] font-normal tracking-[0.1em] uppercase">{tileName(def)}</b>
+                          <span className={twMerge("font-mono text-[11px] tabular-nums", afford ? "text-money" : "text-bad")}>{formatCurrency(price)}</span>
+                        </span>
+                        <span className="truncate text-[10px] text-fg-muted">{tileNote(def)}</span>
+                        {/* HOW NEAR: what there is of its price, while it is out of reach. */}
+                        {!afford && (
+                          <span aria-hidden className="mt-0.5 h-0.5 overflow-hidden bg-line-quiet">
+                            <span className="block h-full origin-left bg-tone transition-transform duration-500" style={{ transform: `scaleX(${Math.min(1, Math.max(0, money.toNumber() / price))})` }} />
+                          </span>
+                        )}
+                      </span>
+                    </DockCard>
                   );
                 })}
               </div>
             </Part>
-          ))}
-        </div>
+          )); })()}
+        </DockTray>
       )}
-      {tool === "plant" && !handsOff && (
+      {plants.shown && (
         // WHAT THE PLANT TOOL PLANTS. @see vegetation/tend
-        <div style={toned("#62b85f")} className={DOCK_TRAY}>
+        <DockTray from='[data-tool="plant"]' tone="#62b85f" leaving={plants.leaving}>
           <div className="flex gap-1">
-            {PLANTINGS.map((what) => {
+            {PLANTINGS.map((what, i) => {
               const [name, Icon] = PLANT[what], on = planting === what;
               return (
-                <button key={what} type="button" aria-pressed={on} onClick={() => setPlanting(what)}
-                  className={twMerge("flex h-12 w-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border text-[11px] transition-all active:scale-95", DOCK_FOCUS,
-                    on ? "border-tone bg-tone-fill text-fg" : "border-transparent text-fg-muted hover:bg-surface-2 hover:text-fg")}>
-                  <Icon size={20} stroke={1.6} className={on ? "text-tone" : undefined} />{name}
-                </button>
+                <DockCard key={what} on={on} i={i} onClick={() => setPlanting(what)}
+                  className={twMerge("flex h-8 items-center gap-1.5 px-2.5 font-display text-[10px] tracking-[0.14em] uppercase", on ? "text-fg" : "text-fg-muted group-hover:text-fg")}>
+                  <Icon size={16} stroke={1.6} className={twMerge("transition-colors", on ? "text-tone" : "group-hover:text-tone")} />{name}
+                </DockCard>
               );
             })}
           </div>
-        </div>
+        </DockTray>
       )}
 
-      <div className={twMerge(DOCK, "flex max-w-full select-none flex-col rounded-2xl p-1.5")} role="toolbar" aria-label="build tools">
+      <DockBar ai={driving} aria-label="build tools">
         {/* THE PEOPLE: a chip a district, its figures as icons. @see Stat */}
-        {KINDS.some((id) => hireable.has(id)) && <div className="mb-1 flex flex-wrap justify-center gap-x-4 gap-y-0.5 border-b border-line-quiet px-2 pt-0.5 pb-1.5 text-[11px] tabular-nums">
+        {KINDS.some((id) => hireable.has(id)) && <><div className="flex shrink-0 items-center gap-3 px-1.5 font-mono text-[11px] tabular-nums">
           {KINDS.filter((id) => hireable.has(id)).map((id) => {
             const g = generators.find((x) => x.id === id)!;
             const have = beds[id] ?? 0;
@@ -416,7 +441,7 @@ export function BuildBar({ className }: { className?: string }) {
             const blocked = st?.blocked ? BLOCKED[st.blocked] : null;
             return (
               <span key={id} className="flex items-center gap-1.5">
-                <span className="size-2 rounded-[2px]" style={{ background: hex(KIND_COLOUR[id]) }} />
+                <span className="size-1.5" style={{ background: hex(KIND_COLOUR[id]) }} />
                 <Stat icon={ICONS.people} value={`${g.amount}/${have === Infinity ? INFINITY : have}`} tone={full ? "text-bad" : undefined}
                   title={`${name}: ${g.amount} employed, ${have === Infinity ? INFINITY : have} beds`}>
                   {full
@@ -446,37 +471,38 @@ export function BuildBar({ className }: { className?: string }) {
               </span>
             );
           })}
-        </div>}
+        </div><Rule /></>}
 
-        {phone && viewsOpen && <div className="mb-1 flex items-center justify-center border-b border-line-quiet pb-1">{views}</div>}
         {/* THE TOOLS: a rail that scrolls, on a phone. */}
-        <div className="dock-scroll flex items-center max-md:overflow-x-auto">
+        <div className="dock-scroll flex min-w-0 items-center max-md:overflow-x-auto">
           {/* UNDER AI MODE, no tools: what the pilot is doing, and a pause. @see PilotBar */}
-          {driving && <PilotBar className="flex-1 md:w-[36rem]" />}
+          {driving && <PilotBar className="flex-1 md:w-[34rem]" />}
           {!handsOff && (<>
+          <Slide>
           {shown.map((t, k) => {
             const on = tool === t.id;
             return (
               <DockTool key={t.id} name={t.label} tone={t.tone} k={String(k + 1)} on={on} onClick={() => choose(t.id)}
                 hint={aiRoads && ROAD_TOOLS.has(t.id) ? `${t.hint} — outside the AI's district: its streets are its own now` : t.hint}
-                label={t.id === "placeStructure" && chosen && on ? <span className="block max-w-24 truncate">{saleName(chosen.def)}</span> : undefined}
-                aria-keyshortcuts={String(k + 1)} data-hint={t.id === "placeStructure" ? "build" : undefined}>
-                <t.Icon size={21} stroke={1.7} />
+                label={t.id === "placeStructure" && chosen && on ? saleName(chosen.def) : undefined}
+                aria-keyshortcuts={String(k + 1)} data-tool={t.id} data-hint={t.id === "placeStructure" ? "build" : undefined}>
+                <t.Icon size={18} stroke={1.7} />
               </DockTool>
             );
           })}
+          </Slide>
           {/* THE AI IS BUILDING: its latest memo on hover. @see stepAi */}
           {aiBuilding && (
-            <span title={aiMemo ?? "The AI is working on the town."}
-              className="flex shrink-0 items-center gap-1.5 px-2 text-[10px] tracking-[0.18em] text-ai uppercase">
-              <span className="size-1.5 animate-pulse rounded-full bg-ai" />
-              <span className="max-xl:hidden">The AI is building</span>
+            <span title={aiMemo ?? "The AI is working on the town."} aria-label="The AI is building" className="grid size-9 shrink-0 place-items-center">
+              <span className="size-1.5 animate-pulse bg-ai" />
             </span>
           )}
           {canUndo && (
-            <DockTool name="Undo" label={`Undo +${formatCurrency(lastBuild!.refund)}`} hint="Take back the last build and get its money back"
-              tone="var(--ui-warn)" on={false} onClick={undoLastBuild} className="text-warn">
-              <IconArrowBackUp size={20} stroke={1.7} />
+            <DockTool name="Undo" label={`+${formatCurrency(lastBuild!.refund)}`} always hint="Take back the last build and get its money back"
+              tone="var(--ui-warn)" on={false} onClick={undoLastBuild} className="text-warn"
+              meter={<span key={lastBuild!.at} aria-hidden className="absolute inset-x-2 -bottom-px h-px origin-left bg-tone"
+                style={{ animation: `dock-drain ${Math.max(0, lastBuild!.at + UNDO_WINDOW_MS - Date.now())}ms linear forwards` }} />}>
+              <IconArrowBackUp size={18} stroke={1.7} />
             </DockTool>
           )}
           </>)}
@@ -484,11 +510,12 @@ export function BuildBar({ className }: { className?: string }) {
           <Rule />
           {phone ? (
             <DockButton name="Views" hint="What the map shows" aria-expanded={viewsOpen} on={viewsOpen} onClick={() => setViewsOpen(!viewsOpen)}>
-              <IconAdjustmentsHorizontal size={20} stroke={1.7} />
+              <IconAdjustmentsHorizontal size={18} stroke={1.7} />
             </DockButton>
           ) : views}
+          {phone && viewsOpen && views}
         </div>
-      </div>
+      </DockBar>
       </div>
     </div>
   );

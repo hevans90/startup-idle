@@ -31,6 +31,17 @@ import { NEED_WHY } from "../agents/mood-rules";
 import { LAB_SHARE } from "../projects/labs";
 import { KIND_COLOUR } from "../../game/kind-colours";
 import { describe } from "../../game/wording";
+import { formatDuration } from "../../utils/time-utils";
+import { groundTruth } from "../../game/ground-truth";
+import { notable } from "../../game/machine";
+import type { FarmInfo } from "../farms/ledger";
+import { cafeStock, dairy } from "../farms/oat-milk";
+
+/** A café's oat milk, as months left: a unit is a season. */
+const oatLine = (units: number): InfoLine => {
+  const months = Math.max(1, Math.round(units * 3));
+  return { text: `Oat milk · ${months} month${months === 1 ? "" : "s"} left`, tone: "good" };
+};
 
 /** What the live game says, for the labels. */
 export type InfoContext = {
@@ -75,6 +86,10 @@ export type InfoContext = {
   routeBonus?: number;
   /** Seaports near a standing Conference Centre, by id. @see convoyPays */
   nearConference?: ReadonlySet<number>;
+  /** A flood wall's run, and the homes and ports it keeps out of the flood line. @see wallRunInfo */
+  wall?: (s: Structure) => { run: readonly number[]; safe: readonly number[] };
+  /** A farm's fields, its next harvest and its last. @see farmInfo */
+  farm?: (s: Structure) => FarmInfo;
 };
 
 export type InfoLine = { text: string; tone?: "good" | "warn" | "dim" };
@@ -121,6 +136,8 @@ export function opensText(p: ProjectDef): string {
   if (p.grants === "refinery") return "Opens slop refineries";
   if (p.grants === "dataplant") return "Opens data plants";
   if (p.grants === "contentfarm") return "Opens content farms";
+  if (p.grants === "farms") return "Opens farms";
+  if (p.grants === "floodwalls") return "Opens flood walls";
   return "";
 }
 
@@ -148,8 +165,38 @@ function damageLine(s: Structure, ctx: InfoContext): InfoLine | null {
 export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
   const def = structureDef(s.def);
   if (!def) return null;
-  // A FLOOD WALL is a wall: no label. @see LEVEE
-  if (s.def === "levee") return null;
+  // A FLOOD WALL: its run, and what the run keeps out of the flood line. @see wallRunInfo
+  if (s.def === "levee") {
+    const w = ctx.wall?.(s);
+    if (!w) return null;
+    const n = w.safe.length;
+    return {
+      title: def.name, accent: 0x8a8475,
+      lines: [
+        { text: `Run of ${w.run.length}`, tone: "dim" },
+        n ? { text: `Keeps ${n} building${n === 1 ? "" : "s"} dry`, tone: "good" } : { text: "Nothing behind it at risk", tone: "dim" },
+      ],
+    };
+  }
+
+  // A FARM: its fields, when they are cut next, and what the last cut paid. @see farmInfo
+  if (s.def === "farm" && !s.build) {
+    const f = ctx.farm?.(s);
+    if (!f) return null;
+    const lines: InfoLine[] = [
+      { text: `${f.fields} field${f.fields === 1 ? "" : "s"}` },
+      { text: `Next harvest: ${f.next.season}${f.next.in !== null ? ` · ${formatDuration(f.next.in * 1000)}` : ""}`, tone: "dim" },
+    ];
+    if (f.last !== null) lines.push({ text: `Last harvest ${ctx.money(f.last)}`, tone: "good" });
+    // ITS OAT MILK: in the silo, the cafés kept stocked, the vans out. @see dairyOf
+    const d = f.dairy;
+    lines.push({ text: `Oat milk · ${d.silo} in the silo${d.vans ? ` · ${d.vans} van${d.vans === 1 ? "" : "s"} out` : ""}` });
+    // (Drone Farming: tended by drone, and the ground truth banked. @see groundTruth)
+    if (notable("drones")) lines.push({ text: `Tended by drone · ground truth ${Math.floor(groundTruth())}`, tone: "good" });
+    if (f.compost >= 0.02) lines.push({ text: `Compost · ${Math.round(f.compost * 100)}%`, tone: "good" });
+    if (d.stocked) lines.push({ text: `${d.stocked} café${d.stocked === 1 ? "" : "s"} stocked${d.low ? ` · ${d.low} low` : ""}`, tone: "dim" });
+    return { title: def.name, accent: 0x7fb24a, lines };
+  }
 
   // HOUSING: who lives there, who is coming, and what they earn.
   const h = housedBy(s.def);
@@ -164,6 +211,7 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     // A SHOP the town opened downstairs. @see stepTown
     const shop = s.shop ? serviceDef(s.shop) : undefined;
     if (shop) lines.push({ text: `${shopName(shop.id, s.id)} · ${shop.name.toLowerCase()} downstairs`, tone: "good" });
+    if (shop && cafeStock(dairy, s.id) > 0) lines.push(oatLine(cafeStock(dairy, s.id)));
     const broken = damageLine(s, ctx);
     if (broken) lines.push(broken);
     else if (here > 0 && rate !== undefined) lines.push({ text: `Earns ${ctx.money(here * rate * eff)}/s`, tone: "good" });
@@ -286,9 +334,14 @@ export function infoFor(s: Structure, ctx: InfoContext): BuildingInfo | null {
     const need = serviceDef(service)!.need;
     let homes = 0;
     for (const [, set] of ctx.coverage) if (set.has(need)) homes++;
+    // (Oat milk in, from a farm: how long it lasts. @see world/farms/oat-milk)
+    const oat = cafeStock(dairy, s.id);
     return {
       title: shopName(service, s.id), accent: 0x2f8f6b,
-      lines: [{ text: def.name }, { text: `For ${KIND_NAME[NEED_KIND[need]][1]} · ${NEED_WHY[need]}` }, { text: `${homes} home${homes === 1 ? "" : "s"} near`, tone: "dim" }],
+      lines: [
+        { text: def.name }, { text: `For ${KIND_NAME[NEED_KIND[need]][1]} · ${NEED_WHY[need]}` }, { text: `${homes} home${homes === 1 ? "" : "s"} near`, tone: "dim" },
+        ...(oat > 0 ? [oatLine(oat)] : []),
+      ],
     };
   }
 

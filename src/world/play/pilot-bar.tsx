@@ -44,14 +44,14 @@ export function PilotBar({ className }: { className?: string }) {
   // NEXT: the best of the queue that is not what it is on now.
   const next = queue.find((j) => j.id !== job && j.state !== "cancelled");
   return (
-    <div style={toned("var(--ui-ai)")} className={twMerge("flex min-h-12 min-w-0 items-center gap-2 pl-2 text-xs", className)}>
-      <span className="flex shrink-0 items-center gap-1.5 rounded-lg bg-tone-soft px-2 py-1 font-display text-[11px] tracking-[0.18em] text-ai uppercase">
+    <div style={toned("var(--ui-ai)")} className={twMerge("flex h-9 min-w-0 items-center gap-2 pl-1 text-xs", className)}>
+      <span className="relative flex h-7 shrink-0 items-center gap-1.5 bg-tone-soft px-2 font-display text-[10px] tracking-[0.2em] text-ai uppercase">
         <span aria-hidden className={twMerge("size-1.5 rounded-full bg-ai", !paused && "animate-pulse")} />AI
       </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-1">
+      <div className="flex min-w-0 flex-1 flex-col px-1 leading-tight">
         <Where job={now} title={now?.why ?? says} className={twMerge("max-w-[28rem] font-semibold", TONE[kind])}>{says}</Where>
         {next && (
-          <Where job={next} title={next.why} className="max-w-[28rem] text-[11px] text-fg-muted @max-4xl:hidden">
+          <Where job={next} title={next.why} className="max-w-[28rem] text-[10px] text-fg-muted @max-4xl:hidden">
             Next: {next.says}{next.state !== "ready" && <> · {next.shown.toLowerCase()}</>}
           </Where>
         )}
@@ -61,7 +61,7 @@ export function PilotBar({ className }: { className?: string }) {
       </Run>
       <Rule />
       <DockButton name={paused ? "Resume" : "Pause"} hint={paused ? "Let the AI carry on" : "Stop the AI where it is"} tone="var(--ui-ai)" on={paused} onClick={() => act({ pause: !paused })}>
-        {paused ? <IconPlayerPlayFilled size={17} /> : <IconPlayerPauseFilled size={17} />}
+        {paused ? <IconPlayerPlayFilled size={15} /> : <IconPlayerPauseFilled size={15} />}
       </DockButton>
     </div>
   );

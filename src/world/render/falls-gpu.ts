@@ -117,8 +117,8 @@ struct LocalUniforms {
   uRound: f32,
 };
 @group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
-// THE WATER'S CLOCK, the one the surface runs on. @see water-gpu waterLookGroup
-struct Look { uLook: vec4<f32>, };
+// THE WATER'S CLOCK, the one the surface runs on, and the hour's sky and sun. @see water-gpu waterLookGroup
+struct Look { uLook: vec4<f32>, uMirror: vec4<f32>, uMirror2: vec4<f32>, uMirror3: vec4<f32>, uSkyTop: vec4<f32>, uSkyLow: vec4<f32>, uSun: vec4<f32>, uGrade: vec4<f32>, uWide: vec4<f32>, uWide2: vec4<f32> };
 @group(2) @binding(0) var<uniform> look : Look;
 
 ${lookSource("wgsl")}
@@ -145,7 +145,7 @@ fn mainFragment(@location(0) vColor: vec4<f32>, @location(1) vPos: vec2<f32>) ->
   let s = pourNoise(vec2<f32>(across * 7.0, z * 0.05 + look.uLook.x * 2.2)) * 0.6
     + pourNoise(vec2<f32>(across * 19.0 + 3.1, z * 0.09 + look.uLook.x * 3.1)) * 0.4;
   let body = waterLook(vec4<f32>(lit * (0.85 + (s - 0.5) * 0.6), 0.5), vec2<f32>(1.2, 0.0),
-    vec2<f32>(across, z * 0.5), look.uLook) * localUniforms.uColor * globalUniforms.uWorldColorAlpha;
+    vec2<f32>(across, z * 0.5), look.uLook, look.uSkyTop, look.uSkyLow, look.uSun) * localUniforms.uColor * globalUniforms.uWorldColorAlpha;
   let r = pourOver(body, across, z, 0.4 + 0.6 * broke, look.uLook, 0.7);
   // AIR BETWEEN THE STRANDS, soft, only where it has broken up.
   let keep = mix(1.0, smoothstep(0.25, 0.6, s), broke * 0.7);

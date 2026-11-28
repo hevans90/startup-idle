@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { groundAt, runoffAt, weatherAt } from "./weather";
+import { FRONT_SPEED, PREVAILING, frontLag, groundAt, groundOver, runoffAt, skyAt, skyOver, weatherAt, weatherOver, windAt, windStrength } from "./weather";
 
 /** THE WEATHER: pure on the calendar's time; the seasons in it; what lies and where it goes. @see weather */
 const YEAR = 720;
@@ -48,5 +48,62 @@ describe("the weather", () => {
     across(1, 20, (t) => { const r = runoffAt(t); off += r.off; up += r.up; });
     expect(up / off).toBeGreaterThan(0.85);
     expect(up / off).toBeLessThan(1.05);
+  });
+});
+
+describe("the wind, the fronts and the sky", () => {
+  test("the wind is a unit step, about the prevailing way; its strength 0–1", () => {
+    across(4, 2, (t) => {
+      const [x, y] = windAt(t), s = windStrength(t);
+      expect(Math.hypot(x, y)).toBeCloseTo(1, 9);
+      expect(x * PREVAILING[0] + y * PREVAILING[1]).toBeGreaterThan(0.6);
+      expect(s).toBeGreaterThanOrEqual(0);
+      expect(s).toBeLessThanOrEqual(1);
+    });
+  });
+
+  test("a front crosses downwind: a cell's weather is the origin's, later; pure", () => {
+    expect(frontLag(0, 0)).toBe(0);
+    expect(frontLag(40 * PREVAILING[0], 40 * PREVAILING[1])).toBeGreaterThan(frontLag(10 * PREVAILING[0], 10 * PREVAILING[1]));
+    // Across the wind, the same weather.
+    expect(frontLag(-PREVAILING[1] * 30, PREVAILING[0] * 30)).toBeCloseTo(0, 12);
+    const lag = frontLag(60, 20);
+    expect(weatherOver(2.4, 60, 20)).toEqual(weatherAt(2.4 - lag));
+    expect(skyOver(2.4, 60, 20)).toEqual(skyAt(2.4 - lag));
+    // A hundred cells in under a minute of play (a year an hour).
+    expect(100 / FRONT_SPEED * 3600).toBeLessThan(60);
+    const g = groundOver(2.9, 60, 20), exact = groundAt(2.9 - lag);
+    expect(Math.abs(g.snow - exact.snow)).toBeLessThan(0.02);
+    expect(Math.abs(g.wet - exact.wet)).toBeLessThan(0.05);
+  });
+
+  test("the sky by the season: heaps high in summer, sheets low in the cold; rain under cloud; fog only when nothing falls", () => {
+    const flat = [0, 0, 0, 0], base = [0, 0, 0, 0], n = [0, 0, 0, 0];
+    let fog = 0, storms = 0, clear = 0, wisps = 0;
+    across(1, 10, (t) => {
+      const s = skyAt(t), w = weatherAt(t), q = Math.floor((t % 1) * 4);
+      for (const v of [s.cover, s.flat, s.dark, s.storm, s.fog, s.wisps, s.cold]) { expect(v).toBeGreaterThanOrEqual(0); expect(v).toBeLessThanOrEqual(1); }
+      expect(s.top).toBeGreaterThan(s.base + 4);
+      if (w.fall > 0.15) expect(s.cover).toBeGreaterThan(0.5);
+      expect(s.cover).toBeLessThanOrEqual(0.85);
+      if (s.fog > 0.05) expect(w.fall).toBeLessThan(0.2);
+      if (w.storm > 0.6) { storms++; expect(s.top - s.base).toBeGreaterThan(30); expect(s.base).toBeLessThan(4); }
+      if (s.cover < 0.3) clear++;
+      if (s.fog > 0.4) fog++;
+      if (s.wisps > 0.3) wisps++;
+      flat[q] += s.flat; base[q] += s.base; n[q]++;
+    });
+    // Summer (1) heaped and high; winter (3) flat and low.
+    expect(flat[1] / n[1]).toBeLessThan(flat[3] / n[3] - 0.2);
+    expect(base[1] / n[1]).toBeGreaterThan(base[3] / n[3] + 4);
+    for (const k of [fog, storms, clear, wisps]) expect(k).toBeGreaterThan(10);
+  });
+
+  test("the sky changes over minutes, not frames", () => {
+    across(2, 1, (t) => {
+      const a = skyAt(t), b = skyAt(t + 1 / (YEAR * 30));
+      expect(Math.abs(a.cover - b.cover)).toBeLessThan(0.06);
+      expect(Math.abs(a.base - b.base)).toBeLessThan(1.5);
+    });
   });
 });

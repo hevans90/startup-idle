@@ -2,6 +2,8 @@
  * World v2 — the first-run HINT on the map: one tip at a time, with the thing
  * it is about glowing, until its goal is met or it is dismissed. @see hints
  */
+import { featureGateOpen } from "../../game/projects";
+import { floodReachOf } from "../events/flood-reach";
 import { hotAgents } from "../projects/cooling";
 import { useEffect, useState } from "react";
 
@@ -63,6 +65,8 @@ function snapshot(): HintState {
     awaiting: Object.values(away).reduce((n, v) => n + (v ?? 0), 0),
     worstMood, moodShown: useWorldStore.getState().moodOverlay,
     labs, levees, racks,
+    atRisk: floodReachOf(grid).risk.size,
+    wallsOpen: featureGateOpen("floodwalls"),
     deskless,
     hot: Math.round(hotAgents()),
     pipes: grid.main.reduce((n, p) => n + (p ? 1 : 0), 0),

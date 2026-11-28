@@ -598,6 +598,16 @@ function steam(p: Pen, u: number, v: number, z: number, t: number) {
   }
 }
 
+type P3 = [number, number, number];
+/** THE CLUB'S TWO BEAMS off its roof at `t` seconds, swinging, in turn magenta and cyan: from and to, in its footprint's own tiles and half steps. Drawn, and lights for the night's light. @see drawMoving */
+export function clubBeams(m: { w: number; h: number }, t: number): { from: P3; to: P3; colour: number }[] {
+  const cu = m.w / 2, cv = m.h / 2, z = CLUB_TOP + 0.18;
+  return ([[0, SHOP_LOOK.club.letters], [1, 0x3ff0ff]] as const).map(([k, colour]) => {
+    const a = Math.sin(t * 1.3 + k * 2.1) * 0.9, u = cu - 0.3 + k * 0.6;
+    return { from: [u, cv, z], to: [u + Math.sin(a) * 1.4, cv - 0.4, z + 4.5], colour };
+  });
+}
+
 /** The cinema's marquee bulbs, chasing; the club's beams, swinging; steam off a café's cup. */
 export function drawMoving(p: Pen, m: Moving, t: number) {
   const L = SHOP_LOOK[m.sv];
@@ -635,12 +645,7 @@ export function drawMoving(p: Pen, m: Moving, t: number) {
     return;
   }
   if (m.sv === "club") {
-    // Two beams off the roof, swinging, in turn magenta and cyan.
-    const cu = m.w / 2, cv = m.h / 2, z = CLUB_TOP + 0.18;
-    for (const [k, c] of [[0, L.letters], [1, 0x3ff0ff]] as const) {
-      const a = Math.sin(t * 1.3 + k * 2.1) * 0.9;
-      p.strut([cu - 0.3 + k * 0.6, cv, z], [cu - 0.3 + k * 0.6 + Math.sin(a) * 1.4, cv - 0.4, z + 4.5], 0.12, c, 0.35);
-    }
+    for (const b of clubBeams(m, t)) p.strut(b.from, b.to, 0.12, b.colour, 0.35);
     return;
   }
   if (m.sv === "cafe") steam(p, 0.2 + 0.35, m.h - 0.2, 0.5, t);
@@ -651,6 +656,8 @@ export type Shopfronts = {
   sync: (g: Grid, rev: number, scale: number) => void;
   /** Move what moves, at `t` seconds, in the bands on screen. */
   tick: (t: number) => void;
+  /** The clubs' beams at `t` seconds, as they are drawn: from and to on the map, tiles and half steps over the ground. @see clubBeams */
+  beams: (t: number) => { from: P3; to: P3; colour: number }[];
   destroy: () => void;
 };
 
@@ -714,6 +721,16 @@ export function createShopfronts(bands: BandLayer): Shopfronts {
         gr.clear();
         drawMoving(makePen(gr, m.x - 0.5, m.y - 0.5, ground, scale, null), m, t);
       }
+    },
+    beams(t) {
+      const out: { from: P3; to: P3; colour: number }[] = [];
+      // (On the clock they are drawn by: a beam's light where the beam is.)
+      const at = Math.floor(t * MOVE_HZ) / MOVE_HZ;
+      for (const { m } of moving) {
+        if (m.sv !== "club") continue;
+        for (const b of clubBeams(m, at)) out.push({ from: [m.x - 0.5 + b.from[0], m.y - 0.5 + b.from[1], b.from[2]], to: [m.x - 0.5 + b.to[0], m.y - 0.5 + b.to[1], b.to[2]], colour: b.colour });
+      }
+      return out;
     },
     destroy: clear,
   };

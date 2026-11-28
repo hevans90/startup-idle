@@ -290,7 +290,20 @@ export function lotLine(st: { tool: string; structureDefId: string; placingProje
   if (st.tool !== "placeStructure" || st.placingProject) return null;
   if (!housedBy(st.structureDefId) && st.structureDefId !== "levee") return null;
   if (s0.anchor.x === s0.head.x && s0.anchor.y === s0.head.y) return null;
-  return strokeCells(st.grid, { ...s0, brush: "line" });
+  const line = strokeCells(st.grid, { ...s0, brush: "line" });
+  // A WALL goes a side at a time, as the water does: a diagonal step is a gap it runs through. @see floodReach
+  return st.structureDefId === "levee" ? fourWay(line) : line;
+}
+
+/** A line with every diagonal step filled in at its corner, so each cell meets the next by a side. */
+export function fourWay(line: readonly Cell[]): Cell[] {
+  const out: Cell[] = [];
+  for (const c of line) {
+    const p = out[out.length - 1];
+    if (p && p.x !== c.x && p.y !== c.y) out.push({ x: c.x, y: p.y });
+    out.push(c);
+  }
+  return out;
 }
 
 /**
@@ -605,6 +618,8 @@ type WorldState = {
   /** Answer an event with one of its choices. @see slopChoices */
   respondToEvent: (id: number, choice: string) => void;
   /** Flood walls on these tiles, all at once and already paid for: a flood's levee. @see world/events/levee */
+  /** Take a run of flood walls down, as the Demolish tool would each. @see WallCard */
+  deleteWalls: (cells: readonly Cell[]) => void;
   raiseLevee: (cells: readonly Cell[]) => void;
   /** Whether houses are tinted by how happy they are. @see moodTint */
   moodOverlay: boolean;
@@ -1115,6 +1130,15 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
       useMoneyStore.getState().spendMoney(price);
     }
     set({ events: get().events.map((e) => (e.id === id ? { ...e, chosen: choice } : e)) });
+  },
+  deleteWalls: (cells) => {
+    // As the Demolish tool would take each down, under the same rules: a gang's job in the game. @see commitStructure
+    const was = get().tool;
+    set({ tool: "demolish" });
+    batching = true;
+    for (const c of cells) if (get().grid.structures.get(structureAt(get().grid, c.x, c.y))?.def === "levee") get().commitStructure(c);
+    batching = false;
+    set({ tool: was });
   },
   raiseLevee: (cells) => {
     const st = get();
@@ -1745,7 +1769,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
           if (w) drainAt(w, c.x, c.y, Infinity);
           b.set("fluid", c.x, c.y, DRY);
         } else {
-          if (w) pourAt(w, c.x, c.y, POUR_AMOUNT, st.fluidMaterial);
+          if (w) pourAt(w, c.x, c.y, POUR_AMOUNT, st.fluidMaterial, st.grid);
           b.set("fluid", c.x, c.y, st.fluidMaterial);
         }
       }
@@ -2001,6 +2025,8 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (st.playing && !demolishing && target) {
       if (serviceOf(target.id)) { refuse("The town opens its own services"); return; }
       if (target.port && !featureGateOpen("ports")) { refuse("Seaports need the Harbour Office"); return; }
+      if (target.id === FARM && !featureGateOpen("farms")) { refuse("Farms need the Agritech Lab"); return; }
+      if (target.id === LEVEE.id && !featureGateOpen("floodwalls")) { refuse("Flood walls need the Climate Lab"); return; }
     }
     // THE AI'S SITE is its own, given in the arc: nothing of the player's goes there. @see onAiSite
     if (st.playing && !demolishing && onAiSite(cmd.structures?.added ?? [])) { refuse("That is the AI's site: you gave it away"); return; }
@@ -2043,7 +2069,7 @@ export const useWorldStore = create<WorldState>()((set, get) => ({
     if (paid > 0) recordBuild(cmd, paid);
     if (felling) payFelling(st.grid, st.palette, felling, cmd.structures?.added[0]?.id, true);
     // A FARM takes the open ground round it for its fields. @see claimFields
-    if (!demolishing && groundMode() === "smooth") for (const s of cmd.structures?.added ?? []) if (s.def === FARM) claimFields(st.grid, st.palette, s);
+    if (!demolishing && groundMode() === "smooth") for (const s of cmd.structures?.added ?? []) if (s.def === FARM && !s.build) claimFields(st.grid, st.palette, s);
     // The bed stands on what is built as well as on the terrain — a placed
     // structure lifts it, a demolish drops it back. @see syncGround
     if (water && touchesSurface(cmd)) syncGround(water, st.grid);

@@ -8,6 +8,9 @@
  * only rule that stays correct when a building stands beside a taller one.
  */
 import { Graphics, Sprite, type Container } from "pixi.js";
+import { sunHome } from "../light";
+import { litPiece } from "../houses/house-light";
+import { sunBudgetLeft, sunSpend } from "./sun-budget";
 
 import { housedBy, residentsIn } from "../../game/housing";
 import { pen } from "./project-renderer";
@@ -146,12 +149,13 @@ function buildSprites(
     const { wx, wy } = cellToWorld(cell.x, cell.y, h, ctx.scale);
     const parent = ctx.bands.structureOf[bandOf(cell.x, cell.y)];
     for (const p of pieces) {
-      const sp = new Sprite(p.tex);
+      const colour = p.walls ? tint : p.paint ? paint : 0xffffff;
+      // LIT BY THE SUN where it stands, away from home: its piece from the sheet's lit copy. @see relightHouses
+      const sp = new Sprite(sunHome() ? p.tex : litPiece(p.tex));
       sp.anchor.set(p.anchor.x, p.anchor.y);
       sp.position.set(wx, wy - p.lift * ctx.scale);
       sp.scale.set(ctx.scale / H.res);
-      if (p.walls) sp.tint = tint;
-      else if (p.paint) sp.tint = paint;
+      sp.tint = colour;
       if (p.snow) fadeWithSnow(sp);
       sp.eventMode = "none";
       parent.addChild(sp);
@@ -174,8 +178,11 @@ const destroyAll = (sprites: Container[]) => {
 const keyOf = (s: Structure, def: StructureDef, g: Grid) => {
   if ((s.residents === 0 || s.build) && housedBy(def.id)) return `${def.id}|lot`;
   const f = frontOf(g, s);
-  return `${def.id}|${floorsFor(def, s)}|${f ? `${f.sv}:${shopKeyOf(f)}` : ""}`;
+  return `${def.id}|${floorsFor(def, s)}|${f ? `${f.sv}:${shopKeyOf(f)}` : ""}|${sunHome() ? "home" : "turned"}`;
 };
+
+/** Whether two of its keys differ only by the sun: the last part. @see keyOf */
+const sunOnly = (a: string, b: string) => { const i = a.lastIndexOf("|"), j = b.lastIndexOf("|"); return i > 0 && i === j && a.slice(0, i) === b.slice(0, j); };
 
 /** Draw it again as it is now. */
 function redraw(h: TilesHandle, s: Structure, def: StructureDef, ctx: RenderCtx) {
@@ -204,8 +211,11 @@ export const tilesRenderer: StructureRenderer = {
     const handle = h as TilesHandle;
     handle.due += dt;
     if (handle.due < 0.5) return;
+    const key = keyOf(s, def, ctx.grid);
+    // (Only the sun's walls changed — the editor's slider — and this frame's share of such redraws spent: next frame.)
+    if (key !== handle.key && sunOnly(key, handle.key) && !sunBudgetLeft()) return;
     handle.due = 0;
-    if (keyOf(s, def, ctx.grid) !== handle.key) tilesRenderer.update(handle, s, def, ctx);
+    if (key !== handle.key) { const t = performance.now(); tilesRenderer.update(handle, s, def, ctx); if (sunOnly(key, handle.key)) sunSpend(performance.now() - t); }
   },
 
   unmount(h) {

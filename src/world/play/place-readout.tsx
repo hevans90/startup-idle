@@ -10,14 +10,17 @@ import { twMerge } from "tailwind-merge";
 
 import { buildCost, canAfford, upgradeCost } from "../../game/build-cost";
 import { useTicking } from "../../hooks/use-ticking";
-import { playRules, useWorldStore } from "../../state/world.store";
+import Decimal from "break_infinity.js";
+import { lotLine, playRules, useWorldStore } from "../../state/world.store";
 import { formatCurrency } from "../../utils/money-utils";
 import { useCellAnchorFollow } from "../anchors/use-cell-anchor";
-import { structureAt } from "../grid";
+import { structureAt, type Grid } from "../grid";
+import { keptDryBy } from "../events/flood-reach";
 import { structureDef } from "../structures/def";
 import { gradeStroke } from "../roads/grade";
 import { plannedGrid } from "../roads/jobs";
 import { planUpgrade, validatePlacement } from "../structures/place";
+import { claimable } from "../vegetation/tend";
 
 /** Why a building cannot go here, as the player reads it. @see validatePlacement */
 const REFUSAL: Record<string, string> = {
@@ -27,6 +30,7 @@ const REFUSAL: Record<string, string> = {
   occupied: "Something stands here",
   "on a road": "On a road",
   "in the river": "In the river",
+  "in the water": "In the water",
   "no road access": "Needs a road beside it",
   "too far from a river": "Too far from the river",
   "not on a river bank": "Needs a river bank",
@@ -38,6 +42,14 @@ const REFUSAL: Record<string, string> = {
   "No manhole in reach": "No manhole in reach",
   blocked: "Can't build here",
 };
+
+/** The homes a row of walls would keep dry, asked again only when the row or the map changes. @see keptDryBy */
+let dry: { grid: Grid | null; key: string; n: number } = { grid: null, key: "", n: 0 };
+function wallsKeepDry(grid: Grid, cells: readonly { x: number; y: number }[]): number {
+  const key = `${grid.rev}|${cells.map((c) => `${c.x},${c.y}`).join(";")}`;
+  if (dry.grid !== grid || dry.key !== key) dry = { grid, key, n: keptDryBy(grid, cells) };
+  return dry.n;
+}
 
 export function PlaceReadout({ className }: { className?: string }) {
   useTicking(250);
@@ -51,6 +63,20 @@ export function PlaceReadout({ className }: { className?: string }) {
     // they are sent — so no price, and never "not enough money". @see startSiteCommand
     const check = validatePlacement(grid, def, hover.x, hover.y, playRules(grid));
     line = check.ok ? { text: def.name, price: null, tone: "ok" } : { text: REFUSAL[check.reason ?? "blocked"] ?? REFUSAL.blocked, price: null, tone: "bad" };
+  } else if (tool === "placeStructure" && def?.id === "levee" && hover && playing) {
+    // A ROW OF FLOOD WALLS: how many go up, their price, and the homes they keep out of the flood line. @see keptDryBy
+    const rules = playRules(grid);
+    const cells = (stroke && lotLine(useWorldStore.getState(), stroke)) || [hover];
+    const ok = cells.filter((c) => validatePlacement(grid, def, c.x, c.y, rules).ok);
+    if (!ok.length) {
+      const check = validatePlacement(grid, def, hover.x, hover.y, rules);
+      line = { text: REFUSAL[check.reason ?? "blocked"] ?? REFUSAL.blocked, price: null, tone: "bad" };
+    } else {
+      const price = (buildCost(def.id) ?? new Decimal(0)).times(ok.length);
+      const safe = wallsKeepDry(grid, ok);
+      const what = `${def.name} · ${ok.length}${safe ? ` · ${safe} home${safe === 1 ? "" : "s"} safe` : ""}`;
+      line = canAfford(price) ? { text: what, price: formatCurrency(price), tone: "ok" } : { text: `${what} · not enough money`, price: formatCurrency(price), tone: "bad" };
+    }
   } else if (tool === "placeStructure" && def && hover && playing) {
     const rules = playRules(grid);
     // OVER A BUILDING WITH A NEXT TIER, the click upgrades it. @see planUpgrade
@@ -60,7 +86,9 @@ export function PlaceReadout({ className }: { className?: string }) {
     const check = plan ?? validatePlacement(grid, def, hover.x, hover.y, rules);
     // A port by its name as the picker has it, capital first.
     const named = (d: { name: string }) => d.name.replace(/^seaport/, "Seaport");
-    const what = plan ? `Upgrade to ${named(plan.to)}` : named(def);
+    // A FARM: the fields it would take round it. @see claimable
+    const fields = !plan && def.id === "farm" ? claimable(grid, useWorldStore.getState().palette, { x: hover.x, y: hover.y, ...def.footprint }).length : -1;
+    const what = plan ? `Upgrade to ${named(plan.to)}` : fields >= 0 ? `${named(def)} · ${fields} field${fields === 1 ? "" : "s"}` : named(def);
     // Every reason at once, for a seaport, which has several ways to be wrong.
     const why = (check.reasons.length ? check.reasons : [check.reason ?? "blocked"]).map((r) => REFUSAL[r] ?? REFUSAL.blocked);
     line = !check.ok ? { text: [...new Set(why)].join(" · "), price: price && formatCurrency(price), tone: "bad" }

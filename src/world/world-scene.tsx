@@ -12,7 +12,7 @@ import { fouledHouses, pollutionOf } from "./water/pollution";
 import { POLLUTED } from "../game/pollution";
 import { weatherDry } from "./vegetation/stress";
 import { setSnowLying, snowStep } from "./render/snow-cover";
-import { startWildfire, stepWildfire, tinderAt, windAt, type Wildfire } from "./vegetation/wildfire";
+import { startWildfire, stepWildfire, tinderAt, type Wildfire } from "./vegetation/wildfire";
 import { suggestionsKept } from "./pipes/suggest";
 import { movableEnd, stretchAt } from "./pipes/stretch";
 import { founderIs } from "../game/founder-rules";
@@ -26,6 +26,18 @@ import { HUSTLER_EVENTS } from "../game/founders.catalog";
 import { housedBy, residentsIn } from "../game/housing";
 import { useInnovationStore } from "../state/innovation.store";
 import { createDesireHeat, type DesireHeat } from "./render/desire-heat";
+import { createFloodLine, type FloodLine } from "./render/flood-line";
+import { createFarmReach, type FarmReach } from "./render/farm-reach";
+import { lastPay } from "./farms/ledger";
+import { COMPOST_MOST } from "../game/processors";
+import { projectReading } from "../game/projects";
+import { bankGroundTruth } from "../game/ground-truth";
+import { AGRITECH_PAY, CLIMATE_REPAIRS, DRONE_HARVEST } from "../game/vegetation-cost";
+import { farmReach, setDroneFarming } from "./vegetation/fields";
+import { farmsOf } from "./vegetation/tend";
+import { farmDronesAt } from "./farms/farm-drones";
+import { dairy, harvestMilk } from "./farms/oat-milk";
+import { wallRunInfo } from "./events/flood-reach";
 import { createStreetHeat, type StreetHeat } from "./render/street-heat";
 import { STAGE_COLOUR, createAiLayer, type AiLayer } from "./ai/ai-layer";
 import { inherited } from "./ai/planner";
@@ -61,23 +73,25 @@ import { MEASURED, perfAdd, perfCount, perfFrame } from "./debug/perf";
 import { section } from "../hitches";
 import { stepGrowth, stepHarbour, stepPeople, stepPlumbing, stepSites, worksClock, type WorksSeen } from "./step-world";
 import {
-  bandShown, createBandLayer, hideUnusedMovers, destroyBandLayer, setGroundAlpha, setVisibleBands, visibleBandCount,
+  bandShown, createBandLayer, hideUnusedMovers, destroyBandLayer, reachInto, setGroundAlpha, setVisibleBands, updateReach, visibleBandCount,
   type BandLayer,
 } from "./render/bands";
 import { boundsCentre, fitScale, visibleBandRange, worldBounds } from "./render/camera";
 import { buildTerrain, createTerrainLayer, flushTerrain, type TerrainLayer } from "./render/terrain";
-import { canopyGround, castGround, destroyGroundMesh, seasonGround, surfaceOf } from "./render/ground-mesh";
+import { canopyGround, castGround, destroyGroundMesh, seasonGround, sunShadeBusy, sunShadeStart, sunShadeStep, surfaceOf, type GroundFront } from "./render/ground-mesh";
+import { setSunSeason, shadowRev, shadowSeason, sunHome, sunRev } from "./light";
+import { relightHouses } from "./houses/house-light";
+import { housesLoaded } from "./houses/houses-sheet";
 import { casterOf } from "./render/casters";
 import { createRoadShade, type RoadShade } from "./render/road-shade";
 import { createLitWindows, hasWindows, hiddenAt, litShare, type LitWindows } from "./render/lit-windows";
 import { createGroundCache, setGroundCache, type GroundCache } from "./render/ground-cache";
-import { stepVegetation, wetFrom } from "./vegetation/step";
+import { reapSeason, stepVegetation, wetFrom } from "./vegetation/step";
 import { wearFrom } from "./vegetation/wear";
 import { fallWanted } from "./render/falling";
-import { farmsOf } from "./vegetation/tend";
 import { harvestPay } from "../game/vegetation-cost";
 import { groundSeason, yearPart, YEAR_SECONDS } from "./calendar";
-import { groundAt, weatherAt, type Lying } from "./weather";
+import { PREVAILING, frontLag, groundAt, groundOver, weatherAt, windAt, windStrength, type Lying, type Sky } from "./weather";
 import { catchment, stepRain, type Catchment } from "./water/rain";
 import { LOOK_SECONDS, SOAK_SECONDS, createStranded, findStranded, soakStranded, strandedAt, type Stranded } from "./water/stranded";
 import { useCalendarStore } from "../state/calendar.store";
@@ -89,12 +103,13 @@ import { lookDirtyCells } from "./roads/looks";
 import {
   createWaterLayer, destroyWaterLayer, drawWater, type WaterLayer,
 } from "./render/water";
-import { setWaterNight,
+import { setWaterGrade, setWaterGradeOver, setWaterLight,
   attachQuadGather, createGpuWaterLayer, destroyGpuWaterLayer, deviceSinks,
   cullFor, destroyQuadGather, drawGpuWater, gatherQuads, setInstanceCap, showGpuWater, waterOnGpu,
-  cheapGradient, zoomedOut,
+  cheapGradient, zoomedOut, waterLookGroup, MIRROR_GLOW_WGSL,
   type GpuWaterLayer,
 } from "./render/water-gpu";
+import { createMirror, type Mirror } from "./render/mirror";
 import { checkWaterOverPaving, compareWaterPaths } from "./debug/water-compare";
 import { compareSheetPaths } from "./debug/sheet-compare";
 import {
@@ -153,6 +168,8 @@ const deskTint = (share: number) => {
  * device: half a 60 Hz frame, the rest for drawing it. @see maxStep
  */
 const CPU_SOLVE_MS = 8;
+/** The ground's light and shade worked out again toward a moved sun: ms of a frame. @see sunShadeStep */
+const SUN_BUDGET_MS = 4;
 /** How many frames the water waits unstepped for the device's solver to be built for a new field. @see solverDue */
 const SOLVER_WAIT = 10;
 /**
@@ -160,6 +177,8 @@ const SOLVER_WAIT = 10;
  * must be very bright to light a street; a lit building is a whole wall of light, and need only glow.
  */
 const GI_LAMP = 13, GI_SIGN = 1.6, GI_WINDOW = 0.05, GI_SPILL = 0.6;
+/** How strong each of the lights along a club's beam is. @see clubBeams */
+const GI_BEAM = 18;
 /** How long a frame spends on a map's new lanes, ms. @see pumpLanes */
 const LANES_MS = 3;
 /** Whether the device's solver is what should be stepping the water: a device held and not lost, and the toggle on. */
@@ -187,7 +206,7 @@ import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
 import { CLEANERS_PER_TILE, createCleanup, setCleanupAway, stepCleanup } from "./events/cleanup";
 import { usePrestigeStore } from "../state/prestige.store";
 import { dryUp, mopAll, ring, sludgeAt, sludgedHouses } from "./events/sludge";
-import { emptyFull, slopSpike, tanksOf } from "./slop/tanks";
+import { emptyFull, processorBusy, slopSpike, tanksOf } from "./slop/tanks";
 import { convoyTally, townMood } from "./events/town-events";
 import { createDirector, dueFollowUp, eventStarted, pickEvent, queueFollowUp, tickDirector } from "./events/director";
 import { EVENT_DEFS } from "./events/defs";
@@ -223,7 +242,7 @@ import "./structures/project-renderer";
 import { isStructureTool, strokeFootprint, type Stroke } from "./edit/tools";
 import { setPanButtons } from "../utils/viewport-controls";
 import { syncCell } from "./render/terrain";
-import { MAIN_END, footprintCells, idx, inBounds, structureAt, surfaceSampler, wetSurfaceSampler, type Grid, type Structure } from "./grid";
+import { MAIN_END, footprintCells, idx, inBounds, structureAt, structureOf, surfaceSampler, wetSurfaceSampler, type Grid, type Structure } from "./grid";
 import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld, pickCell, worldToCellF } from "./iso";
 import { pourAt, stepWater, syncGround } from "./water/field";
 import { applyPinned, runPerfScene } from "./debug/perf-scene";
@@ -267,7 +286,19 @@ import { ambience, sfx } from "../audio/sound";
 /** The time of day, 0–1 from midnight; `__dayPhase` holds it, in development, to look at an hour. @see dayPhase */
 /** Seconds between Ship It Fridays' release parties, about. */
 const SHIP_EVERY = 5;
-const phaseNow = () => (import.meta.env.DEV ? (window as unknown as { __dayPhase?: number }).__dayPhase : undefined) ?? dayPhase(Date.now());
+const phaseNow = () => useCalendarStore.getState().hour ?? (import.meta.env.DEV ? (window as unknown as { __dayPhase?: number }).__dayPhase : undefined) ?? seasonPhase(dayPhase(Date.now()), yearPart(useCalendarStore.getState().now()));
+/** Seconds the lying snow takes to come most of the way to what the weather has laid. */
+const SNOW_EASE = 0.7;
+/** The sky a river flood brings, coming and here. @see render/clouds/clouds */
+const FLOOD_COMING_SKY: Partial<Sky> = { cover: 0.9, base: 2, top: 22, flat: 0.6, dark: 0.6, storm: 0.2, rain: 0.5, snow: 0, fog: 0 };
+const FLOOD_SKY: Partial<Sky> = { cover: 0.97, base: -3, top: 44, flat: 0.2, dark: 0.9, storm: 0.8, rain: 1, snow: 0, fog: 0 };
+/** DRONE FARMING over every farm, at the year looked at. @see farmDronesAt */
+const farmDronesView = () => {
+  const fd = farmDronesAt(farmsOf(useWorldStore.getState().grid).filter((f) => f.def === "farm"), yearPart(useCalendarStore.getState().now()), performance.now() / 1000, farmReach());
+  return { farmDrones: fd.drones, farmPads: fd.pads };
+};
+/** Whether the map has its night: in play with day and night on, or wherever the editor's slider holds an hour. @see TimeSlider */
+const nightOn = () => (useWorldStore.getState().playing && useGlobalSettingsStore.getState().dayNight) || useCalendarStore.getState().hour !== null;
 
 /** Movers on the map at which the town sounds as busy as it gets. */
 const TOWN_FULL = 80;
@@ -286,7 +317,7 @@ import {
 import { checkLive } from "../fluid/gpu/check-live";
 import { holdDevice } from "./debug/gpu-device";
 import { activeBox, MAX_SUBSTEPS, maxStep, substepsFor } from "../fluid/columns";
-import { busyness, darkness, dayPhase, drawRain, HEAT_GRADE, mixColour, NIGHT_DARK, NIGHT_GRADE } from "./daylight";
+import { busyness, dayPhase, seasonPhase, HEAT_GRADE, lightAt, mixColour, multiplyColour, nightAt, NOON } from "./daylight";
 import { inForce } from "../game/culture";
 import { cultureNow } from "../game/culture-now";
 import { createCultureProps, type CultureProps } from "./render/culture-props";
@@ -305,7 +336,8 @@ import { freeGraphicsContexts, quietEmptyClears, redrawInPlace } from "./render/
 import { createBusStops, type BusStops } from "./render/bus-stops";
 import { halfLength } from "./agents/cars/fleet";
 import { createCarGlow, lit as lampsLit, type CarGlow } from "./render/car-glow";
-import { createGi, giOptions, giVersion, type Gi, type GiLight } from "./render/gi";
+import { createClouds, type Clouds } from "./render/clouds/clouds";
+import { BEAM_FLOATS, createGi, giOptions, giVersion, type Gi, type GiLight } from "./render/gi";
 import { shopName } from "./agents/shop-names";
 import { createLights, lightsOf, type Lights } from "./render/lights";
 import { keystone, notable } from "../game/machine";
@@ -521,7 +553,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   /** When the vegetation last looked at where water stands, ms. @see wetFrom */
   const wetAtRef = useRef(-Infinity);
   // THE WEATHER'S RUNOFF: where the land drains to, how lately, and the calendar's time when it last poured. @see water/rain
-  const rainRef = useRef<{ c: Catchment | null; at: number; cAt: number; rev: number; t: number; lying: Lying }>({ c: null, at: -Infinity, cAt: -Infinity, rev: -1, t: NaN, lying: { snow: 0, wet: 0, melt: 0, frost: 0 } });
+  const sunAtRef = useRef({ rev: 0, at: 0, rough: false });
+  const rainRef = useRef<{ c: Catchment | null; at: number; cAt: number; rev: number; t: number; lying: Lying; eased: number; easedAt?: number; front?: GroundFront }>({ c: null, at: -Infinity, cAt: -Infinity, rev: -1, t: NaN, lying: { snow: 0, wet: 0, melt: 0, frost: 0 }, eased: NaN });
   /** The water stranded on the land, soaking away: what it was found on, and how lately looked for and soaked, ms. @see water/stranded */
   const strandedRef = useRef<{ s: Stranded; of: Grid; lookAt: number; soakAt: number } | null>(null);
   /** The traffic lights at the lights junctions. @see createSignals */
@@ -554,6 +587,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const streetHeatRef = useRef<StreetHeat | null>(null);
   /** The placing heat map. @see createDesireHeat */
   const heatRef = useRef<DesireHeat | null>(null);
+  /** The flood line, with a wall in hand or a flood on its way. @see createFloodLine */
+  const floodLineRef = useRef<FloodLine | null>(null);
+  const farmReachRef = useRef<FarmReach | null>(null);
   /** Where a seaport goes, with one in hand. @see createPortGuide */
   const portGuideRef = useRef<PortGuide | null>(null);
   const connectRef = useRef<ConnectGuide | null>(null);
@@ -604,6 +640,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const fireAt = useRef<{ id: number; spread: number[] | null } | null>(null);
   /** A WILDFIRE: the fire while one burns, where it started, what it has burnt out; the driest wood, looked for now and then. @see WILDFIRE */
   const wearAtRef = useRef(0);
+  // THE FARMS' OWN CLOCK while Seasons is off: a season's harvest every quarter of a year's play, in turn.
+  const offSeasonRef = useRef<{ at: number; k: number }>({ at: 0, k: 0 });
   const wildRef = useRef<{ fire: Wildfire | null; event: number; at: { x: number; y: number } | null; built: Set<number>; tinder: { x: number; y: number; dryness: number } | null; lookedAt: number }>({ fire: null, event: -1, at: null, built: new Set(), tinder: null, lookedAt: -Infinity });
   /** A blackout's district, as it was when it struck; and the earthquake already felt, by event id. @see BLACKOUT, EARTHQUAKE */
   const blackoutIds = useRef<{ event: number; ids: number[] } | null>(null);
@@ -657,6 +695,12 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   const carGlowRef = useRef<CarGlow | null>(null);
   /** The night's light worked out on the map, where it is asked for; the lights that stand still, as last listed; and the night's grade this frame. @see render/gi */
   const giRef = useRef<{ gi: Gi; w: number; h: number } | null>(null);
+  // THE CLOUDS over the map. @see render/clouds/clouds
+  const cloudsRef = useRef<{ clouds: Clouds; w: number; h: number } | null>(null);
+  // WHAT THE WATER MIRRORS, day and night: for the water layer it was made for. @see render/mirror
+  /** Bands for the strip over the screen's top the water mirrors from, or (0) back to the screen's. @see mirror renderStrip */
+  const stripCullRef = useRef<((above: number) => void) | null>(null);
+  const mirrorRef = useRef<{ m: Mirror; of: unknown; off: () => void } | null>(null);
   const giStill = useRef<{ key: string; lights: GiLight[]; lit: Map<number, { colour: number; bias: number }> }>({ key: "", lights: [], lit: new Map() });
   /** The lit buildings' own windows, a floor at a time. @see render/lit-windows */
   const litRef = useRef<LitWindows | null>(null);
@@ -666,30 +710,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   /** The lamp posts' lanterns as last listed, and a count of the lists there have been. @see street-props lanternsOf */
   const giPosts = useRef<readonly unknown[]>([]), giPostsRev = useRef(0);
   /** The vehicles' beams this frame, four numbers apiece, and room for as many as are drawn. @see render/gi BEAM_WGSL */
-  const giBeams = useRef(new Float32Array(4096 * 4));
+  const giBeams = useRef(new Float32Array(4096 * BEAM_FLOATS));
   const lightsAt = useRef<{ grid: unknown; rev: number; crunch: boolean }>({ grid: null, rev: -1, crunch: false });
-  // AND RAIN over it while a flood is coming or here. @see drawRain
-  const rain = useRef<Graphics | null>(null);
   useEffect(() => {
-    const g = new Graphics(), r = new Graphics();
+    const g = new Graphics();
     g.eventMode = "none";
-    r.eventMode = "none";
-    // (Drawn again every frame: batched, never its own draw list. @see per-frame-graphics-must-batch)
-    r.context.batchMode = "batch";
     g.zIndex = 1e9;
-    r.zIndex = 1e9 + 1;
     // MULTIPLIED IN: a grade over everything, the water's own shaders included. @see NIGHT_GRADE
     g.blendMode = "multiply";
     app.stage.sortableChildren = true;
-    app.stage.addChild(g, r);
+    app.stage.addChild(g);
     night.current = g;
-    rain.current = r;
-    // THE TOWN'S LIGHTS, over the night and under the rain. @see createLights
+    // THE TOWN'S LIGHTS, over the night. @see createLights
     lightsRef.current = createLights(app.stage, 1e9 + 0.5);
     // THE VEHICLES' HEADLIGHTS, over the night too, under the town's lights. @see createCarGlow
     carGlowRef.current = createCarGlow(app.stage, 1e9 + 0.4);
     return () => {
-      for (const x of [g, r]) { x.parent?.removeChild(x); x.destroy(); }
+      g.parent?.removeChild(g); g.destroy();
       night.current = null;
       lightsRef.current?.destroy();
       lightsRef.current = null;
@@ -697,12 +734,15 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       carGlowRef.current = null;
       giRef.current?.gi.destroy();
       giRef.current = null;
+      cloudsRef.current?.clouds.destroy();
+      cloudsRef.current = null;
+      mirrorRef.current?.off(); mirrorRef.current?.m.destroy();
+      mirrorRef.current = null;
       litRef.current?.destroy();
       litRef.current = null;
       // (Its children are the town layer's to destroy: each vehicle's own.)
       if (lampsRoot.current) { lampsRoot.current.removeChildren(); lampsRoot.current.parent?.removeChild(lampsRoot.current); lampsRoot.current.destroy(); }
       lampsRoot.current = null; lampsOverRef.current = null;
-      rain.current = null;
     };
   }, [app]);
 
@@ -785,6 +825,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         window.__renderer = app.renderer;
         // And the app, to step its clock by hand where frames are not coming: `__app.ticker.update(t)`. A hidden tab's do not. @see hidden-tab-fakes-perf
         (window as unknown as { __app?: unknown }).__app = app;
+        // The ground's mesh: its baked shade, to look at. @see sunShadeStep
+        (window as unknown as { __groundMesh?: () => unknown }).__groundMesh = () => tlRef.current?.ground;
         // What the readback costs, answered by not doing it. @see setReadback
         window.__readback = setReadback;
         // And whether the dispatch region is the box or the map. @see setWholeMap
@@ -1737,7 +1779,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             capWater: (n) => setInstanceCap(n),
             pour: (x, y, depth) => {
               const f = useWorldStore.getState().getWaterField();
-              if (f) pourAt(f, x, y, depth, 1);
+              if (f) pourAt(f, x, y, depth, 1, useWorldStore.getState().grid);
             },
             setHidden: (names) => {
               if (gpuRef.current) showGpuWater(gpuRef.current, !names.includes("surface"));
@@ -1775,6 +1817,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (overlayRoot.current) {
         cursorRef.current = createBuildCursor(overlayRoot.current);
         heatRef.current = createDesireHeat(overlayRoot.current);
+        floodLineRef.current = createFloodLine(overlayRoot.current);
+        farmReachRef.current = createFarmReach(overlayRoot.current);
         portGuideRef.current = createPortGuide(overlayRoot.current);
         connectRef.current = createConnectGuide(overlayRoot.current);
         // WHAT EACH PORT IS DOING, for its cranes, lamps and lights. @see port-life
@@ -1788,7 +1832,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             yard: yardFill(t.yards, id, berths),
             // Its lorry, while it stands at the gate being loaded.
             ...(() => { const m = getTown().movers.find((q) => q.job?.role === "freight" && q.job.site === id && (q.wait ?? 0) > 0); return m ? { lorry: { x: m.x, y: m.y, left: m.wait! } } : {}; })(),
-            night: useGlobalSettingsStore.getState().dayNight && useWorldStore.getState().playing ? darkness(phaseNow()) / NIGHT_DARK : 0,
+            night: nightOn() ? nightAt(phaseNow()) : 0,
           };
         });
         streetHeatRef.current = createStreetHeat(overlayRoot.current);
@@ -1878,6 +1922,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       heatRef.current = null;
       portGuideRef.current?.destroy();
       portGuideRef.current = null;
+      floodLineRef.current?.destroy();
+      floodLineRef.current = null;
+      farmReachRef.current?.destroy();
+      farmReachRef.current = null;
       connectRef.current?.destroy();
       connectRef.current = null;
       streetHeatRef.current?.destroy();
@@ -2593,6 +2641,29 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     const rules = playRules(grid);
     heat.draw(grid, liveDesireMaps(grid, net), who, (x, y) => validatePlacement(grid, def!, x, y, rules).ok, scale);
   }, [tool, structureDefId, grid, revision, scale, sceneEpoch]);
+
+  /**
+   * THE FLOOD LINE, with a flood wall in hand — as it would stand with the row
+   * being dragged put up — or with a flood on its way. @see createFloodLine
+   */
+  useEffect(() => {
+    const sync = () => {
+      const st = useWorldStore.getState();
+      const wall = st.playing && st.tool === "placeStructure" && st.structureDefId === "levee" && !st.placingProject;
+      const warning = st.events.some((e) => e.kind === "river-flood" && e.phase === "warning");
+      const walls = wall && st.stroke ? (lotLine(st, st.stroke) ?? [st.stroke.head]) : [];
+      // A WALL LOOKED AT: the line, its run and what the run keeps dry. @see WallCard
+      const at = st.tool === "inspect" && st.lookedAt ? structureOf(st.grid, st.lookedAt.x, st.lookedAt.y) : undefined;
+      const mark = at?.def === "levee" ? wallRunInfo(st.grid, at) : undefined;
+      floodLineRef.current?.sync(st.grid, wall || warning || mark ? walls : null, scale, mark);
+      // A FARM IN HAND: the ground it would take for fields. @see createFarmReach
+      const farm = st.playing && st.tool === "placeStructure" && st.structureDefId === "farm" && st.hover;
+      const fp = farm ? structureFootprint(structureDef("farm"), st.hover!, st.hover!) : null;
+      farmReachRef.current?.sync(st.grid, st.palette, fp, scale);
+    };
+    sync();
+    return useWorldStore.subscribe(sync);
+  }, [scale, sceneEpoch]);
 
   /**
    * THE BANKS A SEAPORT COULD GO ON, lit with one in hand. Drawn again when
@@ -3362,7 +3433,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       if (harbour.paid) sfx("coin");
       // HULLS MOVE THE WATER: a bow wave and a hollow astern, the water's own. @see pushWater
       pushWater(fleet, field.columns, dt);
-      boatRef.current?.draw(fleet, field.columns, scale, dt, useGlobalSettingsStore.getState().dayNight && useWorldStore.getState().playing ? darkness(phaseNow()) / NIGHT_DARK : 0);
+      boatRef.current?.draw(fleet, field.columns, scale, dt, nightOn() ? nightAt(phaseNow()) : 0);
       sBoats();
       // THE WATER MAINS: their tubes where they changed — or the zoom asks for more or less detail — and the water in them. @see createMainsLayer
       mainsRef.current?.sync(grid, scale, useWorldStore.getState().viewport?.scale.x ?? 1);
@@ -3432,8 +3503,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             const tally = convoyTally(convoy?.id ?? -1);
             const equity = canAcquire() ? Math.floor(pendingEquity().toNumber()) : 0;
             const river = riverHead(st.grid);
-            // THE LEVEE a flood could be met with: walls on the low bank near the head. @see leveeCells
-            const bank = river && field ? leveeCells(st.grid, field) : [];
+            // THE LEVEE a flood could be met with: walls on the bank the flood would come over. @see leveeCells
+            const bank = river ? leveeCells(st.grid) : [];
             // WHAT DRINKS: the Data Centre, or the thirstiest of the rest. @see HEATWAVE, DROUGHT
             const drinker = (() => {
               let best: Structure | undefined, most = -1;
@@ -3495,7 +3566,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             // A WILDFIRE, where the ground is one surface: the fire stepped while one burns; else the driest wood
             // that would catch, looked for every few seconds. @see WILDFIRE, vegetation/wildfire
             const WF = wildRef.current, wildEv = st.events.find((e) => e.kind === "wildfire" && e.phase !== "over");
-            const tCal = useCalendarStore.getState().now();
+            const tCal = useCalendarStore.getState().real();
             const dryNow = Math.max(st.events.some((e) => e.kind === "drought" && e.phase === "active") ? 1 : 0, st.events.some((e) => e.kind === "heatwave" && e.phase === "active") ? 0.75 : 0, weatherDry(tCal));
             if (!wildEv || wildEv.id !== WF.event) {
               // (Over, or another: what still burns goes out where it is.)
@@ -3575,6 +3646,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               } : null,
               levee: river ? {
                 walls: bank.length,
+                walled: [...st.grid.structures.values()].some((s) => s.def === "levee"),
                 price: bank.length * (buildCost("levee")?.toNumber() ?? 0) * LEVEE_RUSH,
                 build: () => useWorldStore.getState().raiseLevee(bank),
               } : null,
@@ -3778,7 +3850,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // THE REPAIR CREW, round the damaged buildings once the water is down.
         // None while a fire burns either: the crew does not go in. @see FIRE
         const burning = st.events.some((e) => (e.kind === "fire" || e.kind === "wildfire") && e.phase === "active");
-        if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult, !!floodBase.current || burning);
+        // (Half as fast again with the Climate Lab standing. @see CLIMATE_REPAIRS)
+        if (st.playing) stepRepairs(st.grid, dt * usePrestigeStore.getState().modifiers.repairMult * (projectReading()?.built.has("climatelab") ? CLIMATE_REPAIRS : 1), !!floodBase.current || burning);
         // A TRAINING RUN finished: its jump, and the log. @see useTrainingStore
         if (st.playing) useTrainingStore.getState().tick();
         // THE DRINKERS DRINK: the Data Centre and the AI's own buildings, from their tanks. @see stepCooling
@@ -4023,13 +4096,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     if (soundClock.current > 0.25) {
       soundClock.current = 0;
       const st = useWorldStore.getState();
-      const night = st.playing && useGlobalSettingsStore.getState().dayNight ? darkness(phaseNow()) / NIGHT_DARK : 0;
+      const night = nightOn() ? nightAt(phaseNow()) : 0;
       ambience(st.playing ? Math.min(1, getTown().movers.length / TOWN_FULL) : 0, night);
     }
     // THE HOUR, in the game: the night over the map, and how busy the streets
     // are. Off, or in the editor, a plain bright noon. @see world/daylight
     {
-      const on = useWorldStore.getState().playing && useGlobalSettingsStore.getState().dayNight;
+      const on = nightOn();
       const phase = phaseNow();
       getTown().busy = on ? busyness(phase) : undefined;
       // The culture deck on the streets. @see Town.culture
@@ -4047,10 +4120,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         if (dc) showMe({ x: dc.x + dc.w / 2, y: dc.y + dc.h / 2 });
       }
       const ascension = playing ? sequenceIntensity(now) : 0;
-      const nightNow = on ? darkness(phase) / NIGHT_DARK : 0;
+      // THE HOUR'S LIGHT, in one place: the night, the grade, the sky the water mirrors and the sun's glint on it. @see lightAt
+      const light = on ? lightAt(phase) : NOON;
+      const nightNow = light.night;
       nightNowRef.current = nightNow;
-      // (The sun's glints on the water go with the day. @see water-gpu waterLook)
-      setWaterNight(nightNow);
+      setWaterLight(light);
       if (g) {
         // THE SKY TURNS as the AI rises: a violet cast from the Manager on, and at the Ascension.
         // By the stage, so Hard Takeoff's early Overseer brings it with it. @see stagesNow
@@ -4059,8 +4133,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // A HEATWAVE OR A DROUGHT: the map graded warm, half while it is coming.
         const dry = playing ? useWorldStore.getState().events.find((e) => (e.kind === "heatwave" || e.kind === "drought") && e.phase !== "over") : undefined;
         const warm = dry ? (dry.phase === "active" ? 1 : 0.5) : 0;
-        const colour = mixColour(mixColour(mixColour(0xffffff, HEAT_GRADE, warm), NIGHT_GRADE, nightNow), STAGE_COLOUR.overseer, tint);
+        const colour = mixColour(multiplyColour(mixColour(0xffffff, HEAT_GRADE, warm), light.grade), STAGE_COLOUR.overseer, tint);
         gradeRef.current = colour;
+        setWaterGrade(colour);
         // Redrawn only when it changes: a colour a step at a time, or the screen's size.
         const key = `${colour}|${app.screen.width}x${app.screen.height}`;
         if (key !== nightKey.current) {
@@ -4105,7 +4180,31 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // THE WEATHER: what lies, from the calendar; and every half second its runoff into the water, by where the
         // land drains — that worked out again as the map or its water changes. @see world/weather, water/rain
         const tCal = useCalendarStore.getState().now(), R = rainRef.current;
-        R.lying = groundAt(tCal);
+        // (As at the middle of the map: the fronts cross it. @see weather frontLag)
+        R.lying = groundAt(tCal - frontLag(st.grid.w / 2, st.grid.h / 2));
+        // THE SNOW EASED to what lies, over a second or so: a jump of the year (the editor's slider) lays it and
+        // clears it in drifts across the map, not all at once. (The weather's own steps are far slower than this.)
+        {
+          const t = performance.now(), dt = Math.min(0.25, Math.max(0, (t - (R.easedAt ?? t)) / 1000));
+          R.easedAt = t;
+          if (!Number.isFinite(R.eased)) R.eased = R.lying.snow;
+          R.eased += (R.lying.snow - R.eased) * (1 - Math.exp(-dt / SNOW_EASE));
+          if (Math.abs(R.lying.snow - R.eased) < 0.004) R.eased = R.lying.snow;
+          R.lying = { ...R.lying, snow: R.eased };
+          // AND ALONG THE FRONTS' WAY, at four places from the upwind corner to the downwind: what lies at each, its
+          // snow eased the same. @see ground-mesh lieAt
+          const along = [[0, 0], [st.grid.w, 0], [0, st.grid.h], [st.grid.w, st.grid.h]].map(([x, y]) => x * PREVAILING[0] + y * PREVAILING[1]);
+          const from = Math.min(...along), reach = Math.max(1, Math.max(...along) - from);
+          const was = R.front?.at;
+          R.front = {
+            axis: PREVAILING, from, reach,
+            at: [0, 1, 2, 3].map((k) => {
+              const a = from + (k / 3) * reach, l = groundOver(tCal, PREVAILING[0] * a, PREVAILING[1] * a), old = was?.[k]?.snow ?? l.snow;
+              const snow = Math.abs(l.snow - old) < 0.004 ? l.snow : old + (l.snow - old) * (1 - Math.exp(-dt / SNOW_EASE));
+              return { snow, wet: l.wet, frost: l.frost };
+            }),
+          };
+        }
         if (field && now - R.at > 500) {
           // (Again when the ground or the water has changed — the water at most every ten seconds.)
           const key = st.grid.rev * 1e6 + V.rev;
@@ -4114,26 +4213,44 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
             R.rev = key; R.cAt = now;
           }
           // (Time away is not poured: the water does not run while nobody is here either.)
-          const seconds = (tCal - R.t) * YEAR_SECONDS;
-          if (seconds > 0 && seconds < 60) stepRain(st.grid, field, R.c, tCal, seconds, R.lying);
-          R.t = tCal; R.at = now;
+          // (By the calendar itself: a year looked at on the editor's slider pours nothing. @see held)
+          const tRun = useCalendarStore.getState().real(), seconds = (tRun - R.t) * YEAR_SECONDS;
+          if (seconds > 0 && seconds < 60) stepRain(st.grid, field, R.c, tRun, seconds, tRun === tCal ? R.lying : groundAt(tRun));
+          R.t = tRun; R.at = now;
         }
         // (What hurts it: fouled water by it, and a drought or heatwave under way. @see vegetation/stress)
         const pol = field ? pollutionOf(field.columns) : null, foul = POLLUTED * 255;
         const evDry = Math.max(st.events.some((e) => e.kind === "drought" && e.phase === "active") ? 1 : 0, st.events.some((e) => e.kind === "heatwave" && e.phase === "active") ? 0.75 : 0);
-        stepVegetation(st.grid, st.palette, useCalendarStore.getState().now(), {
+        // (Drone Farming, as the fields know it: further reach, lost ground sown at once. @see setDroneFarming)
+        setDroneFarming(notable("drones"));
+        stepVegetation(st.grid, st.palette, useCalendarStore.getState().real(), {
           fouled: pol?.any ? (x, y) => x < pol.w && y < pol.h && pol.level[y * pol.w + x] > foul : undefined,
           dry: evDry,
         });
         if (V.changed.size) { if (tlRef.current?.ground) canopyGround(tlRef.current.ground, st.grid, st.palette, V.changed); for (const i of V.changed) grownRef.current.add(i); V.changed.clear(); }
-        // THE HARVEST, paid as the fields are cut: rising off each farm, its share. @see game/vegetation-cost
-        if (V.harvest > 0) {
-          const pay = harvestPay(V.harvest), farms = farmsOf(st.grid);
-          V.harvest = 0;
-          if (pay > 0) {
+        // (Seasons off: the year held, but the farms still cut, a season at a time. @see reapSeason)
+        const OS = offSeasonRef.current;
+        if (useCalendarStore.getState().at !== null || !st.playing || !OS.at) OS.at = now;
+        else if (now - OS.at >= (YEAR_SECONDS * 1000) / 4) { OS.at = now; reapSeason(st.grid, (OS.k++ % 4) as 0 | 1 | 2 | 3); }
+        // THE HARVEST, paid as the fields are cut: each farm for its own fields, rising off it. @see game/vegetation-cost
+        if (V.harvest.size) {
+          for (const [id, fields] of V.harvest) {
+            // (Fed by a sewer, a farm's compost: up to half as much again. @see COMPOST_MOST)
+            const fed = 1 + COMPOST_MOST * processorBusy(id);
+            // (Tended by drone: half as much again, and a unit of ground truth a field scanned. @see notable "drones")
+            const drones = notable("drones");
+            if (drones) bankGroundTruth(fields);
+            // (And a quarter more with the Agritech Lab standing. @see AGRITECH_PAY)
+            const lab = projectReading()?.built.has("agritech") ? AGRITECH_PAY : 1;
+            const pay = Math.round(harvestPay(fields) * fed * lab * (drones ? DRONE_HARVEST : 1));
+            if (pay <= 0 || !st.grid.structures.has(id)) continue;
             useMoneyStore.getState().increaseMoney(pay);
-            for (const f of farms) getExports().fresh.push({ port: f.id, amount: Math.round(pay / farms.length), at: Date.now() });
+            getExports().fresh.push({ port: id, amount: pay, at: Date.now() });
+            lastPay.set(id, pay);
+            // (And a unit of oat milk a field, into its silo. @see harvestMilk)
+            harvestMilk(dairy, id, fields * fed);
           }
+          V.harvest.clear();
         }
       }
       if (woodsRef.current) { const st = useWorldStore.getState(); woodsRef.current.sync(st.grid, st.palette, st.revision, scale, groundMode() === "smooth" ? rainRef.current.lying.snow : 0, grownRef.current); grownRef.current.clear(); }
@@ -4144,9 +4261,11 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         // (A drought scorches the grass past the summer's straw: dry over one. @see ground-mesh seasonGrass)
         const gs = groundSeason(tCal), evs = useWorldStore.getState().events;
         const scorch = Math.max(evs.some((e) => e.kind === "drought" && e.phase === "active") ? 1 : 0, evs.some((e) => e.kind === "heatwave" && e.phase === "active") ? 0.6 : 0, weatherDry(tCal) * 0.5);
+        // (The season's sun: how far a shadow is thrown.)
+        setSunSeason(smooth ? shadowSeason(yearPart(tCal)) : 1);
         setSnowLying(smooth ? L.snow : 0);
         if (plRef.current) snowPaved(plRef.current, useWorldStore.getState().grid, snowStep());
-        seasonGround(tlRef.current.ground, smooth ? { ...gs, dry: Math.min(2, gs.dry + scorch), snow: L.snow } : null, yearPart(tCal), smooth ? L.wet : 0, smooth ? L.frost : 0);
+        seasonGround(tlRef.current.ground, smooth ? { ...gs, dry: Math.min(2, gs.dry + scorch), snow: L.snow } : null, yearPart(tCal), smooth ? L.wet : 0, smooth ? L.frost : 0, useCalendarStore.getState().held !== null, smooth ? rainRef.current.front ?? null : null);
       }
       if (signalsRef.current) {
         // The lanes the town last drove on: kept current by stepTown. @see trafficOf
@@ -4201,6 +4320,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
       // headlight, and the night's grade laid through it — the flat sheet and, unless asked for, the glows put by.
       // A spike. @see render/gi
       let glowNight = nightNow;
+      // WHAT THE WATER MIRRORS, worked out on the map for this frame: day and night alike. @see render/mirror
+      {
+        const gm = tlRef.current?.ground, gpu = gpuRef.current, world = overlayRoot.current?.parent, g = useWorldStore.getState().grid;
+        if (mirrorRef.current && mirrorRef.current.of !== gpu) { mirrorRef.current.off(); mirrorRef.current.m.destroy(); mirrorRef.current = null; }
+        if (!mirrorRef.current && gpu && world) {
+          const m = createMirror(app.renderer, world, gpu.mirror, scale, waterLookGroup, MIRROR_GLOW_WGSL, 21, (above) => stripCullRef.current?.(above));
+          if (m) {
+            const r = app.renderer as unknown as { runners: { prerender: { add: (o: object) => void; remove: (o: object) => void }; postrender: { add: (o: object) => void; remove: (o: object) => void } } };
+            const pre = { prerender: (o: { target?: unknown }) => m.before(o) }, post = { postrender: (o: { target?: unknown }) => m.after(o) };
+            r.runners.prerender.add(pre); r.runners.postrender.add(post);
+            mirrorRef.current = { m, of: gpu, off: () => { r.runners.prerender.remove(pre); r.runners.postrender.remove(post); } };
+          }
+        }
+        if (mirrorRef.current && gm && gpu && gm.heights.length === g.w * g.h * 16) {
+          mirrorRef.current.m.tick({ heights: gm.heights, casts: gm.casts, rev: gm.shadeRev, deck: g.deck, deckZ: g.deckZ, depth: gpu.sources[0], bed: gpu.sources[1], w: g.w, h: g.h, cpt: 4 });
+        }
+      }
       // (The windows' own clock, seconds since the page came up: small enough for a shader to count by.)
       const litClock = performance.now() / 1000;
       // How far through the night it is, dusk to dawn: fewer windows lit as it goes. @see lit-windows litShare
@@ -4213,7 +4349,9 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // (In the map's own container, over everything in it: they move with the map, in the frame it moves.)
           const world = overlayRoot.current?.parent;
           if (!giRef.current && world) { const gi = createGi(app.renderer, world, 20, st.grid.w, st.grid.h, scale); if (gi) giRef.current = { gi, w: st.grid.w, h: st.grid.h }; }
-          if (!litRef.current && world) litRef.current = createLitWindows(world, 21);
+          // (In the bands, each window over its own wall: a new map's bands, new windows. @see createLitWindows)
+          if (litRef.current && litRef.current.bands !== blNow) { litRef.current.destroy(); litRef.current = null; }
+          if (!litRef.current) litRef.current = createLitWindows(blNow);
           if (giRef.current) {
             const rgb = (hex: number, k: number) => ({ r: (((hex >> 16) & 255) / 255) * k, g: (((hex >> 8) & 255) / 255) * k, b: ((hex & 255) / 255) * k });
             // What stands still, listed again when the map or the options change.
@@ -4242,16 +4380,32 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               eStill();
             }
             let lights = giStill.current.lights, beamN = 0, heads = 0;
+            // THE CLUBS' BEAMS: a light all along each, swinging as it does — on the roof, the walls round it, the street.
+            // (Before the headlights: the last of the list are theirs. @see createGi steady)
+            const clubBeams = shopsRef.current?.beams(now / 1000) ?? [];
+            if (clubBeams.length) {
+              if (lights === giStill.current.lights) lights = lights.slice();
+              for (const b of clubBeams) {
+                const at = (f: number, k: number) => b.from[k] + (b.to[k] - b.from[k]) * f;
+                // (Up it, for the walls at its height; and what it scatters down, a wide pool on the street under it.)
+                for (const f of [0.1, 0.35, 0.6]) lights.push({ x: (at(f, 0) + 0.5) * 4, y: (at(f, 1) + 0.5) * 4, hx: 1.6, hy: 1.6, ...rgb(b.colour, GI_BEAM), solid: 0, z: at(f, 2) });
+                lights.push({ x: (at(0.5, 0) + 0.5) * 4, y: (at(0.5, 1) + 0.5) * 4, hx: 4, hy: 4, ...rgb(b.colour, GI_BEAM * 0.5), solid: 0, z: 0.5 });
+              }
+            }
             if (o.headlights) {
               lights = lights.slice();
               for (const m of getTown().movers) {
                 if (!lampsLit(m)) continue;
                 const ch = Math.cos(m.heading), sh = Math.sin(m.heading), nose = halfLength(m) * 0.8;
-                // (Its beam on the road, from its lamps; and the two pools of it that the water gives back.)
-                if (beamN < giBeams.current.length / 4) {
-                  giBeams.current.set([m.x + 0.5 + ch * nose, m.y + 0.5 + sh * nose, ch, sh], beamN * 4);
+                // (Its beam on the road, from its lamps, at the height it drives at: on a bridge, on the deck and
+                // not the river under it; and the two pools of it that the water gives back — none from a deck,
+                // whose road is all the beam lights.)
+                if (beamN < giBeams.current.length / BEAM_FLOATS) {
+                  giBeams.current.set([m.x + 0.5 + ch * nose, m.y + 0.5 + sh * nose, ch, sh, m.z], beamN * BEAM_FLOATS);
                   beamN++;
                 }
+                const cx = Math.round(m.x), cy = Math.round(m.y), grid = st.grid;
+                if (inBounds(grid, cx, cy) && grid.deck[idx(grid, cx, cy)] !== 0) continue;
                 for (const [ahead, half] of [[0.55, 1.3], [1.25, 2]]) lights.push({ x: (m.x + 0.5 + ch * ahead) * 4, y: (m.y + 0.5 + sh * ahead) * 4, hx: half, hy: half, r: 1, g: 0.94, b: 0.78, solid: 0, z: 0.5 });
                 heads += 2;
               }
@@ -4267,6 +4421,8 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               heights: gm.heights, casts: gm.casts, sceneRev: gm.shadeRev, low: st.grid.minHeight, top: st.grid.maxHeight + gm.castTop,
               // (The water as the solver has it on the GPU, where it does: for what it gives back of the light.)
               water: gpuRef.current ? { depth: gpuRef.current.sources[0], bed: gpuRef.current.sources[1] } : null,
+              // (And its face, as the water's mirror has it: the light lies on the water, not on its bed.)
+              face: mirrorRef.current ? gpuRef.current?.mirror.hit : undefined,
               decks: { on: st.grid.deck, z: st.grid.deckZ },
               grade: gradeRef.current, night: nightNow, clock: litClock, share: litNow,
             });
@@ -4274,6 +4430,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           }
         } else if (giRef.current) giRef.current.gi.rest();
         if (night.current) night.current.visible = !laid;
+        // THE CLOUDS, by the weather, under the night's sheet (`__sky` holds a sky to look at).
+        {
+          const world = overlayRoot.current?.parent;
+          if (cloudsRef.current && (cloudsRef.current.w !== st.grid.w || cloudsRef.current.h !== st.grid.h)) { cloudsRef.current.clouds.destroy(); cloudsRef.current = null; }
+          if (!cloudsRef.current && world && gm) { const clouds = createClouds(app.renderer, world, 19.5, st.grid.w, st.grid.h, scale); if (clouds) cloudsRef.current = { clouds, w: st.grid.w, h: st.grid.h }; }
+          if (cloudsRef.current) {
+            const tCal = useCalendarStore.getState().now();
+            // (A flood coming or here brings its own sky: a storm over the whole map, the rain hanging from it.)
+            const flood = st.playing && st.events.find((e) => e.kind === "river-flood" && e.phase !== "over");
+            const held = (window as unknown as { __sky?: Partial<Sky> }).__sky ?? (flood ? (flood.phase === "active" ? FLOOD_SKY : FLOOD_COMING_SKY) : null);
+            cloudsRef.current.clouds.tick(gm && groundMode() === "smooth" ? { t: tCal, seconds: now / 1000, light, ground: gm, wind: windAt(tCal), strength: windStrength(tCal), snow: rainRef.current.lying.snow, show: 0.8 - 0.3 * Math.min(1, Math.max(0, ((useWorldStore.getState().viewport?.scale.x ?? 1) - 0.5) / 2)), held } : null);
+          }
+        }
+        setWaterGradeOver(!laid);
         // THE VEHICLES' LAMPS over the night's sheet, in the map's own container: their own pieces of their pictures, and
         // not shown through what stands in front. (For the next frame's drawing of them.)
         if (laid && gm) {
@@ -4309,17 +4479,20 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
         ? window.__aiPreview ?? (startFixture() === "singularity" && !playing ? aiFixturePreview(performance.now() / 1000) : undefined)
         : undefined;
       const modelRun = playing && useFounderStore.getState().selectedFounderId === "model";
+      const farmLook = !playing && useCalendarStore.getState().held !== null;
       if (ai && (playing || preview || modelRun)) {
         const v = preview?.value ?? meter;
         ai.draw(useWorldStore.getState().grid, scale, {
           stage: stageOf(v).stage, value: v, running: preview ? 1 : runningAgents(), training: preview?.training ?? training() !== null,
-          night: on ? darkness(phase) / NIGHT_DARK : 0, ascension: preview?.ascension ?? ascension,
+          night: on ? nightAt(phase) : 0, ascension: preview?.ascension ?? ascension,
           drones: getAiRunner().jobs.map(droneAt),
           // The Machine's Coolant Loop and Holo-Concierges, where bought. @see game/machine
           coolant: !modelRun && notable("coolant"),
           concierges: !modelRun && notable("concierge") ? conciergesOf(useWorldStore.getState().grid) : undefined,
           buildDrones: modelRun || aiDriving() ? buildDronesOn(useWorldStore.getState().grid) : undefined,
           dronePort: modelRun || aiDriving() ? dronePort(useWorldStore.getState().grid) : null,
+          // DRONE FARMING over every farm. @see farmDronesAt
+          ...(playing && notable("drones") ? farmDronesView() : {}),
           airlifts: getWorks().airlifts.map((a) => { const k = Math.min(1, a.t / a.fly); return { x: a.from.x + (a.to.x - a.from.x) * k, y: a.from.y + (a.to.y - a.from.y) * k }; }),
           // An inherited AI's drones in the player's teal, till its takeover begins. @see inherited
           droneLight: !modelRun && inherited(stageOf(v).stage) ? STAGE_COLOUR.tool : undefined,
@@ -4336,14 +4509,10 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // WHAT THE ARC IS PICKING, under the pointer; or the block picked. @see useQuestStore.picking
           pick: playing ? questPickBox() : null,
         }, raw, now);
+      } else if (ai && farmLook) {
+        // THE EDITOR'S SLIDER holding a year: the farms' drones as Drone Farming would fly them then, and nothing else of the AI's. @see TimeSlider
+        ai.draw(useWorldStore.getState().grid, scale, { stage: "tool", value: 0, running: 0, training: false, night: on ? nightAt(phase) : 0, ascension: 0, ...farmDronesView() }, raw, now);
       } else ai?.clear();
-      const r = rain.current;
-      if (r) {
-        r.clear();
-        const st = useWorldStore.getState();
-        const flood = st.playing && st.events.find((e) => e.kind === "river-flood" && e.phase !== "over");
-        if (flood) drawRain(r, app.screen.width, app.screen.height, performance.now() / 1000, flood.phase === "active" ? 1 : 0.5);
-      }
     }
     perfAdd("fx", performance.now() - tFx);
     sFx();
@@ -4404,8 +4573,23 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
     // WHAT IS BUILT THROWS ITS SHADOW on the ground: looked at a few times a second — a building come, gone, or a
     // floor taller as its people moved in. @see casters
     { const gm = tlRef.current?.ground; if (gm && castAtRef.current++ % 20 === 0) castGround(gm, grid, (id) => { const s = grid.structures.get(id); return s ? casterOf(s) : null; }); }
+    // THE SUN MOVED (the editor's slider): the ground lit and shaded toward it again, a few ms a frame — roughly
+    // while it is still moving, then once more in full when it has rested a quarter of a second. @see sunShadeStep
+    {
+      const gm = tlRef.current?.ground, t = performance.now(), sun = sunAtRef.current;
+      if (gm) {
+        if (!sunShadeBusy(gm)) {
+          // (The sun moved by the editor, or the season's: either way the ground's shade is made again.)
+          if (sun.rev !== sunRev * 4096 + shadowRev) { sunAtRef.current = { rev: sunRev * 4096 + shadowRev, at: t, rough: true }; sunShadeStart(gm, grid, true); }
+          else if (sun.rough && t - sun.at > 250) { sunAtRef.current = { ...sun, rough: false }; sunShadeStart(gm, grid, false); }
+        }
+        if (sunShadeBusy(gm)) { const e = section("sun: ground lit again"); sunShadeStep(gm, grid, useWorldStore.getState().palette, sunAtRef.current.rough ? SUN_BUDGET_MS / 2 : SUN_BUDGET_MS); e(); }
+      }
+    }
+    // (And the houses' sheet lit toward it, before any house is drawn from it. @see relightHouses)
+    { const H = housesLoaded(); if (H && !sunHome() && app?.renderer) { const e = section("sun: houses lit again"); relightHouses(app.renderer, H); e(); } }
     if (!sl || !bl || !hasAnimated(sl)) return;
-    tickStructures(sl, { bands: bl, grid, scale }, dt);
+    { const e = section("tick: structures"); tickStructures(sl, { bands: bl, grid, scale }, dt); e(); }
   });
 
   // SUBMIT, measured around the RENDER CALL ITSELF.
@@ -4515,12 +4699,24 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
   // and the bench does not tick — so a bench run kept whatever band range the
   // last real frame had left, and zooming out for one measured the bands the
   // previous zoom showed. @see cullBandsRef
+  // THE STRIP OVER THE TOP OF THE SCREEN the water mirrors from: only the bands that show in it, while it is drawn;
+  // then as the screen wants again. @see mirror renderStrip
+  stripCullRef.current = (above: number) => {
+    const bl = blRef.current;
+    const vp = useWorldStore.getState().viewport;
+    if (!bl || !vp) return;
+    if (above <= 0) { setVisibleBands(bl, bandRange.current.lo, bandRange.current.hi); return; }
+    const { lo, hi } = visibleBandRange(grid, scale, vp.top - above, vp.top);
+    setVisibleBands(bl, lo, hi);
+  };
   cullBandsRef.current = () => {
     const bl = blRef.current;
     const vp = useWorldStore.getState().viewport;
     if (!bl || !vp) return;
-    const { lo, hi } = visibleBandRange(grid, scale, vp.top, vp.bottom);
     let e = section("tick: band cull");
+    updateReach(bl, scale);
+    const { lo, hi: below } = visibleBandRange(grid, scale, vp.top, vp.bottom);
+    const hi = reachInto(bl, below, vp.bottom, scale);
     setVisibleBands(bl, lo, hi);
     hideUnusedMovers(bl);
     e();

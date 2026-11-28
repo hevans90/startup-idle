@@ -9,6 +9,7 @@
  * of the bundle, and the founder screen does not need it.
  */
 import { PortCard } from "./port-card";
+import { WallCard } from "./wall-card";
 import { LeaderPlacement } from "./leader-placement";
 import { LinkedOut } from "../../molecules/linkedout";
 import { useLinkedOutStore } from "../../state/linkedout.store";
@@ -135,5 +136,5 @@ function LookedCard() {
   const looked = useWorldStore((s) => s.lookedAt);
   const tool = useWorldStore((s) => s.tool);
   const shown = tool === "inspect" || tool === "pipe" || tool === "sewer";
-  return <Anchored at={looked && shown ? looked : null}><MainInfo /><TrunkInfo /><PortCard /></Anchored>;
+  return <Anchored at={looked && shown ? looked : null}><MainInfo /><TrunkInfo /><PortCard /><WallCard /></Anchored>;
 }

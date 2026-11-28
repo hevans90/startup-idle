@@ -90,7 +90,7 @@ export function stepRain(g: Grid, field: WaterField, c: Catchment, t: number, se
     const i = c.sink[k], x = i % g.w, y = (i / g.w) | 0;
     // (What runs off its land in, by what covers it; what the air takes, over all of it as before.)
     const rate = Math.max(-MOST, Math.min(MOST, c.runoff[k] * off - c.area[k] * up)), d = rate * seconds;
-    if (d > 0) pourAt(field, x, y, d, water);
+    if (d > 0) pourAt(field, x, y, d, water, g);
     else drainAt(field, x, y, -d);
     sum += d;
   }

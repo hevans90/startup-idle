@@ -1,27 +1,39 @@
 /**
  * WHAT THE PLAYER DOES TO WHAT GROWS: fells it (stumps, and timber), plants it (a wood, a row of trees, a hedge, a
- * bed of flowers), and farms it (a farm's fields, cut each summer). Pure, on the fields (@see ./fields); what any
+ * bed of flowers), and farms it (a farm's fields, each cut in its crop's season). Pure, on the fields (@see ./fields); what any
  * of it costs or earns is the game's. @see game/vegetation-cost
  */
 import { idx, inBounds, type Grid, type Structure } from "../grid";
-import { COVER, FARM_REACH, MATURE, covered, growable, vegAt } from "./fields";
+import { COVER, MATURE, covered, farmReach, growable, vegAt } from "./fields";
+import { cropSeason, type Season } from "./crops";
 
 type Palette = readonly (string | null)[];
 type Cell = { x: number; y: number };
 
 /** The structure that is a farm. */
 export const FARM = "farm";
+/** The Agritech Lab farms its own ground too. @see plans/farms-and-flood-walls.md §1 */
+export const AGRITECH = "agritech";
+/** Whether a structure is a farm: a farm, or the Agritech Lab. */
+export const isFarm = (def: string) => def === FARM || def === AGRITECH;
 
 /** The farms on the map. */
-export const farmsOf = (g: Grid): Structure[] => [...g.structures.values()].filter((s) => s.def === FARM && !s.build);
+export const farmsOf = (g: Grid): Structure[] => [...g.structures.values()].filter((s) => isFarm(s.def) && !s.build);
 
-/** Whether a cell is within reach of a farm: the furthest of x and y from its footprint. */
-export function tended(farms: readonly Structure[], x: number, y: number): boolean {
+/** How far a cell is from a farm's footprint: the furthest of x and y. */
+const reachOf = (f: Structure, x: number, y: number) => Math.max(Math.max(f.x - x, 0, x - (f.x + f.w - 1)), Math.max(f.y - y, 0, y - (f.y + f.h - 1)));
+
+/** Whether a cell is within reach of a farm. */
+export const tended = (farms: readonly Structure[], x: number, y: number) => tenderOf(farms, x, y) !== null;
+
+/** THE FARM that tends a cell: the nearest in reach, the first of those as near; null for none. */
+export function tenderOf(farms: readonly Structure[], x: number, y: number): Structure | null {
+  let best: Structure | null = null, d = farmReach() + 1;
   for (const f of farms) {
-    const dx = Math.max(f.x - x, 0, x - (f.x + f.w - 1)), dy = Math.max(f.y - y, 0, y - (f.y + f.h - 1));
-    if (Math.max(dx, dy) <= FARM_REACH) return true;
+    const r = reachOf(f, x, y);
+    if (r < d) { d = r; best = f; }
   }
-  return false;
+  return best;
 }
 
 /** HOW MANY TREES stand on a cell, as felling counts them: a wood's, scrub's one, a row's tree, a hedge's shrubs; and how grown, 0–1. */
@@ -109,32 +121,52 @@ export function plant(g: Grid, palette: Palette, cells: readonly Cell[], what: P
 }
 
 /**
- * A FARM'S FIELDS, as it is put down: the open ground round it, within reach — not a wood, not built on, not
- * under water, not another's field. Returns the cells claimed.
+ * THE GROUND A FARM WOULD TAKE for its fields: the open ground round it, within reach — not a wood, not built on,
+ * not under water, not another's field — as cell indices. @see claimFields
  */
-export function claimFields(g: Grid, palette: Palette, farm: Pick<Structure, "x" | "y" | "w" | "h">): number {
-  const V = g.veg;
-  let n = 0;
-  for (let y = farm.y - FARM_REACH; y < farm.y + farm.h + FARM_REACH; y++) for (let x = farm.x - FARM_REACH; x < farm.x + farm.w + FARM_REACH; x++) {
+export function claimable(g: Grid, palette: Palette, farm: Pick<Structure, "x" | "y" | "w" | "h">): number[] {
+  const V = g.veg, out: number[] = [];
+  const R = farmReach();
+  for (let y = farm.y - R; y < farm.y + farm.h + R; y++) for (let x = farm.x - R; x < farm.x + farm.w + R; x++) {
     if (!inBounds(g, x, y)) continue;
+    // (Not its own footprint, before it stands there.)
+    if (x >= farm.x && x < farm.x + farm.w && y >= farm.y && y < farm.y + farm.h) continue;
     const i = vegAt(g, palette, x, y), cv = V.cover[i];
     if (!growable(g, palette, i) || covered(g, x, y) || V.wet[i]) continue;
     if (cv !== COVER.grass && cv !== COVER.meadow && cv !== COVER.stumps && cv !== COVER.burnt) continue;
-    V.cover[i] = COVER.field; V.density[i] = 0; V.age[i] = MATURE;
-    V.changed.add(i); n++;
+    out.push(i);
   }
-  if (n) V.rev++;
+  return out;
+}
+
+/** A FARM'S FIELDS, as it is put down, and as its ground comes open again. Returns the cells claimed. */
+export function claimFields(g: Grid, palette: Palette, farm: Pick<Structure, "x" | "y" | "w" | "h">): number {
+  const V = g.veg, cells = claimable(g, palette, farm);
+  for (const i of cells) {
+    V.cover[i] = COVER.field; V.density[i] = 0; V.age[i] = MATURE;
+    V.changed.add(i);
+  }
+  if (cells.length) V.rev++;
+  return cells.length;
+}
+
+/** The fields that are cut at harvest — tended, open, dry — all of them, or the ones cut in a season. */
+export function harvestable(g: Grid, season?: Season): number {
+  let n = 0;
+  for (const v of fieldsBy(g, season).values()) n += v;
   return n;
 }
 
-/** The fields that are cut at harvest: tended, open, dry. */
-export function harvestable(g: Grid): number {
-  const farms = farmsOf(g), V = g.veg;
-  if (!farms.length) return 0;
-  let n = 0;
+/** THE FIELDS each farm cuts, by its id: all of them, or the ones cut in a season. */
+export function fieldsBy(g: Grid, season?: Season): Map<number, number> {
+  const farms = farmsOf(g), V = g.veg, out = new Map<number, number>();
+  if (!farms.length) return out;
   for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
     const i = idx(g, x, y);
-    if (V.cover[i] === COVER.field && !V.wet[i] && !covered(g, x, y) && tended(farms, x, y)) n++;
+    if (V.cover[i] !== COVER.field || V.wet[i] || covered(g, x, y)) continue;
+    if (season !== undefined && cropSeason(x, y) !== season) continue;
+    const f = tenderOf(farms, x, y);
+    if (f) out.set(f.id, (out.get(f.id) ?? 0) + 1);
   }
-  return n;
+  return out;
 }

@@ -31,7 +31,7 @@ export type GiOptions = {
   spacing: 1 | 2;
   /** Whether lit buildings show their own windows lit, each by its hours. @see lit-windows */
   floors: boolean;
-  /** Whether the water gives the light back: lit windows and lamps in streaks on it. */
+  /** Whether the water gives the light back as streaks of its own: off, as the water mirrors what is drawn, day and night. @see mirror */
   water: boolean;
   /** How many heights the light is worked out at: 1, the ground alone; 4, up a tower's side. @see LAYER_HEIGHTS */
   layers: 1 | 2 | 4;
@@ -46,7 +46,7 @@ export type GiOptions = {
   /** Show the light alone, over a black map: what was worked out, and nothing else. */
   only: boolean;
 };
-const options: GiOptions = { on: true, cascades: 3, spacing: 2, floors: true, water: true, layers: 4, glows: false, walls: true, lamps: true, windows: true, headlights: true, gain: 0.5, only: false };
+const options: GiOptions = { on: true, cascades: 3, spacing: 2, floors: true, water: false, layers: 4, glows: false, walls: true, lamps: true, windows: true, headlights: true, gain: 0.5, only: false };
 let version = 0;
 export const giOptions = (): Readonly<GiOptions> => options;
 export const giVersion = () => version;
@@ -65,7 +65,7 @@ if (typeof window !== "undefined") {
   if (q) {
     const words = (q[1] ?? "").split(",");
     setGi({
-      on: !words.includes("off"), glows: words.includes("glows"), floors: !words.includes("nofloors"), water: !words.includes("nowater"), only: words.includes("only"), walls: !words.includes("nowalls"),
+      on: !words.includes("off"), glows: words.includes("glows"), floors: !words.includes("nofloors"), water: words.includes("glare"), only: words.includes("only"), walls: !words.includes("nowalls"),
       ...(words.includes("3") ? { cascades: 3 } : words.includes("5") ? { cascades: 5 } : {}), ...(words.includes("fine") ? { spacing: 1 } : {}), ...(words.includes("flat") ? { layers: 1 } : {}),
     });
   }
@@ -83,6 +83,8 @@ export const LAYER_HEIGHTS = [0, 5, 11, 20] as const;
 const GLINT = 1.1;
 /** How strong a lit window's glare on the water is, for its colour as the cascades are given it; and any other light's, for its colour at full strength. */
 const GLARE_WINDOW = 0.15, GLARE_LIGHT = 0.24;
+/** How strong the pool a light lays on the water all round it is, against its image: a window's, and any other light's. @see GLARE_WGSL */
+const POOL_WINDOW = 0.35, POOL_LIGHT = 0.45;
 /** How what is built is sent to the GPU: half steps to a full byte. @see scene */
 const HEIGHT_SPAN = 64;
 /** The least time between two workings-out of the light, ms: a little under a frame at sixty a second. */
@@ -92,13 +94,17 @@ const WORK_EVERY = 15;
 const REACH = 42;
 /** A vehicle's beam, as long and as wide as this, tiles; the lit road's light where it is strongest. @see BEAM_WGSL */
 const BEAM_LONG = 3.6, BEAM_NEAR = 0.2, BEAM_WIDE = 0.95, BEAM_BRIGHT = 0.95;
+/** How far above or below the height it drives at a beam still lights the ground, half steps: a ramp's rise, and a little. */
+const BEAM_LEVEL = 3.5;
 /** Quarter-tiles a tile: the grid the ground's shade and what is built are kept on. @see ground-mesh SHADE_PER_TILE */
 const Q = 4;
 /** Lights at most, a frame. */
 const MAX_LIGHTS = 16384;
 const FLOATS = 12;
 /** Vehicles with their beams on, at most, and how many numbers each is. */
-const MAX_BEAMS = 4096, BEAM_FLOATS = 4;
+const MAX_BEAMS = 4096;
+/** Numbers a beam: where its lamps are and which way it shines, tiles; and the height it drives at, half steps. */
+export const BEAM_FLOATS = 5;
 
 const EMIT_WGSL = /* wgsl */ `
 // The map's size, quarter-tiles; this height, the one under it and the one over it, half steps; the clock, s, and how many windows are lit.
@@ -251,13 +257,13 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 // by the first wall it meets. Headlamps were lights among the cascades' own, shining every way and as far as any,
 // and every car swept the town through the gaps between its buildings.
 const BEAM_WGSL = /* wgsl */ `
-// The map, tiles; how tall a wall is, as the scene has it.
-struct U { map: vec2<f32>, tall: f32, pad: f32 };
+// The map, tiles; how tall a wall is, as the scene has it; the lowest ground, half steps.
+struct U { map: vec2<f32>, tall: f32, low: f32 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var uSceneTex: texture_2d<f32>;
-struct V { @builtin(position) pos: vec4<f32>, @location(0) at: vec2<f32>, @location(1) p: vec2<f32>, @location(2) @interpolate(flat) lamp: vec2<f32> };
+struct V { @builtin(position) pos: vec4<f32>, @location(0) at: vec2<f32>, @location(1) p: vec2<f32>, @location(2) @interpolate(flat) lamp: vec2<f32>, @location(3) @interpolate(flat) z: f32 };
 @vertex
-fn vs(@builtin(vertex_index) i: u32, @location(0) car: vec4<f32>) -> V {
+fn vs(@builtin(vertex_index) i: u32, @location(0) car: vec4<f32>, @location(1) z: f32) -> V {
   var c = array<vec2<f32>, 6>(vec2(0.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0), vec2(0.0, -1.0), vec2(1.0, 1.0), vec2(0.0, 1.0));
   let q = vec2<f32>(c[i].x * ${BEAM_LONG}, c[i].y * ${BEAM_WIDE});
   let dir = car.zw;
@@ -265,6 +271,8 @@ fn vs(@builtin(vertex_index) i: u32, @location(0) car: vec4<f32>) -> V {
   o.p = car.xy + dir * q.x + vec2<f32>(-dir.y, dir.x) * q.y;
   o.pos = vec4<f32>(o.p.x / u.map.x * 2.0 - 1.0, 1.0 - o.p.y / u.map.y * 2.0, 0.0, 1.0);
   o.at = q; o.lamp = car.xy;
+  // (Its height as the scene keeps heights: from the lowest ground, a byte's worth over ${HEIGHT_SPAN} half steps.)
+  o.z = (z - u.low) / ${HEIGHT_SPAN}.0;
   return o;
 }
 @fragment
@@ -275,6 +283,11 @@ fn fs(v: V) -> @location(0) vec4<f32> {
   var b = a * a * smoothstep(0.0, 0.12, f) * (1.0 - f) * (1.0 - f) * ${BEAM_BRIGHT};
   if (b <= 0.002) { return vec4<f32>(0.0); }
   let size = vec2<f32>(textureDimensions(uSceneTex));
+  // ONLY WHAT IS AT ITS OWN HEIGHT: the ground there, or a bridge's deck. A car on a bridge lit the river under it;
+  // one under the bridge, the deck over it.
+  let here = textureLoad(uSceneTex, vec2<i32>(clamp(v.p / u.map * size, vec2<f32>(0.0), size - vec2<f32>(1.0))), 0);
+  let near = min(abs(here.g - v.z), select(1.0, abs(here.b - v.z), here.b > 0.0));
+  if (near > ${BEAM_LEVEL} / ${HEIGHT_SPAN}.0) { return vec4<f32>(0.0); }
   for (var k = 1; k <= 12; k++) {
     let q = mix(v.lamp, v.p, f32(k) / 12.0) / u.map * size;
     if (textureLoad(uSceneTex, vec2<i32>(clamp(q, vec2<f32>(0.0), size - vec2<f32>(1.0))), 0).r > u.tall) { return vec4<f32>(0.0); }
@@ -421,9 +434,23 @@ fn lightOver(q: vec2<f32>, up: f32, spread: f32) -> vec3<f32> {
 const SHEET_WGSL = SHEET_COMMON + /* wgsl */ `
 // The vehicles' beams, as the map has them. @see BEAM_WGSL
 @group(2) @binding(4) var uBeam : texture_2d<f32>;
+// The face a line of sight meets in each column: the water's, or dry, what stands (blue), and whether it is water
+// (alpha) — the water's mirror's own answer. @see mirror
+@group(2) @binding(5) var uFace : texture_2d<f32>;
+fn faceAt(q: vec2<f32>) -> vec4<f32> { return textureSampleLevel(uFace, uLightSampler, q / sheet.uScene.xy, 0.0); }
 @fragment
 fn mainFragment(in: VSOutput) -> @location(0) vec4<f32> {
-  let s = seen(in.vGround);
+  var s = seen(in.vGround);
+  // THE WATER'S FACE, where the line meets it nearer the eye than what it met under it — the lake's bed, a tile and
+  // more further on. Lit there, as the ground is: the light a lamp lays on the street goes on over the water.
+  if (faceAt(in.vGround + vec2<f32>(s.t)).a > 0.02) {
+    var t = s.t;
+    for (var k = 0; k < 3; k++) { t = faceAt(in.vGround + vec2<f32>(t)).b / 4.0; }
+    let w = faceAt(in.vGround + vec2<f32>(t));
+    if (w.a > 0.5 && abs(w.b - 4.0 * t) < 0.4 && t > s.t + 0.01) {
+      s.at = in.vGround + vec2<f32>(t); s.t = t; s.built = 0.0; s.up = 0.0; s.ground = w.b;
+    }
+  }
   // (A wall is lit from the air in front of it, not from inside itself.)
   let front = s.at + vec2<f32>(0.12 * s.built);
   var l = lightOver(front, s.up, 5.0);
@@ -485,18 +512,23 @@ fn fs(v: V) -> @location(0) vec4<f32> {
 }
 `;
 // A LIGHT'S GLARE ON THE WATER, drawn on the map a light at a time — every lamp, lit window and headlamp the
-// cascades are given: a soft streak where its image would lie on flat water — as far toward the eye from its foot
-// as it is high — drawn out along the line of sight as ripples draw it, the longer the higher the light.
+// cascades are given — in two parts. ITS IMAGE: a soft streak where it would lie on flat water — as far toward the
+// eye from its foot as it is high — drawn out along the line of sight as ripples draw it, the longer the higher the
+// light. AND ITS LIGHT ON THE WATER ROUND IT: a light sends its light every way, and the ripples give some of it back
+// wherever it falls — a pool all round its foot, dimmer, the wider the higher the light. (The image alone was a
+// streak straight down the screen from every light and nothing to either side of it, whatever lit the water.)
 const GLARE_WGSL = /* wgsl */ `
 // The map's size, quarter-tiles; how strong a window's glare is, and any other light's; the clock, s, and how many windows are lit.
 struct U { scene: vec2<f32>, gain: vec2<f32>, clock: vec4<f32> };
 @group(0) @binding(0) var<uniform> u: U;
-struct V { @builtin(position) pos: vec4<f32>, @location(0) at: vec2<f32>, @location(1) col: vec3<f32> };
+struct V { @builtin(position) pos: vec4<f32>, @location(0) at: vec2<f32>, @location(1) col: vec3<f32>, @location(2) @interpolate(flat) pool: f32 };
 fn roll(a: f32, b: f32) -> f32 { return fract(sin(a * 127.1 + b * 311.7) * 43758.5453); }
 @vertex
 fn vs(@builtin(vertex_index) i: u32, @location(0) box: vec4<f32>, @location(1) col: vec4<f32>, @location(2) more: vec4<f32>) -> V {
   var c = array<vec2<f32>, 6>(vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0));
-  let q = c[i];
+  let q = c[i % 6u];
+  // (The first six corners the image, the next six the pool.)
+  let pool = i >= 6u;
   // A WINDOW'S HOURS, as the window itself is drawn by them. (A light with no number is always lit.) @see lit-windows
   var on = 1.0;
   var gain = u.gain.y / max(0.001, max(col.r, max(col.g, col.b)));
@@ -512,16 +544,26 @@ fn vs(@builtin(vertex_index) i: u32, @location(0) box: vec4<f32>, @location(1) c
   let h = max(0.0, more.x) + 1.5;
   let along = vec2<f32>(0.7071, 0.7071) * (2.4 + 0.8 * h);
   let across = vec2<f32>(0.7071, -0.7071) * clamp(max(box.z, box.w), 1.4, 3.0);
-  let p = box.xy + vec2<f32>(h) + q.x * across + q.y * along;
+  var p = box.xy + vec2<f32>(h) + q.x * across + q.y * along;
+  var k = 1.0;
+  // THE POOL round its foot, quarter-tiles across: wider the higher it stands, as a lamp's light spreads.
+  if (pool) {
+    let lamp = more.y < 0.0;
+    let reach = select(clamp(5.0 + 0.5 * h, 5.0, 14.0), clamp(8.0 + 0.8 * h, 8.0, 20.0), lamp);
+    p = box.xy + q * reach;
+    k = select(${POOL_WINDOW}, ${POOL_LIGHT}, lamp);
+  }
   var o: V;
   o.pos = vec4<f32>(p.x / u.scene.x * 2.0 - 1.0, 1.0 - p.y / u.scene.y * 2.0, 0.0, 1.0);
   // (Not lit, or not a light but a lit area — a building's glow on its own ground: drawn nowhere.)
   if (on <= 0.0 || col.a > 0.5 || max(box.z, box.w) > 8.0) { o.pos = vec4<f32>(-4.0, -4.0, 0.0, 1.0); }
-  o.at = q; o.col = col.rgb * gain * on;
+  o.at = q; o.col = col.rgb * gain * on * k; o.pool = select(0.0, 1.0, pool);
   return o;
 }
 @fragment
 fn fs(v: V) -> @location(0) vec4<f32> {
+  // (The pool: falling off from its foot alike every way.)
+  if (v.pool > 0.5) { let r = max(0.0, 1.0 - dot(v.at, v.at)); return vec4<f32>(v.col * r * r * r, 0.0); }
   let a = max(0.0, 1.0 - v.at.x * v.at.x); let b = max(0.0, 1.0 - v.at.y * v.at.y);
   return vec4<f32>(v.col * a * a * b * b, 0.0);
 }
@@ -658,6 +700,8 @@ export type GiFrame = {
   grade: number; night: number;
   /** The water, where the solver has it on the GPU: how deep and its bed, a quarter-tile, as Pixi's own textures. @see water-gpu */
   water?: { depth: unknown; bed: unknown } | null;
+  /** The face a line of sight meets in each column — the water's, or what stands — as the water's mirror found it: lit as the ground is. @see mirror */
+  face?: unknown;
   /** The bridges' decks, a tile: which tiles have one, and how high it runs, half steps. Nothing of the light on water is laid over them. */
   decks?: { on: Uint8Array; z: Int8Array } | null;
   /** The windows' clock, s, and how many of them are lit (0–1). @see lit-windows */
@@ -722,12 +766,14 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
   const shrinkBinds = [0, 1].map((m) => device.createBindGroup({ layout: shrinkPipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: emitViews[m] }] }));
   // THE BEAMS: a texture of their own, finer than the light's — a beam is no wider than a lane.
   const BT = Math.max(4, Math.min(8, Math.floor(1024 / Math.max(w, h))));
+  // (Nowhere water, until the water's mirror gives its face. @see GiFrame.face)
+  const noFace = new BufferImageSource({ resource: new Uint16Array(4), width: 1, height: 1, format: "rgba16float", scaleMode: "linear" });
   const beamTex = new BufferImageSource({ resource: new Uint8Array(w * BT * h * BT), width: w * BT, height: h * BT, format: "r8unorm", scaleMode: "linear" });
   const beamView = sys.texture.getGpuSource(beamTex).createView();
   const beamMod = device.createShaderModule({ code: BEAM_WGSL });
   const beamPipe = device.createRenderPipeline({
     layout: "auto",
-    vertex: { module: beamMod, entryPoint: "vs", buffers: [{ arrayStride: BEAM_FLOATS * 4, stepMode: "instance", attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }] }] },
+    vertex: { module: beamMod, entryPoint: "vs", buffers: [{ arrayStride: BEAM_FLOATS * 4, stepMode: "instance", attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }, { shaderLocation: 1, offset: 16, format: "float32" }] }] },
     // (Light on light: two beams on one patch of road are no brighter than day.)
     fragment: { module: beamMod, entryPoint: "fs", targets: [{ format: "r8unorm", blend: { color: { srcFactor: "one", dstFactor: "one-minus-src" }, alpha: { srcFactor: "one", dstFactor: "one" } } }] },
   });
@@ -859,7 +905,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
     const shader = new Shader({
       gpuProgram: GpuProgram.from({
         vertex: { source: SHEET_WGSL, entryPoint: "mainVertex" }, fragment: { source: SHEET_WGSL, entryPoint: "mainFragment" }, name: "gi-sheet",
-        layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { sheet: 0, uLight: 1, uLightSampler: 2, uSceneTex: 3, uBeam: 4 }],
+        layout: [{ globalUniforms: 0 }, { localUniforms: 0 }, { sheet: 0, uLight: 1, uLightSampler: 2, uSceneTex: 3, uBeam: 4, uFace: 5 }],
         gpuLayout: [
           [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
           [{ binding: 0, visibility: 3, buffer: { type: "uniform" } }],
@@ -869,10 +915,12 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
             { binding: 2, visibility: 2, sampler: { type: "filtering" } },
             { binding: 3, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
             { binding: 4, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
+            { binding: 5, visibility: 2, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } },
           ],
         ],
       }),
-      resources: { sheet: sheetU, uLight: light, uLightSampler: light.style, uSceneTex: scene, uBeam: beamTex },
+      // (No water's face until the water's mirror has one: nothing anywhere is water.)
+      resources: { sheet: sheetU, uLight: light, uLightSampler: light.style, uSceneTex: scene, uBeam: beamTex, uFace: noFace },
     });
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
     mesh.eventMode = "none";
@@ -1048,7 +1096,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       const beams = options.headlights ? Math.min(f.beams?.n ?? 0, MAX_BEAMS) : 0;
       if (beams || beamsIn) {
         beamsIn = beams > 0;
-        if (beams) device.queue.writeBuffer(beamBuf, 0, f.beams!.data, 0, beams * BEAM_FLOATS);
+        if (beams) { device.queue.writeBuffer(beamBuf, 0, f.beams!.data, 0, beams * BEAM_FLOATS); device.queue.writeBuffer(beamU, 12, new Float32Array([f.low])); }
         const bp = pass(beamView, false, false, false, "gi beams");
         if (beams) { bp.setPipeline(beamPipe); bp.setBindGroup(0, beamBind); bp.setVertexBuffer(0, beamBuf); bp.draw(6, beams); }
         bp.end();
@@ -1091,8 +1139,8 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
         const fp = pass(s.fieldView!, false, false, true, "gi field");
         fp.setPipeline(fieldPipe); fp.setBindGroup(0, s.fieldBind!); fp.draw(3);
         fp.setPipeline(glarePipe); fp.setBindGroup(0, glareBind);
-        if (n) { fp.setVertexBuffer(0, lightBuf); fp.draw(6, n); }
-        if (wins && windowBuf && windowN) { fp.setVertexBuffer(0, windowBuf); fp.draw(6, windowN); }
+        if (n) { fp.setVertexBuffer(0, lightBuf); fp.draw(12, n); }
+        if (wins && windowBuf && windowN) { fp.setVertexBuffer(0, windowBuf); fp.draw(12, windowN); }
         fp.end();
         // AND WHERE THE LIT WATER IS, for the screen to ask first: a point for each square of the field. @see MASK_WGSL
         if (s.maskView && s.maskBind) {
@@ -1119,6 +1167,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
       // (As far toward the eye as the tallest thing could stand in the way: four half steps up a tile.)
       (s.sheetU.uniforms.uMap as Float32Array)[2] = Math.min(14, Math.max(0.4, f.top / 4 + 0.4));
       (s.sheetU.uniforms.uScene as Float32Array)[2] = f.low;
+      if (f.face && s.mesh.shader!.resources.uFace !== f.face) s.mesh.shader!.resources.uFace = f.face;
       (s.sheetU.uniforms.uScene as Float32Array)[3] = beamsIn ? Math.min(1, f.night * 1.2) : 0;
       s.sheetU.update();
       s.mesh.visible = true;
@@ -1133,7 +1182,7 @@ export function createGi(renderer: Renderer, world: Container, zIndex: number, w
     },
     destroy() {
       unsize();
-      setTimeout(() => { emit.destroy(); beamTex.destroy(); beamBuf.destroy(); lightBuf.destroy(); windowBuf?.destroy(); scene.destroy(); stamps?.set.destroy(); stamps?.resolve.destroy(); stamps?.read.destroy(); }, 600);
+      setTimeout(() => { emit.destroy(); beamTex.destroy(); noFace.destroy(); beamBuf.destroy(); lightBuf.destroy(); windowBuf?.destroy(); scene.destroy(); stamps?.set.destroy(); stamps?.resolve.destroy(); stamps?.read.destroy(); }, 600);
     },
   };
 }

@@ -10,6 +10,7 @@
  *
  * Painter's order is kept: a band's mesh in its band, its trees back to front. @see world/calendar, dev/bake-trees.ts
  */
+import { windStrength } from "../weather";
 import { sceneryLoad } from "../load-progress";
 import "./ktx";
 import { deviceLost } from "./device";
@@ -22,7 +23,7 @@ import { bandOf, HEIGHT_UNIT, HH, HW } from "../iso";
 import type { TreeFrame, TreesSheet } from "../props/trees-format";
 import { useCalendarStore } from "../../state/calendar.store";
 import { useGlobalSettingsStore } from "../../state/global-settings.store";
-import type { BandLayer } from "./bands";
+import type { BandLayer, ReachUp } from "./bands";
 import { SURFACE_FINE, cornersRev, cornersSince, drawnCorner, drawnHeight, withCorners } from "./drawn";
 import { canopyOf, forestTrees, scattered } from "./forest";
 import { ageStep } from "../vegetation/step";
@@ -32,7 +33,7 @@ import { planted, type PlantedTree } from "./planted";
 
 const BASE = "/isometric_assets/derived";
 /** The kinds, a row of the leaves' ramp each. */
-const KINDS = ["oak", "lime", "hornbeam", "cherry", "birch", "pine", "willow", "poplar", "apple", "shrub", "reeds", "stump", "flowers", "rock", "log", "tuft"] as const;
+const KINDS = ["oak", "lime", "hornbeam", "cherry", "birch", "pine", "willow", "poplar", "apple", "shrub", "reeds", "stump", "flowers", "rock", "log", "tuft", "wheat", "barley", "rape", "maize", "kale"] as const;
 /** Columns of the ramp: the year in this many steps. */
 const RAMP = 96;
 /** Pages the shader reads. */
@@ -195,7 +196,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
   let parts = new Map<number, Tree[]>();
   const dirty = new Set<number>();
   const uniforms = oncePerRender(new UniformGroup({
-    // The year (as years since the calendar began); the wind's clock, s, and its strength; and the snow lying, 0–1.
+    // The year (as years since the calendar began); the wind's clock, s, and its strength (by the weather's wind); and the snow lying, 0–1.
     uYear: { value: new Float32Array([0, 0, 1, 0]), type: "vec4<f32>" },
     uPages: { value: new Float32Array([2048, 2048, 2048, 2048]), type: "vec4<f32>" },
     uPages2: { value: new Float32Array([2048, 2048, 2048, 2048]), type: "vec4<f32>" },
@@ -218,10 +219,14 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
     const trees = parts.get(p) ?? [], have = meshes.get(p);
     if (!trees.length) { drop(p); return; }
     const { verts, idx: ix, next } = writePart(S, trees, t, scaleNow, p % 2 === SHADE);
+    // (The top of its tallest tree, for the cull: Pixi cannot measure a mesh of ours. @see bands updateReach)
+    let top = Infinity;
+    for (let o = 1; o < verts.length; o += F) if (verts[o] < top) top = verts[o];
     if (have) {
       // (Assigning `data` resizes the buffer in place: the geometry, and so the render group's instructions, stay.)
       have.mesh.geometry.attributes.aPos.buffer.data = verts;
       have.mesh.geometry.indexBuffer.data = ix;
+      (have.mesh as ReachUp).topY = top;
       have.next = next;
       return;
     }
@@ -241,6 +246,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
     shader ??= treeShader(S, uniforms);
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
     mesh.eventMode = "none";
+    (mesh as ReachUp).topY = top;
     layer.addChild(mesh);
     meshes.set(p, { mesh, next });
   };
@@ -254,7 +260,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
       const t = useCalendarStore.getState().now();
       // THE WIND AND THE YEAR, every frame: uniforms only.
       const u = uniforms.uniforms.uYear as Float32Array, pg = uniforms.uniforms.uPages as Float32Array;
-      u[0] = t; u[1] = (performance.now() - t0) / 1000; u[2] = useGlobalSettingsStore.getState().motion === "calm" ? 0 : 1; u[3] = snow;
+      u[0] = t; u[1] = (performance.now() - t0) / 1000; u[2] = useGlobalSettingsStore.getState().motion === "calm" ? 0 : 0.55 + 1.3 * windStrength(t); u[3] = snow;
       const pg2 = uniforms.uniforms.uPages2 as Float32Array;
       S.sheet.pages.forEach((pp, k) => { const a = k < 2 ? pg : pg2, o = (k % 2) * 2; a[o] = pp.w; a[o + 1] = pp.h; });
       uniforms.update();
@@ -328,7 +334,7 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
           for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) any += at(x + dx, y + dy);
           const i = idx(g, x, y), cv = g.veg.cover[i];
           // (Reeds, heath, snags where a wood burnt and what the player made stand where there is no canopy.)
-          if (!any && cv !== COVER.reeds && cv !== COVER.meadow && cv !== COVER.burnt && cv < COVER.stumps && !scattered(g, palette, x, y)) continue;
+          if (!any && cv !== COVER.reeds && cv !== COVER.meadow && cv !== COVER.burnt && cv !== COVER.field && cv < COVER.stumps && !scattered(g, palette, x, y)) continue;
           // (Its key is made only now: most of a map grows nothing.)
           let q = 0;
           for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) kk[q++] = Math.round(at(x + dx, y + dy) * 72);
@@ -352,13 +358,13 @@ export function createTreeMesh(bands: BandLayer): TreeMesh {
           const sick = sickness(g.veg.health[i]);
           const trees = forestTrees(g, palette, x, y, at).map((w): Tree => {
             const h = (salt: number) => hash(Math.round(w.seed * 65536), salt, 0, 0x5eed);
-            const greener = h(1) < 0.5, how = 0.25 * h(2);
+            const greener = h(1) < 0.5, how = (w.stand ? 0.06 : 0.25) * h(2);
             // (Sick: yellowing to brown, each tree a little its own. @see vegetation/stress)
             const ill = sick * (0.7 + 0.6 * h(5)), t0: [number, number, number] = greener ? [1 + how * 0.3, 1 + how * 0.15, 1 - how * 0.5] : [1 - how * 0.5, 1 - how * 0.35, 1 - how * 0.45];
             return {
-              kind: w.kind, u: w.u, v: w.v, z: drawnHeight(g, w.u + 0.5, w.v + 0.5), turn: w.turn, size: w.size,
-              // Up to a fortnight either way: no two trees of a wood turn together.
-              lag: (h(3) - 0.5) * 0.05,
+              kind: w.kind, u: w.u, v: w.v, z: drawnHeight(g, (w.stand?.[0] ?? w.u) + 0.5, (w.stand?.[1] ?? w.v) + 0.5), turn: w.turn, size: w.size,
+              // Up to a fortnight either way: no two trees of a wood turn together. (A field's crop, all of it together.)
+              lag: w.lag ?? (h(3) - 0.5) * 0.05,
               tint: [t0[0] * (1 + 0.25 * ill), t0[1] * (1 - 0.22 * ill), t0[2] * (1 - 0.6 * ill)],
               char: w.char ?? 0,
               phase: h(4) * Math.PI * 2,

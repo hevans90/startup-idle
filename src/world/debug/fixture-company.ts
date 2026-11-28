@@ -141,7 +141,9 @@ function seedHarbour(): void {
 export function seedFixtureCompany(): void {
   if (startFixture() === "bigtown") { seedBigTown(); return; }
   // (Farms too: money for planting, felling and farms.)
-  if (startFixture() === "harbour" || startFixture() === "shoal" || startFixture() === "farms" || startFixture() === "wildfire" || startFixture() === "ground") { seedHarbour(); return; }
+  if (startFixture() === "harbour" || startFixture() === "shoal" || startFixture() === "farms" || startFixture() === "wildfire" || startFixture() === "ground" || startFixture() === "flood") { seedHarbour(); return; }
+  // (The harvest's: Drone Farming bought too. @see buildHarvest)
+  if (startFixture() === "harvest") { seedHarbour(); useGenerationStore.setState({ machine: ["machine_n_drones"] }); return; }
   if (startFixture() === "ascension") { seedAscension(); return; }
   if (startFixture() !== "singularity") return;
   // WITH `&seed=N` (and `&size=`), A COMPANY FROM NOTHING instead: the Model's second generation on a generated map, AI

@@ -763,7 +763,7 @@ export function runSources(field: WaterField, grid: Grid, dt: number) {
     const rate = source[i];
     if (rate === 0) continue;
     const x = i % grid.w, y = (i / grid.w) | 0;
-    if (rate > 0) pourAt(field, x, y, rate * dt, grid.fluid[i] || 1);
+    if (rate > 0) pourAt(field, x, y, rate * dt, grid.fluid[i] || 1, grid);
     else drainAt(field, x, y, -rate * dt);
   }
 }
@@ -789,13 +789,22 @@ export function findTaps(field: WaterField, grid: Grid): CellList {
 /** How much a spring puts out, and a drain takes, in half steps a second. */
 export const SOURCE_RATE = 8;
 
-/** Pour water over the columns of a tile. */
+/**
+ * Pour water over the columns of a tile.
+ *
+ * OFF A BUILDING'S ROOF, given the grid: a building is a block to the water
+ * `SOLID_LIFT` up whatever its own height, and water poured on that stood on
+ * the block out of sight and went over every side of it as falls ten storeys
+ * tall. It runs off into the open columns nearest its walls instead, as the
+ * water a building is put down in does. @see displace
+ */
 export function pourAt(
   field: WaterField,
   x: number,
   y: number,
   amount: number,
   material: number,
+  grid?: Grid,
 ) {
   // ON THE DECK WHERE THERE IS ONE, which is the answer to "I clicked the
   // bridge and the water went somewhere else". The pick resolves to the
@@ -807,6 +816,15 @@ export function pourAt(
   const slot = deckedAt(field, x, y) ? 1 : 0;
   const cx0 = columnOf(x),
     cy0 = columnOf(y);
+  if (grid && slot === 0 && inBounds(grid, x, y)) {
+    const sid = structureAt(grid, x, y);
+    if (sid >= 0 && basinOf(grid, sid) === 0) {
+      const cols: number[] = [];
+      for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) cols.push((cy0 + dy) * columns.nx + cx0 + dx);
+      displace(field, grid, cols, amount * cols.length, new Map([[material, 1]]));
+      return;
+    }
+  }
   for (let dy = 0; dy < COLUMNS_PER_TILE; dy++) {
     for (let dx = 0; dx < COLUMNS_PER_TILE; dx++) {
       addWater(columns, cx0 + dx, cy0 + dy, amount, material, slot);

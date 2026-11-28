@@ -50,6 +50,6 @@ function castOf(s: Structure): Caster | null {
   const b = lookOf(s.def, { w: s.w, h: s.h });
   return {
     key: `${s.def}|${s.x},${s.y},${s.w},${s.h}`,
-    boxes: b.masses.map((m) => ({ u0: s.x + m.u0, v0: s.y + m.v0, u1: s.x + m.u1, v1: s.y + m.v1, z: m.z1 })),
+    boxes: [...b.masses, ...(b.casts ?? [])].map((m) => ({ u0: s.x + m.u0, v0: s.y + m.v0, u1: s.x + m.u1, v1: s.y + m.v1, z: m.z1 })),
   };
 }

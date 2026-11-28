@@ -15,13 +15,15 @@
  * - **Stress** after each step: pollution, drought and heat, flooding wearing health down, and the sick thinned.
  *   @see ./stress
  * - **What the player planted** grows up and stays as it is: a row, a hedge, a bed. A field with no farm in reach
- *   goes back to grass; one with, is cut each harvest (@see HARVEST), and counted in `veg.harvest` to be paid.
+ *   goes back to grass; one with, is cut in its crop's season (@see vegetation/crops), and counted in `veg.harvest`
+ *   to be paid, by the farm that tends it. Open ground in a farm's reach — burnt, felled, let go — is its field again.
  */
 import { healWear } from "./wear";
 import { idx, inBounds, type Grid } from "../grid";
-import { COVER, HARVEST, MATURE, covered, growable, vegAt, vegHash, vegNoise, waterNear } from "./fields";
+import { COVER, MATURE, covered, droneFarming, growable, vegAt, vegHash, vegNoise, waterNear } from "./fields";
+import { HARVEST_AT, type Season } from "./crops";
 import { stressStep, type Stress } from "./stress";
-import { farmsOf, harvestable, tended } from "./tend";
+import { claimFields, farmsOf, fieldsBy, tended } from "./tend";
 
 type Palette = readonly (string | null)[];
 
@@ -117,6 +119,11 @@ export function vegStep(g: Grid, palette: Palette, dt: number, k: number): boole
         break;
     }
   }
+  // THE FARMS TAKE BACK their ground — what burnt, was felled or went to grass in reach is field again — at once,
+  // tended by drone; else at the next harvest. @see reap
+  let claimed = 0;
+  // (A farm just finished, or just loaded, claims its fields now.)
+  for (const f of farms) if (droneFarming() || !V.sown.has(f.id)) { claimed += claimFields(g, palette, f); V.sown.add(f.id); }
   for (let w = 0; w < writes.length; w += 4) {
     const i = writes[w], was = [V.cover[i], V.density[i], ageStep(V.age[i])];
     V.cover[i] = writes[w + 1]; V.density[i] = writes[w + 2]; V.age[i] = writes[w + 3];
@@ -124,7 +131,7 @@ export function vegStep(g: Grid, palette: Palette, dt: number, k: number): boole
   }
   const changed = writes.length > 0;
   if (changed) V.rev++;
-  return changed;
+  return changed || claimed > 0;
 }
 
 /**
@@ -143,10 +150,23 @@ export function wetFrom(g: Grid, depth: (x: number, y: number) => number): boole
   return any;
 }
 
-/** THE HARVEST, each time the year passes it between `t0` and `t1`: the fields cut then, to be paid for. */
-function reap(g: Grid, t0: number, t1: number) {
-  const times = Math.floor(t1 - HARVEST) - Math.floor(t0 - HARVEST);
-  if (times > 0) g.veg.harvest += harvestable(g) * times;
+/**
+ * THE HARVESTS the year passes between `t0` and `t1`: each season's fields, cut then, to be paid for; and after
+ * each, the farms' lost ground sown again.
+ */
+function reap(g: Grid, palette: Palette, t0: number, t1: number) {
+  for (let s = 0; s < 4; s++) {
+    const times = Math.floor(t1 - HARVEST_AT[s]) - Math.floor(t0 - HARVEST_AT[s]);
+    if (times <= 0) continue;
+    reapSeason(g, s as Season, times);
+    for (const f of farmsOf(g)) claimFields(g, palette, f);
+  }
+}
+
+/** One season's harvest, `times` over: its fields, counted to the farms that tend them. @see HARVEST_AT */
+export function reapSeason(g: Grid, season: Season, times = 1) {
+  const H = g.veg.harvest;
+  for (const [id, n] of fieldsBy(g, season)) H.set(id, (H.get(id) ?? 0) + n * times);
 }
 
 /**
@@ -167,10 +187,10 @@ export function stepVegetation(g: Grid, palette: Palette, t: number, stress?: St
   };
   let any = false;
   if (n <= CATCH_UP_STEPS) {
-    for (let s = 0; s < n; s++) { reap(g, V.t, V.t + VEG_DT); V.t += VEG_DT; any = step(VEG_DT) || any; }
+    for (let s = 0; s < n; s++) { reap(g, palette, V.t, V.t + VEG_DT); V.t += VEG_DT; any = step(VEG_DT) || any; }
   } else {
     const dt = gap / CATCH_UP_STEPS;
-    for (let s = 0; s < CATCH_UP_STEPS; s++) { reap(g, V.t, V.t + dt); V.t += dt; any = step(dt) || any; }
+    for (let s = 0; s < CATCH_UP_STEPS; s++) { reap(g, palette, V.t, V.t + dt); V.t += dt; any = step(dt) || any; }
   }
   return any;
 }

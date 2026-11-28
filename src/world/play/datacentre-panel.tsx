@@ -21,7 +21,8 @@ import { SHARE_MAX, SHARE_STEP, WALLET_MINUTES, walletCap } from "../ai/wallet";
 
 import { agentBonus, agentsARack, agentsOpen } from "../../game/agents";
 import { pumpUpkeep } from "../../game/cooling";
-import { keystone } from "../../game/machine";
+import { keystone, notable } from "../../game/machine";
+import { TRUTH_CAP, TRUTH_JUMP, TRUTH_RUN, TRUTH_SPEED, groundTruth } from "../../game/ground-truth";
 import { questFlag } from "../../game/quests/effects";
 import { DATASETS, MAX_SKILL, dataset } from "../../game/training";
 import { traitForecast } from "../../game/traits";
@@ -408,10 +409,18 @@ function Training() {
   // Under AI mode the runs are the pilot's. @see machineDesk
   const driving = useAiDriving("machine");
   const seconds = useTrainingStore.getState().seconds();
+  const truth = groundTruth();
   const on = dataset(current?.dataset);
   const level = on ? (skills[on.id] ?? 0) : 0;
   return (
     <Panel tone="ai" title={`Training · ${fmtSeconds(seconds)}`} help="Trades the agent boost for a skill this company, and jumps the AI. Shapes what it becomes." className={SECTION}>
+      {/* GROUND TRUTH banked by the farms' drones: what the next run spends. @see groundTruth */}
+      {(notable("drones") || truth > 0) && (
+        <p className="mb-1 w-fit border border-ai/40 px-1 text-[10px] tabular-nums text-ai"
+          title={`From drone harvests · each run spends ${TRUTH_RUN} · full, speed +${Math.round(TRUTH_SPEED * 100)}% and jump +${Math.round(TRUTH_JUMP * 100)}%`}>
+          Ground truth · {Math.floor(truth)}/{TRUTH_CAP}
+        </p>
+      )}
       {current && on ? (
         <div title={`No agent boost till it ends${level < MAX_SKILL ? ` · then: ${on.skills[level]}` : ""}`}>
           <p className="flex justify-between">

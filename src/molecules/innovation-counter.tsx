@@ -14,11 +14,11 @@ export const ToolbarInnovationCounter = ({
   className?: ClassNameValue;
   rateClassName?: ClassNameValue;
 }) => {
-  const { innovation } = useInnovationStore();
+  const innovation = useInnovationStore((s) => s.innovation);
 
   const ips = useGeneratorStore((state) => state.getInnovationPerSecond());
 
-  const { setSidebarTab } = useGlobalSettingsStore();
+  const setSidebarTab = useGlobalSettingsStore((s) => s.setSidebarTab);
 
   return (
     <ResourceCounter

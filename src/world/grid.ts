@@ -306,14 +306,19 @@ export type Veg = {
   rev: number;
   /** Cells whose fields changed since the ground last looked. */
   changed: Set<number>;
-  /** Fields cut at harvests the step has passed and nobody has been paid for yet. Not saved. @see vegetation/step */
-  harvest: number;
+  /**
+   * Fields cut at harvests the step has passed and nobody has been paid for yet, by the farm (its id) that tends
+   * them. Not saved. @see vegetation/step
+   */
+  harvest: Map<number, number>;
+  /** Farms that have claimed their fields since the map was loaded, by id. Not saved. @see claimFields */
+  sown: Set<number>;
 };
 
 export function createVeg(n: number): Veg {
   return {
     cover: new Uint8Array(n), density: new Uint8Array(n), age: new Uint8Array(n), health: new Uint8Array(n).fill(255),
-    wear: new Uint8Array(n), wet: new Uint8Array(n), seen: new Uint16Array(n).fill(0xffff), t: -1, rev: 0, changed: new Set(), harvest: 0,
+    wear: new Uint8Array(n), wet: new Uint8Array(n), seen: new Uint16Array(n).fill(0xffff), t: -1, rev: 0, changed: new Set(), harvest: new Map(), sown: new Set(),
   };
 }
 

@@ -11,10 +11,9 @@ import { oncePerRender, syncOnce } from "./frame-uniforms";
 import { Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup } from "pixi.js";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
 import { VOID, idx, type Grid } from "../grid";
-import { SHADOW_TINT_SRC } from "../light";
+import { SHADOW_DEPTH, SHADOW_TINT_SRC } from "../light";
 import type { BandLayer } from "./bands";
 import { drawnCorner, withCorners } from "./drawn";
-import { groundMode } from "./ground-mode";
 import { SHADE_PER_TILE, type GroundMesh } from "./ground-mesh";
 
 const S = SHADE_PER_TILE;
@@ -143,7 +142,7 @@ export function createRoadShade(bands: BandLayer, gm: GroundMesh): RoadShade {
     sync(grid, scale) {
       if (seenOf === grid && seenRev === grid.rev && seenShade === gm.shadeRev) return;
       seenOf = grid; seenRev = grid.rev; seenShade = gm.shadeRev;
-      (uniforms.uniforms.uMap as Float32Array)[2] = groundMode() === "smooth" ? 0.5 : 0.72;
+      (uniforms.uniforms.uMap as Float32Array)[2] = SHADOW_DEPTH;
       // Each band's shaded road tiles: a quad a tile, corner to corner at the heights the road is drawn through.
       const by = new Map<number, number[]>();
       withCorners(grid, 4, () => {

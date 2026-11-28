@@ -13,7 +13,7 @@ const seen = (face: string) => face === "S" || face === "W";
 describe("where a pipe goes in", () => {
   test("the buildings with ports are the ones this was written for", () => {
     expect(withPorts.map((d) => d.id).sort()).toEqual([
-      "ai-node", "compute-spire", "contentfarm", "datacentre", "dataplant", "gpu-farm", "lattice", "office-vibe", "refinery", "studio",
+      "ai-node", "compute-spire", "contentfarm", "datacentre", "dataplant", "farm", "gpu-farm", "lattice", "office-vibe", "refinery", "studio",
     ]);
   });
 

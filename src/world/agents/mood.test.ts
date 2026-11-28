@@ -13,6 +13,15 @@ function town(list: Partial<Structure>[]) {
 const cover = (entries: [number, NeedId[]][]) => new Map(entries.map(([id, s]) => [id, new Set(s)]));
 
 describe("a house's mood", () => {
+  test("minds the flood line, unless a flood is on it already, and likes a farm's fields round it", () => {
+    const g = town([{ x: 5, y: 5, residents: 2 }, { x: 9, y: 9, residents: 2 }]);
+    const at = (flooded: Set<number>) => moodsOf(g, new Map(), new Map(), new Set(), flooded, undefined, 0, undefined, undefined, undefined, new Set([1]), (s) => s.id === 2);
+    expect(at(new Set()).get(1)!.parts.map((p) => p.why)).toContain("floods here");
+    expect(at(new Set([1])).get(1)!.parts.map((p) => p.why)).not.toContain("floods here");
+    expect(at(new Set()).get(2)!.parts).toContainEqual({ why: "fresh food", points: MOOD.fresh });
+    expect(at(new Set()).get(2)!.parts.map((p) => p.why)).not.toContain("floods here");
+  });
+
   test("enjoys a water view — unless slop has fouled the water", () => {
     const g = town([{ x: 5, y: 5, residents: 2 }]);
     const sees = () => true;

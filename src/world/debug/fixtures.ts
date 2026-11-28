@@ -24,6 +24,9 @@ import { derivedRamp } from "../roads/ramp-derive";
 import { TERRAIN_NAMES } from "../terrain-names";
 import { COVER, MATURE, vegAll, vegAt } from "../vegetation/fields";
 import { FARM, claimFields, fell, plant } from "../vegetation/tend";
+import { floodReach } from "../events/flood-reach";
+import { dairy, harvestMilk } from "../farms/oat-milk";
+import { FLOODED } from "../events/flood";
 import { RAMP, packRamp, type RampDir } from "../iso";
 import {
   MAIN_BORE, SEWER_GRATE, createVeg, edited, fillTerrain, idx, inBounds, recomputeHeightRange, setDeck, setInflow, setSource, type Grid,
@@ -34,7 +37,7 @@ export type FixtureId =
   | "roadShapes" | "avenue" | "plaza" | "splitTrap"
   | "river" | "inlet" | "harbour" | "bridge" | "crossing" | "spill" | "cascade" | "lake" | "islands" | "plunge"
   | "waterfall" | "brink"
-  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough" | "farms" | "waterfront" | "wildfire" | "ground";
+  | "firstRoad" | "projects" | "shops" | "singularity" | "bigtown" | "ascension" | "sewers" | "ports" | "pipeyard" | "glass" | "streets" | "traffic" | "cranes" | "shoal" | "hills" | "junctions" | "demolition" | "terrain" | "rough" | "farms" | "waterfront" | "wildfire" | "ground" | "flood" | "harvest";
 
 const set = (g: Grid, x: number, y: number, h: number, ramp = 0) => {
   if (!inBounds(g, x, y)) return;
@@ -1290,6 +1293,10 @@ export function buildFarms(g: Grid, material: number) {
     commit(g, history, cmd);
     return cmd.structures?.added ?? [];
   });
+  // THE AGRITECH LAB, by the road: played, the fixture has farms open to buy. @see featureGateOpen
+  const lab = structureDef("agritech");
+  const at = lab && placeCommand(g, { ...lab, placement: undefined }, 40, ROAD + 1);
+  if (at) commit(g, history, at);
   vegAll(g, palette);
   for (const f of farms) claimFields(g, palette, f);
   // What has been felled, planted and grown.
@@ -1302,6 +1309,57 @@ export function buildFarms(g: Grid, material: number) {
   for (const c of box(19, 6, 25, 11)) g.veg.age[vegAt(g, palette, c.x, c.y)] = 70;
   for (const c of [...box(6, 14, 17, 14), ...box(18, ROAD - 1, 30, ROAD - 1)]) g.veg.age[vegAt(g, palette, c.x, c.y)] = MATURE;
   edited(g);
+}
+
+/**
+ * THE FARMS AT WORK: the farms' map (@see buildFarms) with a third farm and a café on the road, the farm's silo
+ * full of oat milk so its vans set off at once, and — played — Drone Farming bought, so the drones fly. With the
+ * year held at a harvest (`?year=0.43` summer's, `0.69` autumn's, `0.94` winter's) they sweep it; at `?year=0.08`
+ * they spray. @see farmDronesAt, stepDairy
+ */
+export function buildHarvest(g: Grid, material: number) {
+  buildFarms(g, material);
+  const palette = [null, ...TERRAIN_NAMES], history = createHistory(), ROAD = 24;
+  const place = (id: string, x: number, y: number) => {
+    const d = structureDef(id), cmd = d && placeCommand(g, { ...d, placement: undefined }, x, y);
+    if (!cmd) return null;
+    commit(g, history, cmd);
+    return cmd.structures?.added?.[0] ?? null;
+  };
+  const farm = place(FARM, 30, ROAD - 2);
+  place("cafe", 16, ROAD + 1);
+  place("cafe", 35, ROAD - 1);
+  if (farm) { claimFields(g, palette, farm); harvestMilk(dairy, farm.id, 30); }
+  edited(g);
+}
+
+/**
+ * A FLOOD WAITING TO HAPPEN: the inlet's river (@see buildInlet), a row of homes on its floodplain that its flood
+ * line takes in, and the Climate Lab up on the valley side — so, played, flood walls are for sale, the line is drawn
+ * with one in hand, and what a row of them keeps dry can be seen. (`window.__eventNow = "river-flood"` brings one.)
+ * @see floodReach, plans/farms-and-flood-walls.md §4
+ */
+export function buildFlood(g: Grid, material: number) {
+  buildInlet(g, material);
+  const history = createHistory();
+  const reach = floodReach(g);
+  const lot = structureDef("kit:intern.t0");
+  let homes = 0;
+  for (let x = 6; x < g.w - 4 && homes < 6; x += 6) {
+    for (let y = 1; y < g.h - 1; y++) {
+      const i = idx(g, x, y);
+      if (reach.river[i] || reach.depth[i] <= FLOODED + 0.5) continue;
+      const cmd = lot && placeCommand(g, { ...lot, placement: undefined }, x, y);
+      if (cmd) { commit(g, history, cmd); homes++; break; }
+    }
+  }
+  // THE CLIMATE LAB, on dry ground above the homes.
+  const labDef = structureDef("climatelab");
+  for (let y = 1; labDef && y < g.h / 2; y++) {
+    const ok = [0, 1].every((dy) => [0, 1].every((dx) => reach.depth[idx(g, 4 + dx, y + dy)] <= 0 && !reach.river[idx(g, 4 + dx, y + dy)]));
+    const cmd = ok ? placeCommand(g, { ...labDef, placement: undefined }, 4, y) : null;
+    if (cmd) { commit(g, history, cmd); break; }
+  }
 }
 
 /**
@@ -1351,7 +1409,7 @@ export function buildGround(g: Grid, material: number) {
  * tiles is what fits in one printed line of numbers, and building it into a
  * sixty-four square map would bury the thing it exists to show.
  */
-export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, spill: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48, farms: 48, wildfire: 48, ground: 48, waterfront: 48 };
+export const FIXTURE_SIZE: Partial<Record<FixtureId, number>> = { cranes: 48, brink: 5, crossing: 32, spill: 32, projects: 96, shops: 32, bigtown: 128, sewers: 48, pipeyard: 48, glass: 48, streets: 48, traffic: 48, hills: 48, junctions: 96, demolition: 48, terrain: 64, rough: 48, farms: 48, wildfire: 48, ground: 48, waterfront: 48, flood: 48, harvest: 48 };
 
 /**
  * Every fixture id, so `?fixture=` can be checked against something real.
@@ -1363,7 +1421,7 @@ export const FIXTURE_IDS: readonly FixtureId[] = [
   "flat", "ziggurat", "occluder", "rampFan", "roadShapes", "avenue", "plaza",
   "splitTrap", "river", "inlet", "harbour", "bridge", "crossing", "spill", "cascade", "lake", "islands",
   "plunge", "waterfall", "brink",
-  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough", "farms", "wildfire", "ground", "waterfront",
+  "firstRoad", "projects", "shops", "singularity", "bigtown", "ascension", "sewers", "ports", "pipeyard", "glass", "streets", "traffic", "cranes", "shoal", "hills", "junctions", "demolition", "terrain", "rough", "farms", "wildfire", "ground", "waterfront", "flood", "harvest",
 ];
 
 export function applyFixture(g: Grid, id: FixtureId, material: number) {
@@ -1414,6 +1472,8 @@ export function applyFixture(g: Grid, id: FixtureId, material: number) {
     case "terrain": buildTerrain(g, material); recomputeHeightRange(g); return;
     case "rough": buildRough(g, material); recomputeHeightRange(g); return;
     case "farms": buildFarms(g, material); recomputeHeightRange(g); return;
+    case "flood": buildFlood(g, material); recomputeHeightRange(g); return;
+    case "harvest": buildHarvest(g, material); recomputeHeightRange(g); return;
     case "wildfire": buildWildfire(g, material); recomputeHeightRange(g); return;
     case "ground": buildGround(g, material); recomputeHeightRange(g); return;
     case "waterfront": buildWaterfront(g, material); recomputeHeightRange(g); return;

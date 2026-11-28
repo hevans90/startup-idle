@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { createGrid, fillTerrain, idx } from "../grid";
 import { canopyOf, forestTrees } from "./forest";
+import { COVER, vegAt } from "../vegetation/fields";
+import { cropAt, cropRows } from "../vegetation/crops";
 
 /** WOODS AS WOODS: thick in the heart, thin and ragged at the rim, nothing where nothing may stand. @see forest.ts */
 const palette = [null, "grass", "wood3", "wood1"] as const;
@@ -47,5 +49,29 @@ describe("the forest", () => {
     g.deck[idx(g, 14, 9)] = 1;
     for (const [x, y] of [[9, 9], [14, 9], ...Array.from({ length: 12 }, (_, k) => [6 + k, 12])]) expect(forestTrees(g, palette, x, y)).toEqual([]);
     expect(count(g, 9, 14, 15, 17)).toBeGreaterThan(1.5);
+  });
+
+  test("a field stands its crop in four patches, each on its front corner, sown the way its parcel is ploughed; hay none", () => {
+    const g = meadow();
+    let crops = 0, hay = 0;
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 24; x++) {
+      g.veg.cover[vegAt(g, palette, x, y)] = COVER.field;
+      const trees = forestTrees(g, palette, x, y), crop = cropAt(x, y);
+      if (crop === "hay") { hay++; expect(trees).toEqual([]); continue; }
+      crops++;
+      expect(trees.length).toBe(4);
+      const { acrossU, lag } = cropRows(x, y);
+      for (const t of trees) {
+        expect(t.kind).toBe(crop);
+        expect(t.lag).toBe(lag);
+        expect(t.turn < 2).toBe(acrossU);
+        // (Every plant behind its foot, and the four of them the cell: their feet on its front edges.)
+        expect([x, x + 0.5]).toContain(t.u);
+        expect([y, y + 0.5]).toContain(t.v);
+        expect(t.stand).toEqual([t.u - 0.25, t.v - 0.25]);
+      }
+    }
+    expect(crops).toBeGreaterThan(10);
+    expect(hay).toBeGreaterThan(0);
   });
 });

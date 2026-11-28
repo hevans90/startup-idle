@@ -11,8 +11,14 @@ import { YEAR_SECONDS } from "../world/calendar";
 type CalendarState = {
   t0: number;
   at: number | null;
-  /** The year, now. */
+  /** The year, now: the one looked at while the editor's slider holds one. @see held */
   now: (wall?: number) => number;
+  /** The year by the calendar itself, whatever is looked at: what grows and what is cut go by this. */
+  real: (wall?: number) => number;
+  /** THE EDITOR'S SLIDERS: a year and an hour of the day looked at, not run, not saved; null for the clock's. @see TimeSlider */
+  held: number | null;
+  hour: number | null;
+  look: (held: number | null, hour: number | null) => void;
   /** Seasons on or off: off holds the year where it is. */
   setRunning: (on: boolean, wall?: number) => void;
   /**
@@ -32,12 +38,16 @@ export const useCalendarStore = create<CalendarState>()(
     (set, get) => ({
       t0: 0,
       at: Date.now(),
-      now: (wall = Date.now()) => {
+      held: null,
+      hour: null,
+      look: (held, hour) => set({ held, hour }),
+      now: (wall = Date.now()) => get().held ?? get().real(wall),
+      real: (wall = Date.now()) => {
         const { t0, at } = get();
         return at === null ? t0 : t0 + Math.max(0, wall - at) / (YEAR_SECONDS * 1000);
       },
       setRunning: (on, wall = Date.now()) => {
-        const t = get().now(wall);
+        const t = get().real(wall);
         set({ t0: t, at: on ? wall : null });
       },
       catchUp: (lastSeen, creditedMs, wall = Date.now()) => {

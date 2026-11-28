@@ -39,7 +39,7 @@ export type MachineNode = {
  * second-ring nodes (or third, for `ring: 3`), revealed with them. The first costs `NOTABLE_COST`, and
  * each bought makes the next dearer by `NOTABLE_STEP`. @see plans/ai-takeover.md §4.2
  */
-export type NotableId = "freight" | "airlift" | "prefab" | "zoning" | "coolant" | "concierge" | "nightshift" | "market" | "selffund";
+export type NotableId = "freight" | "airlift" | "prefab" | "zoning" | "coolant" | "concierge" | "nightshift" | "market" | "selffund" | "drones";
 export const NOTABLES: readonly { id: NotableId; title: string; effect: string; detail: string; gap: number; ring?: 3 }[] = [
   { id: "freight", gap: 0, title: "Autonomous Freight", effect: "Project loads come by self-driving convoy", detail: "Project materials arrive in convoys of 3 self-driving lorries, sent from the Data Centre as well as the garage. A 16-load project takes 6 runs." },
   { id: "airlift", gap: 2, title: "Drone Airlift", effect: "Small sites' loads ×3 faster · each load +25%", detail: "Sites of 4 tiles or fewer get their materials by drone from the Data Centre: deliveries are 3× faster, and each load costs 25% more." },
@@ -49,6 +49,7 @@ export const NOTABLES: readonly { id: NotableId; title: string; effect: string; 
   { id: "concierge", gap: 3, title: "Holo-Concierge", effect: "AI district services reach 4 tiles further", detail: "Services in the AI's district reach houses 4 road tiles further away." },
   { id: "nightshift", gap: 6, title: "Night Shift", effect: "Deskless employees work nights at 70%, not 35%", detail: "Employees without a desk work nights at the empty desks, at 70% output instead of 35%." },
   { id: "market", gap: 2, ring: 3, title: "Market Maker", effect: "AI district ports +50% faster · convoys ×2", detail: "Ports in the AI's district turn ships round 50% faster, and convoys arrive twice as often." },
+  { id: "drones", gap: 0, ring: 3, title: "Drone Farming", effect: "Farms tended by drone · harvests +50% · fields feed training", detail: "Drones tend every farm: harvests pay 50% more, farms reach 4 tiles instead of 3, and lost fields replant at once. Each harvest banks ground-truth data that makes training runs faster and land harder." },
   { id: "selffund", gap: 5, ring: 3, title: "Self-Funding", effect: "AI wallet gets a tenth of the agents' income", detail: "The AI's wallet also gets 10% of the income the agents add." },
 ];
 export const NOTABLE_COST = 30;

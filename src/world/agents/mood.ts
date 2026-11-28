@@ -35,7 +35,8 @@ export * from "./mood-rules";
 import {
   DERELICT_REACH, MOOD, MOOD_LIMIT, MOVE_OUT_AT, MOVE_OUT_EVERY, NEED_MOOD, NEED_WHY, WHY, WONDER_REACH, type MoodParts,
 } from "./mood-rules";
-import { isGreen, liveDesireMaps, seesWater } from "./desirability";
+import { isFresh, isGreen, liveDesireMaps, seesWater } from "./desirability";
+import { floodReachOf } from "../events/flood-reach";
 import { BEAUTY_MOOD, liveBeauty } from "./beauty";
 
 /** Tiles between two footprints, the nearer edges, along either axis. */
@@ -58,6 +59,10 @@ export function moodsOf(
   street: ReadonlyMap<number, number> = new Map(),
   /** Houses with trees round them: greener, and quiet as a park. @see isGreen */
   green: (s: Structure) => boolean = () => false,
+  /** Houses inside the flood line, no wall between them and the river. @see floodReach */
+  risk: ReadonlySet<number> = new Set(),
+  /** Houses with a farm's fields round them. @see isFresh */
+  fresh: (s: Structure) => boolean = () => false,
 ): Map<number, MoodParts> {
   const wonders: Structure[] = [], derelicts: Structure[] = [];
   // Kinds with somewhere to work: with none at all, there is no commute to
@@ -103,6 +108,9 @@ export function moodsOf(
     if (fine > 0) parts.push({ why: WHY.street, points: BEAUTY_MOOD[fine] });
     if (sludged.has(s.id)) parts.push({ why: WHY.sludge, points: hazard(MOOD.sludge) });
     if (flooded.has(s.id)) parts.push({ why: WHY.flooded, points: hazard(MOOD.flooded) });
+    // At risk, as a flood would find it — not while one is on it: that counts already.
+    else if (risk.has(s.id)) parts.push({ why: WHY.floodRisk, points: hazard(MOOD.floodRisk) });
+    if (fresh(s)) parts.push({ why: WHY.fresh, points: MOOD.fresh });
     // And what the cards do to the homes of the kind. @see CARDS
     const culture = cultureNow(housedBy(s.def)!.id).houseMood;
     if (culture) parts.push({ why: WHY.culture, points: culture });
@@ -168,7 +176,8 @@ export function liveMoods(g: Grid, net: Network): Map<number, MoodParts> {
     const maps = liveDesireMaps(g, net);
     memo = {
       g, rev: g.rev, sites, sludge,
-      value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), sludged, flooded, (s) => seesWater(maps, g, s), planning, fouled, liveBeauty(g, net).home, (s) => isGreen(maps, g, s)),
+      value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), sludged, flooded, (s) => seesWater(maps, g, s), planning, fouled, liveBeauty(g, net).home, (s) => isGreen(maps, g, s),
+        floodReachOf(g).risk, (s) => isFresh(maps, g, s)),
     };
   }
   return memo.value;

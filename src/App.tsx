@@ -54,17 +54,34 @@ const useDynamicTitle = (interval = 1000) => {
   }, [interval]);
 };
 
-function App() {
-  useCompareVersion();
+/**
+ * THE PHONE'S COUNTS: money (a tap earns), innovation, the AI. Their own component, as they change several times a
+ * second: read in App, they had the whole game drawn again with them, the desktop's too.
+ */
+function PhoneCounts() {
   const money = useMoneyStore((s) => s.money);
   const increaseMoney = useMoneyStore((s) => s.increaseMoney);
   const innovation = useInnovationStore((s) => s.innovation);
   const aiValue = useAiSingularityStore((s) => s.value);
-
-  const lastAchievementEvalRef = useRef(0);
-
   const getMoneyPerSecond = useGeneratorStore((s) => s.getMoneyPerSecond);
   const mps = getMoneyPerSecond();
+  return (
+    <>
+      <button type="button" className="shrink-0 cursor-pointer text-left" onClick={() => increaseMoney(Math.max(mps / 10, 1))}>
+        <Num role="money" className="block font-display text-base leading-tight">{formatCurrency(money)}</Num>
+        <span className="block text-[11px] text-fg-muted">{formatCurrency(mps)}/s</span>
+      </button>
+      {innovation.gte(1) && (
+        <Num role="innovation" className="shrink-0 font-display text-sm">I {formatCurrency(innovation, { showDollarSign: false })}</Num>
+      )}
+      {aiValue > 0 && <Num role="ai" className="shrink-0 font-display text-sm">AI {aiValue.toFixed(0)}%</Num>}
+    </>
+  );
+}
+
+function App() {
+  useCompareVersion();
+  const lastAchievementEvalRef = useRef(0);
 
   const founderId = useFounderStore((state) => state.selectedFounderId);
 
@@ -82,7 +99,7 @@ function App() {
     return () => window.removeEventListener("startup:show-company", show);
   }, []);
 
-  const { theme } = useThemeStore();
+  const theme = useThemeStore((s) => s.theme);
 
   useDynamicTitle();
 
@@ -188,14 +205,7 @@ function App() {
             {/* THE HUD, ONE ROW: settings, money (a tap earns), innovation, the AI; then Map or Company. */}
             <header className="relative flex items-center gap-2 border-b border-line-quiet bg-surface-1 px-2 py-1">
               <SettingsPopover className="h-9 w-9 border-none p-1" />
-              <button type="button" className="shrink-0 cursor-pointer text-left" onClick={() => increaseMoney(Math.max(mps / 10, 1))}>
-                <Num role="money" className="block font-display text-base leading-tight">{formatCurrency(money)}</Num>
-                <span className="block text-[11px] text-fg-muted">{formatCurrency(mps)}/s</span>
-              </button>
-              {innovation.gte(1) && (
-                <Num role="innovation" className="shrink-0 font-display text-sm">I {formatCurrency(innovation, { showDollarSign: false })}</Num>
-              )}
-              {aiValue > 0 && <Num role="ai" className="shrink-0 font-display text-sm">AI {aiValue.toFixed(0)}%</Num>}
+              <PhoneCounts />
               <span className="flex-1" />
               <Segmented label="Show" value={phoneTab} onChange={setPhoneTab}
                 options={[{ value: "map", label: "Map" }, { value: "company", label: "Company" }]} />

@@ -26,13 +26,14 @@ import { BOOTSTRAP_BUILD, HACKER_LABS, VISIONARY_DATACENTRE } from "./founders.c
 export type ProjectId =
   | "garage" | "studio" | "hq" | "boardroom" | "campus" | "agency" | "harbour"
   | "datacentre" | "conference" | "hackerspace" | "ipo"
-  | "refinery" | "dataplant" | "contentfarm";
+  | "refinery" | "dataplant" | "contentfarm"
+  | "agritech" | "climatelab";
 
 /** What a WONDER multiplies, for as long as it stands. @see wonderBonus */
 export type Bonus = { money?: number; innovation?: number; valuation?: number };
 
 /** Features of the game a project can open, beyond hiring. @see featureGateOpen */
-export type FeatureId = "managers" | "mandates" | "ports" | "leaders" | "refinery" | "dataplant" | "contentfarm";
+export type FeatureId = "managers" | "mandates" | "ports" | "leaders" | "refinery" | "dataplant" | "contentfarm" | "farms" | "floodwalls";
 
 /**
  * A PROJECT'S GATE. Every project after the garage waits on an EMPLOYEE
@@ -365,10 +366,38 @@ export const PROJECTS: readonly ProjectDef[] = [
     grants: "contentfarm",
     ...needs({ after: "boardroom" }),
   },
+  // THE LATE LAND: farms and flood walls, each opened by a landmark of its own. @see plans/farms-and-flood-walls.md §1
+  {
+    id: "agritech",
+    name: "Agritech Lab",
+    pitch: "Glasshouses, soil sensors and a barn with standing desks. Opens farms: harvests, and oat milk for the cafés. Farms pay a quarter more.",
+    structure: "agritech",
+    builders: ["intern", "vibe_coder"],
+    work: 9000,
+    incomeSeconds: 150,
+    floor: 250_000,
+    deliveries: 14,
+    grants: "farms",
+    ...needs({ staff: { intern: 300, vibe_coder: 120, "10x_dev": 6 } }),
+  },
+  {
+    id: "climatelab",
+    name: "Climate Lab",
+    pitch: "A flood gauge, a weather mast and a dashboard nobody reads. Opens flood walls, and walls the worst of the bank. Repairs half as fast again.",
+    structure: "climatelab",
+    builders: ["intern", "vibe_coder"],
+    work: 8000,
+    incomeSeconds: 140,
+    floor: 200_000,
+    deliveries: 12,
+    grants: "floodwalls",
+    needsMap: "river",
+    ...needs({ staff: { intern: 275, vibe_coder: 110, "10x_dev": 6 } }),
+  },
 ];
 
 /** A LANDMARK: one building that rises tier by tier, each tier a project. @see plans/services-overhaul.md §5 */
-export type LandmarkId = "hq" | "studio" | "campus" | "harbour" | "datacentre" | "conference" | "hackerspace";
+export type LandmarkId = "hq" | "studio" | "campus" | "harbour" | "datacentre" | "conference" | "hackerspace" | "agritech" | "climatelab";
 export type Landmark = {
   id: LandmarkId;
   name: string;
@@ -387,6 +416,8 @@ export const LANDMARKS: readonly Landmark[] = [
   { id: "datacentre", name: "Data Centre", tiers: ["datacentre"], wings: ["refinery", "dataplant", "contentfarm"] },
   { id: "conference", name: "Conference Centre", tiers: ["conference"] },
   { id: "hackerspace", name: "Hackerspace", tiers: ["hackerspace"] },
+  { id: "agritech", name: "Agritech Lab", tiers: ["agritech"] },
+  { id: "climatelab", name: "Climate Lab", tiers: ["climatelab"] },
 ];
 
 /** The landmark a project is a tier or a wing of. */
@@ -449,6 +480,9 @@ export const leaderTeam = (id: GeneratorId) => (reader ? reader().teams?.[id] ??
 
 /** How many slop processors of a kind stand on the map. */
 export const processorsBuilt = (kind: string) => (reader ? reader().processors?.[kind] ?? 0 : 0);
+
+/** How many farms stand on the map. */
+export const landFarmsBuilt = () => (reader ? reader().landFarms ?? 0 : 0);
 
 /** How many R&D labs stand on the map. */
 export const labsBuilt = () => (reader ? reader().labs?.count ?? 0 : 0);
@@ -536,6 +570,8 @@ export type ProjectReading = {
   needs?: Partial<Record<GeneratorId, number>>;
   /** The slop processors standing, by kind. @see game/processors */
   processors?: Partial<Record<string, number>>;
+  /** Farms standing (not the GPU kind), for their price. @see FARM_STEP */
+  landFarms?: number;
 };
 
 let reader: (() => ProjectReading) | null = null;

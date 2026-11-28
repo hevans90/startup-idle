@@ -388,13 +388,13 @@ export const useInnovationStore = create<InnovationState>()(
         const globalTickInterval = now - get().globalLastTick;
         if (globalTickInterval < MANGER_TICK_INTERVAL) return;
 
-        set({ globalLastTick: now });
-
         // Skill-tree "Bootstrapped": managers are disabled — no progression.
-        if (usePrestigeStore.getState().modifiers.disableManagers) return;
+        if (usePrestigeStore.getState().modifiers.disableManagers) { set({ globalLastTick: now }); return; }
 
         const ticks = Math.floor(globalTickInterval / MANGER_TICK_INTERVAL);
 
+        // (The clock and the managers in one change, not two: every change is every subscriber woken and the store
+        // written away again.)
         if (ticks > 0) {
           set((state) => {
             const newManagers = { ...state.managers };
@@ -433,9 +433,9 @@ export const useInnovationStore = create<InnovationState>()(
               );
             }
 
-            return { managers: newManagers };
+            return { managers: newManagers, globalLastTick: now };
           });
-        }
+        } else set({ globalLastTick: now });
       },
     }),
     {

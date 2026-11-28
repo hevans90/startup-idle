@@ -58,6 +58,8 @@ export type Placement = {
   noFrontage?: boolean;
   /** Must stand BESIDE STANDING WATER — a river, a lake, a pond — on dry ground. @see PUMP */
   waterside?: boolean;
+  /** Never in standing water: a flood wall dropped in the river is a dam. @see LEVEE */
+  dry?: boolean;
 };
 
 /**
@@ -230,6 +232,9 @@ export const PROJECT_BUILDINGS: readonly StructureDef[] = [
   { id: "conference", name: "Conference Centre", footprint: { w: 4, h: 3 }, render: { kind: "custom", rendererId: "project" } },
   { id: "hackerspace", name: "Hackerspace", footprint: { w: 4, h: 3 }, render: { kind: "custom", rendererId: "project" } },
   { id: "ipo", name: "IPO Tower", footprint: { w: 5, h: 3 }, render: { kind: "custom", rendererId: "project" } },
+  // THE LATE LAND: the Agritech Lab farms its own ground; the Climate Lab stands by the river it watches. @see plans/farms-and-flood-walls.md §1
+  { id: "agritech", name: "Agritech Lab", footprint: { w: 3, h: 3 }, render: { kind: "custom", rendererId: "project" } },
+  { id: "climatelab", name: "Climate Lab", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" }, placement: { nearRiver: 4 } },
 ];
 
 /**
@@ -285,7 +290,7 @@ export const SERVICES: readonly StructureDef[] = [
  */
 export const LEVEE: StructureDef = {
   id: "levee", name: "Flood wall", footprint: { w: 1, h: 1 }, render: { kind: "custom", rendererId: "project" },
-  placement: { noFrontage: true },
+  placement: { noFrontage: true, dry: true },
 };
 
 /**
@@ -294,6 +299,8 @@ export const LEVEE: StructureDef = {
  */
 export const FARM_DEF: StructureDef = {
   id: "farm", name: "Farm", footprint: { w: 2, h: 2 }, render: { kind: "custom", rendererId: "project" },
+  // SLOP COMPOST: a sewer to its yard, and it takes slop as a processor does. @see COMPOST_MOST
+  ports: SLOP_IN,
 };
 
 /**
@@ -373,6 +380,7 @@ export function placementOf(def: StructureDef): Required<Omit<Placement, "nearRi
     nearRiver: def.placement?.nearRiver,
     noFrontage: def.placement?.noFrontage ?? false,
     waterside: def.placement?.waterside ?? false,
+    dry: def.placement?.dry ?? false,
   };
 }
 

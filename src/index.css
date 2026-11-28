@@ -184,8 +184,17 @@ html.ui-calm .card-lift:hover {
   to { opacity: 1; transform: none; }
 }
 .dock-tray-in { animation: dock-tray-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+@keyframes dock-tray-out {
+  to { opacity: 0; transform: translateY(8px) scale(0.985); }
+}
+.dock-tray-out { animation: dock-tray-out 0.14s ease-in both; }
+/* A METER that runs down: a tile's foot, the undo's time left. */
+@keyframes dock-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
 .dock-panel-in { animation: dock-panel-in 0.18s ease-out both; }
-html.ui-calm .dock-tray-in, html.ui-calm .dock-panel-in { animation: none; }
+html.ui-calm .dock-tray-in, html.ui-calm .dock-tray-out, html.ui-calm .dock-panel-in { animation: none; }
 .dock-scroll { scrollbar-width: thin; scrollbar-color: var(--ui-line) transparent; }
 
 /* THE NEGOTIATION. @see NegotiationScreen */

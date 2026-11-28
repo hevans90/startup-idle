@@ -21,9 +21,12 @@ import { connects, isPaved } from "../roads/mask";
 import type { Network } from "../roads/network";
 import { cultureVersion } from "../../game/culture-now";
 import { commuteEfficiency, walkFrom, WORKPLACES } from "./commute";
-import { DERELICT_REACH, GREEN_AT, GREEN_REACH, MOOD, MOOD_LIMIT, NEED_MOOD, NEED_WHY, WATER_REACH, WHY, WONDER_REACH, type MoodParts } from "./mood-rules";
+import { DERELICT_REACH, FRESH_AT, FRESH_REACH, GREEN_AT, GREEN_REACH, MOOD, MOOD_LIMIT, NEED_MOOD, NEED_WHY, WATER_REACH, WHY, WONDER_REACH, type MoodParts } from "./mood-rules";
 import { groundMode } from "../render/ground-mode";
 import { COVER } from "../vegetation/fields";
+import { farmsOf, tended } from "../vegetation/tend";
+import { floodReachOf } from "../events/flood-reach";
+import { FLOODED } from "../events/flood";
 import { fusionNow } from "../../game/fusion";
 import { placesOf, type Place } from "./roads";
 import { RANGE, serviceIn, townRevNow } from "./services";
@@ -66,6 +69,10 @@ export type DesireMaps = {
   street?: Int8Array;
   /** Cells with trees within `GREEN_REACH` of each tile, on the continuous surface. @see greenAround */
   green: Uint8Array;
+  /** How deep a flood would stand on each tile, half steps; nought outside the flood line. @see floodReach */
+  flood: Float32Array;
+  /** A farm's fields within `FRESH_REACH` of each tile. @see fieldsAround */
+  fields: Uint8Array;
 };
 
 /** Whether a cell has trees standing on it: a wood, a row, a hedge or a bed. */
@@ -85,6 +92,35 @@ export function greenAround(g: Grid): Uint8Array {
     }
   }
   return out;
+}
+
+/** FRESH FOOD: each tile's count of a working farm's fields within `FRESH_REACH`. @see FRESH_AT */
+export function fieldsAround(g: Grid): Uint8Array {
+  const out = new Uint8Array(g.w * g.h);
+  const farms = farmsOf(g);
+  if (!farms.length) return out;
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+    const i = idx(g, x, y);
+    if (g.veg.cover[i] !== COVER.field || g.structureAt[i] >= 0 || !tended(farms, x, y)) continue;
+    for (let dy = -FRESH_REACH; dy <= FRESH_REACH; dy++) for (let dx = -FRESH_REACH; dx <= FRESH_REACH; dx++) {
+      if (inBounds(g, x + dx, y + dy)) { const j = idx(g, x + dx, y + dy); if (out[j] < 255) out[j]++; }
+    }
+  }
+  return out;
+}
+
+/** Whether a footprint has fresh food: enough of a farm's fields round any tile of it. @see FRESH_AT */
+export function isFresh(maps: DesireMaps, g: Grid, s: Structure): boolean {
+  for (let y = s.y; y < s.y + s.h; y++) for (let x = s.x; x < s.x + s.w; x++) if (maps.fields[idx(g, x, y)] >= FRESH_AT) return true;
+  return false;
+}
+
+/** Whether a house at (x, y) would flood: the flood line deep enough on it or a side of it. @see FLOODED */
+function floodsTile(g: Grid, maps: DesireMaps, x: number, y: number): boolean {
+  for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    if (inBounds(g, x + dx, y + dy) && maps.flood[idx(g, x + dx, y + dy)] > FLOODED) return true;
+  }
+  return false;
 }
 
 /** Whether a footprint is green: trees enough round any tile of it. @see GREEN_AT */
@@ -131,7 +167,7 @@ export function desireMapsOf(g: Grid, places: readonly Place[]): DesireMaps {
       }
     }
   }
-  return { need, work, derelicts, wonders, water, green: greenAround(g) };
+  return { need, work, derelicts, wonders, water, green: greenAround(g), flood: floodReachOf(g).reach.depth, fields: fieldsAround(g) };
 }
 
 let memo: { g: Grid | null; rev: number; veg: number; town: number; sites: number; deck: number; value: DesireMaps | null } = { g: null, rev: -1, veg: -1, town: -1, sites: -1, deck: -1, value: null };
@@ -179,6 +215,8 @@ export function desireAt(g: Grid, maps: DesireMaps, x: number, y: number, who: G
   for (const n of met) parts.push({ why: NEED_WHY[n], points: NEED_MOOD[who] });
   if (maps.water[idx(g, x, y)]) parts.push({ why: WHY.waterView, points: fusionNow().waterView });
   if (maps.green[idx(g, x, y)] >= GREEN_AT) parts.push({ why: WHY.green, points: MOOD.green });
+  if (maps.fields[idx(g, x, y)] >= FRESH_AT) parts.push({ why: WHY.fresh, points: MOOD.fresh });
+  if (floodsTile(g, maps, x, y)) parts.push({ why: WHY.floodRisk, points: MOOD.floodRisk });
   // A Zoner fused into the founder, for every house. @see game/fusion
   if (fusionNow().houseDesire) parts.push({ why: WHY.planned, points: fusionNow().houseDesire });
   if (maps.wonders.some((w) => gapTo(x, y, w) <= WONDER_REACH)) parts.push({ why: WHY.wonder, points: MOOD.wonder });

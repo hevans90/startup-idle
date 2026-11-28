@@ -1367,7 +1367,45 @@ function paintGroundSnow(ctx: Ctx, L: Look) {
   ctx.fillStyle = css(SNOW_GROUND);
   footprint(ctx, S);
   ctx.fill();
-  if (!S.full) alongKerb(ctx, S, WALK - 0.1, WALK, css(SNOW_SHADE));
+  if (!S.full) { alongKerb(ctx, S, WALK - 0.1, WALK, css(SNOW_SHADE)); driftUp(ctx, S); }
+}
+
+/**
+ * THE BANK DRIFTED UP THE KERB: the ploughed snow does not stop square at the kerb's foot but heaps up its face,
+ * deeper here, shallower there, lumpy along its top, its rim a shade greyer where it rounds over — so where the
+ * bank meets the kerb is no ruled line. How deep it is along a run repeats each tile (whole waves of it), and is
+ * the same at every run's ends, so it runs on into the next tile and round a corner.
+ */
+function driftUp(ctx: Ctx, S: Shape) {
+  for (const R of kerbRuns(S)) {
+    const k = R.key, steps = Math.max(8, Math.round((R.f1 - R.f0) * 48));
+    const at = (f: number) => {
+      const w = 0.4 * Math.sin(2 * Math.PI * f + k) + 0.35 * Math.sin(6 * Math.PI * f + k * 1.7) + 0.25 * Math.sin(14 * Math.PI * f + k * 2.3);
+      // (Waves whole across a tile: the same at f = 0 and 1. A run that does not wrap fades its waves out at its ends.)
+      const fade = R.wrap ? 1 : Math.sin(Math.PI * Math.min(1, Math.max(0, f)));
+      return 0.02 + 0.018 * w * fade;
+    };
+    const edge = (lift: number, rim: string) => {
+      ctx.fillStyle = rim;
+      ctx.beginPath();
+      for (let j = 0; j <= steps; j++) { const f = R.f0 + ((R.f1 - R.f0) * j) / steps, [u, v] = R.at(f, -Math.max(0.004, at(f) - lift)); if (j) ctx.lineTo(u, v); else ctx.moveTo(u, v); }
+      for (let j = steps; j >= 0; j--) { const f = R.f0 + ((R.f1 - R.f0) * j) / steps, [u, v] = R.at(f, 0.012); ctx.lineTo(u, v); }
+      ctx.closePath();
+      ctx.fill();
+      // Lumps along its top, where clods of it sit proud.
+      // (In slots that repeat each tile, as the bank's clumps do: the next tile's own, past the edge, are these.)
+      const n = R.wrap ? 26 : Math.max(3, Math.round(R.n * 1.2));
+      for (let j = Math.floor(R.f0 * n); j < Math.ceil(R.f1 * n); j++) {
+        const h = (x: number) => hash((((j % n) + n) % n) * 5.13 + k * 3.7 + x * 11.9);
+        const f = (j + h(0)) / n;
+        if (f < R.f0 || f > R.f1) continue;
+        const r = 0.008 + 0.012 * h(1), [u, v] = R.at(f, -Math.max(0.004, at(f) - lift) + r * 0.3);
+        ctx.beginPath(); ctx.ellipse(u, v, r, r * (0.55 + 0.3 * h(2)), h(3) * Math.PI, 0, Math.PI * 2); ctx.fill();
+      }
+    };
+    edge(0, css(0xd6dde6));
+    edge(0.008, css(0xeaeff4));
+  }
 }
 
 /** Where along a kerb's run and how far into the pavement from it a walker's way runs: wandering, the same each tile. */

@@ -9,7 +9,7 @@
  */
 import {
   IconAdjustmentsHorizontal, IconBuildingCommunity, IconFlask, IconFolder, IconArrowBackUp, IconArrowBigDownLines, IconArrowBigUpLines, IconArrowForwardUp,
-  IconBackhoe, IconBrush, IconBuildingMonument, IconBuildingSkyscraper, IconBulldozer, IconDroplet, IconDropletOff,
+  IconBackhoe, IconBrush, IconBuildingSkyscraper, IconBulldozer, IconDroplet, IconDropletOff,
   IconEraser, IconFlower, IconFountain, IconLine, IconMap, IconMountain, IconPlayerPlayFilled, IconPlugConnected, IconPoint,
   IconPointer, IconRipple, IconRoad, IconRoadOff, IconSearch, IconShip, IconSquareDashed, IconStairs, IconStairsDown,
   IconSubtask, IconTree, IconTrees, IconWaveSine, IconArrowBarToDown, IconMinus, IconPlant2,
@@ -24,8 +24,6 @@ import type { BrushId, ToolId } from "../edit/tools";
 import { workplaceKind } from "../agents/commute";
 import { processorKind } from "../../game/processors";
 import { housedBy } from "../../game/housing";
-import { useLandmarkPicture } from "../play/landmark-picture";
-import { KIND_COLOUR } from "../play/building-info";
 import { allStructureDefs, type StructureDef } from "../structures/def";
 import { TERRAIN_NAMES, terrainName } from "../terrain-names";
 import { PLANTINGS, type Planting } from "../vegetation/tend";
@@ -34,7 +32,8 @@ import { Beds, Networks, Sources, WaterMeta } from "./edit-panel";
 import type { PanelId } from "./editor-panels";
 import { FIXTURES, fixtureAddress, type FixtureKind } from "./fixture-list";
 import { FIXTURE_SIZE } from "./fixtures";
-import { DockTip, Part, Rule, Tip, toned } from "../play/dock";
+import { DockBar, DockButton, DockTip, DockTool, DockTray, Part, Rule, Slide, Tip } from "../play/dock";
+import { BuildingThumb } from "../play/building-thumb";
 
 type IconOf = typeof IconBrush;
 const TOOL_ICON: Partial<Record<ToolId, IconOf>> = {
@@ -59,8 +58,6 @@ const GROUND: Record<string, [string, string]> = {
 };
 const GROUND_NAME: Record<string, string> = { wood1: "Light wood", wood2: "Wood", wood3: "Deep wood" };
 
-const GLASS = "border border-line bg-surface-0/85 backdrop-blur-xl";
-const TRAY = twMerge("dock-tray-in pointer-events-auto flex max-w-full rounded-2xl p-2.5", GLASS);
 const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-tone";
 
 /** A tool: a tile with its picture and name, lit in its group's colour while it is in hand. */
@@ -68,7 +65,7 @@ function ToolTile({ id }: { id: ToolId }) {
   const on = useWorldStore((s) => s.tool === id), t = TOOLS[id]!, Icon = TOOL_ICON[id] ?? IconBrush;
   return (
     <button type="button" aria-pressed={on} aria-label={t.name} onClick={() => pickTool(id)}
-      className={twMerge("group/tip relative flex h-14 w-15 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border text-[11px] transition-all duration-150 active:scale-95", FOCUS,
+      className={twMerge("group/tip relative flex h-12 w-15 cursor-pointer flex-col items-center justify-center gap-1 border font-display text-[10px] tracking-[0.1em] uppercase transition-all duration-150 active:scale-95", FOCUS,
         on ? "border-tone bg-tone-fill text-fg" : "border-transparent text-fg-muted hover:bg-surface-2 hover:text-fg")}>
       <Icon size={20} stroke={1.7} className={on ? "text-tone" : undefined} />
       {t.name}
@@ -82,14 +79,14 @@ function ToolTile({ id }: { id: ToolId }) {
 function Choice({ on, onClick, name, k, children, wide }: { on: boolean; onClick: () => void; name: string; k?: string; children: ReactNode; wide?: boolean }) {
   return (
     <button type="button" aria-pressed={on} aria-label={name} onClick={onClick}
-      className={twMerge("group/tip relative flex h-7 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2 text-[11px] transition-colors", !wide && "w-9 px-0", FOCUS,
+      className={twMerge("group/tip relative flex h-7 cursor-pointer items-center justify-center gap-1.5 px-2 text-[11px] transition-colors", !wide && "w-9 px-0", FOCUS,
         on ? "bg-tone-fill text-fg shadow-[inset_0_0_0_1px_var(--tone)]" : "text-fg-muted hover:bg-surface-3 hover:text-fg")}>
       {children}
       {!wide && <Tip name={name} k={k} />}
     </button>
   );
 }
-const Run = ({ children }: { children: ReactNode }) => <div className="flex w-max items-center gap-0.5 rounded-xl bg-surface-1 p-0.5">{children}</div>;
+const Run = ({ children }: { children: ReactNode }) => <div className="flex w-max items-center gap-0.5 bg-surface-1 p-0.5">{children}</div>;
 
 /** THE BRUSH: its shape, and its size drawn to scale. */
 function BrushPart() {
@@ -101,7 +98,7 @@ function BrushPart() {
         <Run>
           {[0, 1, 2, 3, 4].map((r) => (
             <button key={r} type="button" aria-label={`${r * 2 + 1}×${r * 2 + 1}`} aria-pressed={radius === r} onClick={() => setRadius(r)}
-              className={twMerge("group/tip relative grid h-6 w-[21.6px] cursor-pointer place-items-center rounded-lg hover:bg-surface-3", FOCUS)}>
+              className={twMerge("group/tip relative grid h-6 w-[21.6px] cursor-pointer place-items-center hover:bg-surface-3", FOCUS)}>
               <span className={twMerge("rotate-45 rounded-[2px] transition-colors", radius === r ? "bg-tone" : "bg-fg-faint")} style={{ width: 4 + r * 2.4, height: 4 + r * 2.4 }} />
               <Tip name={`${r * 2 + 1}×${r * 2 + 1}`} k="[ ]" />
             </button>
@@ -115,8 +112,8 @@ function BrushPart() {
 /** A patch of colour to paint with. */
 function Swatch({ on, onClick, name, colours }: { on: boolean; onClick: () => void; name: string; colours: [string, string] }) {
   return (
-    <button type="button" aria-pressed={on} aria-label={name} onClick={onClick} className={twMerge("group/tip relative flex w-17 cursor-pointer flex-col items-center gap-1 rounded-xl text-[10px]", FOCUS, on ? "text-fg" : "text-fg-muted hover:text-fg")}>
-      <span className={twMerge("relative h-9 w-full overflow-hidden rounded-xl border-2 transition-all", on ? "border-tone" : "border-transparent group-hover/tip:border-line-strong")}
+    <button type="button" aria-pressed={on} aria-label={name} onClick={onClick} className={twMerge("group/tip relative flex w-17 cursor-pointer flex-col items-center gap-1 text-[10px]", FOCUS, on ? "text-fg" : "text-fg-muted hover:text-fg")}>
+      <span className={twMerge("relative h-9 w-full overflow-hidden border-2 transition-all", on ? "border-tone" : "border-transparent group-hover/tip:border-line-strong")}
         style={{ background: `radial-gradient(circle at 25% 30%, ${colours[1]} 0 14%, transparent 15%), radial-gradient(circle at 70% 65%, ${colours[1]} 0 18%, transparent 19%), radial-gradient(circle at 85% 20%, ${colours[1]} 0 9%, transparent 10%), linear-gradient(160deg, ${colours[0]}, ${colours[1]})` }} />
       <span className="max-w-full truncate">{name}</span>
     </button>
@@ -187,7 +184,7 @@ function PlantPart() {
         const [name, Icon] = PLANT[p], on = planting === p;
         return (
           <button key={p} type="button" aria-pressed={on} onClick={() => setPlanting(p)}
-            className={twMerge("flex h-14 w-18 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border text-[11px] transition-all active:scale-95", FOCUS,
+            className={twMerge("flex h-14 w-18 cursor-pointer flex-col items-center justify-center gap-1 border text-[11px] transition-all active:scale-95", FOCUS,
               on ? "border-tone bg-tone-fill text-fg" : "border-transparent text-fg-muted hover:bg-surface-2 hover:text-fg")}>
             <Icon size={21} stroke={1.6} className={on ? "text-tone" : undefined} />{name}
           </button>
@@ -215,31 +212,11 @@ function nameOf(d: StructureDef): string {
   return m ? `${NAMES[m[1]]} ${m[3] ? Number(m[3]) + 1 : "★"}` : d.name[0].toUpperCase() + d.name.slice(1);
 }
 
-/** A home, as a little block in its district's colour: as many floors as it is grown. */
-function Block({ def }: { def: StructureDef }) {
-  const m = /^(intern|vibe_coder|10x_dev)\.(?:t(\d)|landmark)$/.exec(def.name);
-  const n = m ? (m[2] ? Number(m[2]) + 2 : 5) : 2, hh = 5, c = css(KIND_COLOUR[(m?.[1] ?? "intern") as keyof typeof KIND_COLOUR] ?? 0x8a8475), h = n * hh;
-  return (
-    <svg viewBox="0 0 44 44" className="h-10 w-11" aria-hidden>
-      <g transform={`translate(22 ${34 - h})`} stroke="rgb(0 0 0 / .35)" strokeWidth=".6">
-        <path d={`M-14 0 L0 7 V${7 + h} L-14 ${h} Z`} fill={`color-mix(in oklab, ${c} 78%, black)`} />
-        <path d={`M14 0 L0 7 V${7 + h} L14 ${h} Z`} fill={`color-mix(in oklab, ${c} 55%, black)`} />
-        <path d="M0 -7 L14 0 L0 7 L-14 0 Z" fill={`color-mix(in oklab, ${c} 85%, white)`} />
-        {Array.from({ length: n }, (_, i) => <path key={i} stroke="rgb(255 244 200 / .75)" strokeWidth="1.4" strokeDasharray="2.5 2.2" d={`M-12 ${4 + i * hh} L-2 ${9 + i * hh} M2 ${9 + i * hh} L12 ${4 + i * hh}`} />)}
-      </g>
-    </svg>
-  );
-}
-function Picture({ def }: { def: StructureDef }) {
-  const url = useLandmarkPicture(def.id);
-  return url ? <img src={url} alt="" draggable={false} className="h-10 w-full object-contain" /> : <IconBuildingMonument size={26} stroke={1.2} className="h-10 text-fg-faint" />;
-}
-
 /** The head of a picker: what to find, and its tabs. */
 function PickerHead<T extends string>({ tabs, tab, setTab, find, setFind, what }: { tabs: readonly T[]; tab: T; setTab: (t: T) => void; find: string; setFind: (s: string) => void; what: string }) {
   return (
     <div className="flex min-w-0 items-center gap-1">
-      <label className="flex h-6 shrink-0 items-center gap-1 rounded-lg bg-surface-1 px-2 text-fg-muted focus-within:shadow-[inset_0_0_0_1px_var(--tone)]">
+      <label className="flex h-6 shrink-0 items-center gap-1 bg-surface-1 px-2 text-fg-muted focus-within:shadow-[inset_0_0_0_1px_var(--tone)]">
         <IconSearch size={13} />
         <input value={find} onChange={(e) => setFind(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setFind(""); e.currentTarget.blur(); } }}
           aria-label={what} className="w-20 bg-transparent text-[11px] text-fg outline-none" />
@@ -247,7 +224,7 @@ function PickerHead<T extends string>({ tabs, tab, setTab, find, setFind, what }
       <div className="dock-scroll flex min-w-0 gap-0.5 overflow-x-auto">
         {tabs.map((k) => (
           <button key={k} type="button" aria-pressed={!find.trim() && tab === k} onClick={() => { setFind(""); setTab(k); }}
-            className={twMerge("h-6 cursor-pointer rounded-lg px-2 text-[11px] whitespace-nowrap", FOCUS, !find.trim() && tab === k ? "bg-tone-fill text-fg" : "text-fg-muted hover:bg-surface-2 hover:text-fg")}>{k}</button>
+            className={twMerge("h-6 cursor-pointer px-2 text-[11px] whitespace-nowrap", FOCUS, !find.trim() && tab === k ? "bg-tone-fill text-fg" : "text-fg-muted hover:bg-surface-2 hover:text-fg")}>{k}</button>
         ))}
       </div>
     </div>
@@ -257,7 +234,7 @@ function PickerHead<T extends string>({ tabs, tab, setTab, find, setFind, what }
 const PickerRow = ({ children }: { children: ReactNode }) => (
   <div className="dock-scroll flex gap-1 overflow-x-auto overflow-y-hidden pb-1" onWheel={(e) => { if (!e.deltaX) e.currentTarget.scrollLeft += e.deltaY; }}>{children}</div>
 );
-const CARD = "relative flex h-[68px] w-21 shrink-0 cursor-pointer flex-col items-center justify-end gap-0.5 rounded-xl border px-1 pb-1 text-[10px] transition-all active:scale-95";
+const CARD = "relative flex h-[68px] w-21 shrink-0 cursor-pointer flex-col items-center justify-end gap-0.5 border px-1 pb-1 text-[10px] transition-all active:scale-95";
 const CARD_ON = "border-tone bg-tone-fill text-fg", CARD_OFF = "border-line-quiet bg-surface-1 text-fg-muted hover:border-line-strong hover:text-fg";
 
 function BuildPart() {
@@ -278,7 +255,7 @@ function BuildPart() {
             <button key={d.id} type="button" aria-pressed={on} title={`${nameOf(d)} · ${d.footprint.w}×${d.footprint.h}`}
               onClick={() => { setChosen(d.id); pickTool("placeStructure"); }}
               className={twMerge(CARD, FOCUS, on ? CARD_ON : CARD_OFF)}>
-              {d.render.kind === "tiles" ? <Block def={d} /> : <Picture def={d} />}
+              <BuildingThumb def={d} />
               <span className="max-w-full truncate">{nameOf(d)}</span>
               <span className="absolute top-0.5 right-1 font-mono text-[9px] text-fg-faint">{d.footprint.w}×{d.footprint.h}</span>
             </button>
@@ -303,7 +280,7 @@ function FixtureTray() {
   const q = find.trim().toLowerCase();
   const shown = FIXTURE_KINDS.flatMap((k) => FIXTURES[k].filter(([id, name]) => (q ? name.toLowerCase().includes(q) || id.toLowerCase().includes(q) : k === tab)).map(([id, name]) => ({ id, name, Icon: FIXTURE_ICON[k] })));
   return (
-    <div style={toned(FIXTURE_TONE)} className={twMerge(TRAY, "max-xl:overflow-x-auto")}>
+    <DockTray from="[data-fixtures]" tone={FIXTURE_TONE} className="max-xl:overflow-x-auto">
       <Part title="Fixtures" className="w-[46rem] shrink">
         <PickerHead tabs={FIXTURE_KINDS} tab={tab} setTab={setTab} find={find} setFind={setFind} what="find a fixture" />
         <PickerRow>
@@ -324,7 +301,7 @@ function FixtureTray() {
           })}
         </PickerRow>
       </Part>
-    </div>
+    </DockTray>
   );
 }
 
@@ -333,30 +310,18 @@ function Tray({ id }: { id: GroupId }) {
   const tool = useWorldStore((s) => s.tool), g = GROUPS.find((x) => x.id === id)!;
   const tools = <div className="flex gap-0.5">{g.tools.map((t) => <ToolTile key={t} id={t} />)}</div>;
   return (
-    <div key={id} style={toned(g.tone)} className={twMerge(TRAY,
-      // (Bubbles stand out over its top, so nothing may clip it but a window too narrow.)
-      "dock-scroll max-xl:overflow-x-auto")}>
+    <DockTray key={id} from={`[data-group="${id}"]`} tone={g.tone} className="dock-scroll max-xl:overflow-x-auto">
       <Part title={g.name} note={id === "roads" ? <Networks /> : id === "water" ? <WaterNote /> : undefined}>{id === "nature" ? <PlantPart /> : tools}</Part>
       {id === "land" && <GroundPart />}
       {(tool === "raise" || tool === "lower") && <HeightPart />}
       {id === "water" && <FluidPart />}
       {id === "build" && <BuildPart />}
       {TOOLS[tool]?.takes === "brush" && <BrushPart />}
-    </div>
+    </DockTray>
   );
 }
 
-/** A button of the bar's own: undo, a panel, the rules. */
-function BarButton({ on, dead, onClick, name, k, hint, tone, children }: { on?: boolean; dead?: boolean; onClick: () => void; name: string; k?: string; hint?: string; tone?: string; children: ReactNode }) {
-  return (
-    <button type="button" aria-label={name} aria-pressed={on} disabled={dead} onClick={onClick} style={toned(tone ?? "var(--ui-console)")}
-      className={twMerge("group/tip relative grid size-10 shrink-0 place-items-center rounded-xl transition-all", FOCUS,
-        dead ? "text-fg-faint opacity-40" : "cursor-pointer active:scale-90", !dead && (on ? "bg-tone-fill text-tone" : "text-fg-muted hover:bg-surface-2 hover:text-fg"))}>
-      {children}
-      <Tip name={name} k={k} hint={hint} />
-    </button>
-  );
-}
+const BarButton = DockButton;
 function History() {
   const { undoDepth, redoDepth, undoName, redoName, doUndo, doRedo } = useWorldStore(useShallow((s) => ({
     undoDepth: s.undoDepth, redoDepth: s.redoDepth, undoName: s.undoName, redoName: s.redoName, doUndo: s.doUndo, doRedo: s.doRedo,
@@ -397,30 +362,27 @@ export function ToolDock({ panel, setPanel }: { panel: PanelId | null; setPanel:
     <div data-dock-stack className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex flex-col items-center gap-2 px-3 text-fg select-none">
       <DockTip />
       {fixtures ? <FixtureTray /> : !shut && g.id !== "look" && <Tray id={g.id} />}
-      <div className={twMerge("pointer-events-auto flex max-w-full items-center rounded-2xl p-1.5", GLASS)} role="toolbar" aria-label="map tools">
+      <DockBar aria-label="map tools">
         <History />
         <Rule />
-        {GROUPS.map((x) => {
-          const on = x.id === g.id, Icon = GROUP_ICON[x.id];
-          return (
-            <button key={x.id} type="button" aria-label={x.name} aria-pressed={on} style={toned(x.tone)}
-              onClick={() => { if (fixtures) { setFixtures(false); setShut(false); if (!on) pickGroup(x.id); } else if (on) setShut(!shut); else pickGroup(x.id); }}
-              className={twMerge("group/tip relative flex h-12 w-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] transition-all duration-150 active:scale-95 max-md:w-11", FOCUS,
-                on ? "-translate-y-0.5 bg-tone-fill text-fg" : "text-fg-muted hover:-translate-y-0.5 hover:bg-surface-2 hover:text-fg")}>
-              <Icon size={21} stroke={1.7} className={on ? "text-tone" : "transition-colors group-hover/tip:text-tone"} />
-              <span className="max-md:hidden">{x.name}</span>
-              <span className={twMerge("absolute -bottom-px h-0.5 rounded-full bg-tone transition-all duration-200", on ? "w-8" : "w-0")} />
-              {(shut || fixtures || x.id === "look" || !on) && <Tip name={x.name} k={`⇧${x.key}`} />}
-            </button>
-          );
-        })}
+        <Slide>
+          {GROUPS.map((x) => {
+            const on = x.id === g.id, Icon = GROUP_ICON[x.id];
+            return (
+              <DockTool key={x.id} name={x.name} k={`⇧${x.key}`} tone={x.tone} on={on} data-group={x.id}
+                onClick={() => { if (fixtures) { setFixtures(false); setShut(false); if (!on) pickGroup(x.id); } else if (on) setShut(!shut); else pickGroup(x.id); }}>
+                <Icon size={18} stroke={1.7} />
+              </DockTool>
+            );
+          })}
+        </Slide>
         <Rule />
         <BarButton name="Play rules" hint="Housing needs a road and costs money; the night falls" on={playing} onClick={() => setPlaying(!playing)}><IconPlayerPlayFilled size={17} /></BarButton>
-        <BarButton name="Fixtures" k="⇧7" tone={FIXTURE_TONE} on={fixtures} onClick={() => setFixtures(!fixtures)}><IconFlask size={20} /></BarButton>
+        <BarButton name="Fixtures" k="⇧7" tone={FIXTURE_TONE} on={fixtures} onClick={() => setFixtures(!fixtures)} data-fixtures=""><IconFlask size={20} /></BarButton>
         <BarButton name="View" on={panel === "view"} onClick={() => toggle("view")}><IconAdjustmentsHorizontal size={20} /></BarButton>
         <BarButton name="Map" on={panel === "map"} onClick={() => toggle("map")}><IconMap size={20} /></BarButton>
         <Hover />
-      </div>
+      </DockBar>
     </div>
   );
 }

@@ -72,4 +72,13 @@ describe("the calendar", () => {
     useCalendarStore.getState().catchUp(H * 1.5, H / 4, H * 40);
     expect(useCalendarStore.getState().now(H * 40)).toBeCloseTo(1, 9);
   });
+
+  test("the crops' year: grain in shoots all winter, grown in spring, ripe, cut at its harvest; maize sown in spring, kale picked in winter", () => {
+    const at = (k: string, y: number) => treeStateAt(k, 3 + y, 0);
+    expect([0.02, 0.22, 0.38, 0.5, 0.8].map((y) => at("wheat", y))).toEqual(["bud", "full", "thin", "bare", "bud"]);
+    expect([0.1, 0.28, 0.4, 0.6, 0.7].map((y) => at("maize", y))).toEqual(["bare", "bud", "full", "thin", "bare"]);
+    expect([0.3, 0.55, 0.8, 0.95].map((y) => at("kale", y))).toEqual(["bare", "bud", "full", "bare"]);
+    // (Rape yellow in flower in late spring.)
+    expect(leafColour("rape", 0.2) >> 16).toBeGreaterThan(0xd0);
+  });
 });

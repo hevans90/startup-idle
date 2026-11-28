@@ -13,7 +13,7 @@ import { createGrid, fillTerrain, idx } from "../grid";
 import { placeCommand } from "../structures/place";
 import { structureDef } from "../structures/def";
 import { totalWater } from "../../fluid/columns";
-import { COLUMNS_PER_TILE, createWaterField, setWaterEdge, stepWater, syncGround } from "./field";
+import { COLUMNS_PER_TILE, createWaterField, pourAt, setWaterEdge, stepWater, syncGround } from "./field";
 
 describe("building in water", () => {
   test("the building's footprint gives up its water to the sides, and none is thrown over it", () => {
@@ -51,6 +51,26 @@ describe("building in water", () => {
       for (let k = 0; k < c.nx * c.ny; k++) if (c.depth[k] > 0.01) highest = Math.max(highest, c.ground[k] + c.depth[k]);
       // A slosh off the new wall, at most: not the top of a block `SOLID_LIFT` up.
       expect(highest).toBeLessThan(5);
+    }
+  });
+
+  test("water poured on a building runs off its roof to the ground beside it, none of it lost", () => {
+    const g = createGrid(24, 24);
+    fillTerrain(g, 1);
+    const def = structureDef("studio")!;
+    commit(g, createHistory(), placeCommand(g, def, 10, 10)!);
+    const f = createWaterField(g);
+    setWaterEdge(f, false);
+    syncGround(f, g);
+    pourAt(f, 10, 10, 6, 1, g);
+    const c = f.columns;
+    expect(totalWater(c)).toBeCloseTo(6 * COLUMNS_PER_TILE * COLUMNS_PER_TILE, 3);
+    for (let n = 0; n < 60; n++) {
+      stepWater(f, 1 / 60);
+      let highest = -Infinity;
+      for (let k = 0; k < c.nx * c.ny; k++) if (c.depth[k] > 0.01) highest = Math.max(highest, c.ground[k] + c.depth[k]);
+      // On the ground round it, not on the block `SOLID_LIFT` up and over its sides.
+      expect(highest).toBeLessThan(4);
     }
   });
 });

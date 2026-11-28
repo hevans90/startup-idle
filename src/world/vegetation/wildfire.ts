@@ -117,8 +117,4 @@ export function stepWildfire(g: Grid, palette: Palette, f: Wildfire, dt: number,
   return { near, changed };
 }
 
-/** The wind at `t` (years): a slow turn round the compass, a unit step in cells. */
-export function windAt(t: number): [number, number] {
-  const a = vegNoise(t * 200, 0.5, 1, 0x3172) * Math.PI * 4;
-  return [Math.cos(a), Math.sin(a)];
-}
+export { windAt } from "../weather";

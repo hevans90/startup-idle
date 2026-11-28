@@ -11,6 +11,8 @@
  * (the scene has a device to solve it on), the boats, the events and what
  * they do to the map, repairs and cooling.
  */
+import { dairy, stepDairy } from "./farms/oat-milk";
+import { farmsOf } from "./vegetation/tend";
 import { stepBuildDrones } from "./drones/build-drones";
 import { pumpUpkeep } from "../game/cooling";
 import { slopRate } from "../game/slop";
@@ -46,6 +48,7 @@ import { portCallFee } from "../game/build-cost";
 import { damagedNow } from "./events/damage";
 import type { Grid } from "./grid";
 import { announceOpened, ownedNow, payForLoad } from "./projects/economy";
+import { landOpened } from "./landmarks/late-land";
 import { stepPipes } from "./pipes/tick";
 import { stepWorks } from "./projects/works";
 import type { Network } from "./roads/network";
@@ -182,6 +185,8 @@ export type WorksSeen = { rev: number };
 export function stepSites(g: Grid, net: Network, seen: WorksSeen, dt: number, playing: boolean, lorrySent?: (lorry: Mover, port: number) => void): void {
   worksTime += dt;
   const works = getWorks(), town = getTown();
+  // OAT MILK: the cafés' stock used, vans in, vans out — before the works clear the town's arrivals. @see stepDairy
+  if (playing) stepDairy(dairy, g, net, town, farmsOf(g), dt);
   stepYards(getTraffic().yards, dt, (port) => {
     const door = town.places.find((pl) => pl.kind === "door" && pl.structure === port);
     const out = door && town.places.find((pl) => pl.kind === "gateway" && pl.net === door.net);
@@ -201,7 +206,11 @@ export function stepSites(g: Grid, net: Network, seen: WorksSeen, dt: number, pl
   // AND THE LINES BEING LAID: mains, sewers, channels. @see lines/jobs
   if (g.lineJobs.length || g.razeJobs.length) useWorldStore.getState().stepLineWorks(dt, undefined, { net, town });
   stepWorks(works, g, net, town, ownedNow(), playing ? payForLoad : () => true, dt, Date.now());
-  if (works.opened.length) announceOpened(works.opened.splice(0));
+  if (works.opened.length) {
+    const ids = works.opened.splice(0);
+    landOpened(g, useWorldStore.getState().palette, ids, useWorldStore.getState().raiseLevee);
+    announceOpened(ids);
+  }
 
   if (works.rev !== seen.rev) {
     seen.rev = works.rev;

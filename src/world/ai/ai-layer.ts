@@ -12,6 +12,7 @@
  *    pouring out. @see ascension-sequence
  * Nothing here is saved or clicked; it is how the town looks.
  */
+import type { FarmDrone, FarmPad } from "../farms/farm-drones";
 import { Graphics, Matrix, type Container } from "pixi.js";
 
 import { NEIGHBOUR } from "../../iso/dir";
@@ -68,6 +69,9 @@ export type AiView = {
   /** AI mode's build drones, flying out or at work over what they build; and the port in the garage's yard. @see build-drones */
   buildDrones?: readonly { x: number; y: number; landed: boolean }[];
   dronePort?: { x: number; y: number } | null;
+  /** Drone Farming: the drones over each farm, and the pads in their yards. @see farmDronesAt */
+  farmDrones?: readonly FarmDrone[];
+  farmPads?: readonly FarmPad[];
   /** Its drones' light, if not its own violet: the player's teal, while an inherited AI works for them. @see inherited */
   droneLight?: number;
   /** Where the AI takes over: a faint ring on the ground round it. @see aiDistrict */
@@ -109,6 +113,8 @@ const DISTRICT_SEGMENTS = 72;
 
 export function createAiLayer(overlay: Container): AiLayer {
   const gfx = new Graphics();
+  // (Drawn afresh every frame: batched, or on WebGPU none of it reaches the screen. cf. the other per-frame layers)
+  gfx.context.batchMode = "batch";
   const scratch = new Matrix();
   gfx.eventMode = "none";
   gfx.zIndex = 996;
@@ -225,6 +231,69 @@ export function createAiLayer(overlay: Container): AiLayer {
       }
       // THE MASTERPLAN: planned streets outlined, planned buildings a tint on the ground.
       if (view.plan) drawPlan(g, sc, view.plan, view.planHolos);
+      {
+      const t = now / 1000;
+      // DRONE FARMING (before the Data Centre's, which a map may not have): a pad in each farm's yard, its dish pulsing as it sends; the drones low over the fields —
+      // a mist behind them in spring, a scan line under them over a harvest, a crate home after. @see farmDronesAt
+      const VIOLET = STAGE_COLOUR.overseer;
+      for (const p of view.farmPads ?? []) {
+        const z = ground(g, Math.round(p.x), Math.round(p.y));
+        const [px, py] = P(sc, p.x, p.y, z + 0.1);
+        gfx.ellipse(px, py, 9 * sc, 4.5 * sc);
+        gfx.fill({ color: 0x1b1530, alpha: 0.85 });
+        gfx.ellipse(px, py, 7 * sc, 3.5 * sc);
+        gfx.stroke({ color: VIOLET, width: Math.max(1, 0.6 * sc), alpha: 0.5 + 0.2 * Math.sin(t * 2) });
+        // The uplink dish, on a mast by the pad.
+        const [dx, dy] = P(sc, p.x + 0.22, p.y - 0.18, z + 0.1);
+        gfx.moveTo(dx, dy).lineTo(dx, dy - 5 * sc);
+        gfx.stroke({ color: 0x8a86a0, width: Math.max(1, 0.6 * sc), alpha: 0.9 });
+        gfx.ellipse(dx, dy - 5.5 * sc, 2 * sc, 1.2 * sc);
+        gfx.fill({ color: 0xd8d4e6, alpha: 0.95 });
+        if (p.uplink > 0) {
+          gfx.circle(dx, dy - 5.5 * sc, (2 + 6 * p.uplink) * sc);
+          gfx.stroke({ color: VIOLET, width: Math.max(1, 0.8 * sc), alpha: 0.7 * (1 - p.uplink) + 0.2 });
+        }
+      }
+      for (const [k, d] of (view.farmDrones ?? []).entries()) {
+        const z = ground(g, Math.round(d.x), Math.round(d.y));
+        const rest = d.doing === "rest";
+        const hover = (rest ? 0.3 : 2.2) + (rest ? 0 : Math.sin(t * 6 + k) * 0.1);
+        const [x, y] = P(sc, d.x, d.y, z + hover);
+        const [sx, sy] = P(sc, d.x, d.y, z);
+        // (As big as a build drone: low over a field it must read at a glance.)
+        const S = 1.3 * sc;
+        if (!rest) {
+          gfx.ellipse(sx, sy, 6 * S, 2.2 * S);
+          gfx.fill({ color: 0x000000, alpha: 0.15 });
+        }
+        if (d.doing === "sweep") {
+          // THE SCAN LINE: a thin violet bar across the row under it.
+          const [ax, ay] = P(sc, d.x, d.y - 0.6, z + 0.05), [bx, by] = P(sc, d.x, d.y + 0.6, z + 0.05);
+          gfx.poly([x - 1 * S, y + 1 * S, x + 1 * S, y + 1 * S, bx, by, ax, ay]);
+          gfx.fill({ color: VIOLET, alpha: 0.16 + 0.08 * Math.sin(t * 12 + k) });
+          gfx.moveTo(ax, ay).lineTo(bx, by);
+          gfx.stroke({ color: VIOLET, width: Math.max(1, 0.9 * sc), alpha: 0.75 });
+        } else if (d.doing === "spray") {
+          // THE MIST: a faint fan under it, drifting.
+          gfx.ellipse(sx, sy - 1.5 * S, 7 * S, 2.6 * S);
+          gfx.fill({ color: 0xe8f2ff, alpha: 0.16 + 0.06 * Math.sin(t * 8 + k) });
+        } else if (d.doing === "carry") {
+          gfx.moveTo(x, y).lineTo(x, y + 4 * S);
+          gfx.stroke({ color: 0x2a2440, width: Math.max(1, 0.5 * S), alpha: 0.9 });
+          gfx.rect(x - 2.5 * S, y + 4 * S, 5 * S, 3.5 * S);
+          gfx.fill({ color: 0x9a7b4f, alpha: 1 });
+        }
+        gfx.rect(x - 5 * S, y - 1 * S, 10 * S, 2 * S);
+        gfx.fill({ color: 0x1b1530, alpha: 0.95 });
+        for (const [dx, dy] of [[-5, -1.8], [5, -1.8], [-3.8, 1.1], [3.8, 1.1]]) {
+          gfx.ellipse(x + dx * S, y + dy * S, 2.4 * S, 0.7 * S);
+          gfx.fill({ color: 0x8a86a0, alpha: rest ? 0.6 : 0.5 + 0.3 * Math.sin(t * 40 + dx) });
+        }
+        gfx.circle(x, y, 1 * S);
+        gfx.fill({ color: VIOLET, alpha: rest ? 0.5 : 0.95 });
+      }
+
+      }
       const dc = structures.find((s) => s.def === "datacentre" && !s.build);
       if (!dc) { holos = []; return; }
       if (!dcTop || dcTop.def !== dc.def) dcTop = { def: dc.def, z: topOf(lookOf(dc.def, { w: dc.w, h: dc.h })) };

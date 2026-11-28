@@ -12,6 +12,7 @@ import { serviceDef } from "./needs";
 import { serviceIn } from "./services";
 import type { Leadership } from "./leaders";
 import { serviceOpen } from "./unlocks";
+import { OAT_BOOST, OAT_REACH, cafeStock, dairy } from "../farms/oat-milk";
 
 /** What coffee within `CAFE_REACH` tiles adds to a workplace's desks. One counts, however many. */
 export const CAFE_BOOST = 0.1;
@@ -21,14 +22,21 @@ export const CAFE_REACH = 3;
 const gap = (a: Structure, b: Structure) =>
   Math.max(Math.max(0, b.x - (a.x + a.w - 1), a.x - (b.x + b.w - 1)), Math.max(0, b.y - (a.y + a.h - 1), a.y - (b.y + b.h - 1)));
 
-/** Whether coffee is served near enough a workplace. */
-export function cafeNear(g: Grid, at: Structure): boolean {
+/**
+ * Whether coffee is served near enough a workplace: "oat" from a café with oat milk in, which reaches further;
+ * "plain"; or null. @see world/farms/oat-milk
+ */
+export function cafeNear(g: Grid, at: Structure): "oat" | "plain" | null {
+  let near: "plain" | null = null;
   for (const s of g.structures.values()) {
-    if (s.build || gap(s, at) > CAFE_REACH) continue;
+    const d = gap(s, at);
+    if (s.build || d > Math.max(CAFE_REACH, OAT_REACH)) continue;
     const sv = serviceIn(s);
-    if (sv && serviceOpen(g, sv) && serviceDef(sv)!.need === "coffee") return true;
+    if (!sv || !serviceOpen(g, sv) || serviceDef(sv)!.need !== "coffee") continue;
+    if (d <= OAT_REACH && cafeStock(dairy, s.id) > 0) return "oat";
+    if (d <= CAFE_REACH) near = "plain";
   }
-  return false;
+  return near;
 }
 
 /** What a workplace's desks get: the share more work, and why. */
@@ -37,7 +45,11 @@ export function deskPerks(g: Grid, lead: Leadership, work: Structure): { share: 
   let share = 0;
   const names = lead.leads.get(work.id);
   if (names?.length) why.push(`Led by ${names.join(" & ")}`);
-  if (cafeNear(g, work)) {
+  const coffee = cafeNear(g, work);
+  if (coffee === "oat") {
+    share += OAT_BOOST;
+    why.push(`Oat flat whites · +${Math.round(OAT_BOOST * 100)}%`);
+  } else if (coffee) {
     share += CAFE_BOOST;
     why.push(`Coffee next door · +${Math.round(CAFE_BOOST * 100)}%`);
   }

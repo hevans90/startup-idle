@@ -21,6 +21,14 @@ export const PROCESS_RATE = 0.5;
 export const processorKind = (def: string): ProcessorKind | null =>
   (PROCESSOR_KINDS as readonly string[]).includes(def) ? (def as ProcessorKind) : null;
 
+/**
+ * SLOP COMPOST: a farm with a sewer to its yard takes slop as a processor does, and at full use its harvest pays
+ * and its fields make oat milk this much more. @see world/farms
+ */
+export const COMPOST_MOST = 0.5;
+/** Whether a building takes slop from a sewer: a processor, or a farm. */
+export const takesSlop = (def: string) => processorKind(def) !== null || def === "farm";
+
 /** What each does a unit of use: a processor at full use is one. */
 export const REFINERY_INNOVATION = 0.15;
 export const DATAPLANT_SPEED = 0.25;

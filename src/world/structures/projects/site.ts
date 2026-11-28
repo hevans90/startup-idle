@@ -519,6 +519,9 @@ export function drawFinished(p: Pen, b: Building, f: Footprint) {
   const pi = b.plinth.inset;
   if (b.plinth.h > 0) p.box(pi, pi, f.w - pi, f.h - pi, 0, b.plinth.h, b.plinth.colour, { top: b.plinth.top });
   b.court?.(p, f);
+  // ITS SHADOWS ON ITS OWN YARD, from the sun where it stands: the ground's shade lies under the yard, and is hidden by it.
+  const zs = Math.max(b.plinth.h, 0.09) + 0.002;
+  for (const m of [...b.masses, ...(b.casts ?? [])]) p.shadow(m.u0, m.v0, m.u1, m.v1, m.z1, zs);
   for (const m of sortMasses(b.masses)) drawMass(p, m);
   b.details?.(p, f);
 }

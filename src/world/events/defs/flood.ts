@@ -33,8 +33,8 @@ export const FLOOD: EventDef = {
     { id: "sandbags", label: "Sandbag the riverside", crew: { who: "intern", share: CREW_SHARE.sandbags, during: "both" }, note: () => "keeps the water out" },
     {
       id: "levee", label: "Raise a levee", price: (v) => v.levee?.price ?? 0,
-      unavailable: (v) => (!v.levee ? "No river to wall" : v.levee.walls ? undefined : "The bank is walled already"),
-      note: (v) => `${v.levee?.walls ?? 0} flood walls along the low bank, there for good · past them, what the water reaches is damaged`,
+      unavailable: (v) => (!v.levee ? "No river to wall" : v.levee.walls ? undefined : v.levee.walled ? "The bank is walled already" : "Nothing floods here"),
+      note: (v) => `${v.levee?.walls ?? 0} flood walls along the bank the water would come over, there for good · past them, what it reaches is damaged`,
       act: (v) => v.levee?.build(),
     },
     { id: "evacuate", label: "Evacuate", note: () => `flooded homes stop work until it passes, and are put out: −${EVACUEE_MORALE} morale for a day` },

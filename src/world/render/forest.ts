@@ -10,10 +10,13 @@
 import { inBounds, type Grid } from "../grid";
 import { COVER, MATURE, covered, growable, heathOf, heightShare, vegAt, waterNear } from "../vegetation/fields";
 import { ageStep } from "../vegetation/step";
+import { cropAt, cropRows } from "../vegetation/crops";
 
 /** One tree: what it is, where its foot is (tiles), which way round, how big. */
 /** `char`: burnt, a snag (@see vegetation/wildfire). */
-export type ForestTree = { kind: string; u: number; v: number; turn: number; size: number; seed: number; char?: number };
+/** `lag`: its own in the year, where it is not its own (a field's crop turns together); `stand`: where its ground is
+ * read, where that is not its foot (a crop's patch stands on its front corner). */
+export type ForestTree = { kind: string; u: number; v: number; turn: number; size: number; seed: number; char?: number; lag?: number; stand?: [number, number] };
 
 type Palette = readonly (string | null)[];
 
@@ -227,6 +230,18 @@ function madeOn(g: Grid, palette: Palette, x: number, y: number, i: number): For
         if (!inBounds(g, x + dx, y + dy) || V.cover[vegAt(g, palette, x + dx, y + dy)] !== COVER.hedge) continue;
         // (Out to the edge from each side: the neighbour brings it the rest of the way.)
         for (let k = 1; k <= 2; k++) at(x + dx * 0.2 * k + (hash(x * 7 + k, y, 0xd8) - 0.5) * 0.05, y + dy * 0.2 * k + (hash(x, y * 7 + k, 0xd9) - 0.5) * 0.05, "shrub", size * (0.85 + 0.2 * hash(x + k, y + dx, 0xda)), 4 + k + (dx + 1) * 3 + (dy + 1) * 9);
+      }
+      break;
+    }
+    case COVER.field: {
+      // A FIELD'S CROP: four patches of it, each on its front corner, its rows where the plough drew them, each
+      // patch one of its two sowings that way. (Hay is the ground's own.) @see props/crop-models
+      const crop = cropAt(x, y);
+      if (crop === "hay") break;
+      const { acrossU, lag } = cropRows(x, y);
+      for (const [du, dv] of [[0, 0], [0.5, 0], [0, 0.5], [0.5, 0.5]] as const) {
+        const u = x + du, v = y + dv, k = (acrossU ? 0 : 2) + (hash(x * 2 + du * 2, y * 2 + dv * 2, 0xdb) < 0.5 ? 0 : 1);
+        out.push({ kind: crop, u, v, turn: k, size: 1, seed: hash(x * 2 + du * 2, y * 2 + dv * 2, 0xdc), lag, stand: [u - 0.25, v - 0.25] });
       }
       break;
     }

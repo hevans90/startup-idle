@@ -12,6 +12,9 @@
  * one more for the crane's jib in front of them all. Redrawn when the work
  * has moved on enough to see, not every frame.
  */
+import { processorBusy } from "../slop/tanks";
+import { sunHome, sunRev } from "../light";
+import { sunBudgetLeft, sunSpend } from "./sun-budget";
 import { Container, Graphics, Sprite } from "pixi.js";
 
 import { getWorks, startedOnFixture, useWorldStore } from "../../state/world.store";
@@ -27,7 +30,7 @@ import { plantsTrees, setPlanted } from "../render/planted";
 const TREE_IDS: ReadonlySet<string> = new Set(TREES.map((t) => t.id));
 import { GROUND, groundClassOf, groundDraws } from "../render/ground-mesh";
 import type { Mover } from "../agents/town";
-import { idx, inBounds, type Structure } from "../grid";
+import { idx, inBounds, type Grid, type Structure } from "../grid";
 import { HEIGHT_UNIT, HH, HW, bandOf, cellToWorld } from "../iso";
 import { drawLive, liveState } from "./projects/ai-live";
 import { crewAt } from "./projects/crew";
@@ -45,6 +48,8 @@ import {
 import { PIECE_TILE, registerCustomRenderer, type RenderCtx, type StructureHandle } from "./render";
 
 type ProjectHandle = StructureHandle & {
+  /** The sun's count it was last drawn at, and when (ms): lit again as the sun moves, on the screen, now and then. */
+  sunAt: number; home: boolean; snow: number;
   /** A Graphics a TILE of the footprint, each in its tile's band; `cells` says which. @see makePen */
   columns: Graphics[];
   cells: { c: number; r: number }[];
@@ -167,11 +172,32 @@ const frontBand = (s: Structure, ctx: RenderCtx) =>
   Math.max(0, Math.min(ctx.bands.structureOf.length - 1, bandOfColumn(s, s.w - 1)));
 
 /** What a drawing depends on, so it is redrawn only when that changes enough to see. */
-const stateOf = (s: Structure) => {
+/** A flood wall's sides that meet another wall: 1 +x, 2 −x, 4 +y, 8 −y. Nought for anything else. @see levee */
+function joinsOf(g: Grid, s: Structure): number {
+  if (s.def !== "levee") return 0;
+  const wall = (x: number, y: number) => {
+    const id = x >= 0 && y >= 0 && x < g.w && y < g.h ? g.structureAt[y * g.w + x] : -1;
+    return id >= 0 && g.structures.get(id)?.def === "levee";
+  };
+  return (wall(s.x + 1, s.y) ? 1 : 0) | (wall(s.x - 1, s.y) ? 2 : 0) | (wall(s.x, s.y + 1) ? 4 : 0) | (wall(s.x, s.y - 1) ? 8 : 0);
+}
+/** A farm's compost heap, in steps: none without slop coming in. @see COMPOST_MOST */
+const heapOf = (s: Structure) => (s.def === "farm" && !s.build ? Math.round(processorBusy(s.id) * 4) : 0);
+/** The building a structure is drawn as, a wall joined to its neighbours, a farm with its heap. */
+const modelOf = (s: Structure, g: Grid) => lookOf(s.def, { w: s.w, h: s.h, joins: joinsOf(g, s), heap: heapOf(s) });
+/** How long the sun stands still before the buildings are lit again, ms; and where it stood, since when. */
+const SUN_REST = 200;
+let sunSeen = -1, sunSeenAt = 0;
+/** Whether what a structure looks like depends on more than itself. */
+const looksAround = (def: string) => def === "levee" || def === "farm";
+
+const stateOf = (s: Structure, g: Grid) => `${stateOfSelf(s)}${s.def === "levee" ? `:j${joinsOf(g, s)}` : s.def === "farm" ? `:h${heapOf(s)}` : ""}`;
+const stateOfSelf = (s: Structure) => {
   const b = s.build;
   // (Done, and drawn again when the baked buildings' sheet comes in. @see placeBaked)
-  // (And as the snow lying on its tops changes, a step at a time — a finished one's: a site's ground is worked. @see snow-cover)
-  if (!b) return `${landmarksLoaded() ? "done:baked" : "done"}:${snowStep()}`;
+  // (The snow lying on its tops changing a step, and the sun leaving its home, coming back or moving round: drawn
+  // again in the tick, a few a frame. @see snow-cover, setSunAround)
+  if (!b) return landmarksLoaded() ? "done:baked" : "done";
   // (Finer while its ground is worked: a pile's head is drawn as the rig leaves it.)
   const p = b.done / b.need, g = groundShare(b.deliveries, s.def);
   return `${Math.floor(p * 400)}:${p < g ? Math.floor((p / g) * 700) : ""}:${b.delivered}:${b.priority === 0}`;
@@ -431,7 +457,8 @@ function placeProps(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: numb
  */
 function placeBaked(h: ProjectHandle, s: Structure, ctx: RenderCtx, ground: number): boolean {
   const sheet = h.site ? null : landmarksLoaded(), look = sheet?.marks.get(s.facing === "N" ? `${s.def}~back` : s.def);
-  const want = !!sheet && !!look && look.w === s.w && look.h === s.h;
+  // (Baked lit from the left: with the sun moved, drawn as it is lit now.)
+  const want = !!sheet && !!look && look.w === s.w && look.h === s.h && sunHome();
   const key = want ? `${s.def}|${s.facing ?? ""}|${ctx.scale}|${ground}|${s.x},${s.y}` : "";
   if (key !== h.bakedKey) {
     for (const sp of h.baked) { sp.parent?.removeChild(sp); sp.destroy(); }
@@ -565,7 +592,7 @@ function mount(s: Structure, _def: unknown, ctx: RenderCtx): ProjectHandle {
   live.zIndex = 1.5;
   ctx.bands.dynamicOf[frontBand(s, ctx)].addChild(live);
   const handle: ProjectHandle = {
-    columns, cells, sky, live, model: lookOf(s.def, { w: s.w, h: s.h }), drawn: stateOf(s),
+    columns, cells, sky, live, model: modelOf(s, ctx.grid), drawn: stateOf(s, ctx.grid), sunAt: sunRev, home: sunHome(), snow: snowStep(),
     // Out of step with every other crane on the map.
     t: s.id * 3.7, site: null, plant: createSitePlant(), crew: [], leaving: [], cameSeen: 0, goesSeen: 0, baked: [], bakedKey: "", opened: -1, liveDue: 0, liveT: s.id * 1.9, crewDue: 0, props: [], propsKey: "",
     destroy: () => { setPlanted(`building:${s.id}`, []); for (const sp of handle.baked) { sp.parent?.removeChild(sp); sp.destroy(); } for (const g of [...columns, sky, live]) { g.parent?.removeChild(g); g.destroy(); } handle.crew.forEach(dropHand); handle.leaving.forEach(dropHand); dropSitePlant(handle.plant); for (const c of handle.props) { c.parent?.removeChild(c); c.destroy({ children: true }); } },
@@ -578,20 +605,36 @@ registerCustomRenderer("project", {
   mount,
   update(h, s, _def, ctx) {
     const handle = h as ProjectHandle;
-    handle.model = lookOf(s.def, { w: s.w, h: s.h });
+    handle.model = modelOf(s, ctx.grid);
     draw(handle, s, ctx);
-    handle.drawn = stateOf(s);
+    handle.drawn = stateOf(s, ctx.grid); handle.sunAt = sunRev; handle.home = sunHome(); handle.snow = snowStep();
   },
   // GOING UP: redrawn as the work moves on, a quarter of a percent at a time,
   // and the crane every frame it is working.
   tick(h, s, _def, ctx, dt) {
     const handle = h as ProjectHandle;
-    const now = stateOf(s);
+    const now = stateOf(s, ctx.grid);
     if (now !== handle.drawn) {
       // IT HAS OPENED: a site last frame, a building this one.
       if (handle.site && !s.build) handle.opened = 0;
+      // A WALL BESIDE IT put up or taken down: it joins up again. A farm's heap grown or gone down.
+      if (looksAround(s.def)) handle.model = modelOf(s, ctx.grid);
       draw(handle, s, ctx);
-      handle.drawn = now;
+      handle.drawn = now; handle.sunAt = sunRev; handle.home = sunHome(); handle.snow = snowStep();
+    } else if (!s.build && (handle.sunAt !== sunRev || handle.snow !== snowStep())) {
+      // THE SUN MOVED ROUND IT (the editor's slider): its walls lit and its shadows thrown again once the sun has
+      // come to rest — only where it can be seen, a few a frame; off the screen, when it comes on. Redrawn while
+      // the slider still moved, the town's buildings were half of every frame's cost.
+      const t = performance.now();
+      if (sunSeen !== sunRev) { sunSeen = sunRev; sunSeenAt = t; }
+      // (Turned from home or back, its baked look swapped for one drawn or back — or the snow on its tops a step
+      // more or less: at once, a few a frame. A town's landmarks drawn again in the one frame was a stall.)
+      const swap = handle.home !== sunHome() || handle.snow !== snowStep();
+      if ((swap || t - sunSeenAt >= SUN_REST) && sunBudgetLeft() && onScreen(s, ctx)) {
+        handle.home = sunHome(); handle.snow = snowStep();
+        draw(handle, s, ctx); handle.sunAt = sunRev;
+        sunSpend(performance.now() - t);
+      }
     }
     const ground = groundOf(s, ctx);
     // ITS PROPS, when their sheet comes in after it was drawn.

@@ -6,6 +6,7 @@
  * the same ones with no canvas at all. @see WorldCanvas, wirePlayedMap,
  * plans/ai-mode-rebuild.md phase 0
  */
+import { landOpened } from "./landmarks/late-land";
 import { processorKind, type ProcessorKind } from "../game/processors";
 import { eventCrew } from "./events/events";
 import { addBeds, awaitingArrival, housingCapacity, housingResidents } from "../game/housing";
@@ -104,7 +105,10 @@ export function foundPlayedProjects(): void {
   // Whoever was on their way has arrived while the map was not looked at.
   useWorldStore.getState().settleHousing(owned, useSessionStore.getState().remoteBeds ?? {});
   const opened = catchUpWorks(useWorldStore.getState().grid, owned, payForLoad, Date.now());
-  if (opened.length) announceOpened(opened);
+  if (opened.length) {
+    landOpened(useWorldStore.getState().grid, useWorldStore.getState().palette, opened, useWorldStore.getState().raiseLevee);
+    announceOpened(opened);
+  }
   // And the roads being built. @see roads/jobs
   useWorldStore.getState().catchUpRoadWorks(Date.now());
   useWorldStore.getState().catchUpLineWorks(Date.now());
@@ -177,19 +181,20 @@ export function projectReader() {
     // Before the first drink — time away, credited on load — the tanks are full.
     const hot = Math.min(racks.powered, Math.round(hotAgents()));
     const cooled = hot ? { powered: racks.powered - hot, unpowered: racks.unpowered + hot } : racks;
-    let spires = 0, farms = 0, monolith = false;
+    let spires = 0, farms = 0, landFarms = 0, monolith = false;
     // AND THE SLOP PROCESSORS standing, by kind, for their prices. @see game/processors
     const processors: Partial<Record<ProcessorKind, number>> = {};
     for (const s of st.grid.structures.values()) {
       if (s.build) continue;
       if (s.def === "compute-spire") spires++;
       if (s.def === "gpu-farm") farms++;
+      if (s.def === "farm") landFarms++;
       if (s.def === "monolith") monolith = true;
       const k = processorKind(s.def);
       if (k) processors[k] = (processors[k] ?? 0) + 1;
     }
     // AT HOME: the share of each kind with every need met. @see needsBonus
     const needs = net ? needsShare(st.grid, liveMoods(st.grid, net)) : undefined;
-    return { built, away, commute, labs, racks: cooled, desks, teams, needs, processors, spires: allTanks().size ? cooledSpires() : spires, farms, monolith };
+    return { built, away, commute, labs, racks: cooled, desks, teams, needs, processors, spires: allTanks().size ? cooledSpires() : spires, farms, landFarms, monolith };
   };
 }

@@ -19,8 +19,15 @@ export type Cover = (typeof COVER)[keyof typeof COVER];
 
 /** The farm whose fields these are: within this many cells of it (the furthest of x and y). @see vegetation/tend */
 export const FARM_REACH = 3;
-/** When in the year the fields are cut: late summer. */
-export const HARVEST = 0.42;
+/**
+ * DRONE FARMING, as the fields know it: a farm reaches a tile further, and its lost ground is field again at once,
+ * not at the next harvest. Told by the game each frame. @see notable "drones"
+ */
+let drones = false;
+export const setDroneFarming = (on: boolean) => { drones = on; };
+export const droneFarming = () => drones;
+/** How far a farm reaches now. */
+export const farmReach = () => FARM_REACH + (drones ? 1 : 0);
 
 /** Mature, on the age byte. */
 export const MATURE = 255;

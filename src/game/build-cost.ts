@@ -18,7 +18,7 @@ import { isAiBuilding, structureDef } from "../world/structures/def";
 import { useGeneratorStore, type GeneratorId } from "../state/generators.store";
 import { useMoneyStore } from "../state/money.store";
 import { getGeneratorCost } from "../utils/generator-utils";
-import { labsBuilt, processorsBuilt } from "./projects";
+import { labsBuilt, landFarmsBuilt, processorsBuilt } from "./projects";
 import { racksBuilt } from "./agents";
 import { founderIs } from "./founder-rules";
 import { fusionNow } from "./fusion";
@@ -76,8 +76,9 @@ function listPrice(defId: string): Decimal | null {
   // A PUMP HOUSE: seconds of income, never under a floor. @see PUMP
   if (defId === "pump") return Decimal.max(new Decimal(PUMP_FLOOR), new Decimal(safeIncome()).times(PUMP_SECONDS)).round();
   // A FLOOD WALL: cheap, a tile at a time.
-  // A FARM: a minute and a half of income, never under a floor; it pays back at harvest. @see game/vegetation-cost
-  if (defId === "farm") return Decimal.max(new Decimal(FARM_FLOOR), new Decimal(safeIncome()).times(FARM_SECONDS)).round();
+  // A FARM: a minute and a half of income, never under a floor, a fifth dearer for each standing; it pays back at
+  // harvest. @see game/vegetation-cost
+  if (defId === "farm") return Decimal.max(new Decimal(FARM_FLOOR), new Decimal(safeIncome()).times(FARM_SECONDS)).times(FARM_STEP ** landFarmsBuilt()).round();
   if (defId === "levee") return Decimal.max(new Decimal(LEVEE_FLOOR), new Decimal(safeIncome()).times(LEVEE_SECONDS)).round();
   // AN OFFICE: so many hires' worth of the people who will work there.
   const office = OFFICE_FOR[defId];
@@ -137,6 +138,8 @@ const LAB_STEP = 1.5;
 const LEVEE_SECONDS = 0.5;
 const FARM_SECONDS = 90;
 const FARM_FLOOR = 300;
+/** A farm is dearer by this for each one standing. */
+export const FARM_STEP = 1.2;
 const LEVEE_FLOOR = 20;
 /** An office costs this many of the next hire's price, never under a floor. */
 const OFFICE_HIRES = 4;

@@ -3,7 +3,7 @@
  *
  *     bun run bake:trees
  *
- * Each look in `src/world/props/tree-models.ts` at four turns, rendered by the vehicles' rasteriser into two
+ * Each look in `src/world/props/tree-models.ts` at four turns (and each crop's in `crop-models.ts` at its four sowings), rendered by the vehicles' rasteriser into two
  * layers (leaves to tint, the rest as it is, the shadow with it), both cut to the box they cover together and laid
  * side by side, packed into 2048² pages with an index the game reads. @see bake-props.ts, render/tree-mesh
  */
@@ -14,6 +14,7 @@ import { bakeTris } from "../src/world/agents/cars/raster.ts";
 import { PROP_LAYERS, propLayerOf } from "../src/world/props/models.ts";
 import { PROP_RES, PROP_TURNS } from "../src/world/props/props-format.ts";
 import { TREE_LOOKS } from "../src/world/props/tree-models.ts";
+import { CROP_LOOKS } from "../src/world/props/crop-models.ts";
 import type { TreeFrame, TreesSheet } from "../src/world/props/trees-format.ts";
 import { encodePng, type Image } from "./png-min.ts";
 
@@ -36,10 +37,15 @@ function blit(dst: Image, src: Image, sx: number, sy: number, w: number, h: numb
 type Baked = { id: string; state: string; k: number; layers: Image[]; box: [number, number, number, number]; ox: number; oy: number };
 const t0 = performance.now();
 const baked: Baked[] = [];
-for (const look of TREE_LOOKS) {
-  const tris = look.tris();
+// (A crop's four turns are four sowings, square to the map: @see crop-models.)
+const LOOKS = [
+  ...TREE_LOOKS.map((l) => { const tris = l.tris(); return { ...l, at: (k: number) => ({ tris, heading: (k / PROP_TURNS) * Math.PI * 2 }) }; }),
+  ...CROP_LOOKS.map((l) => ({ ...l, at: (k: number) => ({ tris: l.tris(k), heading: 0 }) })),
+];
+for (const look of LOOKS) {
   for (let k = 0; k < PROP_TURNS; k++) {
-    const b = bakeTris(tris, (k / PROP_TURNS) * Math.PI * 2, PROP_RES, { layers: PROP_LAYERS, layerOf: propLayerOf, shadow: look.shadow });
+    const { tris, heading } = look.at(k);
+    const b = bakeTris(tris, heading, PROP_RES, { layers: PROP_LAYERS, layerOf: propLayerOf, shadow: look.shadow });
     // The box both layers cover between them.
     let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
     for (const img of b.layers) for (let yy = 0; yy < img.h; yy++) for (let xx = 0; xx < img.w; xx++) {
@@ -69,4 +75,4 @@ pages.forEach((p, k) => {
   sheet.pages.push({ file, w: p.w, h: p.h });
 });
 writeFileSync(join(OUT_DIR, "trees.json"), JSON.stringify(sheet));
-console.log(`${TREE_LOOKS.length} looks, ${baked.length} frames → ${pages.length} page(s) in ${Math.round(performance.now() - t0)} ms; last page to y=${used}`);
+console.log(`${LOOKS.length} looks, ${baked.length} frames → ${pages.length} page(s) in ${Math.round(performance.now() - t0)} ms; last page to y=${used}`);

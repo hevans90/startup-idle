@@ -8,7 +8,7 @@ const state = (over: Partial<HintState> = {}): HintState => ({
   owned: { intern: 0, vibe_coder: 0, "10x_dev": 0 },
   built: new Set(), sites: new Set(), ready: new Set(["garage"]),
   lots: 0, residents: 0, awaiting: 0, services: 0, offices: 0, worstCommute: 1, worstMood: 0, moodShown: false,
-  labs: 0, racks: 0, levees: 0, floodWarning: false, deskless: 0,
+  labs: 0, racks: 0, levees: 0, atRisk: 0, wallsOpen: true, floodWarning: false, deskless: 0,
   ...over,
 });
 
@@ -50,6 +50,9 @@ describe("first-run hints", () => {
     expect(nextHint(state({ ...settled, built: new Set(["garage", "campus"]) }), new Set()).show?.id).toBe("labs");
     expect(nextHint(state({ ...settled, floodWarning: true }), new Set()).show?.id).toBe("flood-walls");
     expect(nextHint(state({ ...settled, floodWarning: true, levees: 3 }), new Set()).show).toBeNull();
+    // One wall is not done while homes are still inside the line; nor is it told before walls can be built.
+    expect(nextHint(state({ ...settled, floodWarning: true, levees: 3, atRisk: 2 }), new Set()).show?.id).toBe("flood-walls");
+    expect(nextHint(state({ ...settled, floodWarning: true, wallsOpen: false }), new Set()).show?.id).not.toBe("flood-walls");
   });
 
   test("people without desks are told an office adds some", () => {

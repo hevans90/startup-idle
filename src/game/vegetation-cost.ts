@@ -20,3 +20,8 @@ export const timberValue = (timber: number) => Math.round(each(0.1, 0.6) * timbe
 const PLANT: Record<Planting, [number, number]> = { woods: [0.4, 3], row: [0.3, 2], hedge: [0.2, 1], bed: [0.25, 2] };
 export const plantCost = (what: Planting, cells: number) => new Decimal(Math.round(each(...PLANT[what]) * cells));
 export const harvestPay = (fields: number) => Math.round(each(2, 4) * fields);
+/** What Drone Farming multiplies a harvest's pay by. @see notable "drones" */
+export const DRONE_HARVEST = 1.5;
+/** What the Agritech Lab standing multiplies every harvest's pay by; the Climate Lab, the repair crew's pace. */
+export const AGRITECH_PAY = 1.25;
+export const CLIMATE_REPAIRS = 1.5;

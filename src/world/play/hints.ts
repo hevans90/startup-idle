@@ -34,6 +34,10 @@ export type HintState = {
   /** AI racks standing. @see game/agents */
   racks: number;
   levees: number;
+  /** Homes and ports inside the flood line, no wall between them and the river. @see floodReach */
+  atRisk: number;
+  /** Whether flood walls can be built: the Climate Lab stands. */
+  wallsOpen: boolean;
   /** Whether a flood has been announced and not yet struck. */
   floodWarning: boolean;
   /** People living on the map with no desk to go to. @see seat */
@@ -151,8 +155,9 @@ export const HINTS: readonly Hint[] = [
     id: "flood-walls",
     text: "A flood is coming. Flood walls, under Defences in Build, hold the water back.",
     target: "build",
-    when: (s) => s.floodWarning,
-    done: (s) => s.levees > 0,
+    when: (s) => s.floodWarning && s.wallsOpen,
+    // Done once nothing is left inside the flood line, not at the first wall. @see floodReach
+    done: (s) => s.levees > 0 && s.atRisk === 0,
   },
   {
     id: "wonders",

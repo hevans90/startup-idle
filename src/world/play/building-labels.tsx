@@ -23,6 +23,8 @@
  *  - where they are, every frame, from points kept in the WORLD, so a pan
  *    moves them without measuring a building again.
  */
+import { farmInfo } from "../farms/ledger";
+import { wallRunInfo } from "../events/flood-reach";
 import { berthsAlong, steadyRivers } from "../boats/quay";
 import { useEffect, useRef, useState } from "react";
 import { twMerge } from "tailwind-merge";
@@ -150,7 +152,7 @@ function gather(): BadgeContext {
     const wet = berthsAlong(steadyRivers(st.grid), s, s.facing, berths).length;
     if (wet < berths) shortBerths.set(s.id, wet);
   }
-  return { quiet: liveTownProblems().quiet, deskless, perks, nearConference, perHead, arriving, alongside, queued, shortBerths, stalled, earning, residents, commutes, coverage, needOpen: (n) => needOpen(st.grid, n), moods, labsNear, racksPowered, desks, repairedIn, damagedAs, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n) };
+  return { quiet: liveTownProblems().quiet, deskless, perks, nearConference, perHead, arriving, alongside, queued, shortBerths, stalled, earning, residents, commutes, coverage, needOpen: (n) => needOpen(st.grid, n), moods, labsNear, racksPowered, desks, repairedIn, damagedAs, routeBonus: ROUTE_BONUS * (useSessionStore.getState().routes ?? 0), money: (n) => formatCurrency(n), wall: (s) => wallRunInfo(st.grid, s), farm: (s) => farmInfo(st.grid, s) };
 }
 
 /**
@@ -234,6 +236,8 @@ export function BuildingLabels({ className }: { className?: string }) {
   labelRef.current = label;
   const labelEl = useRef<HTMLDivElement | null>(null);
   const placedCentre = useRef<{ x: number; y: number } | null>(null);
+  /** What the marks last said. */
+  const saidRef = useRef("");
 
   useEffect(() => {
     if (!on) return;
@@ -262,7 +266,8 @@ export function BuildingLabels({ className }: { className?: string }) {
         // THE WATER VIEW zoomed out: its rings and numbers say it, and badges would sit on them.
         const badge = far || (view === "water" && !dots) ? null : badgeFor(s, ctx, view);
         if (badge) items.push({ id: s.id, x: top.x, y: top.y, band: s.x + s.w + s.y + s.h, badge });
-        else if (dots && infoFor(s, ctx)) { keep(`d${s.id}`, top); list.push({ key: `d${s.id}`, kind: "dot" }); }
+        // (Not a dot on every flood wall: a run of them is one thing.)
+        else if (dots && s.def !== "levee" && infoFor(s, ctx)) { keep(`d${s.id}`, top); list.push({ key: `d${s.id}`, kind: "dot" }); }
       }
       for (const b of placeBadges(items)) {
         keep(`b${b.id}`, b);
@@ -273,7 +278,10 @@ export function BuildingLabels({ className }: { className?: string }) {
       setLabel(labelFor(useWorldStore.getState().hoverBuilding));
       placedAt.current = scale;
       placedCentre.current = { x: vp.center.x, y: vp.center.y };
-      setMarks(list);
+      // (The same marks saying the same: nothing for the page to make again — a town's badges were a hundred
+      // drawn over twice a second for nothing.)
+      const said = JSON.stringify(list);
+      if (said !== saidRef.current) { saidRef.current = said; setMarks(list); }
     };
     read();
     const id = setInterval(read, READ_EVERY);

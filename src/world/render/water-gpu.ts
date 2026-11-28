@@ -77,12 +77,14 @@ import { fluidMaterial } from "../water/materials";
 import { COLUMNS_PER_TILE, STOREYS } from "../water/field";
 import { pollutionOf, type Pollution } from "../water/pollution";
 import { HEIGHT_UNIT, HH, HW } from "../iso";
+import { NOON, type Light } from "../daylight";
 import type { BandLayer } from "./bands";
 import { createFlowWash, stepFlowWash, type FlowWash } from "./flow-wash";
 import {
   stateBytes, type FieldName, type Sink,
 } from "../../fluid/gpu/state";
 import { createFoam, stepFoam, type FoamField } from "./foam";
+import { createMirrorSources, MIRROR_RISE, type MirrorSources } from "./mirror";
 
 /**
  * Does the water draw on the GPU? Yes, unless `?cpuwater=1` says otherwise.
@@ -103,7 +105,27 @@ import { createFoam, stepFoam, type FoamField } from "./foam";
  * HOW THE WATER IS LIT this frame — its clock and the night — ONE group for every band and for the falls, so a frame
  * is one upload and a fall runs on the same clock as the pool it leaves. @see waterLook, falls-gpu
  */
-export const waterLookGroup = oncePerRender(new UniformGroup({ uLook: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" } }));
+export const waterLookGroup = oncePerRender(new UniformGroup({
+  uLook: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" },
+  // WHAT IT MIRRORS (@see mirror): framebuffer pixels up the screen a tile along the mirrored line, and last frame's
+  // place for this one's (scale, then offset); one over last frame's size, and whether it is there to be read; the
+  // map in tiles.
+  uMirror: { value: new Float32Array([0, 1, 0, 0]), type: "vec4<f32>" },
+  uMirror2: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" },
+  uMirror3: { value: new Float32Array([1, 1, 0, 0]), type: "vec4<f32>" },
+  // THE SKY IT MIRRORS, overhead and at the horizon, and the sun's glint (colour, strength): the hour's. @see lightAt
+  uSkyTop: { value: new Float32Array([...NOON.skyTop, 0]), type: "vec4<f32>" },
+  uSkyLow: { value: new Float32Array([...NOON.skyLow, 0]), type: "vec4<f32>" },
+  uSun: { value: new Float32Array(NOON.sun), type: "vec4<f32>" },
+  // THE GRADE the whole map is multiplied by after the water is drawn — the night's blue, the sunset's gold — which
+  // the picture it mirrors has had once already. @see MIRROR_GLOW_WGSL
+  uGrade: { value: new Float32Array([1, 1, 1, 0]), type: "vec4<f32>" },
+  // THE STRIP OF TOWN OVER THE TOP OF THE SCREEN (@see mirror renderStrip): this frame's pixels to its camera's
+  // (scale, offset) and whether it is there; its share of the screen's pixels, how far above the screen it starts
+  // (framebuffer pixels), and one over its size.
+  uWide: { value: new Float32Array([1, 0, 0, 0]), type: "vec4<f32>" },
+  uWide2: { value: new Float32Array([1, 0, 1, 1]), type: "vec4<f32>" },
+}));
 
 export function waterOnGpu(): boolean {
   if (typeof location === "undefined") return true;
@@ -162,9 +184,11 @@ const FOUL_MOST = 0.85;
  * mistake one level up. @see quadRuleSource, mainVertex
  */
 const PARTS = 5;
-
+/** How much brighter a light's image in the water is at night than the picture holds it: a lamp is far past white. @see MIRROR_GLOW_WGSL */
+const MIRROR_LAMP = 38;
 /** How many corners the spare table has room for — four entries each. @see cornerTableSource */
-export const SPARE_CORNERS = 16384;
+// (A flood through a town has such a corner at every wall in it: bigtown under water ran past sixteen thousand.)
+export const SPARE_CORNERS = 65536;
 /**
  * How many quads the deck table — and the rare table, which shares its slots — has room for: every quad but the
  * smooth field's surface, which is a few hundred on a busy fixture. @see deckCorner, rareTable
@@ -1775,7 +1799,20 @@ fn cornerEntry(vx: i32, vy: i32) -> vec4<u32> {
   // ELSE AN ANSWER FOR EACH OF THE FOUR, in the spare table, four texels a corner, this texel saying where — worked
   // out by cornerSpare, a thread a column, and not here one after another: a frame waits on its slowest thread.
   let i = atomicAdd(&spareN, 1u);
-  if (i >= ${SPARE_CORNERS}u) { return vec4<u32>(0u); }
+  // (NO ROOM LEFT — a flood through a whole town is a corner like this at every wall: ONE ANSWER after all, the
+  // wettest column's, a little off where the columns part. Nothing was a corner the slim draw had no answer for,
+  // and it put that corner of the quad in the middle of the screen: a burst of rays from it across the map.)
+  if (i >= ${SPARE_CORNERS}u) {
+    var wx = sx; var wy = sy; var most = -1.0;
+    for (var k = 0; k < 4; k++) {
+      let qx = vx - 1 + (k % 2);
+      let qy = vy - 1 + (k / 2);
+      if (!inside(qx, qy)) { continue; }
+      let dq = depthAt(qx, qy, 0);
+      if (dq > most) { most = dq; wx = qx; wy = qy; }
+    }
+    return entryFor(vx, vy, wx, wy);
+  }
   spareAt[i] = u32(vx) | (u32(vy) << 16u);
   return vec4<u32>(0u, 0u, 0u, (i << 8u) | 16u);
 }
@@ -1941,7 +1978,7 @@ fn cornerTable(@builtin(global_invocation_id) gid: vec3<u32>) {
  * Foam on top as it always was: toward white, and closing the surface up. Nothing here makes water where the solver
  * has none — it only says how the water it has looks. @see surfaceLook, water-is-the-sim
  */
-export function lookSource(lang: "wgsl" | "glsl"): string {
+export function lookSource(lang: "wgsl" | "glsl", mirrored = false): string {
   const w = lang === "wgsl";
   const f = w ? "f32" : "float";
   const v2 = w ? "vec2<f32>" : "vec2";
@@ -1972,7 +2009,18 @@ ${fnDecl("lookSlope", [["p", v2]], v2)} {
   ${L("e", f)} = lookHash(i + ${v2}(1.0, 1.0));
   return du * ${v2}(b - a + (a - b - c + e) * u.y, c - a + (a - b - c + e) * u.x);
 }
-${fnDecl("waterLook", [["lit", v4], ["lk", v2], ["p", v2], ["u", v4]], v4)} {
+// THE FINE RIPPLES' SLOPE at a point (tiles) and a time: two scales, each turned and drifting its own way.
+// (Rotations, in tiles: the finer the faster.)
+${fnDecl("lookRipple", [["p", v2], ["t", f]], v2)} {
+  ${L("p1", v2)} = ${v2}(p.x * 0.8 - p.y * 0.6, p.x * 0.6 + p.y * 0.8) * 2.3 + ${v2}(t * 0.21, t * 0.13);
+  ${L("p2", v2)} = ${v2}(p.x * 0.28 + p.y * 0.96, p.y * 0.28 - p.x * 0.96) * 5.1 - ${v2}(t * 0.37, -t * 0.29);
+  ${L("g1", v2)} = lookSlope(p1);
+  ${L("g2", v2)} = lookSlope(p2);
+  // (Back from each turned frame to the ground's.)
+  return ${v2}(g1.x * 0.8 + g1.y * 0.6, g1.y * 0.8 - g1.x * 0.6) * 0.6
+    + ${v2}(g2.x * 0.28 - g2.y * 0.96, g2.x * 0.96 + g2.y * 0.28) * 0.4;
+}
+${fnDecl("waterLook", [["lit", v4], ["lk", v2], ["p", v2], ["u", v4], ["skyTop", v4], ["skyLow", v4], ["sun", v4]], v4)} {
   ${L("d", f)} = lk.x;
   ${L("fade", f)} = min(1.0, d / ${SHOW_DEPTH});
   // THE BODY: clear and tinted in the shallows, dark and closed up where deep.
@@ -1984,14 +2032,7 @@ ${fnDecl("waterLook", [["lit", v4], ["lk", v2], ["p", v2], ["u", v4]], v4)} {
   ${L("t", f)} = u.x;
   // (Stronger where the current's own pattern is lit, so the ripples come in patches.)
   ${L("calm", f)} = 0.5 + 0.9 * lit.a;
-  // Two scales, each turned and drifting its own way. (Rotations, in tiles: the finer the faster.)
-  ${L("p1", v2)} = ${v2}(p.x * 0.8 - p.y * 0.6, p.x * 0.6 + p.y * 0.8) * 2.3 + ${v2}(t * 0.21, t * 0.13);
-  ${L("p2", v2)} = ${v2}(p.x * 0.28 + p.y * 0.96, p.y * 0.28 - p.x * 0.96) * 5.1 - ${v2}(t * 0.37, -t * 0.29);
-  ${L("g1", v2)} = lookSlope(p1);
-  ${L("g2", v2)} = lookSlope(p2);
-  // (Back from each turned frame to the ground's.)
-  ${L("r", v2)} = ${v2}(g1.x * 0.8 + g1.y * 0.6, g1.y * 0.8 - g1.x * 0.6) * 0.6
-    + ${v2}(g2.x * 0.28 - g2.y * 0.96, g2.x * 0.96 + g2.y * 0.28) * 0.4;
+  ${L("r", v2)} = lookRipple(p, t);
   // (The solver's slope as the vertex has already shaded it — its lean toward the camera, which is the lean that
   // decides how much sky a surface shows — rather than the slope again as two more numbers a vertex. @see VSOutput)
   ${L("s", f)} = (lit.a - 0.5) * 0.6;
@@ -2001,10 +2042,13 @@ ${fnDecl("waterLook", [["lit", v4], ["lk", v2], ["p", v2], ["u", v4]], v4)} {
   ${L("fres", f)} = 0.04 + 0.96 * pow(1.0 - max(dot(n, view), 0.0), 5.0);
   ${L("refl", f)} = clamp(fres * 1.5, 0.0, 0.5) * fade;
   ${L("rz", f)} = clamp(reflect(-view, n).z, 0.0, 1.0);
-  ${L("sky", v3)} = mix(${v3}(0.62, 0.74, 0.86), ${v3}(0.3, 0.5, 0.78), rz) * (1.0 - 0.55 * u.y);
+  // (The hour's sky: noon's blue, flushed at dawn and dusk, dim at night. @see lightAt)
+  ${V("sky", v3)} = mix(skyLow.rgb, skyTop.rgb, rz);
+  // WHAT STANDS OVER IT, in place of the sky where anything does: the same Fresnel, only what it sees. @see mirrorAt
+  ${mirrored ? `let mir = mirrorAt(p, n, fragPx, fragH).pic; sky = mix(sky, mir.rgb / max(look.uGrade.rgb, vec3<f32>(0.05)), mir.a);` : ""}
   // AND THE SUN, off the facets that face it, by day.
-  ${L("spec", f)} = pow(max(dot(n, normalize(${v3}(0.14, 0.24, 1.0))), 0.0), 1400.0) * 0.6 * (1.0 - u.y) * fade * (1.0 - lk.y);
-  ${V("rgb", v3)} = body * a * (1.0 - refl) + sky * refl + ${v3}(1.0, 0.97, 0.9) * spec;
+  ${L("spec", f)} = pow(max(dot(n, normalize(${v3}(0.14, 0.24, 1.0))), 0.0), 1400.0) * 0.6 * sun.a * fade * (1.0 - lk.y);
+  ${V("rgb", v3)} = body * a * (1.0 - refl) + sky * refl + sun.rgb * spec;
   a = clamp(a * (1.0 - refl) + refl + spec * 0.5, 0.0, 1.0);
   // FOAM: toward white, and closing it up. @see surfaceLook
   ${L("fa", f)} = a + (1.0 - a) * lk.y * ${FOAM_COVER} * fade;
@@ -2013,6 +2057,119 @@ ${fnDecl("waterLook", [["lit", v4], ["lk", v2], ["p", v2], ["u", v4]], v4)} {
 }
 `;
 }
+
+const MIRROR_WGSL = /* wgsl */ `
+// WHAT THE WATER MIRRORS at a point of its face (tiles), its normal leaning it, seen at a pixel (framebuffer) where its
+// face is h half steps high: the colour drawn last frame where the mirrored line met something, and how surely it
+// did (the picture: in place of the sky), and of that what is a light (a lamp, a lit window). @see MIRROR_GLOW_WGSL
+// Shared by the water and the light over the night, so the two are the one image. @see mirror
+struct Mirrored { pic: vec4<f32>, lamp: vec3<f32> };
+// The ground at a point (tiles), half steps, filtered between the quarter tiles round it. @see mirror
+fn mirrorGround(q: vec2<f32>, size: vec2<i32>) -> f32 {
+  return textureSampleLevel(uMirrorH, uMirrorSampler, q * 4.0 / vec2<f32>(size), 0.0).r;
+}
+fn mirrorAt(p: vec2<f32>, n: vec3<f32>, px: vec2<f32>, h: f32) -> Mirrored {
+  var o: Mirrored;
+  o.pic = vec4<f32>(0.0); o.lamp = vec3<f32>(0.0);
+  if (look.uMirror2.z < 0.5) { return o; }
+  // HOW FAR THIS PIXEL'S OWN LINE GOES. The map's answer is a quarter-tile's — on the screen a diamond, a hundred
+  // pixels and more close up — and blended between them it sawed a tower's sides into teeth and banded its face.
+  // So: from the nearest the four columns round the point met something, this pixel's own line, followed through
+  // every quarter tile it crosses, and the wall it meets found to a hair.
+  let hs = vec2<i32>(textureDimensions(uMirrorHit));
+  let c0 = vec2<i32>(floor(p * 4.0 - vec2<f32>(0.5)));
+  var lo = 1e9; var hi = -1.0;
+  for (var k = 0; k < 4; k++) {
+    let t = textureLoad(uMirrorHit, clamp(c0 + vec2<i32>(k & 1, k >> 1), vec2<i32>(0), hs - vec2<i32>(1)), 0).rg;
+    if (t.g > 0.5) { lo = min(lo, t.r); hi = max(hi, t.r); }
+  }
+  if (hi < 0.0) { return o; }
+  var s = -1.0;
+  {
+    let size = vec2<i32>(textureDimensions(uMirrorH));
+    // QUARTER TILE BY QUARTER TILE, every one the line crosses, from a little short of the nearest the columns round
+    // the point met anything: each looked at where the line comes into it, where it is lowest over it. Steps of a
+    // set length hopped over the corner of a wall the line only clips, or not, by turns down the screen — every
+    // tower's edge a saw.
+    var u = max(0.0, lo - 0.3);
+    var was = u;
+    for (var k = 0; k < 128; k++) {
+      let z = h + ${MIRROR_RISE} * u;
+      if (z > look.uMirror3.z) { break; }
+      let q = p - vec2<f32>(u);
+      if (q.x < 0.0 || q.y < 0.0) { break; }
+      let cell = vec2<f32>(q * 4.0);
+      let c = textureLoad(uMirrorH, min(vec2<i32>(cell), size - vec2<i32>(1)), 0);
+      // (What is built, and a deck: met where the line comes in.)
+      if (c.b >= z || (c.g > -1000.0 && abs(c.g - z) < 1.0)) { s = u; break; }
+      // (The ground, smooth: met between the last look and this one, found to a hair.)
+      if (mirrorGround(q, size) >= z) {
+        var m0 = was; var m1 = u;
+        for (var b = 0; b < 5; b++) {
+          let m = (m0 + m1) * 0.5;
+          if (mirrorGround(p - vec2<f32>(m), size) >= h + ${MIRROR_RISE} * m) { m1 = m; } else { m0 = m; }
+        }
+        s = m1;
+        break;
+      }
+      // (On to the next quarter tile's edge, down either axis: the line runs along the map's diagonal.)
+      let f = fract(cell);
+      was = u;
+      u += max(min(f.x, f.y), 0.001) * 0.25 + 0.0001;
+    }
+    if (s < 0.0) { return o; }
+  }
+  // UP THE SCREEN as far as the line went, swayed by the ripples the further it went; in last frame's picture.
+  let up = s * look.uMirror.x;
+  // (Ripples draw a reflection out up and down the screen far more than across it.)
+  // (Never so far that a ripple's swing folds the picture over on itself: it marbles.)
+  // (Little across: a wall's edge swayed off itself combs the snow beside it into the reflection.)
+  // (And no further than a tile's worth: the ripples are a fifth of a tile apart, so close up a far tower's image,
+  // swayed a quarter of the way it went, folded over between them and sawed every slanting edge into teeth.)
+  let sway = vec2<f32>((n.x - n.y) * 5.0, (n.x + n.y) * (24.0 + 0.25 * min(up, look.uMirror.x)));
+  let at = px - vec2<f32>(0.0, up) + sway;
+  let uv = (at * look.uMirror.y + look.uMirror.zw) * look.uMirror2.xy;
+  // OVER THE TOP OF THE SCREEN, what stands there is not in last frame's picture — close up, the towers over the
+  // water are not — so it is drawn on its own, a strip of the town above the screen. @see mirror renderStrip
+  // (Its own camera, a few frames old, as last frame's is one; its pixels a share of the screen's.)
+  let strip = look.uWide.w > 0.5;
+  let wp = at * look.uWide.x + look.uWide.yz;
+  let wuv = vec2<f32>(wp.x, wp.y + look.uWide2.y) * look.uWide2.x * look.uWide2.zw;
+  // (From one to the other across the top of the screen, and the strip faded out at its own top. Where the strip
+  // does not reach — a frame or two old as the camera zooms in, its foot rises off the screen's top — the screen's
+  // own picture to its edge: with each fading out as the other did, a band of neither went dark and came back.)
+  let onScreen = step(0.0, uv.y) * step(uv.y, 1.0);
+  let sa = select(0.0, smoothstep(0.0, 0.1, wuv.y) * (1.0 - smoothstep(0.96, 1.0, wuv.y)), strip);
+  let wc = onScreen * max(smoothstep(0.0, 0.03, uv.y), 1.0 - sa);
+  let ws = (1.0 - wc) * sa;
+  let inside = wc * smoothstep(0.0, 0.04, uv.x) * smoothstep(1.0, 0.96, uv.x) + ws * smoothstep(0.0, 0.03, wuv.x) * smoothstep(1.0, 0.97, wuv.x);
+  // DRAWN OUT UP AND DOWN by the ripples, as water draws every reflection — the further it went, the longer: four
+  // looks along the screen's height. And of each, what is a light: bright AND warm — the night's grade turns all it
+  // lights blue, snow and pale walls with it, and a lamp or a window is not.
+  let lenPx = 4.0 + 0.08 * up;
+  let lenC = lenPx * look.uMirror2.y;
+  let lenS = lenPx * look.uWide.x * look.uWide2.x * look.uWide2.w;
+  let wsum = max(wc + ws, 1e-4);
+  var c = vec3<f32>(0.0);
+  var l = vec3<f32>(0.0);
+  for (var k = 0; k < 4; k++) {
+    let d = f32(k) - 1.5;
+    var t = vec3<f32>(0.0);
+    if (wc > 0.001) { t += wc * textureSampleLevel(uMirrorFrame, uMirrorSampler, uv + vec2<f32>(0.0, d * lenC), 0.0).rgb; }
+    // (The strip is the map's container alone: the grade the screen lays over it, where the screen lays it and not the
+    // light over the night in the map itself, laid on as the screen has it.)
+    if (ws > 0.001) { t += ws * mix(vec3<f32>(1.0), look.uGrade.rgb, look.uGrade.w) * textureSampleLevel(uMirrorWide, uMirrorSampler, wuv + vec2<f32>(0.0, d * lenS), 0.0).rgb; }
+    t /= wsum;
+    c += t;
+    // (What is brighter than the night leaves anything unlit — its grade, about 0.4 — is a light's. Not a tighter
+    // test: zoomed out, a window is a pixel blurred into its wall, and only this finds the lit town along a shore.)
+    l += max(t - vec3<f32>(0.38), vec3<f32>(0.0)) * 1.6 * smoothstep(0.0, 0.08, t.r - t.b);
+  }
+  o.pic = vec4<f32>(c * 0.25, inside);
+  o.lamp = l * (0.25 * inside);
+  return o;
+}
+`;
 
 const FRAGMENT_WGSL = /* wgsl */ `
 @group(2) @binding(14) var uShore : texture_2d<f32>;
@@ -2032,21 +2189,31 @@ struct LocalUniforms {
 @group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
 // HOW THE SURFACE IS LIT this frame, one group for every band: x the water's own clock (seconds of drawn time, for
 // the ripples), y how far into the night (the sun's glints go with the day). @see waterLook
-struct Look { uLook: vec4<f32>, };
+struct Look { uLook: vec4<f32>, uMirror: vec4<f32>, uMirror2: vec4<f32>, uMirror3: vec4<f32>, uSkyTop: vec4<f32>, uSkyLow: vec4<f32>, uSun: vec4<f32>, uGrade: vec4<f32>, uWide: vec4<f32>, uWide2: vec4<f32> };
 @group(2) @binding(15) var<uniform> look : Look;
+@group(2) @binding(20) var uMirrorHit : texture_2d<f32>;
+@group(2) @binding(21) var uMirrorH : texture_2d<f32>;
+@group(2) @binding(22) var uMirrorFrame : texture_2d<f32>;
+@group(2) @binding(23) var uMirrorSampler : sampler;
+@group(2) @binding(24) var uMirrorWide : texture_2d<f32>;
+// (The pixel being shaded, and its surface's height: for what it mirrors. @see mirrorAt)
+var<private> fragPx : vec2<f32>;
+var<private> fragH : f32;
+${MIRROR_WGSL}
 fn shoreHash(p: vec2<f32>) -> f32 { return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453); }
 fn shoreNoise(p: vec2<f32>) -> f32 {
   let i = floor(p); let f = fract(p); let u = f * f * (3.0 - 2.0 * f);
   return mix(mix(shoreHash(i), shoreHash(i + vec2<f32>(1.0, 0.0)), u.x), mix(shoreHash(i + vec2<f32>(0.0, 1.0)), shoreHash(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
 }
-${lookSource("wgsl")}
+${lookSource("wgsl", true)}
 ${POUR_WGSL}
 @fragment
-fn mainFragment(@location(0) vLit: vec4<f32>, @location(1) vShore: vec4<f32>, @location(2) vLook: vec2<f32>) -> @location(0) vec4<f32> {
+fn mainFragment(@builtin(position) pos: vec4<f32>, @location(0) vLit: vec4<f32>, @location(1) vShore: vec4<f32>, @location(2) vLook: vec2<f32>) -> @location(0) vec4<f32> {
+  fragPx = pos.xy; fragH = vShore.z;
   let vCover = min(vShore.w, 1.0);
   var vColor = vLit;
   if (vLook.x >= 0.0) {
-    vColor = waterLook(vLit, vLook, vShore.xy, look.uLook) * localUniforms.uColor * globalUniforms.uWorldColorAlpha;
+    vColor = waterLook(vLit, vLook, vShore.xy, look.uLook, look.uSkyTop, look.uSkyLow, look.uSun) * localUniforms.uColor * globalUniforms.uWorldColorAlpha;
   }
   {
     // POURING DOWN A ROCK FACE: the same water, running down it — streaks long down the fall line (down the
@@ -2095,6 +2262,96 @@ fn mainFragment(@location(0) vLit: vec4<f32>, @location(1) vShore: vec4<f32>, @l
   let foam = (1.0 - smoothstep(reach * 0.5, reach, out)) * (1.0 - smoothstep(0.08, 0.2, deep)) * (0.12 + 0.4 * patchy);
   col = mix(col, vec4<f32>(0.94, 0.97, 0.96, 1.0), foam);
   return col;
+}
+`;
+
+/**
+ * A LIGHT IN THE WATER, OVER THE NIGHT. The picture stops at white, and the night's grade is laid over all of it
+ * after — the water with it — so a lit window mirrored in the water could never be brighter than the grade's blue:
+ * grey streaks. What a light gives back past the picture is drawn here instead, added over the grade: on the map's
+ * plane, the water's face found along each line of sight, what the water mirrors there (the very lookup the water
+ * makes, @see mirrorAt) — and nothing where anything stands between that face and the eye.
+ */
+export const MIRROR_GLOW_WGSL = /* wgsl */ `
+struct GlobalUniforms { uProjectionMatrix: mat3x3<f32>, uWorldTransformMatrix: mat3x3<f32>, uWorldColorAlpha: vec4<f32>, uResolution: vec2<f32> };
+@group(0) @binding(0) var<uniform> globalUniforms : GlobalUniforms;
+struct LocalUniforms { uTransformMatrix: mat3x3<f32>, uColor: vec4<f32>, uRound: f32 };
+@group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
+struct Look { uLook: vec4<f32>, uMirror: vec4<f32>, uMirror2: vec4<f32>, uMirror3: vec4<f32>, uSkyTop: vec4<f32>, uSkyLow: vec4<f32>, uSun: vec4<f32>, uGrade: vec4<f32>, uWide: vec4<f32>, uWide2: vec4<f32> };
+@group(2) @binding(0) var<uniform> look : Look;
+@group(2) @binding(1) var uMirrorHit : texture_2d<f32>;
+@group(2) @binding(2) var uMirrorH : texture_2d<f32>;
+@group(2) @binding(3) var uMirrorFrame : texture_2d<f32>;
+@group(2) @binding(4) var uMirrorSampler : sampler;
+@group(2) @binding(6) var uMirrorWide : texture_2d<f32>;
+@group(2) @binding(5) var uTop : texture_2d<f32>;
+struct VSOutput { @builtin(position) position: vec4<f32>, @location(0) vGround: vec2<f32> };
+@vertex
+fn mainVertex(@location(0) aPosition: vec2<f32>, @location(1) aGround: vec2<f32>) -> VSOutput {
+  let mvp = globalUniforms.uProjectionMatrix * globalUniforms.uWorldTransformMatrix * localUniforms.uTransformMatrix;
+  var out: VSOutput;
+  out.position = vec4<f32>((mvp * vec3<f32>(aPosition, 1.0)).xy, 0.0, 1.0);
+  out.vGround = aGround;
+  return out;
+}
+${lookSource("wgsl")}
+${MIRROR_WGSL}
+// The face a line of sight meets at a point (tiles), as the map's pass found it: the water's, or dry, what stands
+// (blue), and how much of it is water (alpha) — between the four columns round the point, one face. @see mirror
+fn faceAt(q: vec2<f32>) -> vec4<f32> { return textureSampleLevel(uMirrorHit, uMirrorSampler, q / look.uMirror3.xy, 0.0); }
+@fragment
+fn mainFragment(@builtin(position) pos: vec4<f32>, @location(0) vGround: vec2<f32>) -> @location(0) vec4<f32> {
+  // WHERE THE LINE OF SIGHT MEETS THE WATER'S FACE: a tile along both axes for every four half steps up — found by
+  // going where the last guess says, and asking again.
+  let g = vGround;
+  var t = faceAt(g).b / 4.0;
+  t = faceAt(g + vec2<f32>(t)).b / 4.0;
+  t = faceAt(g + vec2<f32>(t)).b / 4.0;
+  let p = g + vec2<f32>(t);
+  let w = faceAt(p);
+  // (Off the map, no water there, or the guesses never settled — a cliff: nothing.)
+  if (any(p < vec2<f32>(0.0)) || any(p > look.uMirror3.xy) || w.a < 0.5 || abs(w.b - 4.0 * t) > 0.4) { return vec4<f32>(0.0); }
+  // ITS RIPPLES, as the water has them. @see waterLook
+  let r = lookRipple(p, look.uLook.x);
+  let n = normalize(vec3<f32>(r * 0.06, 1.0));
+  // A LIGHT IN THE WATER, past what the picture can hold: a lit window is far brighter than the white it was drawn
+  // as, and its image in the water a streak of light where a wall's is a shadow. As much as the water's Fresnel
+  // gives back, and only as deep in the night as the grade takes — at sunset the sunlit reeds and walls are bright
+  // and warm too. (The rest of the picture the water mirrors itself, the grade given back. @see waterLook)
+  let gr = look.uGrade.rgb;
+  let deep = ${MIRROR_LAMP} * smoothstep(0.3, 0.5, 1.0 - min(gr.r, min(gr.g, gr.b)));
+  let fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, vec3<f32>(0.6124, 0.6124, 0.5)), 0.0), 5.0);
+  let refl = deep * clamp(fres * 1.5, 0.0, 0.5) * smoothstep(0.5, 1.0, w.a);
+  if (refl < 0.004) { return vec4<f32>(0.0); }
+  let m = mirrorAt(p, n, pos.xy, w.b);
+  if (max(m.lamp.r, max(m.lamp.g, m.lamp.b)) < 0.002) { return vec4<f32>(0.0); }
+  // WHAT STANDS BETWEEN IT AND THE EYE: on up the line toward it, the ground and what is built on it as high as the
+  // line, or a deck at the line's height. (A tile's own highest first: one look for most of them.)
+  let tiles = vec2<i32>(look.uMirror3.xy);
+  let size = vec2<i32>(textureDimensions(uMirrorH));
+  var cover = 0.0;
+  var u = 0.25;
+  for (var k = 0; k < 192; k++) {
+    let z = w.b + 4.0 * u;
+    if (z > look.uMirror3.z || u >= 48.0) { break; }
+    let q = p + vec2<f32>(u);
+    let tq = vec2<i32>(floor(q));
+    if (tq.x >= tiles.x || tq.y >= tiles.y) { break; }
+    // (Nothing in this tile as high as the line where it comes in — and the line only rises: on to the next.)
+    if (textureLoad(uTop, tq, 0).r < z - 0.4) {
+      let f = vec2<f32>(1.0) - fract(q);
+      u += max(min(f.x, f.y), 0.01) + 0.01;
+      continue;
+    }
+    let h = textureLoad(uMirrorH, min(vec2<i32>(q * 4.0), size - vec2<i32>(1)), 0);
+    let stands = max(h.b, mirrorGround(q, size));
+    cover = max(cover, max(smoothstep(-0.4, 0.4, stands - z), select(0.0, 1.0 - smoothstep(0.6, 1.4, abs(h.g - z)), h.g > -1000.0)));
+    if (cover > 0.98) { return vec4<f32>(0.0); }
+    u += 0.25;
+  }
+  // (Rolled off toward white, not cut at it: close up a lit wall's image is a screen tall, and clipped it was a flat
+  // white blot.)
+  return vec4<f32>(vec3<f32>(1.0) - exp(-1.6 * m.lamp * (refl * (1.0 - cover))), 0.0);
 }
 `;
 
@@ -2525,10 +2782,13 @@ in vec2 vPos;
 uniform vec4 uColor;
 uniform vec4 uWorldColorAlpha;
 uniform vec4 uLook;
+uniform vec4 uSkyTop;
+uniform vec4 uSkyLow;
+uniform vec4 uSun;
 out vec4 finalColor;
 ${lookSource("glsl")}
 void main() {
-  finalColor = vLook.x >= 0.0 ? waterLook(vColor, vLook, vPos, uLook) * uColor * uWorldColorAlpha : vColor;
+  finalColor = vLook.x >= 0.0 ? waterLook(vColor, vLook, vPos, uLook, uSkyTop, uSkyLow, uSun) * uColor * uWorldColorAlpha : vColor;
 }
 `;
 
@@ -2552,6 +2812,8 @@ export const waterShaderSource = () => ({
 
 export type GpuWaterLayer = {
   meshes: Mesh<Geometry, Shader>[];
+  /** What the water mirrors: the map's answer, its heights and last frame, bound to every band. @see mirror */
+  mirror: MirrorSources;
   /** How fouled each tile's water is, and the count of its changes last sent up. @see world/water/pollution */
   fouled: { src: BufferImageSource; of: Pollution; sent: number };
   /** Frames each band's roofed tier has gathered nothing. @see holdShown */
@@ -2692,13 +2954,20 @@ function gpuLayout(): GPUBindGroupLayoutEntry[][] {
       buffer: { type: "read-only-storage" },
     });
   }
+  // WHAT IT MIRRORS: the map's answer, the heights it was asked of, last frame, and how they are read. @see mirror
+  const m = 7 + FLOAT_FIELDS.length + BYTE_FIELDS.length + UINT_FIELDS.length;
+  own.push({ binding: m, visibility: FRAGMENT_STAGE, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } });
+  own.push({ binding: m + 1, visibility: FRAGMENT_STAGE, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } });
+  own.push({ binding: m + 2, visibility: FRAGMENT_STAGE, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } });
+  own.push({ binding: m + 3, visibility: FRAGMENT_STAGE, sampler: { type: "filtering" } });
+  own.push({ binding: m + 4, visibility: FRAGMENT_STAGE, texture: { sampleType: "float", viewDimension: "2d", multisampled: false } });
   return [[uniform(0)], [uniform(0)], own];
 }
 
 /** Which group each named resource belongs to — the other half Pixi infers. */
 function nameLayout(): Record<string, number>[] {
   const own: Record<string, number> = { water: 0 };
-  [...FLOAT_FIELDS, ...BYTE_FIELDS, ...UINT_FIELDS, "uShore", "look", "uCorner", "uCornerX", "uDeck", "uDeckAt"]
+  [...FLOAT_FIELDS, ...BYTE_FIELDS, ...UINT_FIELDS, "uShore", "look", "uCorner", "uCornerX", "uDeck", "uDeckAt", "uMirrorHit", "uMirrorH", "uMirrorFrame", "uMirrorSampler", "uMirrorWide"]
     .forEach((n, k) => { own[n] = 1 + k; });
   return [{ globalUniforms: 0 }, { localUniforms: 0 }, own];
 }
@@ -2863,6 +3132,8 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
   const under: Mesh<Geometry, Shader>[] = [];
   // ONE for every band, so a frame's clock is one upload and not one a band. @see waterLook
   const look = waterLookGroup;
+  // WHAT IT MIRRORS, a texel a column. @see mirror
+  const mirror = createMirrorSources(nx, ny);
   // (And how big a tile and a height unit are on the layer, for the falls' sheets, which have only pixels. @see pourOver)
   {
     const lk = look.uniforms.uLook as Float32Array;
@@ -2916,6 +3187,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
         uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex, look, uCorner: cornerTex, uCornerX: spareTex, uDeck: deckTex, uDeckAt: deckAtTex,
+        uMirrorHit: mirror.hit, uMirrorH: mirror.heights, uMirrorFrame: mirror.frame, uMirrorSampler: mirror.style, uMirrorWide: mirror.wide,
       },
     });
     const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
@@ -2953,6 +3225,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
         uDepth: depth, uGround: ground, uWash: washTex, uFoam: foamTex,
         uFx: fx, uFy: fy, uRoof: roof, uBrink: brinkTex,
         uTint: tint, uMaterial: material, uFalling: fallingTex, uPollution: fouledTex, uQuads: quads, uShore: shoreTex, look, uCorner: cornerTex, uCornerX: spareTex, uDeck: deckTex, uDeckAt: deckAtTex,
+        uMirrorHit: mirror.hit, uMirrorH: mirror.heights, uMirrorFrame: mirror.frame, uMirrorSampler: mirror.style, uMirrorWide: mirror.wide,
       },
     });
     const underMesh = new Mesh<Geometry, Shader>({ geometry: underGeom, shader: underShader });
@@ -2963,6 +3236,7 @@ export function createGpuWaterLayer(columns: ColumnField, bands: BandLayer, scal
 
   return {
     meshes,
+    mirror,
     fouled: { src: fouledTex, of: fouledOf, sent: fouledOf.rev },
     underIdle: new Uint16Array(meshes.length),
     under,
@@ -3638,6 +3912,9 @@ export function destroyGpuWaterLayer(wl: GpuWaterLayer) {
   }
   wl.meshes.length = 0;
   wl.under.length = 0;
+  // (What it mirrored: a frame later, as anything a batch may still hold. @see batches-keep-destroyed-sources)
+  const { hit, heights, frame } = wl.mirror;
+  setTimeout(() => { hit.destroy(); heights.destroy(); frame.destroy(); }, 500);
 }
 
 /**
@@ -3673,7 +3950,33 @@ export function fillBrinkOnHost(out: Float32Array, columns: ColumnField) {
  */
 /** How far into the night it is, 0 by day and 1 at its darkest: the sun's glints on the water go with the day. */
 let waterNight = 0;
-export function setWaterNight(n: number) { waterNight = Math.max(0, Math.min(1, n)); }
+/** THE HOUR'S LIGHT on the water: how far into the night, the sky it mirrors and the sun's glint. @see lightAt */
+export function setWaterLight(l: Light) {
+  waterNight = Math.max(0, Math.min(1, l.night));
+  const u = waterLookGroup.uniforms, t = u.uSkyTop as Float32Array, b = u.uSkyLow as Float32Array, sun = u.uSun as Float32Array;
+  if (t[0] === l.skyTop[0] && t[1] === l.skyTop[1] && t[2] === l.skyTop[2] && b[0] === l.skyLow[0] && b[1] === l.skyLow[1] && b[2] === l.skyLow[2]
+    && sun[0] === l.sun[0] && sun[1] === l.sun[1] && sun[2] === l.sun[2] && sun[3] === l.sun[3]) return;
+  t.set(l.skyTop); b.set(l.skyLow); sun.set(l.sun);
+  waterLookGroup.update();
+}
+
+/** The grade the map is multiplied by this frame (0xRRGGBB). @see MIRROR_GLOW_WGSL */
+export function setWaterGrade(colour: number) {
+  const gr = waterLookGroup.uniforms.uGrade as Float32Array;
+  const r = ((colour >> 16) & 255) / 255, g = ((colour >> 8) & 255) / 255, b = (colour & 255) / 255;
+  if (gr[0] === r && gr[1] === g && gr[2] === b) return;
+  gr[0] = r; gr[1] = g; gr[2] = b;
+  waterLookGroup.update();
+}
+
+/** Whether the grade is laid over the screen (true) or in the map's own container, by the light over the night. @see mirror renderStrip */
+export function setWaterGradeOver(over: boolean) {
+  const gr = waterLookGroup.uniforms.uGrade as Float32Array;
+  const w = over ? 1 : 0;
+  if (gr[3] === w) return;
+  gr[3] = w;
+  waterLookGroup.update();
+}
 
 export function drawGpuWater(
   wl: GpuWaterLayer, columns: ColumnField, bands: BandLayer, dt: number,

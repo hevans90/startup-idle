@@ -6,6 +6,7 @@
  * the behaviour log is told. @see game/training
  */
 import { dataPlantJump, dataPlantSpeed } from "../game/processors";
+import { TRUTH_JUMP, TRUTH_SPEED, resetGroundTruth, spendGroundTruth, truthShare } from "../game/ground-truth";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -22,7 +23,8 @@ import { useGeneratorStore } from "./generators.store";
 import { useGenerationStore } from "./generation.store";
 
 type TrainingState = {
-  current: { dataset: DatasetId; endsAt: number } | null;
+  /** The run under way; `truth`, how full the ground-truth bank was when it started. @see spendGroundTruth */
+  current: { dataset: DatasetId; endsAt: number; truth?: number } | null;
   /** Levels learned this company, by dataset. */
   skills: Partial<Record<DatasetId, number>>;
   /** Why a run cannot start now, or null if it can. */
@@ -42,11 +44,14 @@ export const useTrainingStore = create<TrainingState>()(
       current: null,
       skills: {},
       // Shorter with the Pre-trained module and Ego fused in, the data plants busy, and Self-Improving. @see dataPlantSpeed
-      seconds: () => (TRAINING_SECONDS * PRE_TRAINED[moduleLevel("pre-trained")] * fusionNow().trainingTimeMult) / dataPlantSpeed() / cultureNow().trainingSpeed / farmSpeed(),
+      // (And ground truth banked by the farms' drones. @see groundTruth)
+      seconds: () => (TRAINING_SECONDS * PRE_TRAINED[moduleLevel("pre-trained")] * fusionNow().trainingTimeMult) / dataPlantSpeed() / cultureNow().trainingSpeed / farmSpeed() / (1 + TRUTH_SPEED * truthShare()),
       blocked: () => (get().current ? "running" : null),
       start: (id, now = Date.now()) => {
         if (get().blocked() || !dataset(id)) return false;
-        set({ current: { dataset: id, endsAt: now + get().seconds() * 1000 } });
+        const secs = get().seconds();
+        const truth = spendGroundTruth();
+        set({ current: { dataset: id, endsAt: now + secs * 1000, ...(truth > 0 ? { truth } : {}) } });
         return true;
       },
       tick: (now = Date.now()) => {
@@ -54,12 +59,12 @@ export const useTrainingStore = create<TrainingState>()(
         if (!c || now < c.endsAt) return;
         set((s) => ({ current: null, skills: { ...s.skills, [c.dataset]: Math.min(MAX_SKILL, (s.skills[c.dataset] ?? 0) + 1) } }));
         const d = dataset(c.dataset);
-        if (d) useAiSingularityStore.setState((s) => ({ value: Math.min(meterCap(s.value), s.value + d.jump * fusionNow().trainingJumpMult * dataPlantJump()) }));
+        if (d) useAiSingularityStore.setState((s) => ({ value: Math.min(meterCap(s.value), s.value + d.jump * fusionNow().trainingJumpMult * dataPlantJump() * (1 + TRUTH_JUMP * (c.truth ?? 0))) }));
         useGenerationStore.getState().recordTraining(c.dataset);
         // SELF-IMPROVING'S RULE: every card a rank up, a while. @see SURGE_SECONDS
         if (cultureNow().surge) useGeneratorStore.getState().surgeDeck(now);
       },
-      reset: () => set({ current: null, skills: {} }),
+      reset: () => { resetGroundTruth(); set({ current: null, skills: {} }); },
     }),
     {
       name: "training",

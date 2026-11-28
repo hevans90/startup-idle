@@ -101,7 +101,7 @@ export type TownView = {
    */
   wildfire: (Spot & { dryness: number; burning: number; burnt: number; buildings: number }) | null;
   /** The levee a flood could be met with: the walls it would be, their price, and raising it. @see leveeCells */
-  levee: { walls: number; price: number; build: () => void } | null;
+  levee: { walls: number; price: number; build: () => void; walled: boolean } | null;
   /** The kinds a flood's evacuation has put out of their homes. */
   evacuated: readonly GeneratorId[];
   /** A port, on a map with any. */

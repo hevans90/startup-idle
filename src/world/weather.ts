@@ -108,3 +108,97 @@ export function runoffAt(t: number, lying: Lying = groundAt(t)): { off: number; 
   const up = EVAPORATE * Math.max(0, w.temp) / 20 * (1 - w.fall);
   return { off, up };
 }
+
+/**
+ * THE WIND at `t` (years): a prevailing way across the map, wandering a little either side of it, a unit step in
+ * cells; and how strong, 0–1 — stronger in a storm and through autumn and winter, gusting over minutes.
+ */
+export const PREVAILING: readonly [number, number] = [0.866, -0.5];
+const WIND_SALT = 0x3172, GUST_SALT = 0x91b5;
+export function windAt(t: number): [number, number] {
+  const a = Math.atan2(PREVAILING[1], PREVAILING[0]) + (fbm1(t * 200, WIND_SALT) - 0.5) * 1.6;
+  return [Math.cos(a), Math.sin(a)];
+}
+export function windStrength(t: number): number {
+  const y = t - Math.floor(t), w = weatherAt(t);
+  return clamp01(0.12 + 0.55 * fbm1(t * 300, GUST_SALT) + 0.12 * Math.cos(2 * Math.PI * (y - 0.75)) + 0.35 * w.storm + 0.15 * w.fall);
+}
+
+/**
+ * FRONTS: the weather comes in over the upwind edge and crosses the map along the prevailing wind, so the weather
+ * over a cell is the weather of a little while ago or a little while yet — {@link frontLag} years after it is at
+ * the map's origin. Still pure: a place's weather is `weatherAt` at its own time.
+ */
+/** How fast a front crosses, cells a year: a hundred cells in half a minute or so. */
+export const FRONT_SPEED = 11520;
+export const frontLag = (u: number, v: number) => (u * PREVAILING[0] + v * PREVAILING[1]) / FRONT_SPEED;
+export const weatherOver = (t: number, u: number, v: number) => weatherAt(t - frontLag(u, v));
+
+/** What lies, as lately reckoned: by the quarter second, the last few hundred asked for. */
+const LIE_Q = 14400, lies = new Map<number, Lying>();
+function groundNear(t: number): Lying {
+  const k = Math.round(t * LIE_Q);
+  let l = lies.get(k);
+  if (!l) {
+    if (lies.size > 600) lies.clear();
+    lies.set(k, (l = groundAt(k / LIE_Q)));
+  }
+  return l;
+}
+/** What lies over a cell, to the quarter second. @see groundAt */
+export const groundOver = (t: number, u: number, v: number) => groundNear(t - frontLag(u, v));
+
+/**
+ * THE SKY, by the season and the weather: what cloud there is and where it sits. Heights are half steps over the
+ * highest roof (below 0 is among the roofs).
+ * - spring: quick broken cumulus, showers with the sun between;
+ * - summer: fair cumulus riding high, and on a hot wet day storm cells towering, dark under;
+ * - autumn: a low grey sheet, long rain, fog on still damp mornings;
+ * - winter: a flat lid, snow squalls out of it, and clear frosty spells.
+ */
+export type Sky = {
+  /** How much of the sky is cloud, 0–1. */
+  cover: number;
+  /** The cloud's base and its top, half steps over the highest roof. */
+  base: number;
+  top: number;
+  /** A flat sheet (1) or heaped (0). */
+  flat: number;
+  /** How grey it is under, 0–1; how much of a storm cell, 0–1. */
+  dark: number;
+  storm: number;
+  /** What hangs under it, falling: rain and snow, 0–1 each. */
+  rain: number;
+  snow: number;
+  /** Fog lying on the ground, 0–1. */
+  fog: number;
+  /** High thin streaks far above it all, 0–1. */
+  wisps: number;
+  /** How cold, 0–1 (frost and under at 1). */
+  cold: number;
+};
+const FAIR_SALT = 0x2c9d, WISP_SALT = 0x66f1, FOG_SALT = 0x0f09;
+const mix = (a: number, b: number, k: number) => a + (b - a) * k;
+export function skyAt(t: number): Sky {
+  const y = t - Math.floor(t), w = weatherAt(t);
+  // The wet before it falls: cloud gathers ahead of the rain and lingers after it.
+  const wet = fbm1(t * SPELLS, WET_SALT) + seasonWet(y);
+  const gather = smooth(0.4, 0.58, wet);
+  // How much each season's own sky is in it: summer's heaps, the cold half's sheets.
+  const summer = smooth(8, 16, seasonTemp(y)), sheet = clamp01((1 - summer) * (0.35 + 0.65 * gather) + 0.5 * w.snow);
+  const fair = 0.1 + 0.45 * fbm1(t * SPELLS * 1.7, FAIR_SALT) * (0.6 + 0.4 * summer);
+  // (Never the whole sky: a lid over all the map is a grey slab on it. What falls, falls from broken cloud.)
+  const cover = clamp01(Math.max(fair * (1 - 0.4 * sheet), gather * (0.45 + 0.15 * sheet), smooth(0, 0.15, w.fall) * (0.6 + 0.25 * w.rain - 0.08 * w.snow)));
+  const flat = clamp01(sheet * (1 - w.storm));
+  // Fair cloud rides clear of the roofs; a sheet sits on them; rain brings it down; a storm stands from the roofs to far above.
+  const base = mix(mix(22, 6, flat), -4, smooth(0, 0.55, Math.max(w.fall * 0.8, w.storm)));
+  const top = base + mix(mix(16, 9, flat), 46, w.storm) + 6 * w.fall;
+  const cold = smooth(6, -2, w.temp);
+  // Fog: a still, damp, cool spell with nothing falling, in the cold half of the year.
+  const still = 1 - smooth(0.25, 0.5, fbm1(t * 300, GUST_SALT));
+  const fog = clamp01((1 - summer) * still * smooth(0.42, 0.54, wet) * (1 - smooth(0.02, 0.2, w.fall)) * smooth(0.45, 0.7, fbm1(t * SPELLS * 2.3, FOG_SALT)) * 1.6);
+  const wisps = clamp01((fbm1(t * SPELLS * 0.9, WISP_SALT) - 0.35) * 2.2) * (1 - 0.7 * flat);
+  return { cover, base, top, flat, dark: clamp01(0.75 * w.rain + 0.1 * w.snow + 0.5 * w.storm + 0.15 * flat * gather), storm: w.storm, rain: w.rain, snow: w.snow, fog, wisps, cold };
+}
+/** The sky over a cell. @see frontLag */
+export const skyOver = (t: number, u: number, v: number) => skyAt(t - frontLag(u, v));

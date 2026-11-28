@@ -24,7 +24,7 @@
  */
 import { Container } from "pixi.js";
 
-import { bandCount } from "../iso";
+import { bandCount, HH } from "../iso";
 
 export type BandLayer = {
   /** Add this to the viewport. */
@@ -95,6 +95,13 @@ export type BandLayer = {
    * Hidden outside that view. @see sewer-layer
    */
   sewerOf: Container[];
+  /**
+   * HOW FAR UP THE SCREEN EACH BAND'S TALLEST THING REACHES past its own row, in bands: a tower stood just below the
+   * window shows its top in it, and the cull must keep its band. Looked over a few bands a frame. @see updateReach
+   */
+  reach: Float32Array;
+  /** The band {@link updateReach} looks at next. */
+  reachAt: number;
   /** How solid the ground is drawn, so {@link setGroundAlpha} can skip a no-op. */
   groundAlpha: number;
   readonly w: number;
@@ -103,8 +110,11 @@ export type BandLayer = {
   visibleHi: number;
 };
 
-/** Bands to a chunk. @see BandLayer.chunks */
-export const BAND_CHUNK = 16;
+/**
+ * Bands to a chunk. Small, so few bands off the screen are drawn at either edge: four took a third of the draws off
+ * a town seen close; the root's list of chunks is still short. @see BandLayer.chunks
+ */
+export const BAND_CHUNK = 4;
 
 /** Whether band b is drawn: its chunk is. @see BandLayer.chunks */
 export const bandShown = (layer: BandLayer, b: number) =>
@@ -177,7 +187,7 @@ export function createBandLayer(w: number, h: number): BandLayer {
 
   return {
     root, bands, chunks, staticOf, underOf, pavedOf, structureOf, dynamicOf, sewerOf,
-    w, h, visibleLo: 0, visibleHi: n - 1, groundAlpha: 1,
+    w, h, visibleLo: 0, visibleHi: n - 1, groundAlpha: 1, reach: new Float32Array(n), reachAt: 0,
   };
 }
 
@@ -261,4 +271,48 @@ export function hideUnusedMovers(layer: BandLayer): void {
     if (dyn.children.length > 0) { if (!used[b]) { used[b] = 1; dyn.visible = true; } }
     else if (!used[b] && dyn.visible) dyn.visible = false;
   }
+}
+
+/** A mesh of our own, which Pixi cannot measure, saying the highest it draws: its top, in the map's space. */
+export type ReachUp = { topY?: number };
+/** The furthest below the window a band is looked for that still reaches into it. */
+const MAX_REACH = 40;
+
+type Viewish = ReachUp & { children: Viewish[]; y: number; visible: boolean; scale: { y: number }; bounds?: { minY: number; maxY: number }; geometry?: { attributes?: Record<string, unknown> } };
+
+/**
+ * LOOK OVER `count` BANDS' tall things — the next ones in turn, so the whole map is gone over every second or so —
+ * and keep how far up each reaches. `scale` is the map's. @see BandLayer.reach
+ */
+export function updateReach(layer: BandLayer, scale: number, count = 8): void {
+  const n = layer.reach.length, row = HH * scale;
+  for (let k = 0; k < Math.min(count, n); k++) {
+    const b = layer.reachAt;
+    layer.reachAt = (b + 1) % n;
+    let top = Infinity;
+    const walk = (c: Viewish, y: number) => {
+      for (const v of c.children) {
+        if (!v.visible) continue;
+        const at = y + v.y;
+        // (A mesh of our own drawing has no positions Pixi can measure: what it stands up to is said for it, if it
+        // stands up at all — the water lies flat.)
+        // (Nothing drawn in it yet, a Graphics cleared: no bounds, not bounds at its origin.)
+        const b = v.bounds && v.bounds.maxY > v.bounds.minY ? v.bounds : null;
+        if (v.geometry && !v.geometry.attributes?.aPosition) { if (v.topY !== undefined) top = Math.min(top, at + v.topY); }
+        else if (b && !v.children.length) top = Math.min(top, at + b.minY * v.scale.y);
+        if (v.children.length) walk(v, at);
+      }
+    };
+    walk(layer.structureOf[b] as unknown as Viewish, 0);
+    const up = Number.isFinite(top) ? (b * row - top) / row : 0;
+    layer.reach[b] = Math.max(0, up);
+  }
+}
+
+/** The last band to draw, `hi` widened to the bands below the window whose tall things reach up into it. */
+export function reachInto(layer: BandLayer, hi: number, viewBottom: number, scale: number): number {
+  const row = HH * scale;
+  let last = hi;
+  for (let b = Math.max(0, hi + 1); b < layer.reach.length && b <= hi + MAX_REACH; b++) if ((b - layer.reach[b]) * row < viewBottom) last = b;
+  return last;
 }

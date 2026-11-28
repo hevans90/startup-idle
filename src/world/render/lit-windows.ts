@@ -20,13 +20,13 @@
  * masses (@see structures/projects/model): each floor of each seen face, by its facade — windows in their bays, a
  * ribbon, a wall of glass.
  *
- * HIDDEN BY WHAT STANDS IN FRONT. There is no depth to ask: a window looks toward the eye — a tile nearer along
- * both axes for every four half steps the line of sight climbs — over what is built (@see ground-mesh castGround),
- * and if a roof stands in that line the window is behind it. A window whole, shown or not: a half-hidden one is
- * one or the other.
+ * HIDDEN BY WHAT STANDS IN FRONT, as its wall is: each window drawn in the band of the tile whose wall it is in,
+ * just after what is built there — so a tree, a car, a nearer building, drawn later, is over it as it is over the
+ * wall, a part of it or all. (One sheet of them over the whole map shone through every tree in a street.) A window
+ * across two tiles' walls is cut where they meet, each part in its own. @see bands
  * @see gi.ts, lights.ts
  */
-import { Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup, type Container } from "pixi.js";
+import { Buffer, BufferUsage, Geometry, GlProgram, GpuProgram, Mesh, Shader, UniformGroup } from "pixi.js";
 import { HALF_STEPS_PER_M, TILES_PER_M } from "../agents/cars/models";
 import { footprintCells, idx, inBounds, type Grid, type Structure } from "../grid";
 import { houseOf } from "../houses/models";
@@ -35,13 +35,21 @@ import { HOUSE_PLOT } from "../landmarks/models";
 import { hasYard } from "../landmarks/yard";
 import { structureDef } from "../structures/def";
 import { lookOf } from "../structures/projects/looks";
-import { bays, floorsOf, type Facade, type Mass } from "../structures/projects/model";
+import { bays, floorsOf, type Building, type Facade, type Footprint, type Mass } from "../structures/projects/model";
+import type { Pen } from "../structures/projects/pen";
 import { floorsFor, kitIdOf } from "../structures/tiles-renderer";
 import { WINDOW_FLOATS, windowLight } from "./gi";
+import type { BandLayer } from "./bands";
+import { oncePerRender, syncOnce } from "./frame-uniforms";
 import { SHADE_PER_TILE, type GroundMesh } from "./ground-mesh";
 
-/** A window: on the face toward +u (`face` 0, at `u = at`, from `a0` to `a1` along `v`) or toward +v (1), tiles; from `z0` to `z1` up, half steps; and its floor. */
-export type Win = { face: 0 | 1; at: number; a0: number; a1: number; z0: number; z1: number; floor: number };
+/**
+ * A window: on the face toward +u (`face` 0, at `u = at`, from `a0` to `a1` along `v`) or toward +v (1), tiles; from
+ * `z0` to `z1` up, half steps; and its floor. A pane of a window of several — lights either side of a mullion, under
+ * a transom — has where the whole window starts (`ra`, `rz`), the room all its panes are lit by, and `part` past its
+ * first: the one room's light falls outside once. @see seedOf
+ */
+export type Win = { face: 0 | 1; at: number; a0: number; a1: number; z0: number; z1: number; floor: number; ra?: number; rz?: number; part?: boolean };
 type V3 = [number, number, number];
 
 /** The windows a set of panes' triangles make: the two halves of a pane are one window, and a pane's own edge, seen side on, is none. */
@@ -74,17 +82,117 @@ function kitWins(kit: string) {
   return k;
 }
 
-/** A facade's glass on one floor of one face, as rectangles: from `a0` to `a1` along the face, tiles, and `z0` to `z1` up it, half steps. */
-function glassOf(fa: Facade, len: number, z0: number, z1: number): [number, number, number, number][] {
-  if (fa.kind === "windows") return bays(len, fa.w, fa.gap, fa.edge ?? 0.12).map(([a, b]) => [a, b, z0 + fa.sill, z1 - fa.head]);
-  // (A ribbon, a wall of glass: a room's width of it each, so each is lit by itself.)
-  const rooms = (e: number, s0: number, s1: number): [number, number, number, number][] => {
-    const n = Math.max(1, Math.round((len - e * 2) / 0.32)), w = (len - e * 2) / n;
-    return Array.from({ length: n }, (_v, k) => [e + k * w + 0.012, e + (k + 1) * w - 0.012, s0, s1]);
+/** A pane of a facade's glass on one floor of one face: from `a0` to `a1` along the face, tiles, and `z0` to `z1` up it, half steps; the room it lights (its window's start), and whether it is not its window's first. */
+type Pane = { a0: number; a1: number; z0: number; z1: number; ra: number; rz: number; part: boolean };
+
+/** The spans between dividers `half` wide at `cuts`, from `lo` to `hi`: the glass a frame leaves. */
+const between = (lo: number, hi: number, cuts: readonly number[], half: number): [number, number][] => {
+  const out: [number, number][] = [];
+  let from = lo;
+  for (const c of cuts) { if (c - half > from + 0.02) out.push([from, c - half]); from = c + half; }
+  if (hi > from + 0.02) out.push([from, hi]);
+  return out;
+};
+
+/**
+ * A FACADE'S GLASS on one floor of one face, pane by pane, as the model draws it: a wide window's two lights and its
+ * transom, a ribbon's or a curtain wall's panes between their mullions, the glass between fins. One lit rectangle over
+ * a whole window lit its frame with it — a pale board behind the glass, out of step with the bars across it.
+ * @see structures/projects/model drawFloor
+ */
+function glassOf(fa: Facade, len: number, z0: number, z1: number): Pane[] {
+  const out: Pane[] = [];
+  const rooms = (spans: [number, number][], s0: number, s1: number) => { for (const [a, b] of spans) out.push({ a0: a, a1: b, z0: s0, z1: s1, ra: a, rz: s0, part: false }); };
+  if (fa.kind === "windows") {
+    const s0 = z0 + fa.sill, s1 = z1 - fa.head;
+    if (s1 <= s0) return out;
+    for (const [a, b] of bays(len, fa.w, fa.gap, fa.edge ?? 0.12)) {
+      const wide = b - a > 0.27, mid = (a + b) / 2, t = s1 - (s1 - s0) * 0.28;
+      const across: [number, number][] = wide ? [[a, mid - 0.012], [mid + 0.012, b]] : [[a, b]];
+      const up: [number, number][] = wide && s1 - s0 > 0.9 ? [[s0, t - 0.012], [t + 0.012, s1]] : [[s0, s1]];
+      let first = true;
+      for (const [p0, p1] of across) for (const [q0, q1] of up) { out.push({ a0: p0, a1: p1, z0: q0, z1: q1, ra: a, rz: s0, part: !first }); first = false; }
+    }
+    return out;
+  }
+  if (fa.kind === "ribbon") {
+    const e = fa.edge ?? 0.1, s0 = z0 + fa.sill, s1 = z1 - fa.head;
+    // (Between its mullions, where it has them; else a room's width of it each, so each is lit by itself.)
+    const cuts: number[] = [];
+    if (fa.frame !== undefined) for (let a = e + 0.33; a < len - e - 0.1; a += 0.33) cuts.push(a);
+    else { const n = Math.max(1, Math.round((len - e * 2) / 0.32)); for (let k = 1; k < n; k++) cuts.push(e + ((len - e * 2) * k) / n); }
+    rooms(between(e, len - e, cuts, 0.012), s0, s1);
+    return out;
+  }
+  if (fa.kind === "curtain") {
+    const cuts: number[] = [];
+    for (let a = fa.every; a < len - 0.02; a += fa.every) cuts.push(a);
+    rooms(between(0, len, cuts, 0.014), z0 + (fa.spandrel !== undefined ? 0.22 : 0), z1 - 0.03);
+    return out;
+  }
+  if (fa.kind === "fins") {
+    const cuts: number[] = [];
+    for (let a = fa.every / 2; a < len - 0.02; a += fa.every) cuts.push(a);
+    rooms(between(0.02, len - 0.02, cuts, 0.022), z0 + 0.05, z1);
+    return out;
+  }
+  return out;
+}
+
+/** A rectangle of a face that something drawn on or just in front of it hides: along it, tiles; up it, half steps. */
+type Cover = { a0: number; a1: number; z0: number; z1: number };
+
+/**
+ * WHAT A BUILDING'S FIT-OUT HIDES of each face: the opaque boxes and paint its `details` put on the wall or just
+ * proud of it — a sign, a door, a shop window over the facade's own, a panel. The lit panes draw over the whole
+ * building, so glass under these lit through them: a sign with a lit window behind it. Each is where it shows ON
+ * the wall: a box standing `d` proud is seen `d` along and `4d` down (half a tile to a half step, two ways).
+ */
+function coversOf(b: Building, f: Footprint, m: Mass, face: 0 | 1): Cover[] {
+  if (!b.details) return [];
+  const out: Cover[] = [];
+  const wall = face === 1 ? m.v1 : m.u1, lo = face === 1 ? m.u0 : m.v0, hi = face === 1 ? m.u1 : m.v1;
+  const add = (a0: number, a1: number, z0: number, z1: number) => {
+    const c0 = Math.max(lo, a0), c1 = Math.min(hi, a1);
+    if (c1 - c0 > 0.01 && z1 - z0 > 0.01) out.push({ a0: c0 - lo, a1: c1 - lo, z0, z1 });
   };
-  if (fa.kind === "ribbon") return rooms(fa.edge ?? 0.1, z0 + fa.sill, z1 - fa.head);
-  if (fa.kind === "curtain" || fa.kind === "fins") return rooms(0.03, z0 + (fa.kind === "curtain" && fa.spandrel !== undefined ? 0.3 : 0.08), z1 - 0.08);
-  return [];
+  const solid = (alpha?: number) => alpha === undefined || alpha >= 0.9;
+  const nop = () => {};
+  const pen: Pen = {
+    P: () => [0, 0], cu0: -1e9, cu1: 1e9, cv0: -1e9, cv1: 1e9, sc: 1,
+    poly: nop, shadow: nop, flat: nop, strut: nop, dot: nop, slope: nop, gable: nop, cylinder: nop,
+    onV: (v, a0, a1, z0, z1, _c, alpha) => { if (face === 1 && solid(alpha) && v >= wall - 1e-3 && v <= wall + 0.06) add(a0 - (v - wall), a1, z0 - 4 * (v - wall), z1); },
+    onU: (u, b0, b1, z0, z1, _c, alpha) => { if (face === 0 && solid(alpha) && u >= wall - 1e-3 && u <= wall + 0.06) add(b0 - (u - wall), b1, z0 - 4 * (u - wall), z1); },
+    box: (u0, v0, u1, v1, z0, z1, _c, o) => {
+      if (!solid(o?.alpha)) return;
+      const [n0, n1, a0, a1] = face === 1 ? [v0, v1, u0, u1] : [u0, u1, v0, v1];
+      // (On the wall or standing off it a little: a sign, a door's frame — not a bench out on the paving.)
+      if (n0 > wall + 0.02 || n1 <= wall + 1e-3 || n1 - wall > 0.35) return;
+      const d = n1 - wall;
+      add(a0 - d, a1, z0 - 4 * d, z1);
+    },
+  };
+  b.details(pen, f);
+  return out;
+}
+
+/** A pane less what covers it: the pieces of it left showing, the first keeping the pane's own `part`. */
+function uncovered(g: Pane, covers: readonly Cover[]): Pane[] {
+  let parts = [g];
+  for (const c of covers) {
+    const next: Pane[] = [];
+    for (const q of parts) {
+      if (c.a1 <= q.a0 || c.a0 >= q.a1 || c.z1 <= q.z0 || c.z0 >= q.z1) { next.push(q); continue; }
+      const keep = (a0: number, a1: number, z0: number, z1: number) => { if (a1 - a0 > 0.03 && z1 - z0 > 0.06) next.push({ ...q, a0, a1, z0, z1 }); };
+      keep(q.a0, q.a1, q.z0, Math.max(q.z0, c.z0));
+      keep(q.a0, q.a1, Math.min(q.z1, c.z1), q.z1);
+      const z0 = Math.max(q.z0, c.z0), z1 = Math.min(q.z1, c.z1);
+      keep(q.a0, Math.max(q.a0, c.a0), z0, z1);
+      keep(Math.min(q.a1, c.a1), q.a1, z0, z1);
+    }
+    parts = next;
+  }
+  return parts.map((q, k) => (k === 0 ? q : { ...q, part: true }));
 }
 
 /**
@@ -111,14 +219,15 @@ export function windowsOf(s: Structure): Win[] {
   }
   if (def.render.rendererId !== "project") return [];
   // (A landmark in its yard is its own three tiles of it, the yard beside. @see landmarks/models landmarkTris)
-  const b = lookOf(s.def, hasYard(s) ? HOUSE_PLOT : { w: s.w, h: s.h }), ou = s.x - 0.5, ov = s.y - 0.5;
+  const fp = hasYard(s) ? HOUSE_PLOT : { w: s.w, h: s.h }, b = lookOf(s.def, fp), ou = s.x - 0.5, ov = s.y - 0.5;
   let base = 0;
   for (const m of b.masses as readonly Mass[]) {
     const { n, h } = floorsOf(m);
+    const coverV = coversOf(b, fp, m, 1), coverU = coversOf(b, fp, m, 0);
     for (let k = 0; k < n; k++) {
       const fa = k === 0 && m.ground ? m.ground : m.facade, z0 = m.z0 + k * h, z1 = z0 + h;
-      for (const [a, c, s0, s1] of glassOf(fa, m.u1 - m.u0, z0, z1)) out.push({ face: 1, at: ov + m.v1, a0: ou + m.u0 + a, a1: ou + m.u0 + c, z0: s0, z1: s1, floor: base + k });
-      for (const [a, c, s0, s1] of glassOf(fa, m.v1 - m.v0, z0, z1)) out.push({ face: 0, at: ou + m.u1, a0: ov + m.v0 + a, a1: ov + m.v0 + c, z0: s0, z1: s1, floor: base + k });
+      for (const g of glassOf(fa, m.u1 - m.u0, z0, z1).flatMap((g) => uncovered(g, coverV))) out.push({ face: 1, at: ov + m.v1, a0: ou + m.u0 + g.a0, a1: ou + m.u0 + g.a1, z0: g.z0, z1: g.z1, floor: base + k, ra: ou + m.u0 + g.ra, rz: g.rz, part: g.part });
+      for (const g of glassOf(fa, m.v1 - m.v0, z0, z1).flatMap((g) => uncovered(g, coverU))) out.push({ face: 0, at: ou + m.u1, a0: ov + m.v0 + g.a0, a1: ov + m.v0 + g.a1, z0: g.z0, z1: g.z1, floor: base + k, ra: ov + m.v0 + g.ra, rz: g.rz, part: g.part });
     }
     base += n;
   }
@@ -136,7 +245,7 @@ export function hasWindows(s: Structure): boolean {
 
 /** A window's own number, 0–1: what its hours and its colour are worked out from. The same every time it is asked. */
 export function seedOf(id: number, w: Win): number {
-  let h = Math.imul(id + 1, 0x9e3779b1) ^ Math.imul(Math.round(w.a0 * 97) + w.face * 7919, 0x85ebca6b) ^ Math.imul(Math.round(w.z0 * 31) + 13, 0xc2b2ae35);
+  let h = Math.imul(id + 1, 0x9e3779b1) ^ Math.imul(Math.round((w.ra ?? w.a0) * 97) + w.face * 7919, 0x85ebca6b) ^ Math.imul(Math.round((w.rz ?? w.z0) * 31) + 13, 0xc2b2ae35);
   h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12;
   return ((h >>> 0) % 4096) / 4096;
 }
@@ -304,8 +413,10 @@ export type LitWindows = {
   tick: (night: number, t: number, share: number, cut?: ReadonlySet<number>) => void;
   /** Every window as a light for the map's own — seen or not, it shines — each just outside its wall at its own height, `k` strong; and a count that moves when they do. @see gi windowLight */
   emitters: (k: number) => { data: Float32Array; n: number; rev: number };
-  /** How many windows are drawn, and how many were hidden behind something. */
-  count: () => { shown: number; hidden: number };
+  /** How many windows are drawn. */
+  count: () => { shown: number };
+  /** The bands they are drawn in. */
+  readonly bands: BandLayer;
   destroy: () => void;
 };
 
@@ -318,10 +429,14 @@ const HALO = 0.55, HALO_MIN = 0.035, HALO_MIN_Z = 0.16;
 /** The most of a frame given to working windows out, ms: what is left is owed to the frames after. */
 const BUDGET_MS = 3;
 
-/** The lit windows, as `world`'s child — the map's own container — so they sit on their windows through every pan and zoom, in the frame the map moves. */
-export function createLitWindows(world: Container, zIndex: number): LitWindows {
+/** A band's windows: a mesh, drawn after what is built in it. */
+type Part = { mesh: Mesh<Geometry, Shader>; vb: Buffer; ib: Buffer; quads: number };
+
+/** The lit windows, in `bands`: a mesh a band that has any, each just over what is built in it. */
+export function createLitWindows(bands: BandLayer): LitWindows {
   const none = () => ({ value: new Float32Array([-1, -1, -1, -1]), type: "vec4<f32>" as const });
-  const uniforms = new UniformGroup({ uNight: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" }, uCutA: none(), uCutB: none(), uCutC: none(), uCutD: none() });
+  // (Sent once a render, not once a band's draw. @see frame-uniforms)
+  const uniforms = oncePerRender(new UniformGroup({ uNight: { value: new Float32Array([0, 0, 0, 0]), type: "vec4<f32>" }, uCutA: none(), uCutB: none(), uCutC: none(), uCutD: none() }));
   program ??= {
     gpu: GpuProgram.from({
       vertex: { source: WGSL, entryPoint: "mainVertex" }, fragment: { source: WGSL, entryPoint: "mainFragment" }, name: "lit-windows",
@@ -330,31 +445,47 @@ export function createLitWindows(world: Container, zIndex: number): LitWindows {
     }),
     gl: GlProgram.from({ vertex: GLSL_VERTEX, fragment: GLSL_FRAGMENT, name: "lit-windows" }),
   };
-  const vb = new Buffer({ data: new Float32Array(F * 4), usage: BufferUsage.VERTEX | BufferUsage.COPY_DST });
-  const ib = new Buffer({ data: new Uint32Array(6), usage: BufferUsage.INDEX | BufferUsage.COPY_DST });
-  const at = (o: number, format: "float32x2" | "float32x3") => ({ buffer: vb, format, stride: F * 4, offset: o * 4 });
-  const geometry = new Geometry({
-    attributes: { aPosition: at(0, "float32x2"), aUv: at(2, "float32x2"), aCore: at(4, "float32x2"), aSeed: at(6, "float32x2"), aColor: at(8, "float32x3"), aOwner: at(11, "float32x2") },
-    indexBuffer: ib,
-  });
-  const mesh = new Mesh<Geometry, Shader>({ geometry, shader: new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { lit: uniforms } }) });
-  mesh.eventMode = "none";
-  mesh.blendMode = "add";
-  mesh.zIndex = zIndex;
-  mesh.visible = false;
-  world.addChild(mesh);
-  let seen = "", shown = 0, hidden = 0;
+  const shader = syncOnce(new Shader({ gpuProgram: program.gpu, glProgram: program.gl, resources: { lit: uniforms } }));
+  const parts = new Map<number, Part>();
+  let visible = false;
+  const partOf = (b: number): Part => {
+    let p = parts.get(b);
+    if (p) return p;
+    const vb = new Buffer({ data: new Float32Array(F * 4), usage: BufferUsage.VERTEX | BufferUsage.COPY_DST });
+    const ib = new Buffer({ data: new Uint32Array(6), usage: BufferUsage.INDEX | BufferUsage.COPY_DST });
+    const at = (o: number, format: "float32x2" | "float32x3") => ({ buffer: vb, format, stride: F * 4, offset: o * 4 });
+    const geometry = new Geometry({
+      attributes: { aPosition: at(0, "float32x2"), aUv: at(2, "float32x2"), aCore: at(4, "float32x2"), aSeed: at(6, "float32x2"), aColor: at(8, "float32x3"), aOwner: at(11, "float32x2") },
+      indexBuffer: ib,
+    });
+    const mesh = new Mesh<Geometry, Shader>({ geometry, shader });
+    mesh.eventMode = "none";
+    mesh.blendMode = "add";
+    mesh.visible = visible;
+    // (Over what is built in the band, under what moves in it.)
+    const band = bands.bands[b];
+    band.addChildAt(mesh, band.getChildIndex(bands.structureOf[b]) + 1);
+    parts.set(b, (p = { mesh, vb, ib, quads: -1 }));
+    return p;
+  };
+  const dropPart = (b: number) => {
+    const p = parts.get(b);
+    if (!p) return;
+    p.mesh.parent?.removeChild(p.mesh);
+    // (Its buffers a moment later: the frame that drew it may still be reading them. @see batches-keep-destroyed-sources)
+    const geo = p.mesh.geometry; p.mesh.destroy(); setTimeout(() => geo.destroy(true), 500);
+    parts.delete(b);
+  };
+  let seen = "", shown = 0;
   let lights: ArrayLike<number> = [], rev = 0;
   /** Each lit building's windows as last worked out, and what they were worked out from. @see sync */
-  const built = new Map<number, { sig: string; verts: Float32Array; lights: Float32Array; shown: number; hidden: number }>();
+  const built = new Map<number, { sig: string; verts: Float32Array; band: Int32Array; lights: Float32Array; shown: number }>();
   /** The map as it stood then: the ground and what is built, a quarter-tile; the decks, a tile. */
   let was = { heights: new Float32Array(0), casts: new Float32Array(0), deck: new Uint8Array(0), deckZ: new Int8Array(0), w: 0 };
   /** The tiles changed since the last time, summed from the corner. @see sync */
   let dirty = new Int32Array(0);
   /** The buildings whose windows are still to be worked out again: a few milliseconds' worth a frame. @see BUDGET_MS */
   const owed = new Set<number>();
-  /** How many windows the index buffer was last written for. */
-  let quads = -1;
   let packed: { k: number; rev: number; data: Float32Array; n: number } | null = null;
   return {
     sync(g, gm, lit, scale, key) {
@@ -422,11 +553,10 @@ export function createLitWindows(world: Container, zIndex: number): LitWindows {
         }
         return false;
       };
-      const decks = { on: g.deck, z: g.deckZ };
       const live = new Set<number>();
       if (import.meta.env?.DEV) { const c = (globalThis as { __litCheck?: { calls?: number; redone?: number; log?: unknown[] } }).__litCheck; if (c) { c.calls = (c.calls ?? 0) + 1; c.redone ??= 0; let n = 0; if (any) for (let y = 1; y < TH; y++) for (let x = 1; x < TW; x++) { const o = y * TW + x; if (dirty[o] - dirty[o - 1] - dirty[o - TW] + dirty[o - TW - 1] > 0) n++; } (c.log ??= []).push([all ? 'all' : n, c.redone]); } }
-      let floats = 0, glows = 0;
-      shown = 0; hidden = 0;
+      let glows = 0;
+      shown = 0;
       // A FEW MILLISECONDS OF THEM A FRAME, and the rest owed to the frames after: a town's worth at dusk, or the
       // few hundred behind a row of new houses, was a frame of a twentieth of a second and more. Till its turn a
       // building keeps the windows it had, or has none yet.
@@ -451,32 +581,39 @@ export function createLitWindows(world: Container, zIndex: number): LitWindows {
         const keptWas = check && fresh && e && !owed.has(id) ? e : null;
         if (due && check) check.redone = (check.redone ?? 0) + 1;
         if (due || keptWas) {
-          const v: number[] = [], l: number[] = [];
-          let nShown = 0, nHidden = 0;
+          const v: number[] = [], l: number[] = [], qb: number[] = [];
+          let nShown = 0;
           const r = ((colour >> 16) & 255) / 255, gr = ((colour >> 8) & 255) / 255, b = (colour & 255) / 255;
           for (const w of windowsOf(s)) {
             const seed = seedOf(id, w);
             const am = (w.a0 + w.a1) / 2;
             // ITS LIGHT, whether the eye sees it or not: just outside the wall it is in, as long as it is wide, at
-            // its own height over the building's ground. Quarter-tiles, a cell's corner at its whole number.
-            {
+            // its own height over the building's ground. Quarter-tiles, a cell's corner at its whole number. (Once a
+            // window: its other panes are the one room.)
+            if (!w.part) {
               // (No smaller than the light's own grid can see: a light finer than that is found by some of its probes
               // and missed by the rest, and a row of windows was a row of scallops on the pavement.)
               const out = (w.at + 0.5 + 0.3) * S, mid = (am + 0.5) * S, half = Math.max(1.1, ((w.a1 - w.a0) / 2) * S * 1.4);
               if (w.face === 0) l.push(out, mid, 1.1, half, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
               else l.push(mid, out, half, 1.1, r, gr, b, (w.z0 + w.z1) / 2, seed, bias);
             }
-            if (windowHidden(gm, w, ground, decks)) { nHidden++; continue; }
             nShown++;
-            // The pane and its glow round it: a quad on the wall's own plane, past the pane's edges.
+            // The pane and its glow round it: a quad on the wall's own plane, past the pane's edges — cut where one
+            // tile's wall meets the next, each part in its tile's band. @see BandLayer
             const ha = (w.a1 - w.a0) / 2, hz = (w.z1 - w.z0) / 2, pa = Math.max(HALO_MIN, ha * HALO), pz = Math.max(HALO_MIN_Z, hz * HALO);
-            const core = [ha / (ha + pa), hz / (hz + pz)];
-            for (const [ua, uz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-              const a = am + ua * (ha + pa), z = ground + (w.z0 + w.z1) / 2 + uz * (hz + pz), pu = w.face === 0 ? w.at : a, pv = w.face === 0 ? a : w.at;
-              v.push((pu - pv) * HW * scale, ((pu + pv) * HH - z * HEIGHT_UNIT) * scale, ua, uz, core[0], core[1], seed, bias, r, gr, b, id, w.floor);
+            const core = [ha / (ha + pa), hz / (hz + pz)], reach = ha + pa, end = am + reach;
+            const wall = Math.floor(w.at - 1e-3 + 0.5);
+            for (let from = am - reach; from < end - 1e-6;) {
+              const tile = Math.floor(from + 0.5 + 1e-6), to = Math.min(end, tile + 0.5);
+              qb.push(Math.max(0, Math.min(bands.bands.length - 1, wall + tile)));
+              for (const [side, uz] of [[0, -1], [1, -1], [1, 1], [0, 1]]) {
+                const a = side ? to : from, ua = (a - am) / reach, z = ground + (w.z0 + w.z1) / 2 + uz * (hz + pz), pu = w.face === 0 ? w.at : a, pv = w.face === 0 ? a : w.at;
+                v.push((pu - pv) * HW * scale, ((pu + pv) * HH - z * HEIGHT_UNIT) * scale, ua, uz, core[0], core[1], seed, bias, r, gr, b, id, w.floor);
+              }
+              from = to;
             }
           }
-          const made = { sig, verts: new Float32Array(v), lights: new Float32Array(l), shown: nShown, hidden: nHidden };
+          const made = { sig, verts: new Float32Array(v), band: Int32Array.from(qb), lights: new Float32Array(l), shown: nShown };
           if (keptWas && check) {
             check.kept++;
             let same = keptWas.verts.length === made.verts.length && keptWas.lights.length === made.lights.length;
@@ -489,34 +626,46 @@ export function createLitWindows(world: Container, zIndex: number): LitWindows {
           }
         }
         if (!e) continue;
-        floats += e.verts.length; glows += e.lights.length;
-        shown += e.shown; hidden += e.hidden;
+        glows += e.lights.length;
+        shown += e.shown;
       }
       for (const id of owed) if (!live.has(id)) owed.delete(id);
       for (const id of built.keys()) if (!live.has(id)) built.delete(id);
-      // ALL OF THEM, one after another, as the buildings were given.
-      const n = floats / (F * 4);
-      const verts = new Float32Array(Math.max(floats, F * 4)), glow = new Float32Array(glows);
-      let vo = 0, lo = 0;
+      // EACH BAND'S, one after another as the buildings were given: counted, then laid.
+      const Q = F * 4, per = new Map<number, number>();
+      const glow = new Float32Array(glows);
+      let lo = 0;
       for (const id of lit.keys()) {
         const e = live.has(id) ? built.get(id) : undefined;
         if (!e) continue;
-        verts.set(e.verts, vo); vo += e.verts.length;
+        for (const b of e.band) per.set(b, (per.get(b) ?? 0) + 1);
         glow.set(e.lights, lo); lo += e.lights.length;
       }
       lights = glow;
-      // (Never empty: a buffer of nothing is not a buffer. One window of no size, where there are none.)
-      vb.data = verts;
-      if (n !== quads) {
-        quads = n;
-        const ix = new Uint32Array(Math.max(1, n) * 6);
-        for (let q = 0; q < n; q++) { const o = q * 6, a = q * 4; ix[o] = a; ix[o + 1] = a + 1; ix[o + 2] = a + 2; ix[o + 3] = a; ix[o + 4] = a + 2; ix[o + 5] = a + 3; }
-        ib.data = ix;
+      const into = new Map<number, { verts: Float32Array; at: number }>();
+      for (const [b, n] of per) into.set(b, { verts: new Float32Array(n * Q), at: 0 });
+      for (const id of lit.keys()) {
+        const e = live.has(id) ? built.get(id) : undefined;
+        if (!e) continue;
+        for (let q = 0; q < e.band.length; q++) { const d = into.get(e.band[q])!; d.verts.set(e.verts.subarray(q * Q, (q + 1) * Q), d.at); d.at += Q; }
+      }
+      for (const b of [...parts.keys()]) if (!per.has(b)) dropPart(b);
+      for (const [b, { verts }] of into) {
+        const p = partOf(b), n = verts.length / Q;
+        p.vb.data = verts;
+        if (n !== p.quads) {
+          p.quads = n;
+          const ix = new Uint32Array(n * 6);
+          for (let q = 0; q < n; q++) { const o = q * 6, a = q * 4; ix[o] = a; ix[o + 1] = a + 1; ix[o + 2] = a + 2; ix[o + 3] = a; ix[o + 4] = a + 2; ix[o + 5] = a + 3; }
+          p.ib.data = ix;
+        }
       }
     },
     tick(night, t, share, cut) {
-      mesh.visible = night > 0.02 && shown > 0;
-      if (!mesh.visible) return;
+      // (Shown and hidden all at once, at dusk and at dawn: each is a change to the draw list of its band's chunk.)
+      const show = night > 0.02 && shown > 0;
+      if (show !== visible) { visible = show; for (const p of parts.values()) p.mesh.visible = show; }
+      if (!show) return;
       const u = uniforms.uniforms.uNight as Float32Array;
       u[0] = Math.min(1, night * 1.2); u[1] = t; u[2] = share;
       // (Sixteen at once: more than a hand's reach cuts down.)
@@ -530,7 +679,8 @@ export function createLitWindows(world: Container, zIndex: number): LitWindows {
       for (let i = 0; i < n; i++) { const o = i * 10; windowLight(data, i * WINDOW_FLOATS, lights[o], lights[o + 1], lights[o + 2], lights[o + 3], lights[o + 4] * k, lights[o + 5] * k, lights[o + 6] * k, lights[o + 7], lights[o + 8], lights[o + 9]); }
       return (packed = { k, rev, data, n });
     },
-    count: () => ({ shown, hidden }),
-    destroy() { mesh.parent?.removeChild(mesh); mesh.destroy(); geometry.destroy(true); },
+    count: () => ({ shown }),
+    bands,
+    destroy() { for (const b of [...parts.keys()]) dropPart(b); },
   };
 }

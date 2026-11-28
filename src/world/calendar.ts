@@ -60,6 +60,37 @@ const DECIDUOUS: readonly Turn[] = [
 ];
 // (Snow is the weather's, laid over whatever look a tree has: no turn of its own. @see world/weather)
 const EVER: readonly Turn[] = [{ from: "full", to: "full", t0: 0.5, t1: 0.55 }];
+/**
+ * THE CROPS' YEAR, sown and cut: grain and rape sown in autumn, shoots all winter, grown in spring, ripe in summer,
+ * cut, stubble till the plough; maize sown in spring, cut in autumn; kale planted out in summer and picked in winter.
+ * The cuts are the harvests' (@see vegetation/crops HARVEST_AT). @see props/crop-models
+ */
+const GRAIN: readonly Turn[] = [
+  { from: "bud", to: "full", t0: 0.07, t1: 0.2 },
+  { from: "full", to: "thin", t0: 0.24, t1: 0.33 },
+  { from: "thin", to: "bare", t0: 0.415, t1: 0.427 },
+  { from: "bare", to: "bud", t0: 0.62, t1: 0.68 },
+];
+const CROP_TURNS: Readonly<Record<string, readonly Turn[]>> = {
+  wheat: GRAIN, barley: GRAIN,
+  rape: [
+    { from: "bud", to: "full", t0: 0.06, t1: 0.14 },
+    { from: "full", to: "thin", t0: 0.3, t1: 0.36 },
+    { from: "thin", to: "bare", t0: 0.415, t1: 0.427 },
+    { from: "bare", to: "bud", t0: 0.6, t1: 0.66 },
+  ],
+  maize: [
+    { from: "bare", to: "bud", t0: 0.2, t1: 0.26 },
+    { from: "bud", to: "full", t0: 0.3, t1: 0.42 },
+    { from: "full", to: "thin", t0: 0.55, t1: 0.63 },
+    { from: "thin", to: "bare", t0: 0.674, t1: 0.687 },
+  ],
+  kale: [
+    { from: "bare", to: "bud", t0: 0.45, t1: 0.5 },
+    { from: "bud", to: "full", t0: 0.58, t1: 0.7 },
+    { from: "full", to: "bare", t0: 0.918, t1: 0.932 },
+  ],
+};
 /** Some kinds are early to leaf and late to fall, some the other way: a share of a year, added to every turn. */
 const LEAD: Readonly<Record<string, number>> = { flowers: -0.03, birch: -0.015, cherry: -0.02, oak: 0.015, hornbeam: 0.005, willow: -0.025, apple: -0.01, shrub: -0.02, poplar: 0.005 };
 
@@ -69,7 +100,7 @@ const LEAD: Readonly<Record<string, number>> = { flowers: -0.03, birch: -0.015, 
  * `lag` is the tree's own, a share of a year either way, so a wood turns over weeks and not at once.
  */
 export function treeTurn(kind: string, t: number, lag: number): Turn {
-  const turns = EVERGREEN.has(kind) ? EVER : DECIDUOUS;
+  const turns = CROP_TURNS[kind] ?? (EVERGREEN.has(kind) ? EVER : DECIDUOUS);
   const off = (LEAD[kind] ?? 0) + lag, year = Math.floor(t);
   // The first turn of this year or the next whose end is still to come.
   for (let k = 0; k < turns.length * 2 + 1; k++) {
@@ -108,6 +139,12 @@ export const LEAF_YEAR: Readonly<Record<string, readonly [number, number][]>> = 
   rock: [[0, 0x6f8a44]], log: [[0, 0x6f8a44]],
   tuft: [[0.04, 0x8a8a52], [0.16, 0x7fae4a], [0.36, 0x8fa64e], [0.48, 0xb0a85a], [0.62, 0x9a9050], [0.8, 0x857f52]],
   pine: [[0.0, 0x2c5636], [0.2, 0x2f5e3a], [0.7, 0x2f5e3a], [0.85, 0x2a5234]],
+  // (The crops: green, then gold as they ripen; rape yellow in flower, then its pods brown; maize to straw.)
+  wheat: [[0.0, 0x6a9446], [0.12, 0x5f9a3e], [0.22, 0x6f9c40], [0.27, 0xa8a848], [0.32, 0xd6b356], [0.42, 0xdcb85c], [0.6, 0x86ae4e], [0.85, 0x6a9446]],
+  barley: [[0.0, 0x6e9a4c], [0.12, 0x6aa246], [0.22, 0x7aa64a], [0.27, 0xb8b25c], [0.32, 0xe2cd84], [0.42, 0xe6d08a], [0.6, 0x8cb456], [0.85, 0x6e9a4c]],
+  rape: [[0.0, 0x4f7e3c], [0.12, 0x6a9440], [0.15, 0xe8cf2a], [0.27, 0xf2d834], [0.31, 0x7c9440], [0.36, 0x8e8a4c], [0.42, 0x8a7c4a], [0.6, 0x4f7e3c]],
+  maize: [[0.2, 0x82ae4e], [0.32, 0x4e8c3a], [0.5, 0x4e8c3a], [0.58, 0x949a4e], [0.64, 0xc2ac6c], [0.7, 0xb8a46a]],
+  kale: [[0.0, 0x3c6a5e], [0.5, 0x4e7e62], [0.7, 0x467862], [0.85, 0x3a6458]],
 };
 
 /** A kind's leaf colour at a share `y` of the year, 0xrrggbb: its keys blended, round the turn of the year. */

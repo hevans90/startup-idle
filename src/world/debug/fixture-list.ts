@@ -20,7 +20,7 @@ export const FIXTURES: Record<FixtureKind, readonly [FixtureId, string][]> = {
     ["rampFan", "Ramp fan"], ["firstRoad", "First road"],
   ],
   Land: [
-    ["flat", "Flat"], ["terrain", "Terrain"], ["ground", "Ground"], ["rough", "Rough"], ["farms", "Farms"], ["wildfire", "Wildfire"],
+    ["flat", "Flat"], ["terrain", "Terrain"], ["ground", "Ground"], ["rough", "Rough"], ["farms", "Farms"], ["flood", "Flood"], ["harvest", "Harvest"], ["wildfire", "Wildfire"],
     ["ziggurat", "Ziggurat"], ["occluder", "Occluder"], ["splitTrap", "Split trap"],
   ],
   Works: [["sewers", "Sewers"], ["pipeyard", "Pipe yard"], ["glass", "Pipe glass"]],
