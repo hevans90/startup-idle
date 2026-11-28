@@ -43,6 +43,8 @@ export type CarSheet = {
   pitchHeadings?: number;
   /** How many layers a frame carries after its lamps, to be drawn over its occupants: the paint's and the trim's. None in an old sheet. @see raster BakeOpts.over */
   over?: number;
+  /** Whether a frame carries, last of all, the snow that lies on it (1): a layer faded in over the vehicle. None in an old sheet. @see raster bakeSnowFrame */
+  snow?: number;
   pages: string[];
   /** `tilted[p][k]`: the frame at pitch `pitches[p]`, heading `k` of `pitchHeadings`. */
   models: Record<string, { length: number; width: number; frames: CarFrame[]; tilted?: CarFrame[][] }>;

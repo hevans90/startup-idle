@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { FRONT_SPEED, PREVAILING, frontLag, groundAt, groundOver, runoffAt, skyAt, skyOver, weatherAt, weatherOver, windAt, windStrength } from "./weather";
+import { FRONT_SPEED, PREVAILING, coolingThirst, floodOdds, roadGrip, weatherMood, frontLag, groundAt, groundOver, runoffAt, skyAt, skyOver, weatherAt, weatherOver, windAt, windStrength } from "./weather";
 
 /** THE WEATHER: pure on the calendar's time; the seasons in it; what lies and where it goes. @see weather */
 const YEAR = 720;
@@ -105,5 +105,37 @@ describe("the wind, the fronts and the sky", () => {
       expect(Math.abs(a.cover - b.cover)).toBeLessThan(0.06);
       expect(Math.abs(a.base - b.base)).toBeLessThan(1.5);
     });
+  });
+});
+
+describe("what the weather does to the town", () => {
+  test("moods: every kind comes, grim only in rain or storm, fair only when dry, the first snow while little lies", () => {
+    const seen = new Set<string>();
+    across(1, 6, (t) => {
+      const m = weatherMood(t), w = weatherAt(t), g = groundAt(t);
+      seen.add(String(m));
+      if (m === "grim") expect(w.rain + w.storm).toBeGreaterThan(0.2);
+      if (m === "fair") expect(w.fall).toBeLessThan(0.02);
+      if (m === "firstSnow") { expect(w.snow).toBeGreaterThan(0.1); expect(g.snow).toBeLessThan(0.35); }
+    });
+    expect([...seen].sort()).toEqual(["fair", "firstSnow", "grim", "null"]);
+  });
+
+  test("the roads grip less in snow and hard rain, never under a half; tanks thirst less in the cold, more in the heat; a sodden ground floods likelier", () => {
+    let least = 1, most = 0, cold = 2, hot = 0;
+    across(1, 6, (t) => {
+      const k = roadGrip(t), th = coolingThirst(t);
+      expect(k).toBeGreaterThanOrEqual(0.55); expect(k).toBeLessThanOrEqual(1);
+      least = Math.min(least, k); most = Math.max(most, k);
+      cold = Math.min(cold, th); hot = Math.max(hot, th);
+    });
+    expect(most).toBe(1);
+    expect(least).toBeLessThan(0.75);
+    expect(cold).toBeLessThan(0.85);
+    expect(hot).toBeGreaterThan(1.05);
+    expect(hot).toBeLessThanOrEqual(1.25);
+    expect(roadGrip(0, { snow: 1, wet: 0, melt: 0, frost: 0 })).toBeLessThan(roadGrip(0, { snow: 0, wet: 0, melt: 0, frost: 0 }));
+    expect(floodOdds({ snow: 0, wet: 0, melt: 0, frost: 0 })).toBe(0.5);
+    expect(floodOdds({ snow: 0, wet: 1, melt: 0, frost: 0 })).toBe(2);
   });
 });

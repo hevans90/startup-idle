@@ -91,7 +91,29 @@ const shade = (c: number, k: number) =>
  * @see render/gi, render/lit-windows hiddenAt
  */
 export type LampsOver = { root: Container; hidden: (x: number, y: number, z: number) => boolean };
-export type TownLayer = { draw: (town: Town, scale: number, night?: number, zoom?: number, over?: LampsOver | null) => void; destroy: () => void };
+/**
+ * THE WEATHER ON WHAT MOVES: how wet everything out in it is (0–1: rain falling, or not long stopped), how much snow
+ * lies on a vehicle (0–1), and how much is settling on people as it falls (0–1).
+ * - **Wet** is the paint and the cloth a shade darker and cooler: a tint, changed a step at a time.
+ * - **Snow on a vehicle** is a layer of its own baked with it (its roof, its bonnet, its load), faded in by its alpha
+ *   alone, as its lamps are lit: nothing in the band's draw list changes. @see cars/raster bakeSnowFrame
+ * - **Snow on people** is their hair, their shoulders and their coats paled toward it: a figure is a few pixels
+ *   across, and a cap of snow on it would be two of them.
+ */
+export type MoverWeather = { wet: number; snow: number; dust: number };
+const WET_STEPS = 6, DUST_STEPS = 4, SNOW_WHITE = 0xf2f5fa;
+/** A colour as it is wet through: darker, and a little bluer. */
+export function wetTint(c: number, wet: number): number {
+  if (wet <= 0) return c;
+  return (Math.round(((c >> 16) & 255) * (1 - 0.26 * wet)) << 16) | (Math.round(((c >> 8) & 255) * (1 - 0.22 * wet)) << 8) | Math.round((c & 255) * (1 - 0.15 * wet));
+}
+/** A colour with snow settled on it, `k` of the way to white. */
+export function snowTint(c: number, k: number): number {
+  if (k <= 0) return c;
+  const ch = (s: number) => Math.round(((c >> s) & 255) + (((SNOW_WHITE >> s) & 255) - ((c >> s) & 255)) * k);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+export type TownLayer = { draw: (town: Town, scale: number, night?: number, zoom?: number, over?: LampsOver | null, weather?: MoverWeather | null) => void; destroy: () => void };
 /** How large the map is on the screen — its scale by the view's zoom — before anybody is drawn in a vehicle: below it a head is a pixel or two, and not worth its sprites. */
 export const RIDERS_FROM = 0.75;
 
@@ -256,6 +278,8 @@ type Shown = {
   c: Container; parts: Sprite[]; band: number; key: string; baked: boolean; tilted: boolean; flash?: Sprite[]; lead?: Graphics;
   /** A baked vehicle's lamps, in `LAMPS` order; and its speed when last drawn, for its brake lights. */
   lamps?: Sprite[]; was?: { speed: number; t: number; brakes: boolean };
+  /** A baked vehicle's snow, over its trim; and a person's look as last tinted (how wet, how snowed on). @see MoverWeather */
+  snow?: Sprite; look?: number;
   /** Its lamps drawn again over the night. @see LampsOver */
   over?: { c: Container; lamps: Sprite[] };
   /** A baked vehicle's people, once there is a sheet to draw them from; null, one nobody is seen in. @see cars/occupants */
@@ -410,7 +434,10 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
   };
 
   let live = new Set<number>();
-  const draw = (town: Town, scale: number, night = 0, zoom = 1, over: LampsOver | null = null) => {
+  const draw = (town: Town, scale: number, night = 0, zoom = 1, over: LampsOver | null = null, weather: MoverWeather | null = null) => {
+    // (In steps: a tint is set, and a sprite faded, only as one passes.)
+    const wetS = Math.round(Math.max(0, Math.min(1, weather?.wet ?? 0)) * WET_STEPS), dustS = Math.round(Math.max(0, Math.min(1, weather?.dust ?? 0)) * DUST_STEPS);
+    const wetK = wetS / WET_STEPS, snowA = Math.round(Math.max(0, Math.min(1, weather?.snow ?? 0)) * 8) / 8;
     const riding = !!people && scale * zoom >= RIDERS_FROM;
     // A new scale is every look baked again.
     if (scale !== atScale) {
@@ -447,6 +474,8 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         }
         d = { c, parts, band: -1, key: "", baked: !!car || !!fig, tilted: false, z: 0, reach: m.kind === "person" ? (m.dog ? PERSON_REACH * 3 : PERSON_REACH) : bike ? PERSON_REACH * 2 : HW };
         if (car) parts[0].tint = m.colour;
+        // ITS SNOW, over its trim and under its lamps, shown by its alpha alone.
+        if (car) { d.snow = new Sprite(); d.snow.alpha = 0; c.addChild(d.snow); }
         // ITS LAMPS, over the trim, each lit by its alpha alone: nothing in the band's draw list changes.
         if (car && car.at(0).lamps.length) {
           d.lamps = LAMP_TINT.map((t) => { const sp = new Sprite(); sp.tint = t; sp.alpha = 0; c.addChild(sp); return sp; });
@@ -462,6 +491,14 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         }
         drawn.set(m.id, d);
       }
+      // A PERSON OUT IN IT: wet cloth darker (not their skin), and snow settling on hair, shoulders and coat.
+      if ((m.kind === "person" || fig) && d.look !== wetS * 8 + dustS) {
+        d.look = wetS * 8 + dustS;
+        const o = outfitOf(m), k = (dustS / DUST_STEPS) * 0.42;
+        const tints = fig ? [o.skin, o.legs, m.colour, o.hair, 0xffffff] : [o.legs, m.colour, o.skin, o.hair];
+        const settles = fig ? [0, 0.3, 1, 1, 0.4] : [0.3, 1, 0, 1], skin = fig ? 0 : 2;
+        tints.forEach((t, i) => { if (d!.parts[i]) d!.parts[i].tint = snowTint(i === skin ? t : wetTint(t, wetK), k * settles[i]); });
+      }
       let front: readonly { u: number; v: number }[];
       let litNow: readonly number[] | null = null;
       const x = (m.x - m.y) * HW * scale, y = (m.x + m.y) * HH * scale - m.z * HEIGHT_UNIT * scale;
@@ -470,14 +507,15 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         const h = headingIndex(m.heading, sheet!.headings);
         // ON A SLOPE, the frame baked leaning as it stands there. @see car-sheet poseOf
         const pose = poseOf(sheet!, car, h, m.pitch ?? 0), P = pose.from, f = pose.k;
-        const key = `baked|${car.id}|${pose.key}|${scale}`;
+        const key = `baked|${car.id}|${pose.key}|${scale}|${wetS}`;
         if (d.key !== key) {
           d.key = key;
           const F = P.at(f);
           d.parts[0].texture = F.paint.tex; d.parts[1].texture = F.trim.tex;
           // (Its paint as it is now: a lorry of the fleet is repainted as it is loaded and emptied — which is its model too.)
-          d.parts[0].tint = m.colour;
+          d.parts[0].tint = wetTint(m.colour, wetK); d.parts[1].tint = wetTint(0xffffff, wetK);
           d.parts[0].anchor.set(F.paint.anchor.x, F.paint.anchor.y);
+          if (d.snow) { d.snow.texture = F.snow.tex; d.snow.anchor.set(F.snow.anchor.x, F.snow.anchor.y); d.snow.scale.set(scale / sheet!.res); }
           d.parts[1].anchor.set(F.trim.anchor.x, F.trim.anchor.y);
           for (const sp of d.parts) sp.scale.set(scale / sheet!.res);
           d.lamps?.forEach((sp, k) => {
@@ -487,6 +525,7 @@ export function createTownLayer(bands: BandLayer, renderer: Renderer): TownLayer
         }
         // ITS PEOPLE, sat in it — not in one parked, and not from so far off that they could not be told. Put in once,
         // between its trim and its lamps, and after that only shown and hidden.
+        if (d.snow && d.snow.alpha !== snowA) d.snow.alpha = snowA;
         if (riding && !m.park) {
           if (d.riders === undefined) {
             const crew = crewFor(m, car.id);

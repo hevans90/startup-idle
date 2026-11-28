@@ -208,6 +208,8 @@ export type Town = {
   culture?: { remote: number; shuttle: boolean; vans: boolean };
   /** People out for a stroll, over the town's own: one a home on the finest streets. Set by the scene. @see liveBeauty */
   strollers?: number;
+  /** How well the roads grip, 1 dry down to about a half in snow: everything on them goes that much slower. @see world/weather roadGrip */
+  grip?: number;
   /** What each road cell wears, a zebra in bit 4: where walkers have the right of way. Set by the scene. @see roadDressOf */
   dress?: Uint8Array;
   /** The benches' seats, by the cell they are on. Set by the scene. @see seatsByCell */
@@ -1507,8 +1509,8 @@ function wishOf(m: Mover): number {
 }
 
 /** A driver's speed after a step: IDM toward what it would like, never past what it can stop short of. */
-function drive(m: Mover, A: Ahead, h: number) {
-  const v = m.speed, v0 = wishOf(m);
+function drive(m: Mover, A: Ahead, h: number, grip = 1) {
+  const v = m.speed, v0 = wishOf(m) * grip;
   const free = Math.max(-IDM_B, IDM_A * (1 - (v / v0) ** 4));
   const a = Math.max(-HARD, free - IDM_A * A.idm);
   m.speed = Math.max(0, Math.min(v + a * h, A.cap));
@@ -1650,9 +1652,10 @@ export function stepTown(t: Town, g: Grid, net: Network, revision: number, dt: n
         if ((m.side ?? 0) > KERB_CLEAR) A.cap = Math.min(A.cap, PULL_OUT_SPEED);
         else m.leaving = undefined;
       }
-      drive(m, A, h);
+      drive(m, A, h, t.grip ?? 1);
     } else {
-      let limit = lineLimit(m);
+      // (On foot the weather slows less.)
+      let limit = lineLimit(m) * (0.7 + 0.3 * (t.grip ?? 1));
       // AT A CROSSING'S KERB: over when it is safe to be, and stood till then.
       const w = m.walk;
       if (w && w.graph === T.G) {

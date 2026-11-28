@@ -19,6 +19,7 @@
  * then: still hired, but gone from there, and new arrivals will not move into
  * it. A neglected street empties; a good one fills. @see stepMood
  */
+import type { WeatherMood } from "../weather";
 import { cultureNow, cultureVersion } from "../../game/culture-now";
 import { fusionNow } from "../../game/fusion";
 import { housedBy, residentsIn } from "../../game/housing";
@@ -63,6 +64,7 @@ export function moodsOf(
   risk: ReadonlySet<number> = new Set(),
   /** Houses with a farm's fields round them. @see isFresh */
   fresh: (s: Structure) => boolean = () => false,
+  weather: WeatherMood = null,
 ): Map<number, MoodParts> {
   const wonders: Structure[] = [], derelicts: Structure[] = [];
   // Kinds with somewhere to work: with none at all, there is no commute to
@@ -111,6 +113,9 @@ export function moodsOf(
     // At risk, as a flood would find it — not while one is on it: that counts already.
     else if (risk.has(s.id)) parts.push({ why: WHY.floodRisk, points: hazard(MOOD.floodRisk) });
     if (fresh(s)) parts.push({ why: WHY.fresh, points: MOOD.fresh });
+    if (weather === "grim") parts.push({ why: WHY.grimWeather, points: MOOD.grimWeather });
+    else if (weather === "fair") parts.push({ why: WHY.fairWeather, points: MOOD.fairWeather });
+    else if (weather === "firstSnow") parts.push({ why: WHY.firstSnow, points: MOOD.firstSnow });
     // And what the cards do to the homes of the kind. @see CARDS
     const culture = cultureNow(housedBy(s.def)!.id).houseMood;
     if (culture) parts.push({ why: WHY.culture, points: culture });
@@ -160,6 +165,9 @@ export const setFlooded = (s: ReadonlySet<number>) => { flooded = s; };
 /** Houses with fouled water in view, likewise. @see fouledHouses */
 let fouled: ReadonlySet<number> = new Set();
 export const setFouled = (s: ReadonlySet<number>) => { fouled = s; };
+/** What the weather is to a house now, likewise. @see world/weather weatherMood */
+let weatherNow: WeatherMood = null;
+export const setMoodWeather = (w: WeatherMood) => { weatherNow = w; };
 
 /**
  * Every house's mood on this map now, worked out again when the map, its
@@ -171,13 +179,13 @@ export function liveMoods(g: Grid, net: Network): Map<number, MoodParts> {
   for (const s of g.structures.values()) if (s.build) sites++;
   // A Zoner fused into the founder. @see game/fusion
   const planning = fusionNow().houseDesire;
-  const sludge = townRevNow() + "|" + [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + [...fouled].sort((a, b) => a - b).join(",") + "|" + planning + "|" + cultureVersion() + "|" + g.veg.rev;
+  const sludge = townRevNow() + "|" + [...sludged].sort((a, b) => a - b).join(",") + "|" + [...flooded].sort((a, b) => a - b).join(",") + "|" + [...fouled].sort((a, b) => a - b).join(",") + "|" + planning + "|" + cultureVersion() + "|" + g.veg.rev + "|" + weatherNow;
   if (memo.g !== g || memo.rev !== g.rev || memo.sites !== sites || memo.sludge !== sludge) {
     const maps = liveDesireMaps(g, net);
     memo = {
       g, rev: g.rev, sites, sludge,
       value: moodsOf(g, liveCommutes(g, net), liveCoverage(g, net), sludged, flooded, (s) => seesWater(maps, g, s), planning, fouled, liveBeauty(g, net).home, (s) => isGreen(maps, g, s),
-        floodReachOf(g).risk, (s) => isFresh(maps, g, s)),
+        floodReachOf(g).risk, (s) => isFresh(maps, g, s), weatherNow),
     };
   }
   return memo.value;

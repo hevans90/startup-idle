@@ -202,3 +202,30 @@ export function skyAt(t: number): Sky {
 }
 /** The sky over a cell. @see frontLag */
 export const skyOver = (t: number, u: number, v: number) => skyAt(t - frontLag(u, v));
+
+/**
+ * WHAT THE WEATHER DOES TO THE TOWN — small, each read where the thing is already told (a house's mood, the
+ * traffic's pace, a tank's thirst, how often the river floods).
+ * - **A house's mood** (`weatherMood`): grim in a storm or when it has rained till the ground is sodden; fair on a
+ *   dry mild day; and glad of the first snow, while little of it lies.
+ * - **The roads' grip** (`roadGrip`, 1 dry … 0.55): snow lying or falling, hard rain and storms slow everything on them.
+ * - **A tank's thirst** (`coolingThirst`, 0.8 … 1.25): the machines want less water in the cold and more in the heat.
+ * - **The river** (`floodOdds`, 0.5 … 2): likelier to flood the wetter the ground has been made.
+ */
+export type WeatherMood = "grim" | "fair" | "firstSnow" | null;
+export function weatherMood(t: number, lying: Lying = groundAt(t)): WeatherMood {
+  const w = weatherAt(t);
+  if (w.snow > 0.1 && lying.snow < 0.35) return "firstSnow";
+  if (w.storm > 0.5 || (w.rain > 0.2 && lying.wet > 0.7)) return "grim";
+  if (w.fall < 0.02 && lying.wet < 0.3 && lying.snow < 0.05 && w.temp > 13 && w.temp < 27) return "fair";
+  return null;
+}
+export function roadGrip(t: number, lying: Lying = groundAt(t)): number {
+  const w = weatherAt(t);
+  return Math.max(0.55, 1 - 0.3 * lying.snow - 0.2 * w.snow - 0.15 * smooth(0.4, 0.9, w.rain) - 0.1 * w.storm);
+}
+export function coolingThirst(t: number): number {
+  const temp = weatherAt(t).temp;
+  return 1 - 0.2 * smooth(8, 0, temp) + 0.25 * smooth(19, 27, temp);
+}
+export const floodOdds = (lying: Lying) => 0.5 + 1.5 * clamp01(lying.wet);

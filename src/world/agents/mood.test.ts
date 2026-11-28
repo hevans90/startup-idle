@@ -20,6 +20,12 @@ describe("a house's mood", () => {
     expect(at(new Set([1])).get(1)!.parts.map((p) => p.why)).not.toContain("floods here");
     expect(at(new Set()).get(2)!.parts).toContainEqual({ why: "fresh food", points: MOOD.fresh });
     expect(at(new Set()).get(2)!.parts.map((p) => p.why)).not.toContain("floods here");
+    // And the weather is in every house's mood, one way or the other or not at all.
+    const under = (w: "grim" | "fair" | "firstSnow" | null) => moodsOf(g, new Map(), new Map(), new Set(), new Set(), undefined, 0, undefined, undefined, undefined, new Set(), undefined, w).get(1)!;
+    expect(under("grim").parts).toContainEqual({ why: "grim weather", points: MOOD.grimWeather });
+    expect(under("fair").parts).toContainEqual({ why: "fine weather", points: MOOD.fairWeather });
+    expect(under("firstSnow").parts).toContainEqual({ why: "first snow", points: MOOD.firstSnow });
+    expect(under("grim").total).toBe(under(null).total + MOOD.grimWeather);
   });
 
   test("enjoys a water view — unless slop has fouled the water", () => {

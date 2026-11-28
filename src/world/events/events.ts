@@ -83,6 +83,8 @@ export type TownView = {
   owned: Partial<Record<GeneratorId, number>>;
   /** Where the river comes on, on a map with one. */
   river: Spot | null;
+  /** How much likelier the river is to flood for the wet the weather has left, about 1. @see world/weather floodOdds */
+  soaked?: number;
   /** Buildings under a flood's water now. */
   flooded: number;
   /** What a heatwave has overheated so far. @see HEATWAVE */

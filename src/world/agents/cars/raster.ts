@@ -287,6 +287,28 @@ export function bakeFrame(m: Model, heading: number, res: number, pitch = 0): Ba
   return { paint: b.layers[0], trim: b.layers[1], lamps: b.marks, over: b.over, ox: b.ox, oy: b.oy };
 }
 
+/** What no snow lies on: glass (wiped, warm), what turns, what is lit, what is inside. */
+const NO_SNOW: ReadonlySet<Mat> = new Set<Mat>(["glass", "tyre", "hub", "rim", "spoke", "arch", "lamp", "tail", "indicator", "light", "seat", "interior"]);
+/**
+ * SNOW ON A VEHICLE at a pose: a coat on every face of it turned to the sky — its roof, its bonnet, its load —
+ * lifted off it a little, baked with the vehicle so what stands in front hides it, and only the snow kept: a layer
+ * of its own, faded in over the vehicle as the snow comes. @see houses/models snowOver, dev/bake-cars
+ */
+export function bakeSnowFrame(m: Model, heading: number, res: number, pitch = 0): { img: Image; ox: number; oy: number } {
+  const tris = modelTris(m), cap: Tri[] = [], lift = 0.05;
+  for (const t of tris) {
+    if (t.n[2] < 0.55 || NO_SNOW.has(t.mat)) continue;
+    const up = (q: V3): V3 => [q[0] + t.n[0] * lift, q[1] + t.n[1] * lift, q[2] + t.n[2] * lift];
+    cap.push({ p: [up(t.p[0]), up(t.p[1]), up(t.p[2])], mat: "snow", n: t.n });
+  }
+  const b = bakeTris([...tris, ...cap], heading, res, {
+    pitch,
+    layers: 3, layerOf: (mat) => (mat === "snow" ? 2 : PAINTED.has(mat) ? 0 : 1),
+    shadow: { hl: m.length / 2 - 0.25, hw: m.width / 2 - 0.25, edge: 0.08, soft: 0.4, strength: 0, reach: 0.35 },
+  });
+  return { img: b.layers[2], ox: b.ox, oy: b.oy };
+}
+
 /** Which of a model's seats are closed in: asked once a model, it is the same at every heading. */
 const shutSeats = new WeakMap<Model, boolean[]>();
 function shutOf(m: Model, tris: readonly Tri[]): boolean[] {

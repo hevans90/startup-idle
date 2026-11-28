@@ -91,7 +91,7 @@ import { wearFrom } from "./vegetation/wear";
 import { fallWanted } from "./render/falling";
 import { harvestPay } from "../game/vegetation-cost";
 import { groundSeason, yearPart, YEAR_SECONDS } from "./calendar";
-import { PREVAILING, frontLag, groundAt, groundOver, weatherAt, windAt, windStrength, type Lying, type Sky } from "./weather";
+import { PREVAILING, coolingThirst, floodOdds, frontLag, groundAt, groundOver, roadGrip, weatherAt, weatherMood, windAt, windStrength, type Lying, type Sky } from "./weather";
 import { catchment, stepRain, type Catchment } from "./water/rain";
 import { LOOK_SECONDS, SOAK_SECONDS, createStranded, findStranded, soakStranded, strandedAt, type Stranded } from "./water/stranded";
 import { useCalendarStore } from "../state/calendar.store";
@@ -194,12 +194,12 @@ const DAMAGED_TINT: Record<DamageCause, number> = { flood: 0x9a8466, heat: 0xe0a
 import { createBuildCursor, type BuildCursor, type Tilt, type Validator } from "./edit/cursor";
 import { gradeStroke } from "./roads/grade";
 import { createBoatLayer, type BoatLayer } from "./boats/boats-render";
-import { createTownLayer, type LampsOver, type TownLayer } from "./agents/town-render";
+import { createTownLayer, type LampsOver, type MoverWeather, type TownLayer } from "./agents/town-render";
 import { seatsByCell, trafficOf, type Seat } from "./agents/town";
 import { moveOut } from "./agents/arrivals";
 import { liveBeauty } from "./agents/beauty";
 import { WORKPLACES, liveSeating, setSeatingPace, workplaceKind } from "./agents/commute";
-import { liveMoods, moodTint, setFlooded, setFouled, setSludged, type Unrest } from "./agents/mood";
+import { liveMoods, moodTint, setFlooded, setFouled, setMoodWeather, setSludged, type Unrest } from "./agents/mood";
 import { createLeaders, liveLeadership, stepLeaders } from "./agents/leaders";
 import { loadPriceMult, setConvoyIn, setStrike } from "./events/convoy";
 import { useTeamLeadersEmployeesStore } from "../state/team-leaders.store";
@@ -287,6 +287,16 @@ import { ambience, sfx } from "../audio/sound";
 /** Seconds between Ship It Fridays' release parties, about. */
 const SHIP_EVERY = 5;
 const phaseNow = () => useCalendarStore.getState().hour ?? (import.meta.env.DEV ? (window as unknown as { __dayPhase?: number }).__dayPhase : undefined) ?? seasonPhase(dayPhase(Date.now()), yearPart(useCalendarStore.getState().now()));
+/**
+ * The weather on what moves, where the ground is one surface: wet while it rains and while the ground is still wet
+ * from it; snow on the vehicles while it falls and while it lies; snow settling on people only as it falls.
+ * @see agents/town-render MoverWeather
+ */
+function moversWeather(lying: Lying): MoverWeather | null {
+  if (groundMode() !== "smooth") return null;
+  const w = weatherAt(useCalendarStore.getState().now());
+  return { wet: Math.max(Math.min(1, w.rain * 2.5), lying.wet * 0.7 * (1 - lying.snow)), snow: Math.max(Math.min(1, w.snow * 2), Math.min(1, lying.snow * 1.3)), dust: Math.min(1, w.snow * 2) };
+}
 /** Seconds the lying snow takes to come most of the way to what the weather has laid. */
 const SNOW_EASE = 0.7;
 /** The sky a river flood brings, coming and here. @see render/clouds/clouds */
@@ -3590,8 +3600,13 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
               ? { ...WF.at, dryness: 1, burning: WF.fire.burning.size, burnt: WF.fire.burnt, buildings: WF.built.size }
               : wildEv?.phase === "warning" ? (WF.tinder && { x: wildEv.where.x, y: wildEv.where.y, dryness: WF.tinder.dryness, burning: 0, burnt: 0, buildings: 0 })
               : WF.tinder && { ...WF.tinder, burning: 0, burnt: 0, buildings: 0 };
+            // THE WEATHER ON THE TOWN, where the ground is one surface: moods, the roads' grip, the flood's odds. @see weather weatherMood
+            const weathered = groundMode() === "smooth", lyingNow = rainRef.current.lying;
+            setMoodWeather(weathered ? weatherMood(tCal, lyingNow) : null);
+            getTown().grip = weathered ? roadGrip(tCal, lyingNow) : 1;
             const view: TownView = {
               now: Date.now(),
+              soaked: weathered ? floodOdds(lyingNow) : 1,
               income: useGeneratorStore.getState().getMoneyPerSecond(),
               owned,
               river,
@@ -3764,7 +3779,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           // kept full by pumps, trucks or rationing. @see setHeat
           const heatwave = st.events.find((e) => e.kind === "heatwave" && e.phase === "active");
           const drought = st.events.find((e) => e.kind === "drought" && e.phase === "active");
-          setHeat(heatwave ? HEAT_THIRST : 1, heatwave?.chosen === "pumps" || (!!drought && drought.chosen !== "dig"));
+          setHeat(heatwave ? HEAT_THIRST : groundMode() === "smooth" ? Math.round(coolingThirst(useCalendarStore.getState().real()) * 20) / 20 : 1, heatwave?.chosen === "pumps" || (!!drought && drought.chosen !== "dig"));
           // A BLACKOUT whose load is shed throttles the agents just the same. @see BLACKOUT
           const blackout = st.events.find((e) => e.kind === "blackout" && e.phase === "active");
           setThrottled(heatwave?.chosen === "throttle" || blackout?.chosen === "shed");
@@ -3953,7 +3968,7 @@ export function WorldScene({ screenSize }: { screenSize: { width: number; height
           if (bay >= 0 && a > bay - RTG_REACH && a < bay + 1 + RTG_REACH) lorry.wait = LORRY_LOADS;
         });
         sWorks();
-        { const e = section("tick: town draw"); townRef.current?.draw(getTown(), scale, nightNowRef.current, useWorldStore.getState().viewport?.scale.x ?? 1, lampsOverRef.current); e(); }
+        { const e = section("tick: town draw"); townRef.current?.draw(getTown(), scale, nightNowRef.current, useWorldStore.getState().viewport?.scale.x ?? 1, lampsOverRef.current, moversWeather(rainRef.current.lying)); e(); }
       }
       const t2 = performance.now();
       // THE DEVICE'S OWN TALLY when it is the one holding the water, and the

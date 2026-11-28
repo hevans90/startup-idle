@@ -21,7 +21,7 @@ export const FLOOD: EventDef = {
   kind: "river-flood",
   where: (v) => v.river,
   // More or less often by the arc. @see questFloodMult
-  weight: () => questFloodMult(),
+  weight: (v) => questFloodMult() * (v.soaked ?? 1),
   warnMs: FLOOD_WARN_MS,
   activeMs: FLOOD_MS,
   warning: {

@@ -27,6 +27,8 @@ export type CarPose = {
   lamps: CarLayer[];
   /** Its layers that are drawn OVER whoever is in it — its paint's, then its trim's; empty textures where nobody could be seen. @see raster BakeOpts.over */
   over: CarLayer[];
+  /** The snow that lies on it: an empty texture where the sheet has none. @see raster bakeSnowFrame */
+  snow: CarLayer;
 };
 /** A run of frames, one a heading: each cut when it is first asked for. */
 export type CarPoses = { at: (heading: number) => CarPose };
@@ -92,10 +94,13 @@ function layer(page: number, x: number, y: number, w: number, h: number, ox: num
   return { tex, anchor: { x: ox / w, y: oy / h } };
 }
 /** One frame, cut: its paint (none, of a livery), its trim right of it, and its lamps — the last `over` of them its layers over its occupants. */
-function cutFrame([page, x, y, pw, ph, pox, poy, tw, th, tox, toy, ...ls]: CarFrame, over: number): CarPose {
+function cutFrame([page, x, y, pw, ph, pox, poy, tw, th, tox, toy, ...ls]: CarFrame, over: number, snow = 0): CarPose {
   const lamps: CarLayer[] = [];
   for (let k = 0; k + 6 < ls.length; k += 7) lamps.push(layer(ls[k], ls[k + 1], ls[k + 2], ls[k + 3], ls[k + 4], ls[k + 5], ls[k + 6]));
+  // (From the end: the snow, and before it the layers over the occupants.)
+  const lying = snow ? lamps.splice(lamps.length - snow, snow)[0] : NONE;
   return {
+    snow: lying,
     paint: layer(page, x, y, pw, ph, pox, poy), trim: layer(page, x + pw + CAR_GAP, y, tw, th, tox, toy),
     over: over ? lamps.splice(lamps.length - over, over) : [], lamps,
   };
@@ -104,9 +109,9 @@ function cutFrame([page, x, y, pw, ph, pox, poy, tw, th, tox, toy, ...ls]: CarFr
  * A run of frames, EACH CUT WHEN IT IS FIRST ASKED FOR: there are some twenty-three thousand pictures in the sheet,
  * and a town draws a few hundred of them.
  */
-export function cutRun(frames: readonly CarFrame[], over: number): CarPoses {
+export function cutRun(frames: readonly CarFrame[], over: number, snow = 0): CarPoses {
   const cut: CarPose[] = [];
-  return { at: (k) => (cut[k] ??= cutFrame(frames[k], over)) };
+  return { at: (k) => (cut[k] ??= cutFrame(frames[k], over, snow)) };
 }
 /** The pages a model's frames are on. */
 export function pagesOf(m: Pick<CarSheet["models"][string], "frames" | "tilted">): number[] {
@@ -135,9 +140,9 @@ class Looks extends Map<string, CarLook> {
 async function load(): Promise<CarSprites> {
   const sheet: CarSheet = await Assets.load({ src: `${BASE}/cars.json`, loadParser: "loadJson" });
   pageNames = sheet.pages;
-  const looks = new Looks(), over = sheet.over ?? 0;
+  const looks = new Looks(), over = sheet.over ?? 0, snow = sheet.snow ?? 0;
   for (const [id, m] of Object.entries(sheet.models)) {
-    looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, ...cutRun(m.frames, over), tilted: (m.tilted ?? []).map((run) => cutRun(run, over)) });
+    looks.set(id, { id, length: m.length * TILES_PER_M, width: m.width * TILES_PER_M, ...cutRun(m.frames, over, snow), tilted: (m.tilted ?? []).map((run) => cutRun(run, over, snow)) });
     looks.unasked.set(id, m);
   }
   return { res: sheet.res, headings: sheet.headings, pitches: sheet.pitches ?? [], pitchHeadings: sheet.pitchHeadings ?? 0, looks };

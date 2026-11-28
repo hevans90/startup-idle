@@ -24,6 +24,10 @@ export const MOOD = {
   floodRisk: -8,
   /** A farm's fields round it: fresh food. @see FRESH_AT */
   fresh: 4,
+  /** The weather: a storm or days of rain; a dry mild day; the first snow. @see world/weather weatherMood */
+  grimWeather: -3,
+  fairWeather: 2,
+  firstSnow: 3,
 } as const;
 /**
  * What each need met adds, by the kind it is met for: about what a café, a
@@ -76,6 +80,9 @@ export const WHY = {
   green: "greenery",
   floodRisk: "floods here",
   fresh: "fresh food",
+  grimWeather: "grim weather",
+  fairWeather: "fine weather",
+  firstSnow: "first snow",
 } as const;
 export type Why = (typeof WHY)[keyof typeof WHY];
 

@@ -22,7 +22,7 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { MODELS } from "../src/world/agents/cars/models.ts";
-import { bakeFrame } from "../src/world/agents/cars/raster.ts";
+import { bakeFrame, bakeSnowFrame } from "../src/world/agents/cars/raster.ts";
 import { CAR_GAP, CAR_HEADINGS, CAR_PITCHES, CAR_RES, PITCH_HEADINGS, type CarSheet } from "../src/world/agents/cars/sheet-format.ts";
 import { encodePng, type Image } from "./png-min.ts";
 
@@ -65,7 +65,7 @@ function crop(img: Image, ox: number, oy: number): { img: Image; ox: number; oy:
 
 /** The layers drawn over a vehicle's occupants: its paint and its trim. */
 const OVER = 2;
-const sheet: CarSheet = { res: CAR_RES, headings: CAR_HEADINGS, pitches: [...CAR_PITCHES], pitchHeadings: PITCH_HEADINGS, over: OVER, pages: [], models: {} };
+const sheet: CarSheet = { res: CAR_RES, headings: CAR_HEADINGS, pitches: [...CAR_PITCHES], pitchHeadings: PITCH_HEADINGS, over: OVER, snow: 1, pages: [], models: {} };
 const t0 = performance.now();
 // Baked first, then packed.
 // (`p`: which pitch, −1 level; `h`: which heading — of all of them level, of a road's four ways on a slope.)
@@ -73,12 +73,14 @@ const poses = [
   ...Array.from({ length: CAR_HEADINGS }, (_, h) => ({ p: -1, h, heading: (h / CAR_HEADINGS) * Math.PI * 2, pitch: 0 })),
   ...CAR_PITCHES.flatMap((pitch, p) => Array.from({ length: PITCH_HEADINGS }, (_, h) => ({ p, h, heading: (h / PITCH_HEADINGS) * Math.PI * 2, pitch }))),
 ];
+// (And last of a frame's layers, packed as the lamps are: the snow that lies on it. @see bakeSnowFrame)
+const snowOf = (m: (typeof MODELS)[number], heading: number, pitch: number) => { const s = bakeSnowFrame(m, heading, CAR_RES, pitch); return crop(s.img, s.ox, s.oy); };
 const baked = MODELS.flatMap((m) => poses.map(({ p, h, heading, pitch }) => {
   const b = bakeFrame(m, heading, CAR_RES, pitch);
   // (After its lamps and packed as they are, each by itself: the two layers that go over whoever is in it — empty where nobody could be.)
   const none: Image = { w: 0, h: 0, px: new Uint8Array(0) };
   const over = Array.from({ length: OVER }, (_, k) => (b.over[k] ? crop(b.over[k], b.ox, b.oy) : { img: none, ox: 0, oy: 0 }));
-  return { m, p, h, paint: crop(b.paint, b.ox, b.oy), trim: crop(b.trim, b.ox, b.oy), lamps: [...b.lamps.map((l) => crop(l, b.ox, b.oy)), ...over] };
+  return { m, p, h, paint: crop(b.paint, b.ox, b.oy), trim: crop(b.trim, b.ox, b.oy), lamps: [...b.lamps.map((l) => crop(l, b.ox, b.oy)), ...over, snowOf(m, heading, pitch)] };
 }));
 for (const m of MODELS) sheet.models[m.id] = { length: m.length, width: m.width, frames: [], tilted: CAR_PITCHES.map(() => []) };
 const frameOf = (b: { m: (typeof MODELS)[number]; p: number; h: number }) => (b.p < 0 ? sheet.models[b.m.id].frames : sheet.models[b.m.id].tilted![b.p]);
